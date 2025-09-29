@@ -139,9 +139,7 @@ fn test_multiple_prespawn() {
         .get_local(server_prespawn_a)
         .expect("entity is not present in entity map");
 
-    assert!(
-        matched_a == client_prespawn_a || matched_a == client_prespawn_b
-    );
+    assert!(matched_a == client_prespawn_a || matched_a == client_prespawn_b);
     let predicted_b = stepper
         .client_app()
         .world()
@@ -154,9 +152,7 @@ fn test_multiple_prespawn() {
         .entity_mapper
         .get_local(server_prespawn_b)
         .expect("entity is not present in entity map");
-    assert!(
-        matched_b == client_prespawn_a || matched_b == client_prespawn_b,
-    );
+    assert!(matched_b == client_prespawn_a || matched_b == client_prespawn_b,);
 }
 
 /// Client and server run the same system to prespawn an entity

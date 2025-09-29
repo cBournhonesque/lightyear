@@ -334,9 +334,7 @@ fn test_disable_rollback() {
         .world_mut()
         .spawn((
             Predicted,
-            Replicated {
-                receiver,
-            },
+            Replicated { receiver },
             ConfirmedTick { tick },
             DeterministicPredicted,
             Confirmed(CompFull(1.0)),

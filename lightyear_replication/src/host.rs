@@ -85,7 +85,9 @@ impl HostServerPlugin {
                         Replicated {
                             receiver: local_entity,
                         },
-                        InitialReplicated { receiver: local_entity },
+                        InitialReplicated {
+                            receiver: local_entity,
+                        },
                         SpawnedOnHostServer,
                     ));
                 }

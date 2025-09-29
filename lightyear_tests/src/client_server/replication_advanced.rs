@@ -1,12 +1,11 @@
 //! More advanced replication tests
 
-use crate::protocol::{CompA, CompS};
-use crate::stepper::ClientServerStepper;
-use lightyear_messages::MessageManager;
+use crate::protocol::{CompA, CompS, CompSimple};
+use crate::stepper::{ClientServerStepper, TICK_DURATION};
+use bevy::prelude::{Timer, TimerMode};
+use lightyear::prelude::*;
 use lightyear_replication::message::UpdatesChannel;
-use lightyear_replication::prelude::{Replicate, ReplicationGroupId, ReplicationSender};
 use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::prelude::Transport;
 use tracing::info;
 
 /// Test that ReplicationMode::SinceLastAck is respected
@@ -144,4 +143,79 @@ fn test_acks_multi_packet() {
     stepper.frame_step(3);
 
     // TODO: add a real assert here instead of just checking for the log
+}
+
+/// In the following situation:
+/// - client 1 connects and server spawns and replicates a Predicted entity 1 to it
+/// - client 2 connects and server spawns and replicates a Predicted entity 2 to it
+///
+/// When client 2 connects, we should NOT replicate entity 1 to client 1 again (even if they are in the same replication group)
+/// because entity 1 was not updated. However we should replicate entity 2 to client 1.
+///
+/// We could not replicate entity 2 to client 1 because CachedReplicate for entity 2 could be updated before sender 1's replicate system runs.
+#[test]
+fn test_replicate_new_connection() {
+    let mut stepper = ClientServerStepper::single();
+    let server_sender = stepper.client_of(0).id();
+    info!("ClientOf 0 is entity {:?}", server_sender);
+
+    // give sender 0 a long SendTimer so that CachedReplicate could be updated before sender 0's replicate system runs
+    stepper
+        .client_of_mut(0)
+        .get_mut::<ReplicationSender>()
+        .unwrap()
+        .send_timer = Timer::new(TICK_DURATION * 5, TimerMode::Repeating);
+
+    let server_entity1 = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(PeerId::Netcode(0))),
+            CompSimple(0.0),
+        ))
+        .id();
+    stepper.frame_step(6);
+
+    let client1_entity1 = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity1)
+        .unwrap();
+
+    // new client connects
+    stepper.new_client();
+    stepper.init();
+
+    info!("Spawning entity 2 on server");
+    let server_entity2 = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(PeerId::Netcode(1))),
+            CompSimple(1.0),
+        ))
+        .id();
+    stepper.frame_step(6);
+
+    // check that client 1 received entity 2
+    let client1_entity2 = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity2)
+        .unwrap();
+    // check that client 1 did NOT receive entity 1 again
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompSimple>(client1_entity1)
+            .unwrap()
+            .0,
+        0.0
+    );
 }

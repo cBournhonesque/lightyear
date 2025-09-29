@@ -1,8 +1,8 @@
 use crate::collections::HashMap;
+use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::fmt::Formatter;
 use core::hash::{Hash, Hasher};
-use bevy_utils::prelude::DebugName;
 
 /// ID used to serialize IDs over the network efficiently
 pub(crate) type NetId = u16;

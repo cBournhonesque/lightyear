@@ -1,11 +1,11 @@
-use alloc::collections::VecDeque;
-use alloc::{vec, vec::Vec};
-use bevy_platform::collections::HashMap;
-use core::num::NonZeroU32;
 use crate::channel::ChannelKind;
 use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
+use alloc::collections::VecDeque;
+use alloc::{vec, vec::Vec};
+use bevy_platform::collections::HashMap;
+use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
 #[cfg(feature = "metrics")]

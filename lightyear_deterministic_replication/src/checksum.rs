@@ -159,18 +159,34 @@ impl ChecksumReceivePlugin {
                 // TODO: we don't write entities in the checksum because if there are some non-replicated entities, the entity ids will differ between client and server.
                 //  We should maybe wait for the ability to reserve ranges of entities so that entity ids match perfectly.
                 // hasher.write_u64(entity.id().to_bits());
-                checksum_archetype.components.iter().for_each(|(component_id, storage_type)| {
-                    trace!("Adding component {:?} from entity {:?} to checksum for tick {:?}", component_id, entity.id(), tick);
-                    // SAFETY: the way we constructed the archetypes guarantees that the component exists on the entity and we have unique write access
-                    let component_ptr = unsafe {
-                        lightyear_utils::ecs::get_component_unchecked(world.world, entity, archetype.table_id(), *storage_type, *component_id)
-                    };
-                    let (hash_fn, _) = world.state.hash_fns.get(component_id).expect("Component in checksum archetype must have a hash function registered");
-                    let mut hasher = seahash::SeaHasher::default();
-                    hash_fn.hash_component(component_ptr, &mut hasher);
-                    let hash = hasher.finish();
-                    checksum ^= hash; // XOR the hashes together to get an order-independent checksum
-                });
+                checksum_archetype
+                    .components
+                    .iter()
+                    .for_each(|(component_id, storage_type)| {
+                        trace!(
+                            "Adding component {:?} from entity {:?} to checksum for tick {:?}",
+                            component_id,
+                            entity.id(),
+                            tick
+                        );
+                        // SAFETY: the way we constructed the archetypes guarantees that the component exists on the entity and we have unique write access
+                        let component_ptr = unsafe {
+                            lightyear_utils::ecs::get_component_unchecked(
+                                world.world,
+                                entity,
+                                archetype.table_id(),
+                                *storage_type,
+                                *component_id,
+                            )
+                        };
+                        let (hash_fn, _) = world.state.hash_fns.get(component_id).expect(
+                            "Component in checksum archetype must have a hash function registered",
+                        );
+                        let mut hasher = seahash::SeaHasher::default();
+                        hash_fn.hash_component(component_ptr, &mut hasher);
+                        let hash = hasher.finish();
+                        checksum ^= hash; // XOR the hashes together to get an order-independent checksum
+                    });
             });
         });
 

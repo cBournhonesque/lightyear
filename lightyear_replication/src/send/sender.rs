@@ -19,6 +19,7 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bytes::Bytes;
 use core::time::Duration;
+use indexmap::map::Entry;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_messages::MessageNetId;
@@ -54,11 +55,25 @@ pub enum SendUpdatesMode {
     SinceLastSend,
 }
 
+/// Metadata that a [`ReplicationSender`] tracks about entities it is currently replicating
+#[derive(Debug, Default)]
+pub struct ReplicationStatus {
+    /// If true, the sender has authority over the entity
+    pub(crate) authority: bool,
+    /// If true, the sender has sent a Spawn message about the entity.
+    /// This is useful because each sender runs the replication system at a different time (because they might have
+    /// different send_intervals)
+    spawned: bool,
+}
+
 #[derive(Component, Debug)]
 #[require(Transport)]
 #[require(LocalTimeline)]
 pub struct ReplicationSender {
-    pub replicated_entities: EntityIndexMap<bool>,
+    // public for tests
+    #[doc(hidden)]
+    pub replicated_entities: EntityIndexMap<ReplicationStatus>,
+    pub entities_to_despawn: EntityIndexMap<ReplicationGroupId>,
     pub(crate) writer: Writer,
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
@@ -100,6 +115,7 @@ impl ReplicationSender {
         Self {
             // SEND
             replicated_entities: EntityIndexMap::default(),
+            entities_to_despawn: EntityIndexMap::default(),
             writer: Writer::default(),
             updates_message_id_to_group_id: Default::default(),
             group_with_actions: EntityHashSet::default(),
@@ -122,25 +138,85 @@ impl ReplicationSender {
         self.this_run == self.last_run || tick.is_newer_than(self.last_run, self.this_run)
     }
 
+    pub(crate) fn prepare_entity_despawns(&mut self) {
+        self.entities_to_despawn
+            .drain(..)
+            .for_each(|(entity, group_id)| {
+                // NOTE: this is copy-pasted from `self.prepare_entity_despawn` to avoid borrow-checker issues
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("replication::send::entity_despawn").increment(1);
+                }
+                self.group_with_actions.insert(group_id);
+                self.group_channels
+                    .entry(group_id)
+                    .or_default()
+                    .pending_actions
+                    .entry(entity)
+                    .or_default()
+                    .spawn = SpawnAction::Despawn;
+            })
+    }
+
     pub fn send_interval(&self) -> Duration {
         self.send_timer.duration()
     }
 
+    pub(crate) fn has_replicated_spawn(&mut self, entity: Entity) -> bool {
+        self.replicated_entities
+            .get(&entity)
+            .is_some_and(|e| e.spawned)
+    }
+
+    /// Mark an entity as needing to be despawned if it was previously replicated-spawned by this sender
+    pub(crate) fn set_replicated_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        match self.replicated_entities.entry(entity) {
+            Entry::Occupied(s) => {
+                if s.get().spawned {
+                    s.swap_remove();
+                }
+                self.entities_to_despawn.insert(entity, group_id);
+            }
+            Entry::Vacant(_) => {}
+        }
+    }
+
+    pub(crate) fn set_replicated_spawn(&mut self, entity: Entity) {
+        self.replicated_entities.get_mut(&entity).unwrap().spawned = true;
+    }
+
     pub(crate) fn add_replicated_entity(&mut self, entity: Entity, authority: bool) {
-        self.replicated_entities.insert(entity, authority);
+        self.replicated_entities.insert(
+            entity,
+            ReplicationStatus {
+                authority,
+                spawned: false,
+            },
+        );
     }
 
     pub fn gain_authority(&mut self, entity: Entity) {
-        self.replicated_entities.insert(entity, true);
+        self.replicated_entities
+            .entry(entity)
+            .and_modify(|e| e.authority = true)
+            .or_insert(ReplicationStatus {
+                authority: true,
+                spawned: false,
+            });
     }
 
     pub fn lose_authority(&mut self, entity: Entity) {
-        self.replicated_entities.insert(entity, false);
+        self.replicated_entities
+            .entry(entity)
+            .and_modify(|e| e.authority = false)
+            .or_insert(ReplicationStatus::default());
     }
 
     /// Returns true if this sender has authority over the entity
     pub fn has_authority(&self, entity: Entity) -> bool {
-        self.replicated_entities.get(&entity).is_some_and(|a| *a)
+        self.replicated_entities
+            .get(&entity)
+            .is_some_and(|a| a.authority)
     }
 
     /// Get the `send_tick` for a given group.
@@ -547,13 +623,14 @@ impl ReplicationSender {
         //     (self.replication_config.send_interval.as_nanos() as f32
         //         / time_manager.delta().as_nanos() as f32)
         // };
+        // TODO: only add this is we use a PriorityManager!
         let priority_multiplier = 1.0;
         self.group_channels.values_mut().for_each(|channel| {
-            trace!(
-                "in accumulate priority: accumulated={:?} base={:?} multiplier={:?}, time_manager_delta={:?}",
-                channel.accumulated_priority, channel.base_priority, priority_multiplier,
-                time.delta().as_nanos()
-            );
+            // trace!(
+            //     "in accumulate priority: accumulated={:?} base={:?} multiplier={:?}, time_manager_delta={:?}",
+            //     channel.accumulated_priority, channel.base_priority, priority_multiplier,
+            //     time.delta().as_nanos()
+            // );
             channel.accumulated_priority += channel.base_priority * priority_multiplier;
         });
     }

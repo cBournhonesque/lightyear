@@ -15,8 +15,8 @@ use alloc::{
 };
 use bevy_ecs::component::Component;
 use bevy_reflect::Reflect;
-use core::fmt::{Debug, Formatter};
 use bevy_utils::prelude::DebugName;
+use core::fmt::{Debug, Formatter};
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
 use tracing::trace;

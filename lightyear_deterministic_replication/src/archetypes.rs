@@ -28,32 +28,36 @@ pub(crate) struct ChecksumWorld<'w, 's, const HISTORY: bool> {
 }
 
 impl<'w, const HISTORY: bool> ChecksumWorld<'w, '_, HISTORY> {
-     /// Go through new archetypes in the world and cache the ones that should be included as [`ChecksumArchetype`]
-     pub(crate) fn update_archetypes(&mut self) {
-         let archetypes = self.world.archetypes();
-         let old_generation =
-             core::mem::replace(&mut self.state.archetype_generation, archetypes.generation());
+    /// Go through new archetypes in the world and cache the ones that should be included as [`ChecksumArchetype`]
+    pub(crate) fn update_archetypes(&mut self) {
+        let archetypes = self.world.archetypes();
+        let old_generation = core::mem::replace(
+            &mut self.state.archetype_generation,
+            archetypes.generation(),
+        );
 
-         for archetype in &archetypes[old_generation..] {
-             let mut checksum_archetype = ChecksumArchetype::new(archetype.id());
-             self.state.hash_fns.keys().for_each(|component_id| {
-                    if archetype.contains(*component_id) {
-                        trace!("found component {:?} in archetype", component_id);
-                        // SAFETY: archetype contains this component.
-                        let storage =
-                            unsafe { archetype.get_storage_type(*component_id).unwrap_unchecked() };
-                        checksum_archetype.components.push((*component_id, storage));
-                    }
+        for archetype in &archetypes[old_generation..] {
+            let mut checksum_archetype = ChecksumArchetype::new(archetype.id());
+            self.state.hash_fns.keys().for_each(|component_id| {
+                if archetype.contains(*component_id) {
+                    trace!("found component {:?} in archetype", component_id);
+                    // SAFETY: archetype contains this component.
+                    let storage =
+                        unsafe { archetype.get_storage_type(*component_id).unwrap_unchecked() };
+                    checksum_archetype.components.push((*component_id, storage));
+                }
             });
             // Store for future iteration.
             self.state.archetypes.push(checksum_archetype);
-         }
-     }
+        }
+    }
 
     /// Return iterator over checksum archetypes.
     ///
     /// Safety: `Self::update_archetypes` must be called before calling this function to ensure the archetypes are up to date.
-    pub(super) unsafe fn iter_archetypes(&self) -> impl Iterator<Item = (&Archetype, &ChecksumArchetype)> {
+    pub(super) unsafe fn iter_archetypes(
+        &self,
+    ) -> impl Iterator<Item = (&Archetype, &ChecksumArchetype)> {
         self.state.archetypes.iter().map(|checksum_archetype| {
             // SAFETY: the id is valid because it was obtained from an existing archetype in `new_archetype`.
             let archetype = unsafe {
@@ -79,14 +83,14 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
         let hash_fns = if !HISTORY {
             let registry = world.resource::<ComponentRegistry>();
             registry
-            .component_metadata_map
-            .values()
-            .filter_map(| m| m.deterministic
-                .as_ref()
-                .map(|d| {
-                    (m.component_id, (*d, None))
-                }))
-            .collect()
+                .component_metadata_map
+                .values()
+                .filter_map(|m| {
+                    m.deterministic
+                        .as_ref()
+                        .map(|d| (m.component_id, (*d, None)))
+                })
+                .collect()
         } else {
             let prediction_registry = world.resource::<PredictionRegistry>();
             prediction_registry
@@ -95,9 +99,11 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
                 .filter_map(|(kind, pred)| {
                     // TODO: for non-full components, just fetch the component value directly
                     let history_id = pred.history_id?;
-                    registry.component_metadata_map
-                        .get(kind)
-                        .and_then(|m| m.deterministic.as_ref().map(|d| (history_id, (*d, pred.pop_until_tick_and_hash()))))
+                    registry.component_metadata_map.get(kind).and_then(|m| {
+                        m.deterministic
+                            .as_ref()
+                            .map(|d| (history_id, (*d, pred.pop_until_tick_and_hash())))
+                    })
                 })
                 .collect()
         };

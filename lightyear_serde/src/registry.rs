@@ -4,8 +4,8 @@ use crate::writer::Writer;
 use crate::{SerializationError, ToBytes};
 use bevy_ecs::entity::MapEntities;
 use bevy_ptr::{Ptr, PtrMut};
-use core::any::TypeId;
 use bevy_utils::prelude::DebugName;
+use core::any::TypeId;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 

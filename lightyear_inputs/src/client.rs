@@ -76,8 +76,8 @@ use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::{Input, InputTimeline};
 use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::{Input, InputTimeline};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]

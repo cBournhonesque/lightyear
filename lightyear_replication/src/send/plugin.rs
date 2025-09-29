@@ -5,7 +5,7 @@ use crate::message::{
     ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
 };
 use crate::plugin::ReplicationSet;
-use crate::prelude::NetworkVisibility;
+use crate::prelude::{CachedReplicate, NetworkVisibility};
 use crate::prespawn;
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
@@ -181,7 +181,7 @@ impl ReplicationSendPlugin {
     fn handle_disconnection(
         trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
-        mut replicate: Query<&mut Replicate>,
+        mut replicate: Query<(&mut Replicate, Option<&mut CachedReplicate>)>,
     ) {
         if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
@@ -190,8 +190,12 @@ impl ReplicationSendPlugin {
                 sender.bandwidth_cap_enabled,
             );
         }
-        replicate.iter_mut().for_each(|mut r| {
+        replicate.iter_mut().for_each(|(mut r, cached)| {
             r.senders.swap_remove(&trigger.entity);
+            // we also update CachedReplicate because it's only used to compute the diff when a new Replicate is inserted.
+            if let Some(mut cached) = cached {
+                cached.senders.swap_remove(&trigger.entity);
+            }
         });
     }
 
@@ -268,14 +272,6 @@ impl Plugin for ReplicationSendPlugin {
         app.add_systems(
             PostUpdate,
             Self::handle_acks.in_set(ReplicationBufferSet::BeforeBuffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer),
         );
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
         app.add_systems(

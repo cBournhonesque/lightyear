@@ -4,8 +4,8 @@ use crate::registry::registry::ComponentMetadata;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
 use bevy_ptr::Ptr;
-use core::fmt::Debug;
 use bevy_utils::prelude::DebugName;
+use core::fmt::Debug;
 use tracing::trace;
 
 #[derive(Debug, Clone, Copy)]

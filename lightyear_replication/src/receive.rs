@@ -23,8 +23,10 @@ use crate::plugin::ReplicationSet;
 use crate::prelude::{PreSpawned, ReplicationGroupId, ReplicationSender};
 use crate::prespawn::PreSpawnedReceiver;
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
+use crate::send::sender::ReplicationStatus;
 use crate::{plugin, prespawn};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
+use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted, SyncEvent};
@@ -32,13 +34,12 @@ use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
+use lightyear_sync::prelude::client::Input;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use lightyear_connection::host::HostClient;
-use lightyear_sync::prelude::client::Input;
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -94,7 +95,7 @@ impl ReplicationReceivePlugin {
             ),
             // On the Host-Client there is no replication messages to receive since the entities
             // from the sender are in the same world!
-            (With<Connected>, Without<HostClient>)
+            (With<Connected>, Without<HostClient>),
         >,
     ) {
         #[cfg(feature = "metrics")]
@@ -187,7 +188,6 @@ impl ReplicationReceivePlugin {
         trigger: On<SyncEvent<Input>>,
         mut receiver: Query<&mut ReplicationReceiver>,
     ) {
-        info!("Replication sync event");
         receiver.iter_mut().for_each(|mut receiver| {
             // we set `received_this_frame` to true so that we can trigger a rollback check, now that ticks have been updated
             // this is also useful to do a rollback check the first time the InputTimeline is synced, since clients
@@ -387,8 +387,6 @@ impl ReplicationReceiver {
             }
         }
     }
-
-
 }
 
 /// We want:
@@ -411,7 +409,7 @@ impl ReplicationReceiver {
         receiver_entity: Entity,
         remote: PeerId,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: Option<&EntityIndexMap<bool>>,
+        authority_map: Option<&EntityIndexMap<ReplicationStatus>>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
     ) {
@@ -752,34 +750,36 @@ impl GroupChannel {
         remote_tick: Tick,
         message: ActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: Option<&EntityIndexMap<bool>>,
+        authority_map: Option<&EntityIndexMap<ReplicationStatus>>,
         local_entity_to_group: &mut EntityHashMap<Entity, ReplicationGroupId>,
         temp_write_buffer: &mut BufferedChanges,
     ) {
-        let insert_sync_components =
-            |predicted: bool, interpolated: bool, entity: &mut EntityWorldMut, remote_tick: Tick| {
-                if interpolated || predicted {
-                    entity.insert(ConfirmedTick { tick: remote_tick});
+        let insert_sync_components = |predicted: bool,
+                                      interpolated: bool,
+                                      entity: &mut EntityWorldMut,
+                                      remote_tick: Tick| {
+            if interpolated || predicted {
+                entity.insert(ConfirmedTick { tick: remote_tick });
+            }
+            if interpolated {
+                trace!("Inserting interpolated on local entity {:?}", entity.id());
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("interpolated::spawn").increment(1);
                 }
-                if interpolated {
-                    trace!("Inserting interpolated on local entity {:?}", entity.id());
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("interpolated::spawn").increment(1);
-                    }
-                    entity.insert(Interpolated);
+                entity.insert(Interpolated);
+            }
+            if predicted {
+                trace!("Inserting predicted on local entity {:?}", entity.id());
+                // this might also count PreSpawned entities, even if they ended up not being matched
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("prediction::spawn").increment(1);
                 }
-                if predicted {
-                    trace!("Inserting predicted on local entity {:?}", entity.id());
-                    // this might also count PreSpawned entities, even if they ended up not being matched
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("prediction::spawn").increment(1);
-                    }
 
-                    entity.insert(Predicted);
-                }
-            };
+                entity.insert(Predicted);
+            }
+        };
 
         let group_id = message.group_id;
         debug!(
@@ -833,7 +833,12 @@ impl GroupChannel {
                             local_entity.remove::<PreSpawned>();
                         }
 
-                        insert_sync_components(predicted, interpolated, &mut local_entity, remote_tick);
+                        insert_sync_components(
+                            predicted,
+                            interpolated,
+                            &mut local_entity,
+                            remote_tick,
+                        );
                         // we still need to update the local entity to group mapping on the receiver
                         self.local_entities.insert(local_entity.id());
                         continue;
@@ -855,7 +860,9 @@ impl GroupChannel {
                     Replicated {
                         receiver: receiver_entity,
                     },
-                    InitialReplicated { receiver: receiver_entity },
+                    InitialReplicated {
+                        receiver: receiver_entity,
+                    },
                 ));
                 debug!(
                     "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
@@ -900,7 +907,7 @@ impl GroupChannel {
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map.is_some_and(|a| {
                 a.get(&local_entity_mut.id())
-                    .is_some_and(|authority| *authority)
+                    .is_some_and(|status| status.authority)
             }) {
                 trace!(
                     "Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}",
@@ -993,7 +1000,7 @@ impl GroupChannel {
         is_history: bool,
         message: UpdatesMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: Option<&EntityIndexMap<bool>>,
+        authority_map: Option<&EntityIndexMap<ReplicationStatus>>,
     ) {
         let group_id = message.group_id;
         // TODO: store this in ConfirmedHistory?
@@ -1022,7 +1029,7 @@ impl GroupChannel {
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map.is_some_and(|a| {
                 a.get(&local_entity_mut.id())
-                    .is_some_and(|authority| *authority)
+                    .is_some_and(|status| status.authority)
             }) {
                 trace!(
                     "Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}",

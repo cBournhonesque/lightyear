@@ -19,8 +19,8 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{Commands, Query, Res, Single},
 };
-use core::fmt::{Debug, Formatter};
 use bevy_utils::prelude::DebugName;
+use core::fmt::{Debug, Formatter};
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;

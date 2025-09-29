@@ -5,13 +5,13 @@ use crate::manager::PredictionManager;
 use crate::plugin::PredictionFilter;
 use crate::rollback::DeterministicPredicted;
 use bevy_ecs::prelude::*;
-use core::ops::Deref;
 use bevy_utils::prelude::DebugName;
+use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::prelude::{Confirmed, PreSpawned};
-use lightyear_sync::prelude::{Input};
+use lightyear_sync::prelude::Input;
 use tracing::trace;
 
 pub type PredictionHistory<C> = HistoryBuffer<C>;

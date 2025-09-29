@@ -14,8 +14,8 @@ use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
-use core::fmt::Debug;
 use bevy_utils::prelude::DebugName;
+use core::fmt::Debug;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
 use lightyear_replication::components::Confirmed;

@@ -12,9 +12,9 @@ use bevy_ecs::{
     world::World,
 };
 use bevy_ptr::{Ptr, PtrMut};
+use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::ptr::NonNull;
-use bevy_utils::prelude::DebugName;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;

@@ -11,9 +11,9 @@ use bevy_ecs::{
     entity::{Entity, EntityMapper, MapEntities},
 };
 use bevy_reflect::Reflect;
+use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter, Write};
 use core::time::Duration;
-use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::Tick;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::plugin::InterpolationDelay;

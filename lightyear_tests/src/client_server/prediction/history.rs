@@ -71,7 +71,7 @@ fn test_update_history() {
             Replicated {
                 receiver: Entity::PLACEHOLDER,
             },
-            ConfirmedTick { tick }
+            ConfirmedTick { tick },
         ))
         .id();
 

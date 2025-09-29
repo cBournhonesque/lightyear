@@ -17,6 +17,7 @@ use alloc::format;
 use bevy_app::prelude::*;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
+#[cfg(feature = "metrics")]
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;

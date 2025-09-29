@@ -34,6 +34,7 @@ lightyear_sync.workspace = true
 
 # utils
 dashmap.workspace = true
+indexmap.workspace = true
 metrics = { workspace = true, optional = true }
 smallvec.workspace = true
 thiserror.workspace = true

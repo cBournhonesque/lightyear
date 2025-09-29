@@ -151,7 +151,10 @@ impl AuthorityPlugin {
                                             response: AuthorityTransferResponse::Granted,
                                         },
                                     );
-                                    sender.replicated_entities.insert(entity, false);
+                                    // TODO: should we just remove the entity from the sender's replicated entities?
+                                    //  we don't want to send replication updates for it, so we might as well not
+                                    //  iterate over it
+                                    sender.lose_authority(entity);
                                 }
                                 AuthorityTransfer::Denied => {
                                     response_sender.trigger::<AuthorityChannel>(
@@ -170,7 +173,7 @@ impl AuthorityPlugin {
                         }
                     }
                     AuthorityTransferRequest::Give => {
-                        sender.replicated_entities.insert(entity, true);
+                        sender.gain_authority(entity);
                     }
                 }
             }
@@ -192,7 +195,7 @@ impl AuthorityPlugin {
                 match trigger.trigger.response {
                     AuthorityTransferResponse::Granted => {
                         // we have been granted authority by the remote peer
-                        sender.replicated_entities.insert(entity, true);
+                        sender.gain_authority(entity);
                     }
                     AuthorityTransferResponse::Denied => {}
                 }
@@ -215,7 +218,7 @@ impl AuthorityPlugin {
                 .replicated_entities
                 .entry(trigger.entity)
                 .and_modify(|entry| {
-                    if *entry {
+                    if entry.authority {
                         // we have authority over the entity, we can give it away
                         trace!(
                             "Give authority for entity {:?} to peer: {:?}",
@@ -225,7 +228,7 @@ impl AuthorityPlugin {
                             entity: trigger.entity,
                             request: AuthorityTransferRequest::Give,
                         });
-                        *entry = false;
+                        entry.authority = false;
                     }
                 });
         }

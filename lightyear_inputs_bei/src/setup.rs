@@ -1,8 +1,8 @@
 use bevy_app::App;
 use bevy_ecs::prelude::*;
+use bevy_utils::prelude::DebugName;
 #[cfg(feature = "client")]
 use {bevy_ecs::relationship::Relationship, lightyear_replication::prelude::Replicate};
-use bevy_utils::prelude::DebugName;
 
 use bevy_enhanced_input::prelude::*;
 use lightyear_link::prelude::Server;
@@ -87,17 +87,20 @@ impl InputRegistryPlugin {
     ) {
         if let Ok(action_of) = query.get(trigger.entity) {
             let entity = trigger.entity;
-            debug!(?entity, "On client, received ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast", action_of.get(), DebugName::type_name::<C>());
+            debug!(
+                ?entity,
+                "On client, received ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast",
+                action_of.get(),
+                DebugName::type_name::<C>()
+            );
 
-            commands
-                .entity(entity)
-                .insert((
-                    // We add DeterministicPredicted because lightyear_inputs::client expects the recipient
-                    // to be a predicted entity
-                    DeterministicPredicted,
-                    // Make sure that the actions are only updated via input messages
-                    bevy_enhanced_input::context::ExternallyMocked,
-                ));
+            commands.entity(entity).insert((
+                // We add DeterministicPredicted because lightyear_inputs::client expects the recipient
+                // to be a predicted entity
+                DeterministicPredicted,
+                // Make sure that the actions are only updated via input messages
+                bevy_enhanced_input::context::ExternallyMocked,
+            ));
 
             // We add DeterministicPredicted because lightyear_inputs::client expects the recipient
             // to be a predicted entity

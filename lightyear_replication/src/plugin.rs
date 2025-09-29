@@ -62,7 +62,6 @@ impl Plugin for SharedPlugin {
 
         app.add_observer(ConfirmedTick::add_confirmed_tick_hook);
 
-
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             send_frequency: Duration::default(),
@@ -98,4 +97,3 @@ impl Plugin for SharedPlugin {
             .add_direction(NetworkDirection::Bidirectional);
     }
 }
-

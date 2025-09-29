@@ -17,12 +17,13 @@ use bevy_ecs::world::FilteredEntityMut;
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
+use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSet;
-use lightyear_replication::components::{ConfirmedTick};
+use lightyear_replication::components::ConfirmedTick;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
 use lightyear_replication::registry::ComponentKind;
@@ -33,7 +34,6 @@ use lightyear_utils::metrics::TimerGauge;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
-use lightyear_connection::host::HostClient;
 
 /// Responsible for re-running the FixedMain schedule a fixed number of times in order
 /// to rollback the simulation to a previous state.
@@ -200,7 +200,7 @@ fn check_rollback(
             &mut PreSpawnedReceiver,
             &LocalTimeline,
         ),
-        (With<IsSynced<InputTimeline>>, Without<HostClient>)
+        (With<IsSynced<InputTimeline>>, Without<HostClient>),
     >,
     prediction_registry: Res<PredictionRegistry>,
     system_ticks: SystemChangeTick,

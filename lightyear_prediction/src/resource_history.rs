@@ -4,8 +4,8 @@ use bevy_ecs::prelude::*;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
-use tracing::trace;
 use lightyear_sync::prelude::client::Input;
+use tracing::trace;
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 

@@ -4,10 +4,10 @@ use crate::send::components::ComponentReplicationOverride;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
+use lightyear_core::prelude::{Interpolated, LocalTimeline, NetworkTimeline, Predicted};
 use lightyear_core::tick::Tick;
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Predicted, Interpolated};
 // TODO: how to define which subset of components a sender iterates through?
 //  if a sender is only interested in a few components it might be expensive
 //  maybe we can have a 'direction' in ComponentReplicationConfig and Client/ClientOf peers can precompute
@@ -73,9 +73,13 @@ impl ConfirmedTick {
         receiver: Query<&LocalTimeline>,
         mut commands: Commands,
     ) {
-        if let Ok(replicated) = query.get(trigger.entity) && let Ok(timeline) = receiver.get(replicated.receiver) {
+        if let Ok(replicated) = query.get(trigger.entity)
+            && let Ok(timeline) = receiver.get(replicated.receiver)
+        {
             let tick = timeline.tick();
-            commands.entity(trigger.entity).insert(ConfirmedTick { tick });
+            commands
+                .entity(trigger.entity)
+                .insert(ConfirmedTick { tick });
         }
     }
 }
