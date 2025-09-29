@@ -257,7 +257,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
     mut action_state_query: Query<
         (Entity, StateRef<S>, &mut InputBuffer<S::Snapshot>),
-        With<S::Marker>,
+        (With<S::Marker>, Allow<PredictionDisable>)
     >,
 ) {
     let (input_timeline, local_timeline) = sender.into_inner();
@@ -303,7 +303,7 @@ fn get_action_state<S: ActionStateSequence>(
         StateMut<S>,
         &InputBuffer<S::Snapshot>,
         Has<S::Marker>,
-    )>,
+    ), Allow<PredictionDisable>>,
 ) {
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
@@ -378,7 +378,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     mut action_state_query: Query<
         (Entity, StateMut<S>, &InputBuffer<S::Snapshot>),
         // Filter so that this is only for directly controlled players, not remote players
-        With<S::Marker>,
+        (With<S::Marker>, Allow<PredictionDisable>)
     >,
 ) {
     let Ok((input_timeline, local_timeline, is_rollback)) = sender.single() else {
@@ -411,7 +411,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     sender: Query<&LocalTimeline, (With<InputTimeline>, Without<HostClient>)>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
+    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>, Allow<PredictionDisable>>,
 ) {
     let Ok(local_timeline) = sender.single() else {
         return;
@@ -465,7 +465,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
         (Entity, &InputBuffer<S::Snapshot>, Option<&PreSpawned>),
-        With<S::Marker>,
+        (With<S::Marker>, Allow<PredictionDisable>)
     >,
 ) {
     let (local_timeline, input_timeline, is_host_client) = sender.into_inner();
@@ -568,6 +568,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         (
             Or<(With<Predicted>, With<DeterministicPredicted>)>,
             Without<S::Marker>,
+            Allow<PredictionDisable>
         ),
     >,
 ) {
@@ -666,6 +667,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         (
             Or<(With<Predicted>, With<DeterministicPredicted>)>,
             Without<S::Marker>,
+            Allow<PredictionDisable>
         ),
     >,
 ) {
@@ -838,7 +840,7 @@ fn send_input_messages<S: ActionStateSequence>(
 fn receive_tick_events<S: ActionStateSequence>(
     trigger: On<SyncEvent<Input>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
+    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>, Allow<PredictionDisable>>,
 ) {
     let delta = trigger.tick_delta;
     for mut input_buffer in input_buffer_query.iter_mut() {

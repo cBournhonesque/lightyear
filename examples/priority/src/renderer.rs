@@ -1,7 +1,6 @@
 use crate::protocol::*;
 use bevy::color::palettes::basic::{BLUE, GREEN, RED};
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -22,7 +21,7 @@ fn init(mut commands: Commands) {
 /// This time we will only draw the predicted/interpolated entities
 pub(crate) fn draw_players(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&Position, &PlayerColor)>,
 ) {
     for (position, color) in &players {
         gizmos.rect(

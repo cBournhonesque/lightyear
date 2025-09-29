@@ -94,9 +94,9 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 
 pub(crate) fn rotate_player(
     trigger: On<Fired<MoveCursor>>,
-    mut player: Query<(&mut Rotation, &Position), (Without<Confirmed>, Without<Bot>)>,
+    mut player: Query<(&mut Rotation, &Position), Without<Bot>>,
 ) {
-    if let Ok((mut rotation, position)) = player.get_mut(trigger.entity) {
+    if let Ok((mut rotation, position)) = player.get_mut(trigger.context) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
         // careful to only activate change detection if there was an actual change
         if (angle - rotation.as_radians()).abs() > EPS {
@@ -108,7 +108,7 @@ pub(crate) fn rotate_player(
 pub(crate) fn move_player(
     trigger: On<Fired<MovePlayer>>,
     // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
-    mut player: Query<&mut Position, Without<Confirmed>>,
+    mut player: Query<&mut Position>,
     is_bot: Query<(), With<Bot>>,
 ) {
     const PLAYER_MOVE_SPEED: f32 = 1.5;
@@ -142,7 +142,6 @@ pub(crate) fn fixed_update_log(
         (
             With<PlayerMarker>,
             With<PlayerId>,
-            Without<Confirmed>,
             Without<Bot>,
         ),
     >,
@@ -174,7 +173,6 @@ pub(crate) fn last_log(
         (
             With<PlayerMarker>,
             With<PlayerId>,
-            Without<Confirmed>,
             Without<Bot>,
         ),
     >,
@@ -341,8 +339,8 @@ mod hit_detection {
         timeline: Query<&LocalTimeline, Without<ClientOf>>,
         mode: Query<&GameReplicationMode, With<ClientContext>>,
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
-        bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId), Without<Confirmed>>,
-        target_query: Query<&GameReplicationMode, (With<PlayerMarker>, Without<Confirmed>)>,
+        bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
+        target_query: Query<&GameReplicationMode, With<PlayerMarker>>,
         // the InterpolationDelay component is stored directly on the client entity
         // (the server creates one entity for each client to store client-specific
         // metadata)
@@ -459,14 +457,10 @@ mod hit_detection {
                     if !is_server
                         && mode == &GameReplicationMode::ClientSideHitDetection
                         && let Ok((_, mut sender)) = hit_sender.single_mut()
-                        && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
                     {
                         info!("Client detected hit! Sending hit detection trigger to server");
-                        // the shooter was predicted, we need to convert it to the confirmed entity
-                        let confirmed_shooter = predicted.confirmed_entity.unwrap();
                         sender.trigger::<HitChannel>(HitDetected {
-                            shooter: confirmed_shooter,
-                            // TODO: similarly, we should convert the target entity!
+                            shooter,
                             target,
                         });
                     }
@@ -484,14 +478,13 @@ mod hit_detection {
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
         bullet: Query<
             (Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId),
-            Without<Confirmed>,
         >,
-        target_query: Query<&GameReplicationMode, (With<PlayerMarker>, Without<Confirmed>)>,
+        target_query: Query<&GameReplicationMode, With<PlayerMarker>>,
         // the InterpolationDelay component is stored directly on the client entity
         // (the server creates one entity for each client to store client-specific
         // metadata)
         client_query: Query<&InterpolationDelay, With<ClientOf>>,
-        mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
+        mut hit_sender: Query<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
         mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
     ) {
         let tick = timeline.tick();
@@ -606,16 +599,12 @@ mod hit_detection {
                             if !is_server
                                 && mode == &GameReplicationMode::ClientSideHitDetection
                                 && let Ok((_, mut sender)) = hit_sender.single_mut()
-                                && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
                             {
                                 info!(
                                     "Client detected hit! Sending hit detection trigger to server"
                                 );
-                                // the shooter was predicted, we need to convert it to the confirmed entity
-                                let confirmed_shooter = predicted.confirmed_entity.unwrap();
                                 sender.trigger::<HitChannel>(HitDetected {
-                                    shooter: confirmed_shooter,
-                                    // TODO: similarly, we should convert the target entity!
+                                    shooter,
                                     target,
                                 });
                             }

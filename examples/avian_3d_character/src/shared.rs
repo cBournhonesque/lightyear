@@ -209,7 +209,7 @@ pub(crate) fn fixed_last_log(
             Option<&ActionState<CharacterAction>>,
             Option<&InputBuffer<ActionState<CharacterAction>>>,
         ),
-        (With<CharacterMarker>, Without<Confirmed>),
+        With<CharacterMarker>,
     >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
@@ -241,7 +241,7 @@ pub(crate) fn last_log(
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
         ),
-        (With<CharacterMarker>, Without<Confirmed>),
+        With<CharacterMarker>,
     >,
 ) {
     let (timeline, rollback) = timeline.into_inner();

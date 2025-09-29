@@ -6,8 +6,6 @@
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use lightyear::prelude::client::*;
-use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
@@ -141,19 +139,14 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(lightyear::prelude::input::native::InputPlugin::<Inputs>::default());
         // components
         // Use PredictionMode and InterpolationMode
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPosition>()
             // NOTE: remember to add delta compression in the protocol!
             .add_delta_compression()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
     }
 }

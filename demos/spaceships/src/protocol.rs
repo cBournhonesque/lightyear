@@ -169,37 +169,29 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        // Player is synced as Simple, because we periodically update rtt ping stats
-        app.register_component::<Player>()
-            .add_prediction(PredictionMode::Simple);
+        app.register_component::<Player>();
 
-        app.register_component::<ColorComponent>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<ColorComponent>();
 
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<Name>();
 
-        app.register_component::<BallMarker>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<BallMarker>();
 
-        app.register_component::<BulletMarker>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<BulletMarker>();
 
-        app.register_component::<BulletLifetime>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<BulletLifetime>();
 
-        app.register_component::<Score>()
-            .add_prediction(PredictionMode::Simple);
+        app.register_component::<Score>();
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
         app.register_component::<LinearVelocity>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction();
 
         app.register_component::<AngularVelocity>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction();
 
         app.register_component::<Weapon>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction();
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
@@ -207,13 +199,13 @@ impl Plugin for ProtocolPlugin {
         // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
         // out rendering between fixedupdate ticks.
         app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
-            .add_linear_interpolation_fn()
+            .add_prediction()
+            .add_linear_interpolation()
             .add_linear_correction_fn();
 
         app.register_component::<Rotation>()
-            .add_prediction(PredictionMode::Full)
-            .add_linear_interpolation_fn()
+            .add_prediction()
+            .add_linear_interpolation()
             .add_linear_correction_fn();
     }
 }

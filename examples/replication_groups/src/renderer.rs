@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -20,8 +19,8 @@ fn init(mut commands: Commands) {
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_snakes(
     mut gizmos: Gizmos,
-    players: Query<(Entity, &PlayerPosition, &PlayerColor), Without<Confirmed>>,
-    tails: Query<(Entity, &PlayerParent, &TailPoints), Without<Confirmed>>,
+    players: Query<(Entity, &PlayerPosition, &PlayerColor)>,
+    tails: Query<(Entity, &PlayerParent, &TailPoints)>,
 ) {
     for (tail, parent, points) in tails.iter() {
         debug!("drawing snake with parent: {:?}", parent.0);

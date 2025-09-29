@@ -182,7 +182,9 @@ impl ReplicationSender {
     }
 
     pub(crate) fn set_replicated_spawn(&mut self, entity: Entity) {
-        self.replicated_entities.get_mut(&entity).unwrap().spawned = true;
+        if let Some(s) = self.replicated_entities.get_mut(&entity) {
+            s.spawned = true;
+        }
     }
 
     pub(crate) fn add_replicated_entity(&mut self, entity: Entity, authority: bool) {

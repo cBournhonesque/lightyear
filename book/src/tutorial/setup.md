@@ -96,7 +96,7 @@ pub struct Message1(pub usize);
 
 impl Plugin for ProtocolPlugin{
   fn build(&self, app: &mut App) {
-    app.add_message::<Message1>()
+    app.register_message::<Message1>()
       .add_direction(NetworkDirection::ServerToClient);
   }
 }

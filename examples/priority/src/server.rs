@@ -94,7 +94,7 @@ fn movement(
     mut query: Query<
         (&mut Position, &ActionState<Inputs>),
         // We don't want to apply inputs to the locally predicted entities
-        (Without<Confirmed>, Without<Predicted>),
+        Without<Predicted>,
     >,
 ) {
     for (position, action_state) in query.iter_mut() {

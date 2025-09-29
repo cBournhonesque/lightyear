@@ -17,6 +17,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(RoomPlugin);
         app.add_systems(Startup, init);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
         app.add_systems(FixedUpdate, movement);
@@ -88,8 +89,8 @@ pub(crate) fn handle_connected(
     // we add all clients to a room, as well as all player entities
     // this means that all clients will be able to see all player entities
     let room = room.into_inner();
-    commands.trigger_targets(RoomEvent::AddSender(trigger.entity), room);
-    commands.trigger_targets(RoomEvent::AddEntity(player_entity), room);
+    commands.trigger(RoomEvent { target: RoomTarget::AddSender(trigger.entity), room });
+    commands.trigger(RoomEvent { target: RoomTarget::AddEntity(player_entity), room });
 }
 
 pub(crate) fn init(mut commands: Commands) {

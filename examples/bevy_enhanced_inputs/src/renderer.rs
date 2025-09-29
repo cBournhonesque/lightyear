@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -22,7 +21,7 @@ fn init(mut commands: Commands) {
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&PlayerPosition, &PlayerColor)>,
 ) {
     for (position, color) in &players {
         gizmos.rect_2d(
@@ -57,8 +56,7 @@ pub(crate) fn rollback_button(mut commands: Commands) {
         .observe(
             |_: On<Pointer<Click>>,
              mut commands: Commands,
-             client: Single<(Entity, &LocalTimeline, &PredictionManager)>,
-             confirmed: Query<&mut Confirmed>| {
+             client: Single<(Entity, &LocalTimeline, &PredictionManager)>| {
                 let (client, local_timeline, prediction_manager) = client.into_inner();
 
                 // rollback the client to 5 ticks before the current tick

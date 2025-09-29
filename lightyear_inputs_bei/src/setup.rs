@@ -1,11 +1,13 @@
 use bevy_app::App;
 use bevy_ecs::prelude::*;
+use bevy_ecs::relationship::Relationship;
 use bevy_utils::prelude::DebugName;
 #[cfg(feature = "client")]
-use {bevy_ecs::relationship::Relationship, lightyear_replication::prelude::Replicate};
+use lightyear_replication::prelude::Replicate;
 
 use bevy_enhanced_input::prelude::*;
 use lightyear_link::prelude::Server;
+#[cfg(feature = "client")]
 use lightyear_prediction::prelude::DeterministicPredicted;
 use lightyear_replication::prelude::*;
 use lightyear_serde::SerializationError;
@@ -14,7 +16,7 @@ use lightyear_serde::writer::Writer;
 #[allow(unused_imports)]
 use tracing::{debug, info};
 #[cfg(feature = "server")]
-use {lightyear_inputs::config::InputConfig, lightyear_replication::prelude::ReplicateLike};
+use {lightyear_inputs::server::ServerInputConfig, lightyear_replication::prelude::ReplicateLike};
 
 pub struct InputRegistryPlugin;
 
@@ -47,7 +49,7 @@ impl InputRegistryPlugin {
         trigger: On<Add, ActionOf<C>>,
         query: Query<&ActionOf<C>, With<Replicated>>,
         _: Single<(), With<Server>>,
-        config: Res<InputConfig<C>>,
+        config: Res<ServerInputConfig<C>>,
         mut commands: Commands,
     ) {
         let entity = trigger.entity;

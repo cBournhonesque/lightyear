@@ -178,7 +178,7 @@ pub(crate) fn compute_hit_prediction(
     timeline: Single<&LocalTimeline, With<Server>>,
     query: SpatialQuery,
     bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
-    bot_query: Query<(), (With<PredictedBot>, Without<Confirmed>)>,
+    bot_query: Query<(), With<PredictedBot>)>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)

@@ -237,7 +237,7 @@ impl Plugin for ProtocolPlugin {
             //  (we do this because our interpolation system queries multiple components at once)
             .add_custom_interpolation()
             // we still register an interpolation function which will be used for frame interpolation
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
 
         app.register_component::<PlayerColor>();
 

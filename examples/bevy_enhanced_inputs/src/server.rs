@@ -9,8 +9,8 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
+use bevy_enhanced_input::prelude::Fire;
 use lightyear::connection::client::Connected;
-use lightyear::input::bei::prelude::Fired;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -85,15 +85,15 @@ pub(crate) fn handle_connected(
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
-    trigger: On<Fired<Movement>>,
+    trigger: On<Fire<Movement>>,
     mut position_query: Query<
         &mut PlayerPosition,
         // if we run in host-server mode, we don't want to apply this system to the local client's entities
         // because they are already moved by the client plugin
-        (Without<Confirmed>, Without<Predicted>),
+        Without<Predicted>,
     >,
 ) {
-    if let Ok(position) = position_query.get_mut(trigger.entity) {
+    if let Ok(position) = position_query.get_mut(trigger.context) {
         shared::shared_movement_behaviour(position, trigger.value);
     }
 }

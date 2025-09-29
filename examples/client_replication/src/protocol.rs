@@ -51,6 +51,7 @@ impl Direction {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
 pub enum Inputs {
     Direction(Direction),
+    Spawn,
     Delete,
 }
 
@@ -80,26 +81,18 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(InputPlugin::<Inputs>::default());
 
         // components
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<Name>();
 
         app.register_component::<PlayerPosition>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
 
         app.register_component::<CursorPosition>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
     }
 }

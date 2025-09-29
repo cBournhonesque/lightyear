@@ -363,100 +363,71 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
 
         // components
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<Name>();
+        app.register_component::<PlayerId>();
+        app.register_component::<PlayerMarker>();
 
         app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             .add_should_rollback(position_should_rollback)
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn()
             .add_linear_correction_fn();
 
         app.register_component::<Rotation>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             .add_should_rollback(rotation_should_rollback)
             .add_interpolation(InterpolationMode::Full)
             .add_linear_interpolation_fn();
         // .add_linear_correction_fn();
 
         app.register_component::<LinearVelocity>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction();
 
-        app.register_component::<ColorComponent>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ColorComponent>();
 
         app.register_component::<Score>();
 
         // we replicate HitscanVisual for the AllInterpolation mode
         // make sure that we have an Interpolated HitscanVisual entity since we only render entities
         // that are interpolated or predicted
-        app.register_component::<HitscanVisual>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-
-        app.register_component::<RigidBody>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<HitscanVisual>();
+        app.register_component::<RigidBody>();
 
         app.register_component::<BulletMarker>()
-            .add_map_entities()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+            .add_map_entities();
 
-        app.register_component::<Bot>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<Bot>();
 
         app.register_component::<Score>();
 
-        app.register_component::<PredictedBot>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PredictedBot>();
 
-        app.register_component::<InterpolatedBot>()
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<InterpolatedBot>();
 
         // Register new weapon and projectile components
-        app.register_component::<WeaponType>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<WeaponType>();
 
         app.register_component::<Weapon>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction();
 
         app.register_component::<ProjectileReplicationMode>();
 
-        app.register_component::<GameReplicationMode>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<GameReplicationMode>();
 
-        app.register_component::<PlayerRoom>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerRoom>();
 
         app.register_component::<PhysicsProjectile>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full);
+            .add_prediction()
+            .add_linear_interpolation();
 
         app.register_component::<HomingMissile>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full);
+            .add_prediction()
+            .add_linear_interpolation();
 
-        app.register_component::<ShotgunPellet>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ShotgunPellet>();
 
-        app.register_component::<ProjectileSpawn>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ProjectileSpawn>();
 
         // Make sure that we rollback the DespawnAfter timer in deterministic replication mode
         app.add_rollback::<DespawnAfter>();

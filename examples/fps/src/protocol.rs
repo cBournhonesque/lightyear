@@ -75,47 +75,31 @@ impl Plugin for ProtocolPlugin {
             },
         });
         // components
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<Name>();
+        app.register_component::<PlayerId>();
+        app.register_component::<PlayerMarker>();
 
         app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn()
+            .add_prediction()
+            .add_linear_interpolation()
             .add_linear_correction_fn();
 
         app.register_component::<Rotation>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn()
+            .add_prediction()
+            .add_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component::<ColorComponent>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ColorComponent>();
 
         app.register_component::<Score>();
 
-        app.register_component::<RigidBody>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<RigidBody>();
 
-        app.register_component::<BulletMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<BulletMarker>();
 
-        app.register_component::<PredictedBot>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PredictedBot>();
 
-        app.register_component::<InterpolatedBot>()
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<InterpolatedBot>();
 
         // do not replicate Transform but make sure to register an interpolation function
         // for it so that we can do visual interpolation

@@ -356,7 +356,7 @@ mod bot {
     fn bot_inputs(
         time: Res<Time>,
         mut input: ResMut<ButtonInput<KeyCode>>,
-        player: Single<&Position, (With<Controlled>, Without<Confirmed>, With<PlayerMarker>)>,
+        player: Single<&Position, (With<Controlled>, With<PlayerMarker>)>,
         mut local: Local<BotLocal>,
     ) {
         let BotLocal {

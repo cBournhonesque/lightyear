@@ -84,7 +84,7 @@ fn movement(
         (&mut Position, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities
         // because they are already moved by the client plugin
-        (Without<Confirmed>, Without<Predicted>),
+        Without<Predicted>,
     >,
 ) {
     for (position, inputs) in position_query.iter_mut() {

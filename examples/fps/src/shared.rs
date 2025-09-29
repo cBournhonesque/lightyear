@@ -138,10 +138,10 @@ fn log_predicted_bot_transform(
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>, Without<Confirmed>)>,
+    player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>)>,
     predicted_bullet: Query<
         (Entity, &Transform, Option<&PredictionHistory<Transform>>),
-        (With<BulletMarker>, Without<Confirmed>),
+        (With<BulletMarker>),
     >,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();

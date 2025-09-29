@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -19,8 +18,8 @@ fn init(mut commands: Commands) {
 /// System that draws the player's boxes and cursors
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
-    players: Query<(&PlayerPosition, &PlayerColor), Without<Confirmed>>,
-    cursors: Query<(&CursorPosition, &PlayerColor), Without<Confirmed>>,
+    players: Query<(&PlayerPosition, &PlayerColor)>,
+    cursors: Query<(&CursorPosition, &PlayerColor)>,
 ) {
     for (position, color) in &players {
         gizmos.rect_2d(

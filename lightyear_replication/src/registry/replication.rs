@@ -27,7 +27,7 @@ pub struct ReplicationMetadata {
     interpolated: bool,
 }
 
-type RawBufferRemoveFn = fn(&ComponentRegistry, &mut BufferedEntity);
+type RawBufferRemoveFn = fn(&ComponentRegistry, &mut BufferedEntity, bool);
 
 /// Function to perform a buffered insert of a component into the [`EntityWorldMut`](bevy_ecs::world::EntityWorldMut).
 type RawBufferFn = fn(
@@ -148,6 +148,8 @@ impl ComponentRegistry {
         &self,
         net_id: ComponentNetId,
         entity_mut: &mut BufferedEntity,
+        predicted: bool,
+        interpolated: bool,
         tick: Tick,
     ) {
         let kind = self.kind_map.kind(net_id).expect("unknown component kind");
@@ -161,15 +163,21 @@ impl ComponentRegistry {
         let remove_fn = replication_metadata
             .remove
             .expect("the component does not have a remove function");
-        remove_fn(self, entity_mut);
+        let synced = (predicted && replication_metadata.predicted) || (interpolated && replication_metadata.interpolated);
+        remove_fn(self, entity_mut, synced);
     }
 
     /// Prepare for a component being removed
     /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
     /// so that they can all be removed at the same time
-    pub(crate) fn buffer_remove<C: Component>(&self, entity_mut: &mut BufferedEntity) {
+    pub(crate) fn buffer_remove<C: Component>(&self, entity_mut: &mut BufferedEntity, synced: bool) {
         let kind = ComponentKind::of::<C>();
-        let component_id = self.component_metadata_map.get(&kind).unwrap().component_id;
+
+        let component_id = if synced {
+            self.component_metadata_map.get(&kind).unwrap().confirmed_component_id
+        } else {
+            self.component_metadata_map.get(&kind).unwrap().component_id
+        };
         entity_mut.buffered.remove(component_id);
         #[cfg(feature = "metrics")]
         {

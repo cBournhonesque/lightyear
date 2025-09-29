@@ -8,7 +8,7 @@
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
-use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fired};
+use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fire};
 use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
@@ -25,10 +25,10 @@ impl Plugin for ExampleClientPlugin {
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    trigger: On<Fired<Movement>>,
+    trigger: On<Fire<Movement>>,
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
 ) {
-    if let Ok(position) = position_query.get_mut(trigger.entity) {
+    if let Ok(position) = position_query.get_mut(trigger.context) {
         // NOTE: be careful to directly pass Mut<PlayerPosition>
         // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
         shared::shared_movement_behaviour(position, trigger.value);

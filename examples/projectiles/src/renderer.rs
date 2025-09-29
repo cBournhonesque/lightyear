@@ -156,7 +156,7 @@ fn display_info(
 
 #[cfg(feature = "client")]
 fn render_hitscan_lines(
-    query: Query<(&HitscanVisual, &ColorComponent), Without<Confirmed>>,
+    query: Query<(&HitscanVisual, &ColorComponent)>,
     mut gizmos: Gizmos,
 ) {
     for (visual, color) in query.iter() {

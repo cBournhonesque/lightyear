@@ -924,7 +924,6 @@ impl Replicate {
 }
 
 /// Internal component to cache which senders an entity was previously replicated to
-///
 
 #[derive(Component, Debug)]
 pub(crate) struct CachedReplicate {
@@ -943,6 +942,8 @@ pub(crate) struct CachedReplicate {
 // - 5) New Replicate is added that removes some senders: we want to despawn the entity on those senders
 // - 6) New Replicate is added that adds some senders: we want to spawn the entity on those senders
 //
+// - 7) ReplicateLike is added on an entity
+//
 // 1) new entity with Replicate spawns:
 //    - replicate.changed() is true -> we check all senders and we check if sender has already spawned the entity.
 // 2) new client connects:
@@ -956,8 +957,3 @@ pub(crate) struct CachedReplicate {
 //    - we use CachedReplicate to check which senders were removed and had spawned the entity
 // 6) new replicate is added that adds some senders:
 //    - we use CachedReplicate to check which senders were added
-
-// OnReplace: find the difference between old and new Replicate.
-//    - new senders: just add the entity to sender.replicated_entities
-//    - removed senders: just add the entity to sender.should_be_despawn if sender had spawned it ? Then on the next replication interval
-//      the entity will be despawned.

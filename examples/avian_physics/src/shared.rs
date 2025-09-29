@@ -173,11 +173,11 @@ pub(crate) fn fixed_last_log(
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
         ),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+        (Without<BallMarker>, With<PlayerId>),
     >,
     ball: Query<
         (&Position, Option<&VisualCorrection<Position>>),
-        (With<BallMarker>, Without<Confirmed>),
+        With<BallMarker>,
     >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
@@ -213,11 +213,11 @@ pub(crate) fn last_log(
             Option<&ActionState<PlayerActions>>,
             Option<&InputBuffer<ActionState<PlayerActions>>>,
         ),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+        (Without<BallMarker>, With<PlayerId>),
     >,
     ball: Query<
         (&Position, Option<&VisualCorrection<Position>>),
-        (With<BallMarker>, Without<Confirmed>),
+        With<BallMarker>,
     >,
 ) {
     let (timeline, rollback) = timeline.into_inner();

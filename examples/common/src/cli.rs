@@ -165,19 +165,19 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: None,
-                        // transport: ServerTransports::Udp {
-                        //     local_port: SERVER_PORT,
-                        // },
+                        transport: ServerTransports::Udp {
+                            local_port: SERVER_PORT,
+                        },
                         // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
                         // },
-                        transport: ServerTransports::WebTransport {
-                            local_port: SERVER_PORT,
-                            certificate: WebTransportCertificateSettings::FromFile {
-                                cert: "../../certificates/cert.pem".to_string(),
-                                key: "../../certificates/key.pem".to_string(),
-                            },
-                        },
+                        // transport: ServerTransports::WebTransport {
+                        //     local_port: SERVER_PORT,
+                        //     certificate: WebTransportCertificateSettings::FromFile {
+                        //         cert: "../../certificates/cert.pem".to_string(),
+                        //         key: "../../certificates/key.pem".to_string(),
+                        //     },
+                        // },
                         shared: SHARED_SETTINGS,
                     })
                     .id();

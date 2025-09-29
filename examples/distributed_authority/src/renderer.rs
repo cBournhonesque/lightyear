@@ -25,7 +25,7 @@ fn init(mut commands: Commands) {
 //  if we have authority, should the interpolated ball become the same as Confirmed?
 pub(crate) fn draw_ball(
     mut gizmos: Gizmos,
-    balls: Query<(&Position, &PlayerColor), (With<BallMarker>, Without<Confirmed>)>,
+    balls: Query<(&Position, &PlayerColor), With<BallMarker>>,
 ) {
     for (position, color) in balls.iter() {
         gizmos.circle_2d(position.0, 25.0, color.0);
@@ -36,7 +36,7 @@ pub(crate) fn draw_ball(
 /// The components should be replicated from the server to the client
 pub(crate) fn draw_boxes(
     mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), (Without<BallMarker>, Without<Confirmed>)>,
+    players: Query<(&Position, &PlayerColor), Without<BallMarker>>,
 ) {
     for (position, color) in &players {
         gizmos.rect_2d(

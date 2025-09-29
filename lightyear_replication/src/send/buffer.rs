@@ -11,9 +11,7 @@ use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
 use crate::send::components::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::send::components::PredictionTarget;
-use crate::send::components::{
-    CachedReplicate, Replicate, Replicating, ReplicationGroup, ReplicationGroupId,
-};
+use crate::send::components::{Replicate, Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::send::sender::ReplicationSender;
 use crate::visibility::immediate::{NetworkVisibility, VisibilityState};
 use bevy_ecs::component::Components;
@@ -459,6 +457,7 @@ pub(crate) fn replicate_entity_spawn(
             ?entity,
             ?group_id,
             ?replicate,
+            ?visible,
             ?network_visibility,
             ?replicate_updated,
             ?network_visibility_gained,

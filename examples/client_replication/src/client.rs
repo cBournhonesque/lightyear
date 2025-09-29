@@ -12,7 +12,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_observer(spawn_local_cursor);
+        app.add_observer(on_connect);
         // Inputs need to be buffered in the `FixedPreUpdate` schedule
         app.add_systems(
             FixedPreUpdate,
@@ -20,20 +20,26 @@ impl Plugin for ExampleClientPlugin {
         );
         // all actions related-system that can be rolled back should be in the `FixedUpdate` schedule
         app.add_systems(FixedUpdate, (player_movement, delete_player));
-        app.add_systems(Update, (cursor_movement, spawn_player));
+        app.add_systems(Update, cursor_movement);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
     }
 }
 
 /// Spawn a cursor that is replicated to the server when the client connects
-pub(crate) fn spawn_local_cursor(
+/// Add an ActionState component on the Client entity to send inputs to the server
+pub(crate) fn on_connect(
     trigger: On<Add, Connected>,
     client: Query<&LocalId, With<Client>>,
     mut commands: Commands,
 ) {
     if let Ok(client) = client.get(trigger.entity) {
         let client_id = client.0;
+        // add an ActionState command
+        commands.entity(trigger.entity).insert((
+            ActionState::<Inputs>::default(),
+            InputMarker::<Inputs>::default(),
+        ));
         // spawn a local cursor which will be replicated to the server
         let id = commands
             .spawn((
@@ -77,6 +83,9 @@ pub(crate) fn write_inputs(
         if keypress.pressed(KeyCode::KeyK) {
             input = Inputs::Delete;
         }
+        if keypress.pressed(KeyCode::Space) {
+            input = Inputs::Spawn;
+        }
         action_state.0 = input;
     }
 }
@@ -85,52 +94,14 @@ pub(crate) fn write_inputs(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    inputs: Single<&ActionState<Inputs>>,
+    mut position: Single<&mut PlayerPosition, With<Predicted>>,
 ) {
-    for (position, input) in position_query.iter_mut() {
-        // NOTE: be careful to directly pass Mut<PlayerPosition>
-        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-        shared_movement_behaviour(position, input);
-    }
+    // NOTE: be careful to directly pass Mut<PlayerPosition>
+    // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+    shared_movement_behaviour(position.into_inner(), inputs.into_inner());
 }
 
-/// Spawn a client-owned player entity when the space command is pressed
-fn spawn_player(
-    mut commands: Commands,
-    keypress: Res<ButtonInput<KeyCode>>,
-    client: Single<&LocalId, With<Client>>,
-    players: Query<&PlayerId, With<PlayerPosition>>,
-) {
-    if keypress.just_pressed(KeyCode::Space) {
-        let client_id = client.into_inner().0;
-        // do not spawn a new player if we already have one
-        for player_id in players.iter() {
-            if player_id.0 == client_id {
-                return;
-            }
-        }
-        info!(
-            "Spawning client-owned player entity for client: {}",
-            client_id
-        );
-        commands.spawn((
-            Name::from("Player"),
-            PlayerId(client_id),
-            PlayerPosition(Vec2::ZERO),
-            PlayerColor(color_from_id(client_id)),
-            Replicate::to_server(),
-            // IMPORTANT: this lets the server know that the entity is pre-predicted
-            // when the server replicates this entity; we will get a Confirmed entity
-            // which will use this entity as the Predicted version
-            PrePredicted::default(),
-        ));
-    }
-}
-
-// TODO: This doesn't work properly because we when we despawn the entity here, it gets PredictionDisabled
-//  so it doesn't appear in the input plugin's queries.
-//  I'm waiting for bevy 0.17 and the 'Allows' filter to fix this properly, by adding 'Allows<PredictionDisabled>'
-//  filters in the input plugin's queries
 /// Delete the predicted player when the space command is pressed
 fn delete_player(
     mut commands: Commands,
@@ -138,7 +109,6 @@ fn delete_player(
         (Entity, &ActionState<Inputs>),
         (
             With<PlayerPosition>,
-            Without<Confirmed>,
             Without<Interpolated>,
         ),
     >,
@@ -165,7 +135,7 @@ fn cursor_movement(
     mut cursor_query: Query<
         (&mut CursorPosition, &PlayerId),
         // Query the client-authoritative cursor
-        (Without<Confirmed>, Without<Interpolated>),
+        Without<Interpolated>,
     >,
 ) {
     let client_id = client.into_inner().0;
