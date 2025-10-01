@@ -2,8 +2,8 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour};
 use bevy::prelude::*;
-use lightyear::connection::client::PeerMetadata;
 use core::time::Duration;
+use lightyear::connection::client::PeerMetadata;
 use lightyear::input::native::prelude::ActionState;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -64,7 +64,6 @@ fn delete_player(
         }
     }
 }
-
 
 /// When we receive a replicated Cursor, replicate it to all other clients
 pub(crate) fn replicate_cursors(

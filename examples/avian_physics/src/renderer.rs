@@ -1,11 +1,10 @@
 use crate::protocol::*;
 use crate::shared::Wall;
-use avian2d::position::{Position, Rotation};
-use avian2d::prelude::LinearVelocity;
+use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
-use lightyear::prelude::{InterpolationSet, RollbackSet};
+use lightyear::prelude::{Confirmed, InterpolationSet, RollbackSet};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -65,7 +64,15 @@ fn init(mut commands: Commands) {
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
 pub(crate) fn draw_confirmed_shadows(
     mut gizmos: Gizmos,
-    confirmed_q: Query<(&Confirmed<Position>, &Confirmed<Rotation>, &Confirmed<LinearVelocity>, &Position), (With<PlayerId>, With<Predicted>)>,
+    confirmed_q: Query<
+        (
+            &Confirmed<Position>,
+            &Confirmed<Rotation>,
+            &Confirmed<LinearVelocity>,
+            &Position,
+        ),
+        (With<PlayerId>, With<Predicted>),
+    >,
     predicted_q: Query<&Position, With<PlayerId>>,
 ) {
     for (position, rotation, velocity, predicted_pos) in confirmed_q.iter() {
@@ -82,7 +89,7 @@ pub(crate) fn draw_confirmed_shadows(
             Vec2::ONE * PLAYER_SIZE,
             ghost_col,
         );
-        gizmos.line_2d(**position.0, *predicted_pos.0, ghost_col);
+        gizmos.line_2d(position.0 .0, predicted_pos.0, ghost_col);
     }
 }
 

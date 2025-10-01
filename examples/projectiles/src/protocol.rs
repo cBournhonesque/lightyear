@@ -1,7 +1,6 @@
 use crate::protocol::WeaponType::Hitscan;
 use crate::shared::{DespawnAfter, color_from_id};
-use avian2d::position::{Position, Rotation};
-use avian2d::prelude::{CollisionLayers, LinearVelocity, PhysicsLayer, RigidBody};
+use avian2d::prelude::*;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use lightyear::input::bei::prelude;
@@ -370,19 +369,17 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Position>()
             .add_prediction()
             .add_should_rollback(position_should_rollback)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn()
+            .add_linear_interpolation()
             .add_linear_correction_fn();
 
         app.register_component::<Rotation>()
             .add_prediction()
             .add_should_rollback(rotation_should_rollback)
-            .add_interpolation(InterpolationMode::Full)
+            .add_linear_interpolation()
             .add_linear_interpolation_fn();
         // .add_linear_correction_fn();
 
-        app.register_component::<LinearVelocity>()
-            .add_prediction();
+        app.register_component::<LinearVelocity>().add_prediction();
 
         app.register_component::<ColorComponent>();
 
@@ -394,8 +391,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<HitscanVisual>();
         app.register_component::<RigidBody>();
 
-        app.register_component::<BulletMarker>()
-            .add_map_entities();
+        app.register_component::<BulletMarker>().add_map_entities();
 
         app.register_component::<Bot>();
 
@@ -408,8 +404,7 @@ impl Plugin for ProtocolPlugin {
         // Register new weapon and projectile components
         app.register_component::<WeaponType>();
 
-        app.register_component::<Weapon>()
-            .add_prediction();
+        app.register_component::<Weapon>().add_prediction();
 
         app.register_component::<ProjectileReplicationMode>();
 

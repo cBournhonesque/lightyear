@@ -105,13 +105,7 @@ fn player_movement(
 /// Delete the predicted player when the space command is pressed
 fn delete_player(
     mut commands: Commands,
-    players: Query<
-        (Entity, &ActionState<Inputs>),
-        (
-            With<PlayerPosition>,
-            Without<Interpolated>,
-        ),
-    >,
+    players: Query<(Entity, &ActionState<Inputs>), (With<PlayerPosition>, Without<Interpolated>)>,
 ) {
     for (entity, inputs) in players.iter() {
         if inputs.0 == Inputs::Delete {

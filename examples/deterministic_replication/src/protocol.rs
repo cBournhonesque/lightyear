@@ -100,13 +100,14 @@ impl Plugin for ProtocolPlugin {
             .add_should_rollback(position_should_rollback)
             // add a hash function to perform a checksum in order to catch desyncs
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            .add_linear_interpolation_fn()
+            // register a linear interpolation function without actually running Interpolation systems
+            .register_linear_interpolation()
             .add_linear_correction_fn();
 
         app.add_rollback::<Rotation>()
             .add_should_rollback(rotation_should_rollback)
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
-            .add_linear_interpolation_fn()
+            .register_linear_interpolation()
             .add_linear_correction_fn();
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!

@@ -359,17 +359,19 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent + Diffable<Delta = C>,
     {
-        crate::correction::add_correction_systems::<C>(self.app);
-
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self
+        let has_prediction_registry = self
             .app
-            .world_mut()
-            .get_resource_mut::<PredictionRegistry>()
-        else {
+            .world()
+            .get_resource::<PredictionRegistry>()
+            .is_some();
+        if !has_prediction_registry {
             return self;
-        };
-        registry.set_correction::<C>(correction_fn);
+        }
+        crate::correction::add_correction_systems::<C>(self.app);
+        self.app
+            .world_mut()
+            .resource_mut::<PredictionRegistry>()
+            .set_correction::<C>(correction_fn);
         self
     }
 

@@ -44,8 +44,8 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                // disable Sync as it is handled by lightyear_avian
-                .disable::<SyncPlugin>(),
+                // disable syncing position<>transform as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
     }

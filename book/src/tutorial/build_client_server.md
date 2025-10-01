@@ -43,7 +43,7 @@ A client is simply an entity with a [`Link`] to which the [`Client`] marker comp
 The marker component is used in conjunction with the protocol to customize the behaviour of the link entity.
 For example if a message is added to the protocol with
 ```rust,noplayground
-app.add_message::<Message1>()
+app.register_message::<Message1>()
   .add_direction(NetworkDirection::ServerToClient);
 ```
 then a `MessageReceive<Message1>` component will automatically be added to any `Client` entity.

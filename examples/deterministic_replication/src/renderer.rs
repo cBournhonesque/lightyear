@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared::Wall;
-use avian2d::position::{Position, Rotation};
+use avian2d::prelude::{Position, Rotation};
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
 use lightyear::prediction::rollback::DeterministicPredicted;

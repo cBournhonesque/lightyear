@@ -220,8 +220,8 @@ leafwing-input-manager = { version = "0.18", default-features = false, features 
 ] }
 
 # physics
-avian2d = { version = "0.3", default-features = false }
-avian3d = { version = "0.3", default-features = false }
+avian2d = { git = "https://github.com/Jondolf/avian.git",  branch = "main", default-features = false }
+avian3d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
 
 # gui debug ui
 bevy-inspector-egui = { git = "https://github.com/pindash-io/bevy-inspector-egui.git", branch = "bevy-0.17", default-features = false, features = [

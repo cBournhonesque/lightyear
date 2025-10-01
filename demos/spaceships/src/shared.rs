@@ -288,7 +288,7 @@ pub(crate) fn process_collisions(
     player_q: Query<&Player>,
     mut commands: Commands,
     timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
-    mut hit_ev_writer: EventWriter<BulletHitEvent>,
+    mut hit_ev_writer: MessageWriter<BulletHitEvent>,
 ) {
     let (timeline, is_server) = timeline.into_inner();
     // when A and B collide, it can be reported as one of:

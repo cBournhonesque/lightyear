@@ -25,8 +25,8 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                // disable Sync as it is handled by lightyear_avian
-                .disable::<SyncPlugin>(),
+                // disable the position<>transform sync plugins as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
 
@@ -175,10 +175,7 @@ pub(crate) fn fixed_last_log(
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,
-    ball: Query<
-        (&Position, Option<&VisualCorrection<Position>>),
-        With<BallMarker>,
-    >,
+    ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
@@ -215,10 +212,7 @@ pub(crate) fn last_log(
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,
-    ball: Query<
-        (&Position, Option<&VisualCorrection<Position>>),
-        With<BallMarker>,
-    >,
+    ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();

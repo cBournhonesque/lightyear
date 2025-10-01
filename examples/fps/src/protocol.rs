@@ -1,5 +1,4 @@
-use avian2d::position::{Position, Rotation};
-use avian2d::prelude::RigidBody;
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::prelude::InputConfig;
@@ -63,7 +62,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(PlayerActions, ColorComponent)>();
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
@@ -100,15 +98,5 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PredictedBot>();
 
         app.register_component::<InterpolatedBot>();
-
-        // do not replicate Transform but make sure to register an interpolation function
-        // for it so that we can do visual interpolation
-        // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .set_interpolation_mode::<Transform>(InterpolationMode::None);
     }
 }
