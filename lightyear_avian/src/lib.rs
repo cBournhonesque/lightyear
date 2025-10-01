@@ -18,8 +18,6 @@ pub mod types_2d;
 #[cfg(feature = "2d")]
 pub use types_2d as types;
 
-#[cfg(any(feature = "2d", feature = "3d"))]
-mod sync;
 #[cfg(feature = "3d")]
 pub mod types_3d;
 
