@@ -4,6 +4,7 @@ use crate::{Message, MessageNetId};
 use bevy_app::App;
 use bevy_ecs::{component::ComponentId, entity::MapEntities, error::Result, resource::Resource};
 use bevy_reflect::{Reflect, TypePath};
+use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::cell::UnsafeCell;
 use core::hash::Hash;
@@ -22,6 +23,8 @@ use lightyear_utils::collections::HashMap;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+#[allow(unused_imports)]
+use tracing::{debug, trace};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -193,6 +196,7 @@ impl MessageRegistry {
         serialize: ContextSerializeFns<SendEntityMap, M, I>,
         deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
     ) {
+        trace!("Registering message: {}", DebugName::type_name::<M>());
         self.hasher.hash::<M>();
         let message_kind = self.kind_map.add::<I>();
         self.serialize_fns_map.insert(

@@ -35,7 +35,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedPostUpdate,
             // check collisions after physics have run
-            compute_hit_prediction.after(PhysicsSet::Sync),
+            compute_hit_prediction.after(PhysicsSystems::StepSimulation),
         );
     }
 }
@@ -178,7 +178,7 @@ pub(crate) fn compute_hit_prediction(
     timeline: Single<&LocalTimeline, With<Server>>,
     query: SpatialQuery,
     bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
-    bot_query: Query<(), With<PredictedBot>)>,
+    bot_query: Query<(), With<PredictedBot>>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)

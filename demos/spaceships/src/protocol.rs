@@ -76,7 +76,7 @@ impl Player {
 /// A shared system generates these events on server and client.
 /// On the server, we use them to manipulate player scores;
 /// On the clients, we just use them for visual effects.
-#[derive(Event, Debug)]
+#[derive(Message, Debug)]
 pub struct BulletHitEvent {
     pub bullet_owner: PeerId,
     pub bullet_color: Color,
@@ -184,14 +184,11 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Score>();
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
-        app.register_component::<LinearVelocity>()
-            .add_prediction();
+        app.register_component::<LinearVelocity>().add_prediction();
 
-        app.register_component::<AngularVelocity>()
-            .add_prediction();
+        app.register_component::<AngularVelocity>().add_prediction();
 
-        app.register_component::<Weapon>()
-            .add_prediction();
+        app.register_component::<Weapon>().add_prediction();
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.

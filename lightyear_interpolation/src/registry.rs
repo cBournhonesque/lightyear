@@ -75,12 +75,32 @@ impl InterpolationRegistry {
 }
 
 pub trait InterpolationRegistrationExt<C> {
+    /// Register an interpolation function for this component using the provided [`LerpFn`]
+    ///
+    /// This does NOT mean that interpolation systems are added, it simply registers a function to
+    /// interpolate between two values, that can be used for example in frame interpolation.
+    fn register_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent;
+
+    /// Register an interpolation function for this component using the [`Ease`] implementation
+    ///
+    /// This does NOT mean that interpolation systems are added, it simply registers a function to
+    /// interpolate between two values, that can be used for example in frame interpolation.
+    fn register_linear_interpolation(self) -> Self
+    where
+        C: SyncComponent + Ease;
+
     /// Add interpolation for this component using the provided [`LerpFn`]
-    fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
+    ///
+    /// This will register interpolation systems to interpolate between two confirmed states.
+    fn add_interpolation_with(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent;
 
     /// Enable interpolation systems for this component using the [`Ease`] implementation
+    ///
+    /// This will register interpolation systems to interpolate between two confirmed states.
     fn add_linear_interpolation(self) -> Self
     where
         C: SyncComponent + Ease;
@@ -94,7 +114,7 @@ pub trait InterpolationRegistrationExt<C> {
 }
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
-    fn add_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
+    fn register_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent,
     {
@@ -109,6 +129,21 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
         }
         let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
         registry.set_interpolation::<C>(interpolation_fn);
+        self
+    }
+
+    fn register_linear_interpolation(self) -> Self
+    where
+        C: SyncComponent + Ease,
+    {
+        self.register_interpolation_fn(lerp::<C>)
+    }
+
+    fn add_interpolation_with(mut self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self = self.register_interpolation_fn(interpolation_fn);
         add_prepare_interpolation_systems::<C>(self.app);
         add_interpolation_systems::<C>(self.app);
 
@@ -128,7 +163,7 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent + Ease,
     {
-        self.add_interpolation_fn(lerp::<C>)
+        self.add_interpolation_with(lerp::<C>)
     }
 
     fn add_custom_interpolation(self) -> Self

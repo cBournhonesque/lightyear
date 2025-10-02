@@ -137,14 +137,7 @@ pub(crate) fn move_player(
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<
-        (Entity, &Position),
-        (
-            With<PlayerMarker>,
-            With<PlayerId>,
-            Without<Bot>,
-        ),
-    >,
+    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>, Without<Bot>)>,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
     //     (With<BulletMarker>, Without<Confirmed>),
@@ -170,11 +163,7 @@ pub(crate) fn last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     player: Query<
         (Entity, &Position, &Transform),
-        (
-            With<PlayerMarker>,
-            With<PlayerId>,
-            Without<Bot>,
-        ),
+        (With<PlayerMarker>, With<PlayerId>, Without<Bot>),
     >,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
@@ -459,10 +448,7 @@ mod hit_detection {
                         && let Ok((_, mut sender)) = hit_sender.single_mut()
                     {
                         info!("Client detected hit! Sending hit detection trigger to server");
-                        sender.trigger::<HitChannel>(HitDetected {
-                            shooter,
-                            target,
-                        });
+                        sender.trigger::<HitChannel>(HitDetected { shooter, target });
                     }
                 }
             }
@@ -476,9 +462,7 @@ mod hit_detection {
         timeline: Single<&LocalTimeline, Without<ClientOf>>,
         mode: Single<&GameReplicationMode, With<ClientContext>>,
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
-        bullet: Query<
-            (Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId),
-        >,
+        bullet: Query<(Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
         target_query: Query<&GameReplicationMode, With<PlayerMarker>>,
         // the InterpolationDelay component is stored directly on the client entity
         // (the server creates one entity for each client to store client-specific
@@ -603,10 +587,7 @@ mod hit_detection {
                                 info!(
                                     "Client detected hit! Sending hit detection trigger to server"
                                 );
-                                sender.trigger::<HitChannel>(HitDetected {
-                                    shooter,
-                                    target,
-                                });
+                                sender.trigger::<HitChannel>(HitDetected { shooter, target });
                             }
                         }
                     }

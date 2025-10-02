@@ -1,8 +1,9 @@
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use lightyear::input::native::plugin::InputPlugin;
+use lightyear::input::bei::prelude::{InputPlugin, InputAction};
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
+use lightyear::prelude::input::InputRegistryExt;
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -34,51 +35,36 @@ impl Ease for CursorPosition {
 }
 
 // Inputs
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Reflect)]
-pub struct Direction {
-    pub(crate) up: bool,
-    pub(crate) down: bool,
-    pub(crate) left: bool,
-    pub(crate) right: bool,
-}
 
-impl Direction {
-    pub(crate) fn is_none(&self) -> bool {
-        !self.up && !self.down && !self.left && !self.right
-    }
-}
+#[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
+pub struct Player;
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Reflect)]
-pub enum Inputs {
-    Direction(Direction),
-    Spawn,
-    Delete,
-}
+#[derive(Debug, InputAction)]
+#[action_output(Vec2)]
+pub struct Movement;
 
-impl Default for Inputs {
-    fn default() -> Self {
-        Inputs::Direction(Direction {
-            up: false,
-            down: false,
-            left: false,
-            right: false,
-        })
-    }
-}
+#[derive(Debug, InputAction)]
+#[action_output(bool)]
+pub struct DespawnPlayer;
 
-// Inputs must all implement MapEntities
-impl MapEntities for Inputs {
-    fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {}
-}
+#[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
+pub struct Admin;
+
+#[derive(Debug, InputAction)]
+#[action_output(bool)]
+pub struct SpawnPlayer;
+
 
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Inputs>();
-
         // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
+        app.add_plugins(InputPlugin::<Player>::default());
+        app.add_plugins(InputPlugin::<Admin>::default());
+        app.register_input_action::<Movement>();
+        app.register_input_action::<SpawnPlayer>();
+        app.register_input_action::<DespawnPlayer>();
 
         // components
         app.register_component::<PlayerId>();

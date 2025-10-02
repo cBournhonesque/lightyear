@@ -37,11 +37,12 @@ udp = [
 
 [dependencies]
 lightyear = { "workspace" = true, features = [
-  "input_native",
   "interpolation",
   "prediction",
   "replication",
+  "input_bei",
 ] }
+bevy_enhanced_input.workspace = true
 lightyear_examples_common.workspace = true
 
 serde.workspace = true
