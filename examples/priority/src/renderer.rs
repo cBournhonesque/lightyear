@@ -19,10 +19,7 @@ fn init(mut commands: Commands) {
 /// System that draws the player
 /// The components should be replicated from the server to the client
 /// This time we will only draw the predicted/interpolated entities
-pub(crate) fn draw_players(
-    mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor)>,
-) {
+pub(crate) fn draw_players(mut gizmos: Gizmos, players: Query<(&Position, &PlayerColor)>) {
     for (position, color) in &players {
         gizmos.rect(
             Isometry3d::from_translation(Vec3::new(position.x, position.y, 0.0)),

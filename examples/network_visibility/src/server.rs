@@ -89,8 +89,14 @@ pub(crate) fn handle_connected(
     // we add all clients to a room, as well as all player entities
     // this means that all clients will be able to see all player entities
     let room = room.into_inner();
-    commands.trigger(RoomEvent { target: RoomTarget::AddSender(trigger.entity), room });
-    commands.trigger(RoomEvent { target: RoomTarget::AddEntity(player_entity), room });
+    commands.trigger(RoomEvent {
+        target: RoomTarget::AddSender(trigger.entity),
+        room,
+    });
+    commands.trigger(RoomEvent {
+        target: RoomTarget::AddEntity(player_entity),
+        room,
+    });
 }
 
 pub(crate) fn init(mut commands: Commands) {

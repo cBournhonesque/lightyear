@@ -163,18 +163,26 @@ impl ComponentRegistry {
         let remove_fn = replication_metadata
             .remove
             .expect("the component does not have a remove function");
-        let synced = (predicted && replication_metadata.predicted) || (interpolated && replication_metadata.interpolated);
+        let synced = (predicted && replication_metadata.predicted)
+            || (interpolated && replication_metadata.interpolated);
         remove_fn(self, entity_mut, synced);
     }
 
     /// Prepare for a component being removed
     /// We don't actually remove the component here, we just push the ComponentId to the `component_ids` vector
     /// so that they can all be removed at the same time
-    pub(crate) fn buffer_remove<C: Component>(&self, entity_mut: &mut BufferedEntity, synced: bool) {
+    pub(crate) fn buffer_remove<C: Component>(
+        &self,
+        entity_mut: &mut BufferedEntity,
+        synced: bool,
+    ) {
         let kind = ComponentKind::of::<C>();
 
         let component_id = if synced {
-            self.component_metadata_map.get(&kind).unwrap().confirmed_component_id
+            self.component_metadata_map
+                .get(&kind)
+                .unwrap()
+                .confirmed_component_id
         } else {
             self.component_metadata_map.get(&kind).unwrap().component_id
         };

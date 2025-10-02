@@ -1,5 +1,5 @@
 use crate::delta::Diffable;
-use avian3d::position::{Position, Rotation};
+use avian3d::prelude::{Position, Rotation};
 
 impl Diffable for Position {
     type Delta = Self;

@@ -1,10 +1,10 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour};
+use crate::shared::{color_from_id};
 use bevy::prelude::*;
-use lightyear::connection::client::PeerMetadata;
 use core::time::Duration;
-use lightyear::input::native::prelude::ActionState;
+use lightyear::connection::client::PeerMetadata;
+use lightyear::input::bei::prelude::Fire;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -15,7 +15,7 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(replicate_cursors);
         app.add_observer(handle_new_client);
-        app.add_systems(FixedUpdate, (movement, delete_player));
+        app.add_observer(on_connect);
     }
 }
 
@@ -32,37 +32,21 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
     ));
 }
 
-/// Read client inputs and move players
-pub(crate) fn movement(
-    mut position_query: Query<
-        (&mut PlayerPosition, &ActionState<Inputs>),
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
-) {
-    for (position, inputs) in position_query.iter_mut() {
-        // NOTE: be careful to directly pass Mut<PlayerPosition>
-        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-        shared_movement_behaviour(position, inputs);
-    }
-}
-
-fn delete_player(
+pub(crate) fn on_connect(
+    trigger: On<Add, Connected>,
+    query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
-    query: Query<(Entity, &ActionState<Inputs>), With<PlayerPosition>>,
 ) {
-    for (entity, inputs) in query.iter() {
-        if inputs.0 == Inputs::Delete {
-            // You can try 2 things here:
-            // - either you consider that the client's action is correct, and you despawn the entity. This should get replicated
-            //   to other clients.
-            // - you decide that the client's despawn is incorrect, and you do not despawn the entity. Then the client's prediction
-            //   should be rolled back, and the entity should not get despawned on client.
-            commands.entity(entity).despawn();
-            info!("Despawn the confirmed player {entity:?} on the server");
-        }
-    }
+    let Ok(client_id) = query.get(trigger.entity) else {
+        return;
+    };
+    let client_id = client_id.0;
+        commands.spawn((
+        Replicate::manual(vec![trigger.entity]),
+        Admin,
+        Name::from("Admin"),
+        PlayerId(client_id)
+    ));
 }
 
 

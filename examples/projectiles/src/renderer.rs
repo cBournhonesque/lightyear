@@ -155,10 +155,7 @@ fn display_info(
 }
 
 #[cfg(feature = "client")]
-fn render_hitscan_lines(
-    query: Query<(&HitscanVisual, &ColorComponent)>,
-    mut gizmos: Gizmos,
-) {
+fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent)>, mut gizmos: Gizmos) {
     for (visual, color) in query.iter() {
         let progress = visual.lifetime / visual.max_lifetime;
         let alpha = (1.0 - progress).max(0.0);

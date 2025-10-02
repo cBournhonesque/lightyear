@@ -815,6 +815,7 @@ impl GroupChannel {
                             .and_then(|receiver| receiver.matches(hash, *remote_entity))
                     })
                     .inspect(|e| {
+                        error!(?remote_entity, ?e, "Update prespawn entity map");
                         // we update the entity map for the prespawning case
                         remote_entity_map.insert(*remote_entity, *e);
                     })
@@ -958,7 +959,13 @@ impl GroupChannel {
 
             // removals
             actions.remove.into_iter().for_each(|component_net_id| {
-                component_registry.remove(component_net_id, &mut buffered_entity, predicted, interpolated, remote_tick);
+                component_registry.remove(
+                    component_net_id,
+                    &mut buffered_entity,
+                    predicted,
+                    interpolated,
+                    remote_tick,
+                );
             });
 
             buffered_entity.apply();

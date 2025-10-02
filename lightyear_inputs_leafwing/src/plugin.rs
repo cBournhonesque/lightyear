@@ -4,6 +4,7 @@ use bevy_app::FixedPreUpdate;
 use bevy_app::{App, Plugin};
 #[cfg(feature = "client")]
 use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_utils::prelude::DebugName;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear_inputs::config::InputConfig;
 use lightyear_inputs::input_buffer::InputBuffer;
@@ -12,6 +13,8 @@ use lightyear_inputs::input_buffer::InputBuffer;
 use crate::input_message::LeafwingSequence;
 #[cfg(any(feature = "client", feature = "server"))]
 use leafwing_input_manager::plugin::InputManagerPlugin;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
@@ -39,6 +42,10 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
             // we don't panic (otherwise we would because leafwing expects the bevy InputPlugin)
             // We only want the client or server leafwing plugin, not both
             if app.is_plugin_added::<bevy_input::InputPlugin>() {
+                trace!(
+                    "adding client input plugin for action {:?}",
+                    DebugName::type_name::<A>()
+                );
                 app.add_plugins(InputManagerPlugin::<A>::default());
                 app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                     LeafwingSequence<A>,
@@ -53,12 +60,18 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
             }
         }
         #[cfg(feature = "server")]
-        app.add_plugins(
-            lightyear_inputs::server::ServerInputPlugin::<LeafwingSequence<A>> {
-                rebroadcast_inputs: self.config.rebroadcast_inputs,
-                marker: core::marker::PhantomData,
-            },
-        );
+        {
+            trace!(
+                "adding server input plugin for action {:?}",
+                DebugName::type_name::<A>()
+            );
+            app.add_plugins(
+                lightyear_inputs::server::ServerInputPlugin::<LeafwingSequence<A>> {
+                    rebroadcast_inputs: self.config.rebroadcast_inputs,
+                    marker: core::marker::PhantomData,
+                },
+            );
+        }
     }
 
     fn finish(&self, app: &mut App) {

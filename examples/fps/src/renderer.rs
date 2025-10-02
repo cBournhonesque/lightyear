@@ -6,8 +6,7 @@ use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::interpolation::Interpolated;
-use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Predicted, Replicate, Replicated};
+use lightyear::prelude::{PreSpawned, Predicted, Replicate, Replicated};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -76,7 +75,6 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
         );
     })
 }
-
 
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players

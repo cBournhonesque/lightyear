@@ -89,6 +89,8 @@ impl Plugin for SharedPlugin {
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
+                // disable the position<>transform sync plugins as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>()
                 .disable::<PhysicsInterpolationPlugin>()
                 // disable Sleeping plugin as it can mess up physics rollbacks
                 .disable::<SleepingPlugin>(),

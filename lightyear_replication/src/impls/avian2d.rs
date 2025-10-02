@@ -1,5 +1,5 @@
 use crate::delta::Diffable;
-use avian2d::position::{Position, Rotation};
+use avian2d::prelude::{Position, Rotation};
 
 impl Diffable for Position {
     type Delta = Position;
@@ -29,6 +29,6 @@ impl Diffable for Rotation {
     }
 
     fn apply_diff(&mut self, delta: &Self::Delta) {
-        *self = self.add_angle(delta.as_radians());
+        *self = self.add_angle_fast(delta.as_radians());
     }
 }
