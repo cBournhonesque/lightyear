@@ -18,17 +18,52 @@ use tracing::{debug, info};
 #[cfg(feature = "server")]
 use {lightyear_inputs::server::ServerInputConfig, lightyear_replication::prelude::ReplicateLike};
 
+
+// TODO: ideally we would have an entity-mapped that is PreSpawn aware. If you include an entity
+//   that is PreSpawned, then in the entity-mapper we use a Query<Entity, With<PreSpawned>> to check the hash
+//   of the entity and serialize it as the hash. Then the receiving entity mapper could look up the corresponding
+//   entity by the PreSpawn hash to apply entity mapping.
+//   1. In common case, server sends P1,C1. It does NOT need to change ChildOf(P1) because client will match P1/C1 on receipt, then
+//        update its entity maps, then the component map entity will work correctly. We just need to make sure that C1 is also Prespawned,
+//        which we could do in ReplicateLike Propagation? (but how to do it on the receiver side?)
+//
+
+
 pub struct InputRegistryPlugin;
 
 impl InputRegistryPlugin {
     /// When an [`ActionOf<C>`] component is added to an entity (usually on the client),
     /// we add Replicate to it so that the action entity is also created on the server.
+    ///
+    /// How do we handle `PreSpawned` Context or Action entities?
+    /// 1. Server and Client prespawn a context entity C on tick T.
+    /// 2. Client spawns an action entity A that it replicates to server (tick T). It has ActionOfWrapper(C)
+    ///    which contains the hash of context entity C.
+    /// 3. Client starts sending input messages that mention entity A. Messages that arrive on client before tick T
+    ///    contain an unknown entity and will be ignored. As soon as the server receives the entity A, the entity mapping
+    ///    will work on the server side and the messages will be applied correctly.
+    /// 4. Server receives the entity A, it applies ActionOf(C) correctly by looking at ActionOfWrapper(C)
+    ///    + the PreSpawned values. Safer to use Query<&PreSpawned> than &PreSpawnedReceiver since the latter
+    ///    only works for entities that don't have Replicate, but the server is the one that replicates C.
+    ///
+    /// The only issue is that the entity could be replicated too late, we want to be able to replicate
+    /// an entity as soon as possible, or possibly even in the same packet as the InputMessage.
+    /// One option would be to update the InputMessage with a special PreSpawnBEI variant that contains:
+    /// - the hash of the context entity (for prespawning),
+    /// - the entity of the action entity (so that the server spawns the action entity and updates its entity mapping)
+    /// This is so that the server spawns the action entity as soon as possible (even before the tick T), so that the
+    /// server and client have the same inputs and predict the same movement.
+    ///
+    /// Server PreSpawns and replicates at the same time
+    /// If PreSpawned, we will instead Replicate from Server to Client.
+    /// No need to change anything about ActionOf
     #[cfg(feature = "client")]
     pub(crate) fn add_action_of_replicate<C: Component>(
         trigger: On<Add, ActionOf<C>>,
         server: Query<(), With<Server>>,
         // we don't want to add Replicate on action entities that were already replicated
-        action: Query<&ActionOf<C>, Without<Replicated>>,
+        // PreSpawned entities are replicated from server to client
+        action: Query<&ActionOf<C>, (Without<Replicated>, Without<PreSpawned>)>,
         mut commands: Commands,
     ) {
         if server.single().is_ok() {
@@ -39,7 +74,7 @@ impl InputRegistryPlugin {
         if let Ok(action_of) = action.get(entity) {
             let context_entity = action_of.get();
             debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", DebugName::type_name::<C>());
-            commands.entity(entity).insert((Replicate::to_server(),));
+                commands.entity(entity).insert((Replicate::to_server(),));
         }
     }
 

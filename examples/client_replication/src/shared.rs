@@ -1,4 +1,7 @@
 use bevy::prelude::*;
+use bevy_enhanced_input::action::Action;
+use bevy_enhanced_input::bindings;
+use bevy_enhanced_input::prelude::{ActionOf, Bindings, Cardinal};
 use lightyear::connection::client::PeerMetadata;
 use lightyear::input::bei::prelude::{Complete, Fire};
 use lightyear::prelude::*;
@@ -52,7 +55,7 @@ fn spawn_player(
             ?is_server, "Spawning client-owned player entity for client: {}",
             client_id
         );
-        let mut entity = commands.spawn((
+        let mut entity_commands = commands.spawn((
             Name::from("Player"),
             Player,
             PlayerId(client_id),
@@ -61,10 +64,11 @@ fn spawn_player(
             // This will let the server match the replicated entity
             PreSpawned::default(),
         ));
+
         if is_server {
             let client_entity = *peer_metadata.unwrap().mapping.get(&client_id).unwrap();
             #[cfg(feature = "server")]
-            entity.insert((
+            entity_commands.insert((
                 // we want to replicate back to the original client, since they are using a pre-spawned entity
                 Replicate::to_clients(NetworkTarget::All),
                 // NOTE: even with a pre-spawned Predicted entity, we need to specify who will run prediction
@@ -74,6 +78,39 @@ fn spawn_player(
                     owner: client_entity,
                     lifetime: Lifetime::SessionBased,
                 },
+            ));
+        }
+
+        let entity = entity_commands.id();
+        let mut action = commands
+            .spawn((
+                ActionOf::<Player>::new(entity),
+                Action::<Movement>::new(),
+                Bindings::spawn(Cardinal::wasd_keys()),
+                PreSpawned::default_with_salt(1),
+            ));
+        // For PreSpawned Contexts, the actions must be PreSpawned as well,
+        // and replicated from server to client
+        if is_server {
+            #[cfg(feature = "server")]
+            action.insert((
+                Replicate::to_clients(NetworkTarget::Single(client_id)),
+                // make sure that the context and action are replicated together
+                PREDICTION_GROUP,
+            ));
+        }
+        let mut action = commands
+            .spawn((
+                ActionOf::<Player>::new(entity),
+                Action::<DespawnPlayer>::new(),
+                bindings![KeyCode::KeyK,],
+                PreSpawned::default_with_salt(2),
+            ));
+        if is_server {
+            #[cfg(feature = "server")]
+            action.insert((
+                Replicate::to_clients(NetworkTarget::Single(client_id)),
+                PREDICTION_GROUP,
             ));
         }
     }

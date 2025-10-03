@@ -709,7 +709,7 @@ impl ReplicationSender {
             let message_id = sender
                 .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
                 .expect("The entity actions channels should always return a message_id");
-            debug!(
+            trace!(
                 ?message_id,
                 ?group_id,
                 ?bevy_tick,
@@ -759,7 +759,7 @@ impl ReplicationSender {
                 .expect("The entity actions channels should always return a message_id");
 
             // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
-            debug!(
+            trace!(
                 ?message_id,
                 ?group_id,
                 ?bevy_tick,

@@ -914,8 +914,14 @@ impl Replicate {
                             }
                         }
                     }
-                    ReplicationMode::Manual(_) => {
-                        todo!()
+                    ReplicationMode::Manual(entities) => {
+                        if entities.contains(&sender_entity) {
+                            sender.add_replicated_entity(entity, replicate.authority);
+                            replicate.senders.insert(sender_entity);
+                            if let Some(cached_replicate) = cached_replicate.as_mut() {
+                                cached_replicate.senders.insert(sender_entity);
+                            }
+                        };
                     }
                 }
             })

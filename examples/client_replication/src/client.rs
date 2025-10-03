@@ -97,19 +97,6 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
-        commands
-            .spawn((
-                ActionOf::<Player>::new(entity),
-                Action::<Movement>::new(),
-                Bindings::spawn(Cardinal::wasd_keys()),
-            ));
-        commands
-            .spawn((
-                ActionOf::<Player>::new(entity),
-                Action::<DespawnPlayer>::new(),
-                bindings![KeyCode::KeyK,],
-            ));
     }
 }
 

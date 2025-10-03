@@ -33,7 +33,7 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
-use lightyear_replication::prelude::Room;
+use lightyear_replication::prelude::{PreSpawned, Room};
 use tracing::{debug, error, trace};
 
 pub struct ServerInputPlugin<S> {
@@ -159,6 +159,7 @@ fn receive_input_message<S: ActionStateSequence>(
         With<Connected>,
     >,
     mut query: Query<Option<&mut InputBuffer<S::Snapshot>>>,
+    prespawned: Query<(Entity, &PreSpawned), With<<S::State as ActionStateQueryData>::Main>>,
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
@@ -219,45 +220,50 @@ fn receive_input_message<S: ActionStateSequence>(
             }
 
             for data in message.inputs {
-                match data.target {
-                    // - for action/pre-predicted entities, we already did the mapping on server side upon receiving the message
-                    // (which is possible because the server received the entity)
-                    // - for non-pre predicted entities, the mapping was already done on client side
-                    // (client converted from their local entity to the remote server entity)
+                let Some(entity) = (match data.target {
                     InputTarget::Entity(entity) => {
-                        // TODO Don't update input buffer if inputs arrived too late?
-                        trace!("received input for entity: {:?}", entity);
-
-                        if let Ok(buffer) = query.get_mut(entity) {
-                            if let Some(mut buffer) = buffer {
-                               trace!(
-                                    "Updating InputBuffer: {} using: {:?}",
-                                    buffer.as_ref(),
-                                    data.states
-                                );
-                                data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
-                            } else {
-                                debug!("Adding InputBuffer and ActionState which are missing on the entity");
-                                let mut buffer = InputBuffer::<S::Snapshot>::default();
-                                data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
-                                commands.entity(entity).insert((
-                                    buffer,
-                                    S::State::base_value()
-                                ));
-                                // commands.command_scope(|mut commands| {
-                                //     commands.entity(entity).insert((
-                                //         buffer,
-                                //         ActionState::<A>::default(),
-                                //     ));
-                                // });
-                            }
-                        } else {
-                            debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
-                        }
+                        Some(entity)
+                    },
+                    InputTarget::PreSpawned(hash) => {
+                        debug!(?hash, "Received input for prespawned entity");
+                        // we cannot match using the PreSpawnedReceiver since it only stores hashes for entities
+                        // with no Replicate component.
+                        // Instead, since there shouldn't be many entities with inputs and PreSpawned, we just iterate
+                        // through the query. We don't need to do entity-mapping because as soon as the entity is mapped
+                        // on the client, PreSpawned is removed and the input will contain the mapped entity.
+                        prespawned
+                            .iter()
+                            .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()
                     }
-                    InputTarget::PreSpawned(_) => {
-                        todo!("Handle prespawned inputs");
+                }) else {
+                    debug!(?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                    continue
+                };
+                if let Ok(buffer) = query.get_mut(entity) {
+                    if let Some(mut buffer) = buffer {
+                       trace!(
+                            "Updating InputBuffer: {} using: {:?}",
+                            buffer.as_ref(),
+                            data.states
+                        );
+                        data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                    } else {
+                        debug!("Adding InputBuffer and ActionState which are missing on the entity");
+                        let mut buffer = InputBuffer::<S::Snapshot>::default();
+                        data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        commands.entity(entity).insert((
+                            buffer,
+                            S::State::base_value()
+                        ));
+                        // commands.command_scope(|mut commands| {
+                        //     commands.entity(entity).insert((
+                        //         buffer,
+                        //         ActionState::<A>::default(),
+                        //     ));
+                        // });
                     }
+                } else {
+                    debug!(?entity, ?data.states, end_tick = ?message.end_tick, "received input message for non-existing entity");
                 }
             }
             Ok(())

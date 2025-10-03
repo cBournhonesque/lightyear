@@ -517,8 +517,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         let target = if let Some(prespawned) = pre_spawned
             && let Some(hash) = prespawned.hash
         {
-            todo!("implement");
-            // TODO: the server needs to add a PreSpawnedReceiver to be able to handle the hash
+            debug!(?hash, ?entity, "Sending input for prespawned entity");
             InputTarget::PreSpawned(hash)
         } else {
             InputTarget::Entity(entity)

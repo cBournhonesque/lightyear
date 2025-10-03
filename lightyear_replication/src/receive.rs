@@ -827,12 +827,12 @@ impl GroupChannel {
                             "Received spawn for entity {:?} that already exists. This might be because of an authority transfer or prespawning.",
                             local_entity.id()
                         );
-                        if predicted {
-                            // if the entity is predicted, we remove PreSpawned no matter if there is a match
-                            // - if match, the entity is now predicted and we want to rollback to the Confirmed<C> state
-                            //   (while PreSpawned, we rollback to the value of the component in the history)
-                            local_entity.remove::<PreSpawned>();
-                        }
+                        // if the entity is predicted, we remove PreSpawned no matter if there is a match
+                        // - if match, the entity is now predicted and we want to rollback to the Confirmed<C> state
+                        //   (while PreSpawned, we rollback to the value of the component in the history)
+                        // we also want to remove PreSpawned for inputs entities because we want to
+                        // send InputMessages using the Entity instead of the hash
+                        local_entity.remove::<PreSpawned>();
 
                         insert_sync_components(
                             predicted,
@@ -874,7 +874,7 @@ impl GroupChannel {
                 self.local_entities.insert(local_entity.id());
                 local_entity_to_group.insert(local_entity.id(), group_id);
                 remote_entity_map.insert(*remote_entity, local_entity.id());
-                trace!("Updated remote entity map: {:?}", remote_entity_map);
+                debug!("Updated remote entity map: {:?}", remote_entity_map);
             }
         }
 
