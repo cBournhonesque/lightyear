@@ -5,7 +5,7 @@ use lightyear::input::client::InputSet;
 use lightyear::prelude::*;
 
 use crate::protocol::*;
-use crate::shared::{color_from_id};
+use crate::shared::color_from_id;
 
 pub struct ExampleClientPlugin;
 
@@ -43,7 +43,6 @@ pub(crate) fn on_connect(
     }
 }
 
-
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
     client: Single<&LocalId, (With<Connected>, With<Client>)>,
@@ -70,16 +69,12 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
     ))
 }
 
-fn on_admin_context(
-    trigger: On<Add, Admin>,
-    mut commands: Commands
-) {
-    commands
-            .spawn((
-                ActionOf::<Admin>::new(trigger.entity),
-                Action::<SpawnPlayer>::new(),
-                bindings![KeyCode::Space,],
-            ));
+fn on_admin_context(trigger: On<Add, Admin>, mut commands: Commands) {
+    commands.spawn((
+        ActionOf::<Admin>::new(trigger.entity),
+        Action::<SpawnPlayer>::new(),
+        bindings![KeyCode::Space,],
+    ));
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

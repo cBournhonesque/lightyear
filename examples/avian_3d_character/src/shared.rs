@@ -5,7 +5,6 @@ use core::hash::Hash;
 
 use crate::protocol::*;
 use avian3d::prelude::*;
-use avian3d::sync::position_to_transform;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
@@ -93,7 +92,7 @@ impl Plugin for SharedPlugin {
                 .disable::<PhysicsTransformPlugin>()
                 .disable::<PhysicsInterpolationPlugin>()
                 // disable Sleeping plugin as it can mess up physics rollbacks
-                .disable::<SleepingPlugin>(),
+                .disable::<IslandSleepingPlugin>(),
         );
 
         // Debug

@@ -23,8 +23,8 @@ pub struct ReplicationMetadata {
     pub(crate) inner_buffer: unsafe fn(),
     pub(crate) buffer: RawBufferFn,
     pub(crate) remove: Option<RawBufferRemoveFn>,
-    predicted: bool,
-    interpolated: bool,
+    pub(crate) predicted: bool,
+    pub(crate) interpolated: bool,
 }
 
 type RawBufferRemoveFn = fn(&ComponentRegistry, &mut BufferedEntity, bool);

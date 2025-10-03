@@ -72,10 +72,6 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<AngularVelocity>().add_prediction();
 
-        app.register_component::<ExternalForce>().add_prediction();
-
-        app.register_component::<ExternalImpulse>().add_prediction();
-
         app.register_component::<ComputedMass>().add_prediction();
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors

@@ -1,3 +1,4 @@
+use crate::protocol::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::bindings;
@@ -5,7 +6,6 @@ use bevy_enhanced_input::prelude::{ActionOf, Bindings, Cardinal};
 use lightyear::connection::client::PeerMetadata;
 use lightyear::input::bei::prelude::{Complete, Fire};
 use lightyear::prelude::*;
-use crate::protocol::*;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -39,7 +39,6 @@ pub(crate) fn movement(
     }
 }
 
-
 /// Spawn a client-owned player entity when the space command is pressed
 fn spawn_player(
     trigger: On<Complete<SpawnPlayer>>,
@@ -52,8 +51,8 @@ fn spawn_player(
     if let Ok(player_id) = clients.get(trigger.context) {
         let client_id = player_id.0;
         info!(
-            ?is_server, "Spawning client-owned player entity for client: {}",
-            client_id
+            ?is_server,
+            "Spawning client-owned player entity for client: {}", client_id
         );
         let mut entity_commands = commands.spawn((
             Name::from("Player"),
@@ -82,13 +81,12 @@ fn spawn_player(
         }
 
         let entity = entity_commands.id();
-        let mut action = commands
-            .spawn((
-                ActionOf::<Player>::new(entity),
-                Action::<Movement>::new(),
-                Bindings::spawn(Cardinal::wasd_keys()),
-                PreSpawned::default_with_salt(1),
-            ));
+        let mut action = commands.spawn((
+            ActionOf::<Player>::new(entity),
+            Action::<Movement>::new(),
+            Bindings::spawn(Cardinal::wasd_keys()),
+            PreSpawned::default_with_salt(1),
+        ));
         // For PreSpawned Contexts, the actions must be PreSpawned as well,
         // and replicated from server to client
         if is_server {
@@ -99,13 +97,12 @@ fn spawn_player(
                 PREDICTION_GROUP,
             ));
         }
-        let mut action = commands
-            .spawn((
-                ActionOf::<Player>::new(entity),
-                Action::<DespawnPlayer>::new(),
-                bindings![KeyCode::KeyK,],
-                PreSpawned::default_with_salt(2),
-            ));
+        let mut action = commands.spawn((
+            ActionOf::<Player>::new(entity),
+            Action::<DespawnPlayer>::new(),
+            bindings![KeyCode::KeyK,],
+            PreSpawned::default_with_salt(2),
+        ));
         if is_server {
             #[cfg(feature = "server")]
             action.insert((
@@ -120,10 +117,7 @@ fn spawn_player(
 ///
 /// Make sure to use `prediction_despawn`: the entity will be temporarily be Disabled
 /// until we receive a confirmation from the server that it should actually be despawned
-fn despawn_player(
-    trigger: On<Complete<DespawnPlayer>>,
-    mut commands: Commands,
-) {
+fn despawn_player(trigger: On<Complete<DespawnPlayer>>, mut commands: Commands) {
     if let Ok(mut entity_mut) = commands.get_entity(trigger.context) {
         entity_mut.prediction_despawn();
         info!(
@@ -132,4 +126,3 @@ fn despawn_player(
         );
     }
 }
-

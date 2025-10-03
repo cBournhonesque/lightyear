@@ -1,6 +1,6 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id};
+use crate::shared::color_from_id;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::connection::client::PeerMetadata;
@@ -41,14 +41,13 @@ pub(crate) fn on_connect(
         return;
     };
     let client_id = client_id.0;
-        commands.spawn((
+    commands.spawn((
         Replicate::manual(vec![trigger.entity]),
         Admin,
         Name::from("Admin"),
-        PlayerId(client_id)
+        PlayerId(client_id),
     ));
 }
-
 
 /// When we receive a replicated Cursor, replicate it to all other clients
 pub(crate) fn replicate_cursors(

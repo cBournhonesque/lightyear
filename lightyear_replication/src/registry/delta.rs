@@ -46,9 +46,14 @@ impl ComponentRegistry {
                 );
             });
         metadata.delta = Some(ErasedDeltaFns::new::<C>());
+
+        let mut predicted = false;
+        let mut interpolated = false;
         // update the write function to use the delta compression logic
         if let Some(replication) = metadata.replication.as_mut() {
             replication.config.delta_compression = true;
+            predicted = replication.predicted;
+            interpolated = replication.interpolated;
         }
 
         // add serialization/replication for C::Delta
@@ -57,11 +62,15 @@ impl ComponentRegistry {
         // add write/remove functions associated with the delta component's net_id
         // (since the serialized message will contain the delta component's net_id)
         let delta_metadata = self.component_metadata_map.get_mut(&delta_kind).unwrap();
-        delta_metadata.replication = Some(ReplicationMetadata::new(
+        let mut new_metadata = ReplicationMetadata::new(
             ComponentReplicationConfig::default(),
             ComponentId::new(0),
             buffer_insert_delta::<C>,
-        ));
+        );
+        // TODO: delta compression must be applied AFTER prediction/interpolation
+        new_metadata.set_predicted(predicted);
+        new_metadata.set_interpolated(interpolated);
+        delta_metadata.replication = Some(new_metadata);
     }
 
     /// # Safety
@@ -185,6 +194,7 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
     let entity = entity_mut.entity.id();
     let delta = deserialize.deserialize(entity_map, reader)?;
     trace!(
+        ?synced,
         ?kind,
         ?component_id,
         delta_type = ?delta.delta_type,
@@ -247,8 +257,13 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
                         *c = new_value;
                     }
                 } else {
+                    trace!(
+                        ?entity,
+                        "Insert Confirmed<{:?}>",
+                        DebugName::type_name::<C>()
+                    );
                     // use the component id of C, not DeltaMessage<C>
-                    // SAFETY: we are inserting a component of type C, which matches the component_id
+                    // SAFETY: we are inserting a component of type Confirmed<C>, which matches the component_id
                     unsafe {
                         entity_mut
                             .buffered
@@ -272,14 +287,13 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
 
             // store the component value in the delta component history, so that we can compute
             // diffs from it
-            if let Some(mut history) = entity_mut.entity.get_mut::<DeltaComponentHistory<C>>() {
-                history.buffer.insert(tick, cloned_value);
-            } else {
-                // create a DeltaComponentHistory and insert the value
-                let mut history = DeltaComponentHistory::default();
-                history.buffer.insert(tick, cloned_value);
-                entity_mut.entity.insert(history);
-            }
+            entity_mut
+                .entity
+                .entry::<DeltaComponentHistory<C>>()
+                .or_default()
+                .get_mut()
+                .buffer
+                .insert(tick, cloned_value);
         }
     }
     Ok(())

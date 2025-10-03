@@ -1,9 +1,11 @@
-#![allow(unreachable_code)]
-use avian2d::dynamics::solver::constraint_graph::ConstraintGraph;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
-use avian2d::{physics_transform::*, prelude::*};
+use avian2d::{
+    dynamics::solver::constraint_graph::ConstraintGraph, physics_transform::*, prelude::*,
+};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
-use avian3d::{physics_transform::*, prelude::*};
+use avian3d::{
+    dynamics::solver::constraint_graph::ConstraintGraph, physics_transform::*, prelude::*,
+};
 use bevy_app::prelude::*;
 use bevy_ecs::change_detection::Res;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};

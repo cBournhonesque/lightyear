@@ -1,9 +1,9 @@
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use lightyear::input::bei::prelude::{InputPlugin, InputAction};
+use lightyear::input::bei::prelude::{InputAction, InputPlugin};
+use lightyear::prelude::input::InputRegistryExt;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use lightyear::prelude::input::InputRegistryExt;
 
 // Components
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -53,7 +53,6 @@ pub struct Admin;
 #[derive(Debug, InputAction)]
 #[action_output(bool)]
 pub struct SpawnPlayer;
-
 
 pub(crate) struct ProtocolPlugin;
 

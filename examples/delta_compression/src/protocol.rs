@@ -142,10 +142,10 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPosition>()
-            // NOTE: remember to add delta compression in the protocol!
-            .add_delta_compression()
             .add_prediction()
-            .add_linear_interpolation();
+            .add_linear_interpolation()
+            // NOTE: currently there is a limitation that DeltaCompression must be added AFTER prediction/interpolation
+            .add_delta_compression();
 
         app.register_component::<PlayerColor>();
     }

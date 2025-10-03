@@ -18,7 +18,6 @@ use tracing::{debug, info};
 #[cfg(feature = "server")]
 use {lightyear_inputs::server::ServerInputConfig, lightyear_replication::prelude::ReplicateLike};
 
-
 // TODO: ideally we would have an entity-mapped that is PreSpawn aware. If you include an entity
 //   that is PreSpawned, then in the entity-mapper we use a Query<Entity, With<PreSpawned>> to check the hash
 //   of the entity and serialize it as the hash. Then the receiving entity mapper could look up the corresponding
@@ -27,7 +26,6 @@ use {lightyear_inputs::server::ServerInputConfig, lightyear_replication::prelude
 //        update its entity maps, then the component map entity will work correctly. We just need to make sure that C1 is also Prespawned,
 //        which we could do in ReplicateLike Propagation? (but how to do it on the receiver side?)
 //
-
 
 pub struct InputRegistryPlugin;
 
@@ -74,7 +72,7 @@ impl InputRegistryPlugin {
         if let Ok(action_of) = action.get(entity) {
             let context_entity = action_of.get();
             debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", DebugName::type_name::<C>());
-                commands.entity(entity).insert((Replicate::to_server(),));
+            commands.entity(entity).insert((Replicate::to_server(),));
         }
     }
 
