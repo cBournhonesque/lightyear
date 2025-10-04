@@ -29,7 +29,8 @@ pub mod plugin;
 
 #[cfg(feature = "2d")]
 mod correction_2d;
-
+#[cfg(feature = "3d")]
+mod correction_3d;
 /// Commonly used items for Lightyear Avian integration.
 pub mod prelude {
     #[cfg(feature = "lag_compensation")]

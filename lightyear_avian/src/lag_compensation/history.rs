@@ -65,8 +65,6 @@ pub type LagCompensationHistory = HistoryBuffer<(Position, Rotation, ColliderAab
 
 impl Plugin for LagCompensationPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<LagCompensationHistory>();
-
         app.init_resource::<LagCompensationConfig>();
         app.add_observer(spawn_broad_phase_aabb_envelope);
         // We want the history buffer at tick N to contain the collider state (Position, Rotation)
@@ -85,19 +83,19 @@ impl Plugin for LagCompensationPlugin {
         app.configure_sets(
             PhysicsSchedule,
             (
-                PhysicsStepSet::Solver,
+                PhysicsStepSystems::Solver,
                 // the history must be updated before the SpatialQuery is updated
-                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::Sleeping),
-                PhysicsStepSet::SpatialQuery,
+                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSystems::Sleeping),
+                PhysicsStepSystems::SpatialQuery,
                 // collisions must run after the SpatialQuery has been updated
                 // NOTE: we set it as ambiguous with Finalize, but maybe we should run before?
-                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSet::Finalize),
+                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSystems::Finalize),
             )
                 .chain(),
         );
         app.configure_sets(
             FixedPostUpdate,
-            LagCompensationSet::Collisions.after(PhysicsSet::Sync),
+            LagCompensationSet::Collisions.after(PhysicsSystems::Prepare),
         );
     }
 }

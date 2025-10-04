@@ -222,8 +222,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(Inputs, PlayerId, PlayerPosition, PlayerColor)>();
-
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

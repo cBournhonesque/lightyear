@@ -315,17 +315,7 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(
-            GameReplicationMode,
-            ProjectileReplicationMode,
-            Actions<PlayerMarker>,
-            ActionOf<PlayerMarker>,
-            ActionOfWrapper<PlayerContext>,
-            BulletMarker,
-            PlayerId,
-            ColorComponent,
-            Score,
-        )>();
+        app.register_type::<(Actions<PlayerMarker>, ActionOf<PlayerMarker>)>();
 
         // inputs
         app.add_plugins(InputPlugin::new(InputConfig::<PlayerContext> {
@@ -376,8 +366,7 @@ impl Plugin for ProtocolPlugin {
             .add_prediction()
             .add_should_rollback(rotation_should_rollback)
             .add_linear_interpolation()
-            .add_linear_interpolation_fn();
-        // .add_linear_correction_fn();
+            .add_linear_correction_fn();
 
         app.register_component::<LinearVelocity>().add_prediction();
 
@@ -413,12 +402,9 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerRoom>();
 
         app.register_component::<PhysicsProjectile>()
-            .add_prediction()
-            .add_linear_interpolation();
+            .add_prediction();
 
-        app.register_component::<HomingMissile>()
-            .add_prediction()
-            .add_linear_interpolation();
+        app.register_component::<HomingMissile>().add_prediction();
 
         app.register_component::<ShotgunPellet>();
 

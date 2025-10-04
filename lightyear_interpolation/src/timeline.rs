@@ -242,7 +242,6 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<InterpolationTimeline>();
         app.register_required_components::<Client, InterpolationTimeline>();
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
         app.add_systems(PreUpdate, Self::advance_timeline);

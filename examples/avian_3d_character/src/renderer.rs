@@ -32,9 +32,7 @@ impl Plugin for ExampleRendererPlugin {
         // - we use ReplicateOnce and DisableRollback to stop replicating any packets for these bullets
         app.add_systems(
             PreUpdate,
-            (add_projectile_cosmetics)
-                .after(PredictionSet::Sync)
-                .before(RollbackSet::Check),
+            add_projectile_cosmetics.before(RollbackSet::Check),
         );
 
         // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate

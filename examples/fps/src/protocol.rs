@@ -80,12 +80,14 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Position>()
             .add_prediction()
             .add_linear_interpolation()
-            .add_linear_correction_fn();
+            // we enable correction without applying Correction on Position.
+            // Instead we will apply Correction/FrameInterpolation on Transform directly.
+            .enable_correction();
 
         app.register_component::<Rotation>()
             .add_prediction()
             .add_linear_interpolation()
-            .add_linear_correction_fn();
+            .enable_correction();
 
         app.register_component::<ColorComponent>();
 

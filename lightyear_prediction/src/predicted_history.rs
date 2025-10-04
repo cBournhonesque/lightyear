@@ -12,7 +12,8 @@ use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::prelude::{Confirmed, PreSpawned};
 use lightyear_sync::prelude::Input;
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 pub type PredictionHistory<C> = HistoryBuffer<C>;
 

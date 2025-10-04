@@ -184,8 +184,6 @@ pub enum VisibilitySet {
 
 impl Plugin for NetworkVisibilityPlugin {
     fn build(&self, app: &mut App) {
-        // REFLECT
-        app.register_type::<NetworkVisibility>();
         // SYSTEMS
         app.configure_sets(
             PostUpdate,

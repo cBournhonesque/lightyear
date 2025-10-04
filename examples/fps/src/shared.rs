@@ -1,3 +1,4 @@
+use crate::protocol::*;
 use avian2d::prelude::*;
 use avian2d::PhysicsPlugins;
 use bevy::diagnostic::LogDiagnosticsPlugin;
@@ -9,10 +10,8 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::prediction::plugin::PredictionSet;
 use lightyear::prediction::predicted_history::PredictionHistory;
-use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::*;
-
-use crate::protocol::*;
+use lightyear_avian2d::plugin::AvianReplicationMode;
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
@@ -26,7 +25,11 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        app.register_type::<PlayerId>();
+
+        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::PositionButInterpolateTransform,
+            ..default()
+        });
 
         app.add_systems(PreUpdate, despawn_after);
 
@@ -113,7 +116,7 @@ fn player_movement(
 
 fn predicted_bot_movement(
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
-    mut query: Query<&mut Position, (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>)>,
+    mut query: Query<&mut Position, With<PredictedBot>>,
 ) {
     let tick = timeline.tick();
     query.iter_mut().for_each(|mut position| {
@@ -124,10 +127,7 @@ fn predicted_bot_movement(
 
 fn log_predicted_bot_transform(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    query: Query<
-        (&Position, &Transform),
-        (With<PredictedBot>, Or<(With<Predicted>, With<Replicating>)>),
-    >,
+    query: Query<(&Position, &Transform), With<PredictedBot>>,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
@@ -140,8 +140,13 @@ pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>)>,
     predicted_bullet: Query<
-        (Entity, &Transform, Option<&PredictionHistory<Transform>>),
-        (With<BulletMarker>),
+        (
+            Entity,
+            &Position,
+            &Transform,
+            Option<&PredictionHistory<Transform>>,
+        ),
+        With<BulletMarker>,
     >,
 ) {
     let (timeline, is_rollback) = timeline.into_inner();
@@ -154,11 +159,12 @@ pub(crate) fn fixed_update_log(
             "Player after fixed update"
         );
     }
-    for (entity, transform, history) in predicted_bullet.iter() {
-        debug!(
+    for (entity, position, transform, history) in predicted_bullet.iter() {
+        info!(
             ?tick,
             ?entity,
-            pos = ?transform.translation.truncate(),
+            ?position,
+            transform = ?transform.translation.truncate(),
             ?history,
             "Bullet after fixed update"
         );
@@ -250,7 +256,7 @@ fn despawn_after(
 ) {
     for (entity, mut despawn_after) in query.iter_mut() {
         despawn_after.0.tick(time.delta());
-        if despawn_after.0.finished() {
+        if despawn_after.0.is_finished() {
             commands.entity(entity).despawn();
         }
     }

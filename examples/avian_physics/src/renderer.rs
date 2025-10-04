@@ -28,7 +28,7 @@ impl Plugin for ExampleRendererPlugin {
         // since rendering is done via Gizmos that only depend on Position/Rotation)
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
         app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
-        app.add_observer(add_visual_interpolation_components);
+        app.add_observer(add_frame_interpolation_components);
 
         if self.show_confirmed {
             app.add_systems(
@@ -41,20 +41,21 @@ impl Plugin for ExampleRendererPlugin {
     }
 }
 
-fn add_visual_interpolation_components(
+/// Predicted entities get updated in FixedUpdate, so we want to smooth/interpolate
+/// their components in PostUpdate
+fn add_frame_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
     trigger: On<Add, Position>,
     query: Query<Entity, With<Predicted>>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.entity) {
-        return;
+    if query.contains(trigger.entity) {
+        commands.entity(trigger.entity).insert((
+            FrameInterpolate::<Position>::default(),
+            FrameInterpolate::<Rotation>::default(),
+        ));
     }
-    commands.entity(trigger.entity).insert((
-        FrameInterpolate::<Position>::default(),
-        FrameInterpolate::<Rotation>::default(),
-    ));
 }
 
 fn init(mut commands: Commands) {

@@ -8,7 +8,6 @@ use bevy_ptr::Ptr;
 use core::ptr::NonNull;
 use dashmap::DashMap;
 use lightyear_core::prelude::Tick;
-use lightyear_messages::Message;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -40,23 +39,18 @@ pub struct DeltaMessage<M> {
 /// - your component contains a hashmap, and your delta is `Add(key, value)` and `Remove(key)`
 /// - your component is a struct with multiple fields, and your delta only contains data for the fields that changed.
 ///   (to avoid sending the full struct every time over the network)
-pub trait Diffable: Clone {
-    // /// Set to true if the Deltas are idempotent (applying the same delta multiple times has no effect)
-    // const IDEMPOTENT: bool;
-    /// The type of the delta between two states
-    type Delta: Message;
-
+pub trait Diffable<Delta = Self>: Clone {
     /// For the first message (when there is no diff possible), instead of sending the full state
     /// we can compute a delta compared to the `Base` default state
     fn base_value() -> Self;
 
     /// Compute the diff from the old state (self) to the new state (new).
     /// i.e. new - self
-    fn diff(&self, new: &Self) -> Self::Delta;
+    fn diff(&self, new: &Self) -> Delta;
 
     /// Apply a delta to the current state to reach the new state
     /// i.e. self + delta
-    fn apply_diff(&mut self, delta: &Self::Delta);
+    fn apply_diff(&mut self, delta: &Delta);
 }
 
 /// Store a history of past delta-component values so we can apply diffs properly
@@ -226,18 +220,16 @@ mod tests {
     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
     pub struct Comp1(pub usize);
 
-    impl Diffable for Comp1 {
-        type Delta = usize;
-
+    impl Diffable<usize> for Comp1 {
         fn base_value() -> Self {
             Self(0)
         }
 
-        fn diff(&self, other: &Self) -> Self::Delta {
+        fn diff(&self, other: &Self) -> usize {
             other.0 - self.0
         }
 
-        fn apply_diff(&mut self, delta: &Self::Delta) {
+        fn apply_diff(&mut self, delta: &usize) {
             self.0 += *delta;
         }
     }

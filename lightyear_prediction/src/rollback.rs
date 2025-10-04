@@ -69,9 +69,6 @@ pub struct RollbackPlugin;
 
 impl Plugin for RollbackPlugin {
     fn build(&self, app: &mut App) {
-        // REFLECT
-        app.register_type::<RollbackState>();
-
         // SETS
         app.configure_sets(
             PreUpdate,
@@ -164,7 +161,7 @@ impl Plugin for RollbackPlugin {
     }
 }
 
-#[derive(Component, PartialEq, Serialize, Deserialize)]
+#[derive(Component, PartialEq, Debug, Serialize, Deserialize)]
 /// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
 /// but it won't check for rollback from state updates.
 ///
@@ -225,7 +222,7 @@ fn check_rollback(
     ) = receiver_query.into_inner();
     let tick = local_timeline.tick();
     let received_state = replication_receiver.received_this_frame;
-    debug!(?received_state, ?tick, "Check rollback");
+    trace!(?received_state, ?tick, "Check rollback");
     let mut skip_state_check = false;
 
     let do_rollback = move |rollback_tick: Tick,
@@ -286,9 +283,9 @@ fn check_rollback(
     replication_receiver.received_this_frame = false;
 
     if !skip_state_check {
-        debug!(?tick, "Checking for state-based rollback");
+        trace!(?tick, "Checking for state-based rollback");
         predicted_entities.par_iter_mut().for_each(|mut entity_mut| {
-            debug!("Checking rollback for entity {:?}", entity_mut.id());
+            trace!("Checking rollback for entity {:?}", entity_mut.id());
             // TODO: should we introduce a Rollback marker component?
             // we already know we are in rollback, no need to check again
             if prediction_manager.is_rollback() {
@@ -476,7 +473,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             Option<&Confirmed<C>>,
             Option<&mut C>,
             &mut PredictionHistory<C>,
-            &ConfirmedTick,
+            Option<&ConfirmedTick>,
             AnyOf<(&Predicted, &PreSpawned, &DeterministicPredicted)>,
         ),
         Without<DisableRollback>,
@@ -523,7 +520,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 trace!(?entity, "Rollback to the confirmed state");
                 // Confirm that we are in rollback, with the correct tick
                 debug_assert_eq!(
-                    rollback_tick, confirmed.tick,
+                    rollback_tick,
+                    confirmed.unwrap().tick,
                     "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {entity:?}. Are all predicted entities in the same replication group?",
                 );
                 (confirmed_component.map(|c| &c.0), false)
@@ -533,6 +531,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 trace!(
                     ?entity,
                     ?prespawned,
+                    ?disable_state_rollback,
                     ?is_non_networked,
                     "Rollback to the value stored in the PredictionHistory"
                 );

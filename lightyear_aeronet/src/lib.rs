@@ -189,9 +189,6 @@ impl Plugin for AeronetPlugin {
             app.add_plugins(LinkPlugin);
         }
 
-        app.register_type::<AeronetLinkOf>()
-            .register_type::<AeronetLink>();
-
         app.add_observer(Self::on_local_addr_added);
         app.add_observer(Self::on_peer_addr_added);
         app.add_observer(Self::on_connecting);

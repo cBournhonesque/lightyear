@@ -1,9 +1,9 @@
 use super::interpolation_history::{apply_confirmed_update, insert_confirmed_history};
+use crate::SyncComponent;
 use crate::despawn::removed_components;
 use crate::interpolate::{interpolate, update_confirmed_history};
 use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
-use crate::{Interpolated, SyncComponent};
 use bevy_app::{App, Plugin, PreUpdate, Update};
 use bevy_ecs::{
     component::Component,
@@ -125,10 +125,6 @@ impl Plugin for InterpolationPlugin {
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();
-
-        // REFLECT
-        app.register_type::<InterpolationDelay>()
-            .register_type::<Interpolated>();
 
         // SETS
         app.configure_sets(

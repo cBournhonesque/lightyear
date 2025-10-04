@@ -502,7 +502,6 @@ impl Plugin for DebugUIPlugin {
         if !app.is_plugin_added::<RegistryPlugin>() {
             app.add_plugins(RegistryPlugin::default());
         }
-        app.register_type::<MetricsPanelSettings>();
         app.init_resource::<MetricsPanelSettings>();
         app.init_resource::<MetricsPanelLayout>();
         app.insert_resource(VisibilityFilter {

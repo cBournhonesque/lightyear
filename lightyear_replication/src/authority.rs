@@ -92,7 +92,6 @@ pub struct AuthorityPlugin;
 
 impl Plugin for AuthorityPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<AuthorityTransfer>();
         app.add_channel::<AuthorityChannel>(ChannelSettings {
             mode: ChannelMode::SequencedReliable(ReliableSettings::default()),
             send_frequency: Default::default(),

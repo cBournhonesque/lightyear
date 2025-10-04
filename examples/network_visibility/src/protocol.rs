@@ -53,7 +53,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Inputs>();
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components

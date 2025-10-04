@@ -4,8 +4,10 @@ use bevy::prelude::*;
 use core::hash::Hash;
 
 use crate::protocol::*;
+use avian3d::prelude::forces::ForcesItem;
 use avian3d::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::avian3d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prelude::*;
@@ -24,8 +26,6 @@ pub const CHARACTER_CAPSULE_HEIGHT: f32 = 0.5;
 pub(crate) struct CharacterPhysicsBundle {
     collider: Collider,
     rigid_body: RigidBody,
-    external_force: ExternalForce,
-    external_impulse: ExternalImpulse,
     lock_axes: LockedAxes,
     friction: Friction,
 }
@@ -35,8 +35,6 @@ impl Default for CharacterPhysicsBundle {
         Self {
             collider: Collider::capsule(CHARACTER_CAPSULE_RADIUS, CHARACTER_CAPSULE_HEIGHT),
             rigid_body: RigidBody::Dynamic,
-            external_force: ExternalForce::ZERO.with_persistence(false),
-            external_impulse: ExternalImpulse::ZERO.with_persistence(false),
             lock_axes: LockedAxes::default()
                 .lock_rotation_x()
                 .lock_rotation_y()
@@ -84,15 +82,17 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
 
         // Physics
-
+        app.add_plugins(lightyear::avian3d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position,
+            ..default()
+        });
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
                 // disable the position<>transform sync plugins as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
-                .disable::<PhysicsInterpolationPlugin>()
-                // disable Sleeping plugin as it can mess up physics rollbacks
-                .disable::<IslandSleepingPlugin>(),
+                .disable::<PhysicsInterpolationPlugin>(), // disable Sleeping plugin as it can mess up physics rollbacks
+                                                          // .disable::<IslandSleepingPlugin>(),
         );
 
         // Debug
@@ -110,23 +110,14 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     Color::hsl(h, s, l)
 }
 
-#[derive(QueryData)]
-#[query_data(mutable, derive(Debug))]
-pub struct CharacterQuery {
-    pub external_force: &'static mut ExternalForce,
-    pub external_impulse: &'static mut ExternalImpulse,
-    pub linear_velocity: &'static LinearVelocity,
-    pub mass: &'static ComputedMass,
-    pub position: &'static Position,
-    pub entity: Entity,
-}
-
 /// Apply the character actions `action_state` to the character entity `character`.
 pub fn apply_character_action(
+    entity: Entity,
+    mass: &ComputedMass,
     time: &Res<Time>,
     spatial_query: &SpatialQuery,
     action_state: &ActionState<CharacterAction>,
-    character: &mut CharacterQueryItem,
+    mut forces: ForcesItem,
 ) {
     const MAX_SPEED: f32 = 5.0;
     const MAX_ACCELERATION: f32 = 20.0;
@@ -136,7 +127,7 @@ pub fn apply_character_action(
 
     // Handle jumping.
     if action_state.just_pressed(&CharacterAction::Jump) {
-        let ray_cast_origin = character.position.0
+        let ray_cast_origin = forces.position().0
             + Vec3::new(
                 0.0,
                 -CHARACTER_CAPSULE_HEIGHT / 2.0 - CHARACTER_CAPSULE_RADIUS,
@@ -153,13 +144,11 @@ pub fn apply_character_action(
                 Dir3::NEG_Y,
                 0.01,
                 true,
-                &SpatialQueryFilter::from_excluded_entities([character.entity]),
+                &SpatialQueryFilter::from_excluded_entities([entity]),
             )
             .is_some()
         {
-            character
-                .external_impulse
-                .apply_impulse(Vec3::new(0.0, 5.0, 0.0));
+            forces.apply_linear_impulse(Vec3::new(0.0, 5.0, 0.0));
         }
     }
 
@@ -170,11 +159,8 @@ pub fn apply_character_action(
     let move_dir = Vec3::new(-move_dir.x, 0.0, move_dir.y);
 
     // Linear velocity of the character ignoring vertical speed.
-    let ground_linear_velocity = Vec3::new(
-        character.linear_velocity.x,
-        0.0,
-        character.linear_velocity.z,
-    );
+    let linear_velocity = forces.linear_velocity();
+    let ground_linear_velocity = Vec3::new(linear_velocity.x, 0.0, linear_velocity.z);
 
     let desired_ground_linear_velocity = move_dir * MAX_SPEED;
 
@@ -195,9 +181,7 @@ pub fn apply_character_action(
     let required_acceleration =
         (new_ground_linear_velocity - ground_linear_velocity) / time.delta_secs();
 
-    character
-        .external_force
-        .apply_force(required_acceleration * character.mass.value());
+    forces.apply_force(required_acceleration * mass.value());
 }
 
 pub(crate) fn fixed_last_log(

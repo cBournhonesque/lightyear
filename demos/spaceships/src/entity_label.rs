@@ -1,4 +1,4 @@
-use bevy::prelude::TransformSystem::TransformPropagate;
+use avian2d::prelude::*;
 /// Utility plugin to display a text label next to an entity.
 ///
 /// Label will track parent position, ignoring rotation.
@@ -14,7 +14,8 @@ impl Plugin for EntityLabelPlugin {
             (label_added, label_changed, fix_entity_label_rotations)
                 .chain()
                 .after(FrameInterpolationSet::Interpolate)
-                .before(TransformPropagate),
+                .after(PhysicsSystems::Writeback)
+                .before(TransformSystems::Propagate),
         );
     }
 }
@@ -60,7 +61,7 @@ fn label_added(
                 EntityLabelChild,
                 ChildOf(e),
                 TextLayout {
-                    justify: JustifyText::Center,
+                    justify: Justify::Center,
                     linebreak: LineBreak::NoWrap,
                 },
                 Text2d(label.text.clone()),

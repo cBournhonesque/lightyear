@@ -15,8 +15,6 @@ use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::ApplyInputsQuery;
-use crate::shared::ApplyInputsQueryItem;
 use crate::shared::{apply_action_state_to_player_movement, color_from_id};
 
 // Plugin for server-specific logic
@@ -50,7 +48,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>)
+                .run_if(on_message::<BulletHitMessage>)
                 .after(shared::process_collisions),
         );
     }
@@ -204,7 +202,7 @@ const NAMES: [&str; 35] = [
 /// the `Score` component is a simple replication. Score is fully server-authoritative.
 pub(crate) fn handle_hit_event(
     peer_metadata: Res<PeerMetadata>,
-    mut events: EventReader<BulletHitEvent>,
+    mut events: MessageReader<BulletHitMessage>,
     mut player_q: Query<(&Player, &mut Score)>,
 ) {
     let client_id_to_player_entity =
@@ -232,18 +230,18 @@ pub(crate) fn handle_hit_event(
 /// (i.e. we consider that the player kept pressing the same keys).
 /// see: https://github.com/cBournhonesque/lightyear/issues/492
 pub(crate) fn player_movement(
-    mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), With<Player>>,
+    mut q: Query<(&ActionState<PlayerActions>, &Player, Forces), With<Player>>,
     timeline: Single<&LocalTimeline, With<Server>>,
 ) {
     let tick = timeline.tick();
-    for (action_state, mut aiq) in q.iter_mut() {
+    for (action_state, player, forces) in q.iter_mut() {
         if !action_state.get_pressed().is_empty() {
             trace!(
                 "🎹 {:?} {tick:?} = {:?}",
-                aiq.player.client_id,
+                player.client_id,
                 action_state.get_pressed(),
             );
         }
-        apply_action_state_to_player_movement(action_state, &mut aiq, tick);
+        apply_action_state_to_player_movement(action_state, forces, tick);
     }
 }

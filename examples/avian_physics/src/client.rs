@@ -3,6 +3,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
+use lightyear::connection::host::HostClient;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -50,7 +51,9 @@ fn add_ball_physics(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    timeline: Single<&LocalTimeline, With<Client>>,
+    // In host-server mode, the players are already moved by the server system so we don't want
+    // to move them twice.
+    timeline: Single<&LocalTimeline, (With<Client>, Without<HostClient>)>,
     mut velocity_query: Query<
         (
             Entity,

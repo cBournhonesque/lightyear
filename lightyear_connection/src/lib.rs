@@ -24,11 +24,6 @@ extern crate core;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::SystemSet;
 
-use crate::client::{Client, Connected, Connecting, Disconnected};
-use crate::client_of::ClientOf;
-#[cfg(feature = "server")]
-use crate::server::{Started, Stopped};
-
 pub mod client;
 
 #[cfg(feature = "server")]
@@ -84,10 +79,5 @@ pub mod prelude {
 pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {
-    fn build(&self, app: &mut App) {
-        app.register_type::<(Client, ClientOf, Connected, Connecting, Disconnected)>();
-
-        #[cfg(feature = "server")]
-        app.register_type::<(Started, Stopped)>();
-    }
+    fn build(&self, _: &mut App) {}
 }

@@ -25,7 +25,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>)
+                .run_if(on_message::<BulletHitMessage>)
                 .after(process_collisions),
         );
     }
@@ -98,7 +98,7 @@ fn handle_new_player(
 // Generate an explosion effect for bullet collisions
 fn handle_hit_event(
     time: Res<Time>,
-    mut events: EventReader<BulletHitEvent>,
+    mut events: MessageReader<BulletHitMessage>,
     mut commands: Commands,
 ) {
     for ev in events.read() {
@@ -112,22 +112,22 @@ fn handle_hit_event(
 
 // only apply movements to predicted entities
 fn player_movement(
-    mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), (With<Player>, With<Predicted>)>,
+    mut q: Query<(&ActionState<PlayerActions>, &Player, Forces), (With<Player>, With<Predicted>)>,
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
 ) {
     // get the tick, even if during rollback
     let tick = timeline.tick();
 
-    for (action_state, mut aiq) in q.iter_mut() {
+    for (action_state, player, forces) in q.iter_mut() {
         if !action_state.get_pressed().is_empty() {
             trace!(
                 "🎹 {:?} {tick:?} = {:?}",
-                aiq.player.client_id,
+                player.client_id,
                 action_state.get_pressed(),
             );
         }
         // if we haven't received any input for some tick, lightyear will predict that the player is still pressing the same keys.
         // (it does that by not modifying the ActionState, so it will still have the last pressed keys)
-        apply_action_state_to_player_movement(action_state, &mut aiq, tick);
+        apply_action_state_to_player_movement(action_state, forces, tick);
     }
 }

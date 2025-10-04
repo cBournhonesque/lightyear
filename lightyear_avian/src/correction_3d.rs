@@ -5,12 +5,12 @@
 /// - Correction/FrameInterpolation are a visual concern, so it would be better for them to be applied to Transform.
 ///
 /// At the end of a rollback, we will convert Position/Rotation to Transform so that we can do FrameInterpolation and Correction in Transform space.
-use avian2d::math::{AsF32, Quaternion};
-use avian2d::prelude::*;
+use avian3d::math::AsF32;
+use avian3d::prelude::*;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_math::curve::{EaseFunction, EasingCurve};
-use bevy_math::{Curve, Isometry2d, Vec3};
+use bevy_math::{Curve, Isometry3d, Vec3};
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_transform::prelude::Transform;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -21,8 +21,7 @@ use lightyear_prediction::manager::PredictionManager;
 use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_replication::delta::Diffable;
-#[allow(unused_imports)]
-use tracing::{info, trace};
+use tracing::trace;
 
 #[allow(dead_code)]
 pub struct Correction2DPlugin;
@@ -41,6 +40,9 @@ impl Plugin for Correction2DPlugin {
 /// Right after RollbackEnds, we need to convert from Position/Rotation into:
 /// - an update of FrameInterpolate Transform
 /// - adding a VisualCorrection that can be applied to Transform
+///
+/// Position operates in Global space, but the correction is just a delta so it works in both global or relative space.
+/// Hence we don't need to worry about parent propagation.
 pub(crate) fn update_frame_interpolation_post_rollback(
     time: Res<Time<Fixed>>,
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
@@ -57,7 +59,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     )>,
     mut commands: Commands,
 ) {
-    // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
+    // NOTE: this is the overstep from the previous frame since w are running this before RunFixedMainLoop
     let overstep = time.overstep_fraction();
     let tick = timeline.tick();
     for (
@@ -83,7 +85,6 @@ pub(crate) fn update_frame_interpolation_post_rollback(
             continue;
         };
         let before_last_correct_transform = to_transform(before_last_pos, before_last_rot);
-        // TODO: here we might need the Parent to correctly get the Transform! What we have is actually the GlobalTransform!
         interpolate.current_value = Some(last_correct_transform.clone());
         interpolate.previous_value = Some(before_last_correct_transform.clone());
         let current_visual = registry.interpolate(
@@ -108,7 +109,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         );
         commands
             .entity(entity)
-            .insert(VisualCorrection::<Isometry2d> { error })
+            .insert(VisualCorrection::<Isometry3d> { error })
             .remove::<(PreviousVisual<Position>, PreviousVisual<Rotation>)>();
     }
 }
@@ -123,7 +124,7 @@ pub(crate) fn add_visual_correction(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
     manager: Single<&PredictionManager>,
-    mut query: Query<(Entity, &mut Transform, &mut VisualCorrection<Isometry2d>)>,
+    mut query: Query<(Entity, &mut Transform, &mut VisualCorrection<Isometry3d>)>,
     mut commands: Commands,
 ) {
     let r = manager.correction_policy.lerp_ratio(time.delta());
@@ -132,23 +133,23 @@ pub(crate) fn add_visual_correction(
         .for_each(|(entity, mut component, mut visual_correction)| {
             if !prediction.should_rollback(
                 &Position::default(),
-                &Position(visual_correction.error.translation),
+                &Position(visual_correction.error.translation.into()),
             ) && !prediction.should_rollback(
                 &Rotation::default(),
                 &Rotation::from(visual_correction.error.rotation),
             ) {
                 trace!(
                     ?visual_correction,
-                    "Removing VisualCorrection<Isometry2d> since it is already small enough",
+                    "Removing VisualCorrection<Isometry3d> since it is already small enough",
                 );
                 commands
                     .entity(entity)
-                    .remove::<VisualCorrection<Isometry2d>>();
+                    .remove::<VisualCorrection<Isometry3d>>();
                 return;
             }
             let previous_error = visual_correction.error.clone();
             let new_error =
-                EasingCurve::new(Isometry2d::default(), previous_error, EaseFunction::Linear)
+                EasingCurve::new(Isometry3d::default(), previous_error, EaseFunction::Linear)
                     .sample_unchecked(r);
             component.bypass_change_detection().apply_diff(&new_error);
             trace!(
@@ -157,7 +158,7 @@ pub(crate) fn add_visual_correction(
                 ?previous_error,
                 ?new_error,
                 ?r,
-                "Applied VisualCorrection<Isometry2d> and decaying error",
+                "Applied VisualCorrection<Isometry3d> and decaying error",
             );
             visual_correction.error = new_error;
         });
@@ -165,9 +166,9 @@ pub(crate) fn add_visual_correction(
 
 fn to_transform(pos: &Position, rot: &Rotation) -> Transform {
     Transform {
-        translation: pos.f32().extend(0.0),
-        rotation: Quaternion::from(*rot).f32(),
-        // TODO: handle scale ?
+        translation: pos.f32(),
+        rotation: rot.f32(),
+        // TODO: handle scale
         scale: Vec3::ONE,
     }
 }

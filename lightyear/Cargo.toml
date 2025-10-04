@@ -145,9 +145,15 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 ##       enable essential features (like f32 or f64).
 ## Use avian2d
-avian2d = ["dep:lightyear_avian2d"]
+avian2d = [
+  "dep:lightyear_avian2d",
+  "lightyear_replication?/avian2d"
+]
 ## Use avian3d
-avian3d = ["dep:lightyear_avian3d"]
+avian3d = [
+  "dep:lightyear_avian3d",
+  "lightyear_replication?/avian3d"
+]
 
 # IO LAYERS
 ## Enables UDP as an IO layer

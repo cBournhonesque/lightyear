@@ -561,7 +561,7 @@ fn setup_stepper_for_input_rollback(
     stepper.client_apps[0]
         .world_mut()
         .entity_mut(client_entity_a)
-        .insert(DeterministicPredicted);
+        .insert((DeterministicPredicted, CompNotNetworked(1.0)));
     let client_entity_b = stepper
         .client(0)
         .get::<MessageManager>()
@@ -589,12 +589,13 @@ fn setup_stepper_for_input_rollback(
 /// Test that we rollback from the last confirmed input when RollbackMode::Always for inputs
 #[test]
 fn test_input_rollback_always_mode() {
-    let (mut stepper, _, _, _, _) = setup_stepper_for_input_rollback(RollbackMode::Always);
+    let (mut stepper, _, _, client_entity, _) =
+        setup_stepper_for_input_rollback(RollbackMode::Always);
 
     // build a steady state where have already received an input
     stepper.frame_step(2);
 
-    // send input message to server
+    // send input message from client 1/2 to server
     stepper.frame_step(1);
     let input_tick = stepper.client_tick(1);
 
@@ -619,7 +620,14 @@ fn test_input_rollback_always_mode() {
             .before(reset_input_rollback_tracker),
     );
 
-    // server broadcast input message to clients
+    // modify the CompNotNetworked component
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<CompNotNetworked>(client_entity)
+        .unwrap()
+        .0 = 2.0;
+
+    // server broadcast input message to clients (including client 0)
     stepper.frame_step_server_first(1);
 
     // after the rollback, the last_confirmed_input is reset
@@ -631,6 +639,15 @@ fn test_input_rollback_always_mode() {
             .tick
             .get(),
         input_tick
+    );
+    // also check that the component was reset to the value it had in the history
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<CompNotNetworked>(client_entity)
+            .unwrap()
+            .0,
+        1.0
     );
 }
 

@@ -18,11 +18,6 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<PlayerId>();
-        app.register_type::<PlayerColor>();
-        app.register_type::<Position>();
-        app.register_type::<Speed>();
-
         app.add_plugins(ProtocolPlugin);
         app.add_systems(FixedUpdate, ball_movement);
     }

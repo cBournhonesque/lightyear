@@ -68,7 +68,7 @@ pub struct CompSimple(pub f32);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompOnce(pub f32);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default, Reflect)]
 pub struct CompCorr(pub f32);
 
 impl Ease for CompCorr {
@@ -80,17 +80,15 @@ impl Ease for CompCorr {
 }
 
 impl Diffable for CompCorr {
-    type Delta = CompCorr;
-
     fn base_value() -> Self {
         Self(0.0)
     }
 
-    fn diff(&self, other: &Self) -> Self::Delta {
+    fn diff(&self, other: &Self) -> Self {
         Self(other.0 - self.0)
     }
 
-    fn apply_diff(&mut self, delta: &Self::Delta) {
+    fn apply_diff(&mut self, delta: &Self) {
         self.0 += delta.0;
     }
 }
@@ -100,18 +98,16 @@ pub struct CompNotNetworked(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompDelta(pub usize);
-impl Diffable for CompDelta {
-    type Delta = usize;
-
+impl Diffable<usize> for CompDelta {
     fn base_value() -> Self {
         Self(0)
     }
 
-    fn diff(&self, other: &Self) -> Self::Delta {
+    fn diff(&self, other: &Self) -> usize {
         other.0 - self.0
     }
 
-    fn apply_diff(&mut self, delta: &Self::Delta) {
+    fn apply_diff(&mut self, delta: &usize) {
         self.0 += *delta;
     }
 }

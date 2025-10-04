@@ -79,11 +79,12 @@ pub(crate) fn handle_interpolated_spawn(
                 RigidBody::Kinematic,
             ));
         }
-        // In the interpolated case, the client controls the confirmed entity
+        // In the interpolated case, the client sends inputs but doesn't apply them.
+        // Only the server applies the inputs, and the position changes are replicated back
         if let GameReplicationMode::AllInterpolated = mode
             && client_id.0 == player_id.0
         {
-            add_actions(&mut commands, interpolated.confirmed_entity);
+            add_actions(&mut commands, trigger.entity);
         }
     }
 }
@@ -152,7 +153,7 @@ pub(crate) fn add_global_actions(trigger: On<Add, ClientContext>, mut commands: 
         bindings![KeyCode::KeyR,],
     ));
     commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.target()),
+        ActionOf::<ClientContext>::new(trigger.entity),
         Action::<CycleWeapon>::new(),
         bindings![KeyCode::KeyQ,],
     ));

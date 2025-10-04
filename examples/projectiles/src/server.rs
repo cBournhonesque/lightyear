@@ -7,8 +7,7 @@ use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::EnhancedInputSystems;
-use bevy_enhanced_input::action::Action;
-use bevy_enhanced_input::prelude::{ActionOf, Actions, Completed, Started};
+use bevy_enhanced_input::prelude::*;
 use core::net::SocketAddr;
 use core::ops::DerefMut;
 use core::time::Duration;
@@ -111,9 +110,10 @@ pub(crate) fn spawn_player(
 
         // start by adding the player to the first room
         if i == 0 {
-            commands
-                .entity(room)
-                .trigger(RoomEvent::AddSender(trigger.entity));
+            commands.trigger(RoomEvent {
+                target: RoomTarget::AddSender(trigger.entity),
+                room,
+            });
         }
         let player = server_player_bundle(room, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
@@ -159,9 +159,10 @@ pub(crate) fn spawn_player(
             commands.entity(player_entity).insert(Bot);
         }
         info!("Spawning player {player_entity:?} for room: {room:?}");
-        commands
-            .entity(room)
-            .trigger(RoomEvent::AddEntity(player_entity));
+        commands.trigger(RoomEvent {
+            target: RoomTarget::AddEntity(player_entity),
+            room,
+        });
     }
 }
 
@@ -278,7 +279,6 @@ mod bot {
             .unwrap(),
             crossbeam_client,
             PredictionManager::default(),
-            InterpolationManager::default(),
             Name::from("BotClient"),
         ));
         let server = server.into_inner();
@@ -305,7 +305,7 @@ mod bot {
     fn bot_connect(bot: Single<Entity, (With<BotClient>, With<Client>)>, mut commands: Commands) {
         let entity = bot.into_inner();
         info!("Bot entity {entity:?} connecting to server");
-        commands.entity(entity).trigger(Connect);
+        commands.trigger(Connect { entity });
     }
 
     #[derive(Debug, Clone, Copy, Default)]
@@ -441,7 +441,7 @@ mod bot {
 
 /// Handle room switching when replication mode changes
 pub fn cycle_replication_mode(
-    trigger: On<Completed<CycleReplicationMode>>,
+    trigger: On<Complete<CycleReplicationMode>>,
     global: Single<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
     mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
@@ -481,8 +481,14 @@ pub fn cycle_replication_mode(
             })
         }
         for client_entity in clients.iter() {
-            commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
-            commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
+            commands.trigger(RoomEvent {
+                target: RoomTarget::RemoveSender(client_entity),
+                room: *current_room,
+            });
+            commands.trigger(RoomEvent {
+                target: RoomTarget::AddSender(client_entity),
+                room: *next_room,
+            });
             info!(
                 "Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}"
             );
@@ -494,7 +500,7 @@ pub fn cycle_replication_mode(
 
 /// Handle cycling through projectile replication modes
 pub fn cycle_projectile_mode(
-    trigger: On<Completed<CycleProjectileMode>>,
+    trigger: On<Complete<CycleProjectileMode>>,
     global: Single<&mut ProjectileReplicationMode, With<ClientContext>>,
 ) {
     let mut projectile_mode = global.into_inner();
@@ -504,7 +510,7 @@ pub fn cycle_projectile_mode(
 
 /// Handle weapon cycling input
 pub(crate) fn cycle_weapon_type(
-    trigger: Trigger<Completed<CycleWeapon>>,
+    trigger: On<Complete<CycleWeapon>>,
     global: Single<&mut WeaponType, With<ClientContext>>,
 ) {
     let mut weapon_type = global.into_inner();

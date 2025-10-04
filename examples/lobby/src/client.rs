@@ -71,7 +71,9 @@ fn on_disconnect(
     }
 
     // stop the server if it was started (if the player was host)
-    commands.trigger_targets(Stop, trigger.entity);
+    commands.trigger(Stop {
+        entity: trigger.entity,
+    });
 
     // reset the netcode config to connect to the lobby server
     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT);
@@ -354,7 +356,7 @@ mod lobby {
                 match client.state {
                     ClientState::Disconnected | ClientState::Disconnecting => {
                         if ui.button("Join lobby list").clicked() {
-                            commands.trigger_targets(Connect, client_entity);
+                            commands.trigger(Connect { entity: client_entity });
                         }
                     }
                     ClientState::Connecting => {
@@ -382,13 +384,13 @@ mod lobby {
                                         });
                                     }
                                 } else if ui.button("Exit lobby list").clicked() {
-                                    commands.trigger_targets(Disconnect, client_entity);
+                                    commands.trigger(Disconnect { entity: client_entity });
                                 }
                             }
                             AppState::Game => {
                                 if ui.button("Exit game").clicked() {
                                     next_app_state.set(AppState::Lobby { joined_lobby: None });
-                                    commands.trigger_targets(Disconnect, client_entity);
+                                    commands.trigger(Disconnect {entity: client_entity });
                                 }
                             }
                         }
@@ -421,12 +423,10 @@ mod lobby {
                 if host == local_id.0 {
                     info!("We are the host of the game!");
                     // First clone the previous link
-                    commands.trigger_targets(
-                        Unlink {
-                            reason: "Client becoming Host".to_string(),
-                        },
-                        local_client,
-                    );
+                    commands.trigger(Unlink {
+                        entity: local_client,
+                        reason: "Client becoming Host".to_string(),
+                    });
 
                     // Remove any previous networking components
                     commands.entity(local_client).remove::<NetcodeClient>();
@@ -440,12 +440,10 @@ mod lobby {
                         "The game is hosted by another client ({host:?}). Connecting to the host..."
                     );
                     // First unlink from the dedicated server
-                    commands.trigger_targets(
-                        Unlink {
-                            reason: "Connecting to host-client".to_string(),
-                        },
-                        local_client,
-                    );
+                    commands.trigger(Unlink {
+                        entity: local_client,
+                        reason: "Connecting to host-client".to_string(),
+                    });
 
                     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HOST_SERVER_PORT);
                     let auth = Authentication::Manual {
@@ -466,7 +464,9 @@ mod lobby {
                     ));
                 }
                 // Trigger a `Connection` to update the connection settings.
-                commands.trigger_targets(Connect, local_client);
+                commands.trigger(Connect {
+                    entity: local_client,
+                });
             }
         }
         Ok(())

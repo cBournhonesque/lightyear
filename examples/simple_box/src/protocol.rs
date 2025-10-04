@@ -112,7 +112,6 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(Inputs, PlayerPosition)>();
         // messages
         app.register_message::<Message1>()
             .add_direction(NetworkDirection::ServerToClient);

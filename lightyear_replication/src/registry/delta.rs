@@ -16,9 +16,10 @@ use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::ptr::NonNull;
 use lightyear_core::tick::Tick;
+use lightyear_messages::Message;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
-use lightyear_serde::registry::ContextDeserializeFns;
+use lightyear_serde::registry::{CloneFn, ContextDeserializeFns};
 use lightyear_serde::writer::Writer;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -26,14 +27,17 @@ use tracing::trace;
 
 impl ComponentRegistry {
     /// Register delta compression functions for a component
-    pub fn set_delta_compression<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
+    pub fn set_delta_compression<
+        C: Component<Mutability = Mutable> + PartialEq + Diffable<Delta>,
+        Delta,
+    >(
         &mut self,
         world: &mut World,
     ) where
-        C::Delta: Serialize + DeserializeOwned,
+        Delta: Serialize + DeserializeOwned + Message,
     {
         let kind = ComponentKind::of::<C>();
-        let delta_kind = ComponentKind::of::<DeltaMessage<C::Delta>>();
+        let delta_kind = ComponentKind::of::<DeltaMessage<Delta>>();
 
         // add delta-related type-erased functions for C
         let metadata = self
@@ -45,7 +49,7 @@ impl ComponentRegistry {
                     DebugName::type_name::<C>()
                 );
             });
-        metadata.delta = Some(ErasedDeltaFns::new::<C>());
+        metadata.delta = Some(ErasedDeltaFns::new::<C, Delta>());
 
         let mut predicted = false;
         let mut interpolated = false;
@@ -57,7 +61,7 @@ impl ComponentRegistry {
         }
 
         // add serialization/replication for C::Delta
-        self.register_component::<DeltaMessage<C::Delta>>(world);
+        self.register_component::<DeltaMessage<Delta>>(world);
 
         // add write/remove functions associated with the delta component's net_id
         // (since the serialized message will contain the delta component's net_id)
@@ -65,7 +69,7 @@ impl ComponentRegistry {
         let mut new_metadata = ReplicationMetadata::new(
             ComponentReplicationConfig::default(),
             ComponentId::new(0),
-            buffer_insert_delta::<C>,
+            buffer_insert_delta::<C, Delta>,
         );
         // TODO: delta compression must be applied AFTER prediction/interpolation
         new_metadata.set_predicted(predicted);
@@ -174,27 +178,27 @@ impl ComponentRegistry {
 /// Insert a component delta into the entity.
 /// If the component is not present on the entity, we put it in a temporary buffer
 /// so that all components can be inserted at once
-fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable>(
-    deserialize: ContextDeserializeFns<
-        ReceiveEntityMap,
-        DeltaMessage<C::Delta>,
-        DeltaMessage<C::Delta>,
-    >,
+fn buffer_insert_delta<
+    C: Component<Mutability = Mutable> + PartialEq + Diffable<Delta>,
+    Delta: Message,
+>(
+    deserialize: ContextDeserializeFns<ReceiveEntityMap, DeltaMessage<Delta>, DeltaMessage<Delta>>,
+    clone: Option<CloneFn<C>>,
     reader: &mut Reader,
     tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
-    synced: bool,
+    predicted: bool,
+    interpolated: bool,
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
-    let mut component_id = entity_mut.component_id::<C>();
-    if synced {
-        component_id = entity_mut.component_id::<Confirmed<C>>();
-    }
+    let component_id = entity_mut.component_id::<C>();
+
     let entity = entity_mut.entity.id();
     let delta = deserialize.deserialize(entity_map, reader)?;
     trace!(
-        ?synced,
+        ?predicted,
+        ?interpolated,
         ?kind,
         ?component_id,
         delta_type = ?delta.delta_type,
@@ -224,7 +228,7 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
             history.buffer = history.buffer.split_off(&previous_tick);
             // store the new value in the history
             history.buffer.insert(tick, new_value.clone());
-            if synced {
+            if predicted || interpolated {
                 let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() else {
                     return Err(ComponentError::DeltaCompressionError(format!(
                         "Entity {entity:?} does not have a {} component, but we received a diff for delta-compression",
@@ -249,7 +253,7 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
             let cloned_value = new_value.clone();
 
             // if the component is on the entity, no need to insert
-            if synced {
+            if predicted || interpolated {
                 let new_value = Confirmed(new_value);
                 if let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() {
                     // only apply the update if the component is different, to not trigger change detection
@@ -262,12 +266,20 @@ fn buffer_insert_delta<C: Component<Mutability = Mutable> + PartialEq + Diffable
                         "Insert Confirmed<{:?}>",
                         DebugName::type_name::<C>()
                     );
+                    let confirmed_component_id = entity_mut.component_id::<Confirmed<C>>();
+                    if predicted && !entity_mut.entity.contains::<C>() {
+                        let cloned = clone.unwrap()(&new_value.0);
+                        // SAFETY: we made sure that component_id corresponds to C
+                        unsafe {
+                            entity_mut.buffered.insert::<C>(cloned, component_id);
+                        }
+                    }
                     // use the component id of C, not DeltaMessage<C>
-                    // SAFETY: we are inserting a component of type Confirmed<C>, which matches the component_id
+                    // SAFETY: we are inserting a component of type Confirmed<C>, which matches the confirmed_component_id
                     unsafe {
                         entity_mut
                             .buffered
-                            .insert::<Confirmed<C>>(new_value, component_id);
+                            .insert::<Confirmed<C>>(new_value, confirmed_component_id);
                     }
                 }
             } else {
@@ -317,7 +329,7 @@ unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
 /// Get two Ptrs to a component C and compute the diff between them.
 ///
 /// SAFETY: the data and other Ptr must be a valid pointer to a value of type C
-unsafe fn erased_diff<C: Diffable>(
+unsafe fn erased_diff<C: Diffable<Delta>, Delta>(
     previous_tick: Tick,
     previous: Ptr,
     present: Ptr,
@@ -333,7 +345,7 @@ unsafe fn erased_diff<C: Diffable>(
     unsafe { NonNull::new_unchecked(leaked_data).cast() }
 }
 
-unsafe fn erased_base_diff<C: Diffable>(other: Ptr) -> NonNull<u8> {
+unsafe fn erased_base_diff<C: Diffable<Delta>, Delta>(other: Ptr) -> NonNull<u8> {
     let base = C::base_value();
     // SAFETY: the data Ptr must be a valid pointer to a value of type C
     let delta = C::diff(&base, unsafe { other.deref::<C>() });
@@ -348,8 +360,8 @@ unsafe fn erased_base_diff<C: Diffable>(other: Ptr) -> NonNull<u8> {
 /// SAFETY:
 /// - the data PtrMut must be a valid pointer to a value of type C
 /// - the delta Ptr must be a valid pointer to a value of type C::Delta
-unsafe fn erased_apply_diff<C: Diffable>(data: PtrMut, delta: Ptr) {
-    unsafe { C::apply_diff(data.deref_mut::<C>(), delta.deref::<C::Delta>()) };
+unsafe fn erased_apply_diff<C: Diffable<Delta>, Delta>(data: PtrMut, delta: Ptr) {
+    unsafe { C::apply_diff(data.deref_mut::<C>(), delta.deref::<Delta>()) };
 }
 
 unsafe fn erased_drop<C>(data: NonNull<u8>) {
@@ -373,17 +385,17 @@ pub(crate) struct ErasedDeltaFns {
 }
 
 impl ErasedDeltaFns {
-    pub(crate) fn new<C: Component + Diffable>() -> Self {
+    pub(crate) fn new<C: Component + Diffable<Delta>, Delta: Message>() -> Self {
         Self {
             type_id: TypeId::of::<C>(),
             type_name: DebugName::type_name::<C>(),
-            delta_kind: ComponentKind::of::<DeltaMessage<C::Delta>>(),
+            delta_kind: ComponentKind::of::<DeltaMessage<Delta>>(),
             clone: erased_clone::<C>,
-            diff: erased_diff::<C>,
-            diff_from_base: erased_base_diff::<C>,
-            apply_diff: erased_apply_diff::<C>,
+            diff: erased_diff::<C, Delta>,
+            diff_from_base: erased_base_diff::<C, Delta>,
+            apply_diff: erased_apply_diff::<C, Delta>,
             drop: erased_drop::<C>,
-            drop_delta_message: erased_drop::<DeltaMessage<C::Delta>>,
+            drop_delta_message: erased_drop::<DeltaMessage<Delta>>,
         }
     }
 }
@@ -402,19 +414,16 @@ mod tests {
     pub struct CompDelta(pub Vec<usize>);
 
     // NOTE: for the delta-compression to work, the components must have the same prefix, starting with [1]
-    impl Diffable for CompDelta {
-        // const IDEMPOTENT: bool = false;
-        type Delta = Vec<usize>;
-
+    impl Diffable<Vec<usize>> for CompDelta {
         fn base_value() -> Self {
             Self(vec![1])
         }
 
-        fn diff(&self, other: &Self) -> Self::Delta {
+        fn diff(&self, other: &Self) -> Vec<usize> {
             Vec::from_iter(other.0[self.0.len()..].iter().cloned())
         }
 
-        fn apply_diff(&mut self, delta: &Self::Delta) {
+        fn apply_diff(&mut self, delta: &Vec<usize>) {
             self.0.extend(delta);
         }
     }
@@ -422,22 +431,19 @@ mod tests {
     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
     pub struct CompDelta2(pub HashSet<usize>);
 
-    impl Diffable for CompDelta2 {
-        // const IDEMPOTENT: bool = true;
-        // additions, removals
-        type Delta = (HashSet<usize>, HashSet<usize>);
-
+    // additions, removals
+    impl Diffable<(HashSet<usize>, HashSet<usize>)> for CompDelta2 {
         fn base_value() -> Self {
             Self(HashSet::default())
         }
 
-        fn diff(&self, other: &Self) -> Self::Delta {
+        fn diff(&self, other: &Self) -> (HashSet<usize>, HashSet<usize>) {
             let added = other.0.difference(&self.0).cloned().collect();
             let removed = self.0.difference(&other.0).cloned().collect();
             (added, removed)
         }
 
-        fn apply_diff(&mut self, delta: &Self::Delta) {
+        fn apply_diff(&mut self, delta: &(HashSet<usize>, HashSet<usize>)) {
             let (added, removed) = delta;
             self.0.extend(added);
             self.0.retain(|x| !removed.contains(x));
@@ -446,7 +452,7 @@ mod tests {
 
     #[test]
     fn test_erased_clone() {
-        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
         let data = CompDelta(vec![1]);
         // clone data
         let cloned = unsafe { (erased_fns.clone)(Ptr::from(&data)) };
@@ -473,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_erased_diff() {
-        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
         let old_data = CompDelta(vec![1]);
         let new_data = CompDelta(vec![1, 2]);
 
@@ -499,7 +505,7 @@ mod tests {
 
     #[test]
     fn test_erased_from_base_diff() {
-        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
         let new_data = CompDelta(vec![1, 2]);
         let delta = unsafe { (erased_fns.diff_from_base)(Ptr::from(&new_data)) };
         let casted = delta.cast::<DeltaMessage<Vec<usize>>>();
@@ -514,9 +520,9 @@ mod tests {
 
     #[test]
     fn test_apply_diff() {
-        let erased_fns = ErasedDeltaFns::new::<CompDelta>();
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
         let mut old_data = CompDelta(vec![1]);
-        let diff: <CompDelta as Diffable>::Delta = vec![2];
+        let diff = vec![2];
         unsafe { (erased_fns.apply_diff)(PtrMut::from(&mut old_data), Ptr::from(&diff)) };
         assert_eq!(old_data, CompDelta(vec![1, 2]));
     }

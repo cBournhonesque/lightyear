@@ -258,7 +258,6 @@ impl Plugin for RoomPlugin {
             app.add_plugins(NetworkVisibilityPlugin);
         }
         // REFLECT
-        app.register_type::<Room>();
         // RESOURCES
         app.init_resource::<RoomEvents>();
         // SETS

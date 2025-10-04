@@ -59,7 +59,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<Inputs>();
         app.register_type::<InputMap<Inputs>>();
         app.register_type::<ActionState<Inputs>>();
         // inputs

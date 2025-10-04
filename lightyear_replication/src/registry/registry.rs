@@ -17,6 +17,7 @@ use bevy_reflect::TypePath;
 use bevy_transform::components::Transform;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::network::NetId;
+use lightyear_messages::Message;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
@@ -525,15 +526,15 @@ impl<C> ComponentRegistration<'_, C> {
     }
 
     /// Enable delta compression when serializing this component
-    pub fn add_delta_compression(self) -> Self
+    pub fn add_delta_compression<Delta>(self) -> Self
     where
-        C: Component<Mutability = Mutable> + PartialEq + Diffable,
-        C::Delta: Serialize + DeserializeOwned,
+        C: Component<Mutability = Mutable> + PartialEq + Diffable<Delta>,
+        Delta: Serialize + DeserializeOwned + Message,
     {
         self.app
             .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                registry.set_delta_compression::<C>(world);
+                registry.set_delta_compression::<C, Delta>(world);
             });
         self
     }

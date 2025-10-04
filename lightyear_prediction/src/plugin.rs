@@ -2,6 +2,7 @@ use super::resource_history::{
     ResourceHistory, handle_tick_event_resource_history, update_resource_history,
 };
 use super::rollback::{RollbackPlugin, RollbackSet, prepare_rollback, prepare_rollback_resource};
+use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
@@ -11,7 +12,6 @@ use crate::predicted_history::{
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
-use crate::{Predicted, SyncComponent};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::prelude::*;
@@ -168,10 +168,6 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
-
-        // REFLECTION
-        app.register_type::<Predicted>()
-            .register_type::<PredictionDisable>();
 
         // Custom entity disabling
         let rollback_disable_id = app

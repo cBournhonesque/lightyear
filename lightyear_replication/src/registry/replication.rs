@@ -12,7 +12,7 @@ use lightyear_core::prelude::Tick;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
-use lightyear_serde::registry::{ContextDeserializeFns, ErasedSerializeFns};
+use lightyear_serde::registry::{CloneFn, ContextDeserializeFns, ErasedSerializeFns};
 use tracing::{debug, trace};
 
 #[derive(Debug, Clone)]
@@ -37,19 +37,20 @@ type RawBufferFn = fn(
     Tick,
     &mut BufferedEntity,
     &mut ReceiveEntityMap,
-    bool,
+    predicted: bool,
+    interpolated: bool,
 ) -> Result<(), ComponentError>;
 
 impl ReplicationMetadata {
-    pub(crate) fn new<C: Component>(
+    pub(crate) fn new<C: Component, M>(
         config: ComponentReplicationConfig,
         overrides_component_id: ComponentId,
-        buffer_fn: BufferFn<C>,
+        buffer_fn: BufferFn<C, M>,
     ) -> Self {
         Self {
             config,
             overrides_component_id,
-            inner_buffer: unsafe { core::mem::transmute::<BufferFn<C>, unsafe fn()>(buffer_fn) },
+            inner_buffer: unsafe { core::mem::transmute::<BufferFn<C, M>, unsafe fn()>(buffer_fn) },
             buffer: Self::buffer::<C>,
             remove: Some(ComponentRegistry::buffer_remove::<C>),
             predicted: false,
@@ -83,13 +84,25 @@ impl ReplicationMetadata {
         tick: Tick,
         entity_mut: &mut BufferedEntity,
         entity_map: &mut ReceiveEntityMap,
-        synced: bool,
+        predicted: bool,
+        interpolated: bool,
     ) -> Result<(), ComponentError> {
         let buffer_fn =
-            unsafe { core::mem::transmute::<unsafe fn(), BufferFn<C>>(self.inner_buffer) };
+            unsafe { core::mem::transmute::<unsafe fn(), BufferFn<C, C>>(self.inner_buffer) };
         // SAFETY: the erased_deserialize is guaranteed to be valid for the type C
         let deserialize = unsafe { erased_serialize_fns.deserialize_fns::<_, C, C>() };
-        buffer_fn(deserialize, reader, tick, entity_mut, entity_map, synced)
+        // SAFETY: erased_clone was created for type C
+        let clone_fn = unsafe { erased_serialize_fns.clone_fn::<C>() };
+        buffer_fn(
+            deserialize,
+            clone_fn,
+            reader,
+            tick,
+            entity_mut,
+            entity_map,
+            predicted,
+            interpolated,
+        )
     }
 }
 
@@ -130,8 +143,6 @@ impl ComponentRegistry {
             .serialization
             .as_ref()
             .ok_or(ComponentError::MissingSerializationFns)?;
-        let synced = (predicted && replication_metadata.predicted)
-            || (interpolated && replication_metadata.interpolated);
         (replication_metadata.buffer)(
             replication_metadata,
             erased_serialize_fns,
@@ -139,7 +150,8 @@ impl ComponentRegistry {
             tick,
             entity_mut,
             entity_map,
-            synced,
+            predicted && replication_metadata.predicted,
+            interpolated && replication_metadata.interpolated,
         )?;
         Ok::<(), ComponentError>(())
     }
@@ -221,21 +233,23 @@ impl ComponentRegistry {
 //     }
 // }
 
-pub type BufferFn<C> = fn(
-    deserialize: ContextDeserializeFns<ReceiveEntityMap, C, C>,
+pub type BufferFn<C, M> = fn(
+    deserialize: ContextDeserializeFns<ReceiveEntityMap, M, M>,
+    clone: Option<CloneFn<C>>,
     reader: &mut Reader,
     tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
-    synced: bool,
+    predicted: bool,
+    interpolated: bool,
 ) -> Result<(), ComponentError>;
 
 pub trait GetWriteFns<C: Component> {
-    fn buffer_fn() -> BufferFn<C>;
+    fn buffer_fn() -> BufferFn<C, C>;
 }
 
 impl<C: Component<Mutability = Self> + PartialEq> GetWriteFns<C> for Mutable {
-    fn buffer_fn() -> BufferFn<C> {
+    fn buffer_fn() -> BufferFn<C, C> {
         default_buffer::<C>
     }
 }
@@ -245,11 +259,13 @@ impl<C: Component<Mutability = Self> + PartialEq> GetWriteFns<C> for Mutable {
 /// If the component already exists on the entity, it will be updated instead of inserted.
 fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     deserialize: ContextDeserializeFns<ReceiveEntityMap, C, C>,
+    clone: Option<CloneFn<C>>,
     reader: &mut Reader,
     _tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
-    synced: bool,
+    predicted: bool,
+    interpolated: bool,
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
     let component_id = entity_mut.component_id::<C>();
@@ -261,13 +277,13 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
     );
 
     // if the component is already on the entity, no need to insert
-    if synced {
-        let component_id = entity_mut.component_id::<Confirmed<C>>();
-        let component = Confirmed(component);
+    if predicted || interpolated {
+        let confirmed_component_id = entity_mut.component_id::<Confirmed<C>>();
+        let confirmed_component = Confirmed(component);
         if let Some(mut c) = entity_mut.entity.get_mut::<Confirmed<C>>() {
             // TODO: when can we be in this situation? on authority change?
             // only apply the update if the component is different, to not trigger change detection
-            if c.as_ref() != &component {
+            if c.as_ref() != &confirmed_component {
                 #[cfg(feature = "metrics")]
                 {
                     metrics::counter!("replication/receive/component/update").increment(1);
@@ -277,14 +293,26 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
                     )
                     .increment(1);
                 }
-                *c = component;
+                *c = confirmed_component;
             }
         } else {
-            // SAFETY: we made sure that component_id corresponds to either C or Confirmed<C>
+            // For predicted, we want to also insert the component itself on the entity because it might be important
+            // for observers or required components
+            // An initial rollback will bring it to the current value.
+            // We don't want this for interpolated because the component needs to be added at the correct time on the
+            // interpolation timeline.
+            if predicted && !entity_mut.entity.contains::<C>() {
+                let cloned = clone.expect("no clone fn registered")(&confirmed_component.0);
+                // SAFETY: we made sure that component_id corresponds to either C or Confirmed<C>
+                unsafe {
+                    entity_mut.buffered.insert::<C>(cloned, component_id);
+                }
+            }
+            // SAFETY: we made sure that confirmed_component_id corresponds to Confirmed<C>
             unsafe {
                 entity_mut
                     .buffered
-                    .insert::<Confirmed<C>>(component, component_id);
+                    .insert::<Confirmed<C>>(confirmed_component, confirmed_component_id);
             }
             #[cfg(feature = "metrics")]
             {
@@ -332,7 +360,7 @@ fn default_buffer<C: Component<Mutability = Mutable> + PartialEq>(
 }
 
 impl<C: Component<Mutability = Self> + PartialEq> GetWriteFns<C> for Immutable {
-    fn buffer_fn() -> BufferFn<C> {
+    fn buffer_fn() -> BufferFn<C, C> {
         default_immutable_buffer::<C>
     }
 }
@@ -340,11 +368,13 @@ impl<C: Component<Mutability = Self> + PartialEq> GetWriteFns<C> for Immutable {
 /// Default method to buffer a component for insertion
 fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
     deserialize: ContextDeserializeFns<ReceiveEntityMap, C, C>,
+    clone: Option<CloneFn<C>>,
     reader: &mut Reader,
     _tick: Tick,
     entity_mut: &mut BufferedEntity,
     entity_map: &mut ReceiveEntityMap,
-    synced: bool,
+    predicted: bool,
+    interpolated: bool,
 ) -> Result<(), ComponentError> {
     let kind = ComponentKind::of::<C>();
     let component_id = entity_mut.component_id::<C>();
@@ -363,13 +393,21 @@ fn default_immutable_buffer<C: Component<Mutability = Immutable> + PartialEq>(
         ))
         .increment(1);
     }
-    if synced {
-        let component_id = entity_mut.component_id::<Confirmed<C>>();
-        let component = Confirmed(component);
+    if predicted || interpolated {
+        let confirmed_component_id = entity_mut.component_id::<Confirmed<C>>();
+        let confirmed_component = Confirmed(component);
+        if predicted && !entity_mut.entity.contains::<C>() {
+            let cloned = clone.expect("no clone fn registered")(&confirmed_component.0);
+            // SAFETY: we made sure that component_id corresponds to C
+            unsafe {
+                entity_mut.buffered.insert::<C>(cloned, component_id);
+            }
+        }
+        // SAFETY: we made sure that confirmed_component_id corresponds to Confirmed<C>
         unsafe {
             entity_mut
                 .buffered
-                .insert::<Confirmed<C>>(component, component_id);
+                .insert::<Confirmed<C>>(confirmed_component, confirmed_component_id);
         }
     } else {
         unsafe {

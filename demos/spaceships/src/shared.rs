@@ -7,8 +7,9 @@ use core::time::Duration;
 use crate::protocol::*;
 #[cfg(feature = "gui")]
 use crate::renderer::ExampleRendererPlugin;
-use avian2d::prelude::*;
+use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prelude::*;
@@ -31,6 +32,17 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // Physics
+        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::PositionButInterpolateTransform,
+            ..default()
+        });
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                // disable syncing position<>transform as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>()
+                .disable::<PhysicsInterpolationPlugin>(),
+        );
         app.insert_resource(Gravity(Vec2::ZERO));
 
         // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
@@ -39,9 +51,7 @@ impl Plugin for SharedPlugin {
             (process_collisions, lifetime_despawner).chain(),
         );
 
-        app.add_event::<BulletHitEvent>();
-        // registry types for reflection
-        app.register_type::<Player>();
+        app.add_message::<BulletHitMessage>();
     }
 }
 
@@ -75,32 +85,18 @@ pub(crate) fn init(mut commands: Commands) {
     ));
 }
 
-#[derive(QueryData)]
-#[query_data(mutable, derive(Debug))]
-pub struct ApplyInputsQuery {
-    pub ex_force: &'static mut ExternalForce,
-    pub ang_vel: &'static mut AngularVelocity,
-    pub rot: &'static Rotation,
-    pub player: &'static Player,
-}
-
 /// applies forces based on action state inputs
 pub fn apply_action_state_to_player_movement(
     action: &ActionState<PlayerActions>,
-    aiq: &mut ApplyInputsQueryItem,
+    mut forces: ForcesItem,
     tick: Tick,
 ) {
-    let ex_force = &mut aiq.ex_force;
-    let rot = &aiq.rot;
-    let ang_vel = &mut aiq.ang_vel;
-
+    let rot = *forces.rotation();
     const THRUSTER_POWER: f32 = 32000.;
     const ROTATIONAL_SPEED: f32 = 4.0;
 
     if action.pressed(&PlayerActions::Up) {
-        ex_force
-            .apply_force(*rot * (Vec2::Y * THRUSTER_POWER))
-            .with_persistence(false);
+        forces.apply_force(rot * (Vec2::Y * THRUSTER_POWER));
     }
     let desired_ang_vel = if action.pressed(&PlayerActions::Left) {
         ROTATIONAL_SPEED
@@ -109,8 +105,9 @@ pub fn apply_action_state_to_player_movement(
     } else {
         0.0
     };
-    if ang_vel.0 != desired_ang_vel {
-        ang_vel.0 = desired_ang_vel;
+    let ang_vel = forces.angular_velocity();
+    if ang_vel != desired_ang_vel {
+        *forces.angular_velocity_mut() = desired_ang_vel;
     }
 }
 
@@ -267,7 +264,6 @@ impl WallBundle {
                 collider: Collider::segment(start, end),
                 collider_density: ColliderDensity(1.0),
                 rigid_body: RigidBody::Static,
-                external_force: ExternalForce::default(),
             },
             wall: Wall { start, end },
             name: Name::new("Wall"),
@@ -288,7 +284,7 @@ pub(crate) fn process_collisions(
     player_q: Query<&Player>,
     mut commands: Commands,
     timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
-    mut hit_ev_writer: MessageWriter<BulletHitEvent>,
+    mut hit_ev_writer: MessageWriter<BulletHitMessage>,
 ) {
     let (timeline, is_server) = timeline.into_inner();
     // when A and B collide, it can be reported as one of:
@@ -309,7 +305,7 @@ pub(crate) fn process_collisions(
                 .get(contacts.collider2)
                 .map_or(None, |victim_player| Some(victim_player.client_id));
 
-            let ev = BulletHitEvent {
+            let ev = BulletHitMessage {
                 bullet_owner: bullet.owner,
                 victim_client_id,
                 position: bullet_pos.0,
@@ -329,7 +325,7 @@ pub(crate) fn process_collisions(
                 .get(contacts.collider1)
                 .map_or(None, |victim_player| Some(victim_player.client_id));
 
-            let ev = BulletHitEvent {
+            let ev = BulletHitMessage {
                 bullet_owner: bullet.owner,
                 victim_client_id,
                 position: bullet_pos.0,

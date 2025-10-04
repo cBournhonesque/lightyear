@@ -11,6 +11,7 @@ use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
+use lightyear_avian2d::plugin::AvianReplicationMode;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
@@ -29,6 +30,7 @@ impl Plugin for SharedPlugin {
 
         // physics
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position,
             rollback_resources: true,
             ..default()
         });
@@ -38,14 +40,9 @@ impl Plugin for SharedPlugin {
                 // disable syncing position<>transform as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
                 // interpolation is handled by lightyear_frame_interpolation
-                .disable::<PhysicsInterpolationPlugin>()
-                // disable Sleeping plugin as it can mess up physics rollbacks
-                .disable::<IslandSleepingPlugin>(),
+                .disable::<PhysicsInterpolationPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
-
-        // registry types for reflection
-        app.register_type::<PlayerId>();
 
         // Game logic
         app.add_systems(FixedUpdate, player_movement);
@@ -59,7 +56,12 @@ impl Plugin for SharedPlugin {
         //     FixedPreUpdate,
         //     fixed_pre_log.after(InputSet::BufferClientInputs),
         // );
-        // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
+        // app.add_systems(FixedPostUpdate, fixed_pre_prepare
+        //     .after(PhysicsSet::First)
+        //     .before(PhysicsSet::Prepare));
+        // app.add_systems(FixedPostUpdate, fixed_pre_physics
+        //     .after(PhysicsSet::Prepare)
+        //     .before(PhysicsSet::StepSimulation));
         app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
     }
@@ -198,6 +200,34 @@ pub(crate) fn fixed_pre_log(
             ?pressed,
             %buffer,
             "Remote client input before FixedUpdate");
+    }
+}
+
+pub(crate) fn fixed_pre_prepare(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    remote_client_inputs: Query<
+        (
+            Entity,
+            &Position,
+            &LinearVelocity,
+            &ActionState<PlayerActions>,
+        ),
+        With<Predicted>,
+    >,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
+        let pressed = action_state.get_pressed();
+        info!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?velocity,
+            ?pressed,
+            "Client in FixedPostUpdate right before prepare"
+        );
     }
 }
 

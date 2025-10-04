@@ -29,7 +29,10 @@ impl Plugin for ExampleClientPlugin {
 fn handle_character_actions(
     time: Res<Time>,
     spatial_query: SpatialQuery,
-    mut query: Query<(&ActionState<CharacterAction>, CharacterQuery), With<Predicted>>,
+    mut query: Query<
+        (Entity, &ComputedMass, &ActionState<CharacterAction>, Forces),
+        With<Predicted>,
+    >,
     // In host-server mode, the server portion is already applying the
     // character actions and so we don't want to apply the character
     // actions twice. This excludes host-server mode since there are multiple timelines
@@ -37,13 +40,20 @@ fn handle_character_actions(
     timeline: Single<&LocalTimeline>,
 ) {
     let tick = timeline.tick();
-    for (action_state, mut character) in &mut query {
+    for (entity, computed_mass, action_state, forces) in &mut query {
         // lightyear handles correctly both inputs from the local player or the remote player, during rollback
         // or out of rollback.
         // The ActionState is always updated to contain the correct action for the current tick.
         //
         // For remote players, we use the most recent input received
-        apply_character_action(&time, &spatial_query, action_state, &mut character);
+        apply_character_action(
+            entity,
+            computed_mass,
+            &time,
+            &spatial_query,
+            action_state,
+            forces,
+        );
     }
 }
 

@@ -5,8 +5,8 @@ use crate::shared::*;
 use avian2d::parry::shape::SharedShape;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
-use bevy::core_pipeline::bloom::Bloom;
 use bevy::core_pipeline::tonemapping::Tonemapping;
+use bevy::post_process::bloom::Bloom;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::f32::consts::PI;
@@ -43,7 +43,7 @@ impl Plugin for ExampleRendererPlugin {
                 draw_explosions,
             )
                 .chain()
-                .after(bevy::transform::TransformSystem::TransformPropagate),
+                .after(TransformSystems::Propagate),
         );
         app.add_observer(add_player_label);
 
@@ -93,10 +93,7 @@ fn add_frame_interpolation_components(
 fn init_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
-        Camera {
-            hdr: true,
-            ..default()
-        },
+        Camera { ..default() },
         Tonemapping::TonyMcMapface,
         Bloom::default(),
         Visibility::default(),
@@ -164,29 +161,26 @@ fn update_player_label(
 /// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
 pub(crate) fn draw_confirmed_shadows(
     mut gizmos: Gizmos,
-    confirmed_q: Query<
-        (&Position, &Rotation, &LinearVelocity, &Confirmed),
-        Or<(With<Player>, With<BallMarker>, With<BulletMarker>)>,
-    >,
-    predicted_q: Query<
-        (&Position, &Collider, &ColorComponent),
+    query: Query<
+        (
+            &Position,
+            &Collider,
+            &ColorComponent,
+            &Confirmed<Position>,
+            &Confirmed<Rotation>,
+            &Confirmed<LinearVelocity>,
+        ),
         (
             With<Predicted>,
             Or<(With<Player>, With<BallMarker>, With<BulletMarker>)>,
         ),
     >,
 ) {
-    for (position, rotation, velocity, confirmed) in confirmed_q.iter() {
-        let Some(pred_entity) = confirmed.predicted else {
-            continue;
-        };
-        let Ok((pred_pos, collider, color)) = predicted_q.get(pred_entity) else {
-            continue;
-        };
+    for (pred_pos, collider, color, position, rotation, velocity) in query.iter() {
         let speed = velocity.length() / MAX_VELOCITY;
         let ghost_col = color.0.with_alpha(0.2 + speed * 0.8);
         render_shape(collider.shape(), position, rotation, &mut gizmos, ghost_col);
-        gizmos.line_2d(**position, **pred_pos, ghost_col);
+        gizmos.line_2d(***position, **pred_pos, ghost_col);
     }
 }
 

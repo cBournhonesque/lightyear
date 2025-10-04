@@ -74,17 +74,12 @@ fn setup(mut commands: Commands) {
 /// NOTE: this system can now be run in both client/server!
 pub(crate) fn movement(
     timeline: Single<&LocalTimeline, With<Server>>,
-    mut action_query: Query<
-        (
-            Entity,
-            &Position,
-            &mut LinearVelocity,
-            &ActionState<PlayerActions>,
-        ),
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
+    mut action_query: Query<(
+        Entity,
+        &Position,
+        &mut LinearVelocity,
+        &ActionState<PlayerActions>,
+    )>,
 ) {
     let tick = timeline.tick();
     for (entity, position, velocity, action) in action_query.iter_mut() {

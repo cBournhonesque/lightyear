@@ -175,7 +175,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(PlayerPosition, PlayerId, Lobbies)>();
         // messages
         app.register_message::<StartGame>()
             .add_direction(NetworkDirection::Bidirectional);

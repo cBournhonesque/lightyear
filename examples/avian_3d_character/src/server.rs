@@ -18,7 +18,6 @@ use crate::shared;
 use crate::shared::apply_character_action;
 use crate::shared::BlockPhysicsBundle;
 use crate::shared::CharacterPhysicsBundle;
-use crate::shared::CharacterQuery;
 use crate::shared::FloorPhysicsBundle;
 use crate::shared::CHARACTER_CAPSULE_HEIGHT;
 use crate::shared::CHARACTER_CAPSULE_RADIUS;
@@ -43,10 +42,10 @@ impl Plugin for ExampleServerPlugin {
 fn handle_character_actions(
     time: Res<Time>,
     spatial_query: SpatialQuery,
-    mut query: Query<(&ActionState<CharacterAction>, CharacterQuery)>,
+    mut query: Query<(Entity, &ComputedMass, &ActionState<CharacterAction>, Forces)>,
 ) {
-    for (action_state, mut character) in &mut query {
-        apply_character_action(&time, &spatial_query, action_state, &mut character);
+    for (entity, mass, action_state, forces) in &mut query {
+        apply_character_action(entity, mass, &time, &spatial_query, action_state, forces);
     }
 }
 
@@ -102,17 +101,6 @@ fn player_shoot(
             replicate_once: true,
             ..default()
         });
-        let mut external_force_override = ComponentReplicationOverrides::<ExternalForce>::default();
-        external_force_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut external_impulse_override =
-            ComponentReplicationOverrides::<ExternalImpulse>::default();
-        external_impulse_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
 
         if action_state.just_pressed(&CharacterAction::Shoot) {
             commands.spawn((
@@ -139,8 +127,6 @@ fn player_shoot(
                     linear_velocity_override,
                     angular_velocity_override,
                     computed_mass_override,
-                    external_force_override,
-                    external_impulse_override,
                 ),
             ));
         }

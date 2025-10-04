@@ -180,7 +180,6 @@ impl ConnectionPlugin {
 impl Plugin for ConnectionPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PeerMetadata>();
-        app.register_type::<PeerMetadata>();
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect_if_link_fails);
     }

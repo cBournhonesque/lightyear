@@ -68,11 +68,15 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<BlockMarker>();
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
-        app.register_component::<LinearVelocity>().add_prediction();
+        app.register_component::<LinearVelocity>()
+            .add_prediction()
+            .add_should_rollback(linear_velocity_should_rollback);
 
-        app.register_component::<AngularVelocity>().add_prediction();
+        app.register_component::<AngularVelocity>()
+            .add_prediction()
+            .add_should_rollback(angular_velocity_should_rollback);
 
-        app.register_component::<ComputedMass>().add_prediction();
+        // app.register_component::<ComputedMass>().add_prediction();
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
@@ -98,5 +102,13 @@ fn position_should_rollback(this: &Position, that: &Position) -> bool {
 }
 
 fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
-    this.angle_between(that.0) >= 0.01
+    this.angle_between(*that) >= 0.01
+}
+
+fn linear_velocity_should_rollback(this: &LinearVelocity, that: &LinearVelocity) -> bool {
+    (this.0 - that.0).length() >= 0.01
+}
+
+fn angular_velocity_should_rollback(this: &AngularVelocity, that: &AngularVelocity) -> bool {
+    (this.0 - that.0).length() >= 0.01
 }

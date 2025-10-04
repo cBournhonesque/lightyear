@@ -4,6 +4,7 @@ use bevy::prelude::*;
 use core::hash::{Hash, Hasher};
 use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
+use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::prediction::correction::VisualCorrection;
@@ -22,11 +23,16 @@ impl Plugin for SharedPlugin {
         app.add_systems(Startup, init);
 
         // physics
+        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position,
+            ..default()
+        });
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
                 // disable the position<>transform sync plugins as it is handled by lightyear_avian
-                .disable::<PhysicsTransformPlugin>(),
+                .disable::<PhysicsTransformPlugin>()
+                .disable::<PhysicsInterpolationPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
 
@@ -37,13 +43,13 @@ impl Plugin for SharedPlugin {
         //     #[cfg(feature = "client")]
         //     fixed_pre_log.after(lightyear::input::client::InputSet::BufferClientInputs),
         // );
-        // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
+        app.add_systems(
+            FixedPostUpdate,
+            fixed_pre_physics.before(PhysicsSet::StepSimulation),
+        );
 
         app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
-
-        // registry types for reflection
-        app.register_type::<PlayerId>();
 
         app.add_systems(
             RunFixedMainLoop,

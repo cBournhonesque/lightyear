@@ -170,11 +170,17 @@ mod lobby {
                 let room = lobby.room;
                 info!("Client {client_id:?} joined lobby {lobby_id:?}. Room: {room}");
                 lobby.players.push(client_id);
-                commands.trigger_targets(RoomEvent::AddSender(client_entity), room);
+                commands.trigger(RoomEvent {
+                    target: RoomTarget::AddSender(client_entity),
+                    room,
+                });
                 if lobby.in_game {
                     // if the game has already started, we need to spawn the player entity
                     let entity = spawn_player_entity(&mut commands, client_entity, client_id, true);
-                    commands.trigger_targets(RoomEvent::AddEntity(entity), room);
+                    commands.trigger(RoomEvent {
+                        target: RoomTarget::AddEntity(entity),
+                        room,
+                    });
                 }
                 // always make sure that there is an empty lobby for players to join
                 if !lobbies.has_empty_lobby() {
@@ -199,7 +205,10 @@ mod lobby {
                 let lobby_id = message.lobby_id;
                 info!("Client {client_id:?} exited lobby {lobby_id:?}");
                 let room = lobbies.lobbies[lobby_id].room;
-                commands.trigger_targets(RoomEvent::RemoveSender(sender), room);
+                commands.trigger(RoomEvent {
+                    target: RoomTarget::RemoveSender(sender),
+                    room,
+                });
                 lobbies.remove_client(client_id, &mut commands);
             }
         }
@@ -237,8 +246,14 @@ mod lobby {
                     lobby.players.push(client_id);
                     if host.is_none() {
                         let entity = spawn_player_entity(&mut commands, sender, client_id, true);
-                        commands.trigger_targets(RoomEvent::AddEntity(entity), lobby.room);
-                        commands.trigger_targets(RoomEvent::AddSender(sender), lobby.room);
+                        commands.trigger(RoomEvent {
+                            target: RoomTarget::AddEntity(entity),
+                            room: lobby.room,
+                        });
+                        commands.trigger(RoomEvent {
+                            target: RoomTarget::AddSender(sender),
+                            room: lobby.room,
+                        });
                     }
                     multi_sender.send::<_, Channel1>(
                         &StartGame {
@@ -257,7 +272,10 @@ mod lobby {
                         for player in &lobby.players {
                             info!("Spawning player  {player:?} in server hosted  game");
                             let entity = spawn_player_entity(&mut commands, sender, *player, true);
-                            commands.trigger_targets(RoomEvent::AddEntity(entity), lobby.room);
+                            commands.trigger(RoomEvent {
+                                target: RoomTarget::AddEntity(entity),
+                                room: lobby.room,
+                            });
                         }
                     }
                     // redirect the StartGame message to all other clients in the lobby
