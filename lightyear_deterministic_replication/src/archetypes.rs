@@ -98,7 +98,7 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
                 .iter()
                 .filter_map(|(kind, pred)| {
                     // TODO: for non-full components, just fetch the component value directly
-                    let history_id = pred.history_id?;
+                    let history_id = pred.history_id;
                     registry.component_metadata_map.get(kind).and_then(|m| {
                         m.deterministic
                             .as_ref()

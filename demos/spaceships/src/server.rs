@@ -18,26 +18,12 @@ use crate::shared;
 use crate::shared::{apply_action_state_to_player_movement, color_from_id};
 
 // Plugin for server-specific logic
-pub struct ExampleServerPlugin {
-    pub(crate) predict_all: bool,
-}
-
-#[derive(Resource)]
-pub struct Global {
-    predict_all: bool,
-}
+pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Global {
-            predict_all: self.predict_all,
-        });
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(
-            FixedUpdate,
-            (player_movement, shared::shared_player_firing).chain(),
-        );
+
         app.add_observer(handle_new_client);
         app.add_observer(handle_connections);
         app.add_systems(
@@ -220,28 +206,5 @@ pub(crate) fn handle_hit_event(
                 score.0 += 1;
             }
         }
-    }
-}
-
-/// Read inputs and move players
-///
-/// If we didn't receive the input for a given player, we do nothing (which is the default behaviour from lightyear),
-/// which means that we will be using the last known input for that player
-/// (i.e. we consider that the player kept pressing the same keys).
-/// see: https://github.com/cBournhonesque/lightyear/issues/492
-pub(crate) fn player_movement(
-    mut q: Query<(&ActionState<PlayerActions>, &Player, Forces), With<Player>>,
-    timeline: Single<&LocalTimeline, With<Server>>,
-) {
-    let tick = timeline.tick();
-    for (action_state, player, forces) in q.iter_mut() {
-        if !action_state.get_pressed().is_empty() {
-            trace!(
-                "🎹 {:?} {tick:?} = {:?}",
-                player.client_id,
-                action_state.get_pressed(),
-            );
-        }
-        apply_action_state_to_player_movement(action_state, forces, tick);
     }
 }

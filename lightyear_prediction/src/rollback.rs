@@ -17,6 +17,7 @@ use bevy_ecs::world::FilteredEntityMut;
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
+use core::fmt::Debug;
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -130,20 +131,25 @@ impl Plugin for RollbackPlugin {
                 // but we keep them around for rollback check)
                 builder.filter::<Allow<PredictionDisable>>();
                 builder.optional(|b| {
-                    // include access to &mut PredictionHistory<C> and &Confirmed<C> for all prediction components
-                    prediction_registry.prediction_map.values().for_each(|m| {
-                        b.mut_id(m.history_id.unwrap());
-                    });
-                    // include access to &Confiremed<C> for all prediction=Full components, if the components are replicated
+                    // include access to &mut PredictionHistory<C> and &Confirmed<C> for all predicted components, if the components are replicated
+                    // (no need to check rollback for non-networked components)
                     prediction_registry
                         .prediction_map
                         .iter()
-                        .filter_map(|(kind, _)| component_registry.component_metadata_map.get(kind))
-                        .for_each(|m| {
+                        // don't check_rollback for non-networked components, which are not present in the ComponentRegistry
+                        .filter_map(|(kind, p)| {
+                            component_registry
+                                .component_metadata_map
+                                .get(kind)
+                                .map(|c| (c, p))
+                        })
+                        .for_each(|(m, p)| {
+                            b.mut_id(p.history_id);
                             b.ref_id(m.confirmed_component_id);
                         });
                 });
             }),
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -199,6 +205,7 @@ fn check_rollback(
         ),
         (With<IsSynced<InputTimeline>>, Without<HostClient>),
     >,
+    component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
     system_ticks: SystemChangeTick,
     parallel_commands: ParallelCommands,
@@ -321,12 +328,14 @@ fn check_rollback(
             }
 
             // TODO: maybe pre-cache the components of the archetypes that we want to iterate over?
-            //  it's not straightforward because we also want to handle rollbacks for components
-            //  that were removed from the entity, which would not appear in the archetype
-            for prediction_metadata in prediction_registry.prediction_map
-                .values()
+            //  we need to archetypes that have Predicted, and we cache the history id and the confirmed id. (The confirmed could be absent)
+            for check_rollback in prediction_registry.prediction_map
+                .iter()
+                .filter_map(|(kind, p)|
+                    // only check rollback for components that are replicated (ignore non-networked)
+                    component_registry.component_metadata_map.contains_key(kind).then_some(p.check_rollback)
+                )
                 .take_while(|_| !prediction_manager.is_rollback()) {
-                let check_rollback = prediction_metadata.check_rollback;
                 if check_rollback(&prediction_registry, confirmed_tick, &mut entity_mut) {
                     debug!("Rollback because we have received a new confirmed state. (mismatch check)");
                     // During `prepare_rollback` we will reset the component to their values on `confirmed_tick`.

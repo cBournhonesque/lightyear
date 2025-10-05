@@ -1,5 +1,6 @@
 use super::resource_history::{
     ResourceHistory, handle_tick_event_resource_history, update_resource_history,
+    update_resource_history_on_prediction_manager_added,
 };
 use super::rollback::{RollbackPlugin, RollbackSet, prepare_rollback, prepare_rollback_resource};
 use crate::SyncComponent;
@@ -92,6 +93,7 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     // app.register_type::<ResourceHistory<R>>();
     app.insert_resource(ResourceHistory::<R>::default());
     app.add_observer(handle_tick_event_resource_history::<R>);
+    app.add_observer(update_resource_history_on_prediction_manager_added::<R>);
     app.add_systems(
         PreUpdate,
         prepare_rollback_resource::<R>.in_set(RollbackSet::Prepare),

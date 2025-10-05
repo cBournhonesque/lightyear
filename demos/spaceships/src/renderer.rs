@@ -15,6 +15,7 @@ use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
+use lightyear::input::leafwing::prelude::LeafwingSnapshot;
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -25,7 +26,6 @@ impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor::default());
-        // app.insert_resource(ClearColor(css::DARK_GRAY.into()));
         let draw_shadows = false;
         // in an attempt to reduce flickering, draw walls before FixedUpdate runs
         // so they exist for longer during this tick.
@@ -104,7 +104,7 @@ fn add_player_label(
     trigger: On<Add, Player>,
     mut commands: Commands,
     // add the label on both client and server
-    q: Query<(Entity, &Player, &Score), Or<(With<Predicted>, With<Replicating>)>>,
+    q: Query<(Entity, &Player, &Score)>,
 ) {
     if let Ok((e, player, score)) = q.get(trigger.entity) {
         info!("Adding visual bits to {e:?}");
@@ -123,20 +123,13 @@ fn add_player_label(
 
 // update the labels when the player rtt/jitter is updated by the server
 fn update_player_label(
-    mut q: Query<
-        (
-            Entity,
-            &Player,
-            &mut EntityLabel,
-            &InputBuffer<ActionState<PlayerActions>>,
-            &Score,
-        ),
-        Or<(
-            Changed<Player>,
-            Changed<Score>,
-            Changed<InputBuffer<ActionState<PlayerActions>>>,
-        )>,
-    >,
+    mut q: Query<(
+        Entity,
+        &Player,
+        &mut EntityLabel,
+        &InputBuffer<LeafwingSnapshot<PlayerActions>>,
+        &Score,
+    )>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
 ) {
     let tick = timeline.tick();
@@ -145,7 +138,7 @@ fn update_player_label(
         // this can happen because of input_delay. The server receives inputs in advance of
         // needing them, and rebroadcasts to other players.
         let num_buffered_inputs = if let Some(end_tick) = input_buffer.end_tick() {
-            lightyear::utils::wrapping_id::wrapping_diff(tick.0, end_tick.0)
+            end_tick - tick
         } else {
             0
         };

@@ -536,7 +536,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     debug!(
         ?tick,
         ?num_tick,
-        "sending input message for {:?}: {:?}",
+        "sending input message for {:?}: {}",
         DebugName::type_name::<S::Action>(),
         message
     );

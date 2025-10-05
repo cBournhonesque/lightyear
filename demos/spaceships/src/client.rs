@@ -16,8 +16,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // all actions related-system that can be rolled back should be in FixedUpdate schedule
-        app.add_systems(FixedUpdate, (player_movement, shared_player_firing).chain());
         app.add_observer(add_ball_physics);
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
@@ -107,27 +105,5 @@ fn handle_hit_event(
             Visibility::default(),
             crate::renderer::Explosion::new(time.elapsed(), ev.bullet_color),
         ));
-    }
-}
-
-// only apply movements to predicted entities
-fn player_movement(
-    mut q: Query<(&ActionState<PlayerActions>, &Player, Forces), (With<Player>, With<Predicted>)>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
-) {
-    // get the tick, even if during rollback
-    let tick = timeline.tick();
-
-    for (action_state, player, forces) in q.iter_mut() {
-        if !action_state.get_pressed().is_empty() {
-            trace!(
-                "🎹 {:?} {tick:?} = {:?}",
-                player.client_id,
-                action_state.get_pressed(),
-            );
-        }
-        // if we haven't received any input for some tick, lightyear will predict that the player is still pressing the same keys.
-        // (it does that by not modifying the ActionState, so it will still have the last pressed keys)
-        apply_action_state_to_player_movement(action_state, forces, tick);
     }
 }

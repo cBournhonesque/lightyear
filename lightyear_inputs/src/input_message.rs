@@ -255,7 +255,7 @@ impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     }
 }
 
-impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMessage<S> {
+impl<S: ActionStateSequence + Debug> core::fmt::Display for InputMessage<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let ty = DebugName::type_name::<S::Action>();
 
@@ -267,7 +267,7 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
             .iter()
             .map(|data| {
                 let mut str = format!("Target: {:?}\n", data.target);
-                let _ = writeln!(&mut str, "States: {}", data.states);
+                let _ = writeln!(&mut str, "States: {:?}", data.states);
                 str
             })
             .collect::<Vec<String>>()

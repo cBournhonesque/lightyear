@@ -70,6 +70,9 @@ pub struct LightyearAvianPlugin {
     /// If True, the plugin will rollback resources that are not replicated, such as Collisions.
     /// Enable this if you are using deterministic replication (i.e. are not replicating state)
     pub rollback_resources: bool,
+    /// If True, the plugin will rollback island-related resources and components
+    /// Enable this if you have the Island plugin enabled.
+    pub rollback_islands: bool,
 }
 
 impl Plugin for LightyearAvianPlugin {
@@ -221,13 +224,17 @@ impl Plugin for LightyearAvianPlugin {
 
         if self.rollback_resources {
             app.init_resource::<ContactGraph>();
-            // Add rollback for some non-replicated resources
+            app.init_resource::<ConstraintGraph>();
             app.add_resource_rollback::<ContactGraph>();
             app.add_resource_rollback::<ConstraintGraph>();
-            app.add_resource_rollback::<PhysicsIslands>();
             app.add_rollback::<CollidingEntities>();
-            app.add_rollback::<BodyIslandNode>();
-            app.add_rollback::<Sleeping>();
+
+            if self.rollback_islands {
+                app.init_resource::<PhysicsIslands>();
+                app.add_resource_rollback::<PhysicsIslands>();
+                app.add_rollback::<BodyIslandNode>();
+                app.add_rollback::<Sleeping>();
+            }
         }
     }
 }

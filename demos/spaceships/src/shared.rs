@@ -11,7 +11,7 @@ use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::leafwing::prelude::LeafwingSnapshot;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use tracing::Level;
@@ -41,14 +41,22 @@ impl Plugin for SharedPlugin {
                 .build()
                 // disable syncing position<>transform as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
-                .disable::<PhysicsInterpolationPlugin>(),
+                .disable::<PhysicsInterpolationPlugin>()
+                // disable island sleeping plugin as it's not compatible with rollbacks
+                .disable::<IslandPlugin>()
+                .disable::<IslandSleepingPlugin>(),
         );
         app.insert_resource(Gravity(Vec2::ZERO));
 
         // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
         app.add_systems(
             FixedUpdate,
-            (process_collisions, lifetime_despawner).chain(),
+            (
+                player_movement,
+                shared_player_firing,
+                process_collisions,
+                lifetime_despawner,
+            ),
         );
 
         app.add_message::<BulletHitMessage>();
@@ -111,6 +119,32 @@ pub fn apply_action_state_to_player_movement(
     }
 }
 
+/// Read inputs and move players
+///
+/// If we didn't receive the input for a given player, we do nothing (which is the default behaviour from lightyear),
+/// which means that we will be using the last known input for that player
+/// (i.e. we consider that the player kept pressing the same keys).
+/// see: https://github.com/cBournhonesque/lightyear/issues/492
+pub(crate) fn player_movement(
+    mut q: Query<
+        (&ActionState<PlayerActions>, &Player, Forces),
+        (With<Player>, Without<Interpolated>),
+    >,
+    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+) {
+    let tick = timeline.tick();
+    for (action_state, player, forces) in q.iter_mut() {
+        if !action_state.get_pressed().is_empty() {
+            trace!(
+                "🎹 {:?} {tick:?} = {:?}",
+                player.client_id,
+                action_state.get_pressed(),
+            );
+        }
+        apply_action_state_to_player_movement(action_state, forces, tick);
+    }
+}
+
 /// NB we are not restricting this query to `Controlled` entities on the clients, because we hope to
 ///    receive PlayerActions for remote players ahead of the server simulating the tick (lag, input delay, etc)
 ///    in which case we prespawn their bullets on the correct tick, just like we do for our own bullets.
@@ -122,20 +156,16 @@ pub fn apply_action_state_to_player_movement(
 ///    This system doesn't run in rollback, so without early player inputs, their bullets will be
 ///    spawned by the normal server replication (triggering a rollback).
 pub fn shared_player_firing(
-    mut q: Query<
-        (
-            &Position,
-            &Rotation,
-            &LinearVelocity,
-            &ColorComponent,
-            &ActionState<PlayerActions>,
-            &InputBuffer<ActionState<PlayerActions>>,
-            &mut Weapon,
-            Has<Controlled>,
-            &Player,
-        ),
-        Or<(With<Predicted>, With<Replicate>)>,
-    >,
+    mut q: Query<(
+        &Position,
+        &Rotation,
+        &LinearVelocity,
+        &ColorComponent,
+        &ActionState<PlayerActions>,
+        &mut Weapon,
+        Has<Controlled>,
+        &Player,
+    )>,
     mut commands: Commands,
     timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
 ) {
@@ -151,24 +181,21 @@ pub fn shared_player_firing(
         player_velocity,
         color,
         action,
-        buffer,
         mut weapon,
         is_local,
         player,
     ) in q.iter_mut()
     {
-        if !is_server && !is_local {
-            // we only want to spawn bullets on the server, or for our own player
-            // We could also pre-spawn bullets for remote players, but the problem is that if we incorrectly
-            // pre-spawn a bullet (because we receive the 'Release' button too late) it would be very
-            // visually distracting to temporarily see a fake bullet that then disappears.
+        // if !is_server && !is_local {
+        //     // we only want to spawn bullets on the server, or for our own player
+        //     // We could also pre-spawn bullets for remote players, but the problem is that if we incorrectly
+        //     // pre-spawn a bullet (because we receive the 'Release' button too late) it would be very
+        //     // visually distracting to temporarily see a fake bullet that then disappears.
+        //     continue;
+        // }
+        if !action.just_pressed(&PlayerActions::Fire) {
             continue;
         }
-        if !action.pressed(&PlayerActions::Fire) {
-            continue;
-        }
-
-        // info!(?current_tick, player = ?player.client_id, "Buffer: {buffer}");
 
         let wrapped_diff = weapon.last_fire_tick - current_tick;
         if wrapped_diff.abs() <= weapon.cooldown as i16 {
@@ -210,7 +237,7 @@ pub fn shared_player_firing(
                 prespawned,
             ))
             .id();
-        debug!(
+        info!(
             pressed=?action.get_pressed(),
             "spawned bullet for ActionState, bullet={bullet_entity:?} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
             weapon.last_fire_tick.0, player.client_id
@@ -287,6 +314,7 @@ pub(crate) fn process_collisions(
     mut hit_ev_writer: MessageWriter<BulletHitMessage>,
 ) {
     let (timeline, is_server) = timeline.into_inner();
+    let tick = timeline.tick();
     // when A and B collide, it can be reported as one of:
     // * A collides with B
     // * B collides with A
@@ -300,6 +328,7 @@ pub(crate) fn process_collisions(
                 continue;
             }
             // despawn the bullet
+            info!(?tick, bullet = ?contacts.collider1, "Hit! Prediction disable bullet");
             commands.entity(contacts.collider1).prediction_despawn();
             let victim_client_id = player_q
                 .get(contacts.collider2)
@@ -320,6 +349,7 @@ pub(crate) fn process_collisions(
                 // this is our own bullet, don't do anything
                 continue;
             }
+            info!(?tick, bullet = ?contacts.collider2, "Hit! Prediction disable bullet");
             commands.entity(contacts.collider2).prediction_despawn();
             let victim_client_id = player_q
                 .get(contacts.collider1)

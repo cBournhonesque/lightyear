@@ -69,11 +69,30 @@ fn test_check_rollback() {
     // step once to avoid 0 tick rollback
     stepper.frame_step(1);
 
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<PredictionHistory<CompFull>>(predicted)
+            .is_some()
+    );
+    let history_id = stepper
+        .client_app()
+        .world_mut()
+        .register_component::<PredictionHistory<CompFull>>();
+    info!(?history_id, "hi");
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
     // 0. Rollback when the Confirmed component is just added
     // (there is a rollback even though the values match, because the value isn't present in
     //  the PredictionHistory at the time of spawn)
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<PredictionHistory<CompFull>>(predicted)
+            .is_some()
+    );
     assert_eq!(
         stepper
             .client_app()

@@ -34,7 +34,7 @@ fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
 #[derive(Debug, Clone)]
 pub struct PredictionMetadata {
     /// Id of the [`PredictionHistory<C>`] component
-    pub history_id: Option<ComponentId>,
+    pub history_id: ComponentId,
     pub(crate) correction: bool,
     /// Custom interpolation function used to interpolate the rollback error
     pub(crate) correction_fn: Option<unsafe fn()>,
@@ -68,7 +68,7 @@ impl PredictionMetadata {
     fn new<C: SyncComponent>(history_id: ComponentId) -> Self {
         let should_rollback: ShouldRollbackFn<C> = <C as PartialEq>::ne;
         Self {
-            history_id: Some(history_id),
+            history_id,
             correction: false,
             correction_fn: None,
             should_rollback: unsafe {
@@ -197,9 +197,9 @@ impl PredictionRegistry {
         .entered();
 
         // TODO: if the history is not present on the entity, but the confirmed component is present, we need to rollback
+        //  (requires mutable aliasing)
+        // note: it should not be possible that the PredictionHistory is present but not the Confirmed component.
         let Some(mut predicted_history) = entity_mut.get_mut::<PredictionHistory<C>>() else {
-            // TODO: if the history is not present on the entity, but the confirmed component is present, we need to rollback!
-            //  requires mutable aliasing
             return false;
         };
         #[cfg(feature = "metrics")]
@@ -466,7 +466,6 @@ impl PredictionAppRegistrationExt for App {
         let Some(mut registry) = self.world_mut().get_resource_mut::<PredictionRegistry>() else {
             return ComponentRegistration::<C>::new(self);
         };
-
         registry.register::<C>(history_id);
         add_non_networked_rollback_systems::<C>(self);
         ComponentRegistration::<C>::new(self)

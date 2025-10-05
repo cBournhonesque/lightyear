@@ -31,10 +31,10 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
     for (component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
-            trace!(
-                "Prediction history changed for tick {tick:?} component {:?}",
-                DebugName::type_name::<T>()
-            );
+            // trace!(
+            //     "Prediction history changed for tick {tick:?} component {:?}",
+            //     DebugName::type_name::<T>()
+            // );
             history.add_update(tick, component.deref().clone());
         }
     }
