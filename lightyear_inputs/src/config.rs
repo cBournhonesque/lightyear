@@ -46,7 +46,7 @@ impl<A> Default for InputConfig<A> {
         InputConfig {
             #[cfg(feature = "interpolation")]
             lag_compensation: false,
-            packet_redundancy: 3,
+            packet_redundancy: 10,
             send_interval: Duration::default(),
             ignore_rollbacks: false,
             rebroadcast_inputs: false,

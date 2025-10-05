@@ -80,7 +80,7 @@ impl RollbackPolicy {
     ///
     /// PredictionHistory is not needed if we always rollback on new states
     pub fn no_prediction_history(&self) -> bool {
-        matches!(self.state, RollbackMode::Always) && matches!(self.input, RollbackMode::Disabled)
+        !matches!(self.state, RollbackMode::Disabled) && matches!(self.input, RollbackMode::Disabled)
     }
 }
 

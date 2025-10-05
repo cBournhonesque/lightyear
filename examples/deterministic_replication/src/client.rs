@@ -37,7 +37,6 @@ fn handle_player_spawn(
     let tick = timeline.tick();
 
     // store the tick when the game started, so we can remove the DisableRollback component later
-
     let peer_id = player_query.get(trigger.entity).unwrap().0;
     info!("Received player spawn for player {peer_id:?} at tick {tick:?}");
     let mut entity_mut = commands.entity(trigger.entity);
@@ -69,18 +68,23 @@ fn handle_ball_spawn(
 struct Spawned(Tick);
 
 /// Remove the DisableRollback component from all entities a little bit after the game started.
+///
+/// Set the correct color to show that we are ready.
 fn handle_game_start(
     timeline: Single<&LocalTimeline, (With<Client>, With<IsSynced<InputTimeline>>)>,
-    query: Query<(Entity, &Spawned, &PredictionHistory<Position>), With<DisableRollback>>,
+    mut query: Query<(Entity, Option<&PlayerId>, Option<&mut ColorComponent>, &Spawned, &PredictionHistory<Position>), With<DisableRollback>>,
     mut commands: Commands,
 ) {
     let tick = timeline.tick();
-    query.iter().for_each(|(e, spawned, history)| {
+    query.iter_mut().for_each(|(e, player, color, spawned, history)| {
         if tick > spawned.0 + 20 {
             info!(
                 "Removed DisableRollback from entity: {:?}. History: {:?}",
                 e, history
             );
+            if let (Some(player), Some(mut color)) = (player, color) {
+                color.0 = color_from_id(player.0);
+            }
             commands
                 .entity(e)
                 .remove::<DisableRollback>()

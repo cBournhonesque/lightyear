@@ -102,7 +102,7 @@ fn init(mut commands: Commands) {
         ));
 
         commands.spawn((
-            Text::new(""),
+            Text::new("Mode information"),
             TextFont::from_font_size(20.0),
             TextColor(Color::WHITE.with_alpha(0.7)),
             Node {

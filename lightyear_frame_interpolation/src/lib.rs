@@ -48,7 +48,7 @@ pub mod prelude {
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
-use bevy_app::{App, FixedLast, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystems};
+use bevy_app::prelude::*;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::common_conditions::not;
@@ -108,7 +108,8 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
             RunFixedMainLoop,
             FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
-        // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste.
+        // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste to do
+        // it for each rollback frame
         // At the end of rollback, we have a system in lightyear_prediction that manually sets the FrameInterpolate component.
         app.configure_sets(
             FixedLast,
@@ -128,7 +129,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
             restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSet::Restore),
         );
         app.add_systems(
-            FixedLast,
+            FixedPostUpdate,
             update_visual_interpolation_status::<C>.in_set(FrameInterpolationSet::Update),
         );
         app.add_systems(
@@ -214,6 +215,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
+///  TODO: do not run this in rollback! since we are updating this in PostRollback
 pub(crate) fn update_visual_interpolation_status<
     C: Component<Mutability = Mutable> + Clone + Debug,
 >(

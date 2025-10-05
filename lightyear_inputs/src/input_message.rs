@@ -47,7 +47,7 @@ pub struct PerTargetData<S> {
     pub states: S,
 }
 
-pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
+pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + Default + 'static {
     /// The type of the Action that this snapshot represents.
     type Action: Send + Sync + 'static;
 
@@ -184,8 +184,7 @@ pub trait ActionStateSequence:
             } else {
                 // only try to detect mismatches after the previous_end_tick
                 if previous_end_tick.is_none_or(|t| tick > t) {
-                    if previous_end_tick.is_some()
-                        && match (&previous_predicted_input, &input) {
+                    if match (&previous_predicted_input, &input) {
                             // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
                             (_, InputData::SameAsPrecedent) => true,
                             (Some(prev), InputData::Input(latest)) => latest == prev,

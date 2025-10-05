@@ -229,6 +229,7 @@ fn check_rollback(
     ) = receiver_query.into_inner();
     let tick = local_timeline.tick();
     let received_state = replication_receiver.received_this_frame;
+    let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
     trace!(?received_state, ?tick, "Check rollback");
     let mut skip_state_check = false;
 
@@ -237,7 +238,6 @@ fn check_rollback(
                             commands: &mut Commands,
                             rollback: Rollback| {
         let delta = tick - rollback_tick;
-        let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
         if delta < 0 || delta as u16 > max_rollback_ticks {
             warn!(
                 ?rollback_tick,
@@ -361,10 +361,8 @@ fn check_rollback(
                     && last_confirmed_input.received_input()
                 {
                     debug!(
-                        "Rollback because we have received a new remote input. (no mismatch check)"
+                        ?last_confirmed_input, "Rollback because we have received a new remote input. (no mismatch check)"
                     );
-                    // TODO: instead of rolling back to the last confirmed input, we could also just rollback
-                    //  to the previous confirmed state (the inputs are just 'extra')
                     let rollback_tick = last_confirmed_input.tick.get();
                     do_rollback(
                         rollback_tick,
@@ -452,7 +450,6 @@ pub fn reset_input_rollback_tracker(
     }
 }
 
-// TODO: maybe restore only the ones for which the Confirmed entity is not disabled?
 /// Before we start preparing for rollback, restore any PredictionDisable predicted entity
 pub(crate) fn remove_prediction_disable(
     mut commands: Commands,

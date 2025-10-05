@@ -18,9 +18,8 @@ pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>,
 }
 
-impl<A: Debug + PartialEq + Clone + Send + Sync + 'static> InputSnapshot for ActionState<A> {
+impl<A: Debug + Default + PartialEq + Clone + Send + Sync + 'static> InputSnapshot for ActionState<A> {
     type Action = A;
-
     fn decay_tick(&mut self, tick_duration: Duration) {}
 }
 

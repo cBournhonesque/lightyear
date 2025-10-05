@@ -97,15 +97,14 @@ impl Plugin for ProtocolPlugin {
 
         // add prediction for non-networked components
         app.add_rollback::<Position>()
-            .add_should_rollback(position_should_rollback)
             // add a hash function to perform a checksum in order to catch desyncs
             .add_custom_hash(lightyear_avian2d::types::position::hash)
             // register a linear interpolation function without actually running Interpolation systems
+            // it will be used for FrameInterpolation
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
         app.add_rollback::<Rotation>()
-            .add_should_rollback(rotation_should_rollback)
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
@@ -115,12 +114,4 @@ impl Plugin for ProtocolPlugin {
         app.add_rollback::<LinearVelocity>();
         app.add_rollback::<AngularVelocity>();
     }
-}
-
-fn position_should_rollback(this: &Position, that: &Position) -> bool {
-    (this.0 - that.0).length() >= 0.01
-}
-
-fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
-    this.angle_between(*that) >= 0.01
 }

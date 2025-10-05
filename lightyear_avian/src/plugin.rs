@@ -105,7 +105,7 @@ impl Plugin for LightyearAvianPlugin {
                     // LightyearAvianPlugin::sync_transform_to_position(app, FixedPostUpdate);
                     // LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
-
+                
                 app.configure_sets(
                     FixedPostUpdate,
                     // update physics before we store the new Position in the history

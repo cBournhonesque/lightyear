@@ -1,25 +1,16 @@
-Issue with correction/visual interpolation
 
-Frame 1
-- we had local at -30.0, stable
-- after rollback, we get -10.0 for some reason (1)
-- we get a correction of -20.0
-FI: stable at -30.0
-Correction: we get something like -28.
+- system ordering issue? doesn't happen every time
+- 
+- the inputs received seem incorrect or received at the wrong time.
+  - e.g. the sender didn't send Press Left but the receiver receives that.
+  - for example started pressing Left at tick 399.
+  - I think it's the first time we receive an input, we update the ActionState.
+    Then we rollback from the start of mismatch, which is one tick before the start of the buffer.
+    Since we don't have the tick in the buffer, we don't update the buffer at all! (because normally we just decay)
+   
 
-Frame 2
-- restore the tick value at -10.0
-FI: Stable at -10.0 -> WEIRD? (2)
-Correction: we get -27
-
-
-0) Position and Transform are not in sync in PostUpdate!!
-
-1) How come there is a misprediction for the local entity? Check input logs
-
-2) The FrameInterpolation should be using the previous Visual value.
-Actually maybe not because the FI is just to interpolate between Fixed updates.
-
+- We get a mismatch on first input received because the InputBuffer was empty.
+  - maybe on InputBuffer empty we should only mismatch if the ActionState was not default!
 
 -------------------------
 

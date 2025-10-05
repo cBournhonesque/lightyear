@@ -368,7 +368,9 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component::<LinearVelocity>().add_prediction();
+        app.register_component::<LinearVelocity>()
+            .add_prediction()
+            .add_should_rollback(linear_velocity_should_rollback);
 
         app.register_component::<ColorComponent>();
 
@@ -393,7 +395,8 @@ impl Plugin for ProtocolPlugin {
         // Register new weapon and projectile components
         app.register_component::<WeaponType>();
 
-        app.register_component::<Weapon>().add_prediction();
+        app.register_component::<Weapon>()
+            .add_prediction();
 
         app.register_component::<ProjectileReplicationMode>();
 
@@ -404,7 +407,8 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PhysicsProjectile>()
             .add_prediction();
 
-        app.register_component::<HomingMissile>().add_prediction();
+        app.register_component::<HomingMissile>()
+            .add_prediction();
 
         app.register_component::<ShotgunPellet>();
 
@@ -421,4 +425,8 @@ fn position_should_rollback(this: &Position, that: &Position) -> bool {
 
 fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
     this.angle_between(*that) >= 0.01
+}
+
+fn linear_velocity_should_rollback(this: &LinearVelocity, that: &LinearVelocity) -> bool {
+    (this.0 - that.0).length() >= 0.01
 }

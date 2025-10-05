@@ -31,9 +31,6 @@ pub struct PredictionPlugin;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PredictionSet {
     // PreUpdate Sets
-    /// Spawn predicted entities,
-    /// We will also use this do despawn predicted entities when confirmed entities are despawned
-    SpawnPrediction,
     /// System set encompassing the sets in [`RollbackSet`]
     Rollback,
 
@@ -192,9 +189,7 @@ impl Plugin for PredictionPlugin {
             PreUpdate,
             (
                 ReplicationSet::Receive,
-                (PredictionSet::SpawnPrediction, PredictionSet::Rollback)
-                    .chain()
-                    .in_set(PredictionSet::All),
+                PredictionSet::Rollback.in_set(PredictionSet::All)
             )
                 .chain(),
         );

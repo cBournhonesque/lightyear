@@ -74,6 +74,8 @@ pub fn add_correction_systems<
 }
 
 /// After the rollback is over, we need to update the values in the [`FrameInterpolate<C>`] component.
+/// This is important to run now and not in FixedUpdate because FixedUpdate could not run this frame.
+/// (if we have two frames in a row)
 ///
 /// If we have correction enabled, then we can compute the error between the previous visual value
 /// [`PreviousVisual<C>`] and the new visual value.
@@ -88,7 +90,7 @@ pub(crate) fn update_frame_interpolation_post_rollback<
     mut query: Query<(
         Entity,
         &C,
-        &PreviousVisual<C>,
+        Option<&PreviousVisual<C>>,
         &PredictionHistory<C>,
         &mut FrameInterpolate<C>,
     )>,
@@ -98,30 +100,34 @@ pub(crate) fn update_frame_interpolation_post_rollback<
     let overstep = time.overstep_fraction();
     let tick = timeline.tick();
     for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
-        // compute the new visual value post-rollback but interpolating between the last 2 states of the history
+        // update the FrameInterpolation with the last 2 history values
         interpolate.current_value = Some(component.clone());
         interpolate.previous_value = history.second_most_recent(tick).cloned();
         let Some(previous) = &interpolate.previous_value else {
             continue;
         };
-        let current_visual = registry.interpolate(previous.clone(), component.clone(), overstep);
-        // error = previous_visual - current_visual
-        let error = current_visual.diff(&previous_visual.0);
-        trace!(
-            ?tick,
-            ?entity,
-            ?current_visual,
-            ?previous_visual,
-            ?error,
-            // two_previous_values = ?interpolate,
-            // ?history,
-            "Updating VisualCorrection post rollback for {:?}",
-            DebugName::type_name::<C>()
-        );
-        commands
-            .entity(entity)
-            .insert(VisualCorrection::<D> { error })
-            .remove::<PreviousVisual<C>>();
+
+        // compute the new visual value post-rollback but interpolating between the last 2 states of the history
+        if let Some(previous_visual) = previous_visual {
+            let current_visual = registry.interpolate(previous.clone(), component.clone(), overstep);
+            // error = previous_visual - current_visual
+            let error = current_visual.diff(&previous_visual.0);
+            trace!(
+                ?tick,
+                ?entity,
+                ?current_visual,
+                ?previous_visual,
+                ?error,
+                // two_previous_values = ?interpolate,
+                // ?history,
+                "Updating VisualCorrection post rollback for {:?}",
+                DebugName::type_name::<C>()
+            );
+            commands
+                .entity(entity)
+                .insert(VisualCorrection::<D> { error })
+                .remove::<PreviousVisual<C>>();
+        }
     }
 }
 
