@@ -568,11 +568,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     >,
     mut predicted_query: Query<
         (Option<&mut InputBuffer<S::Snapshot>>, Option<StateMut<S>>),
-        (
-            Or<(With<Predicted>, With<DeterministicPredicted>)>,
-            Without<S::Marker>,
-            Allow<PredictionDisable>,
-        ),
+        (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let (manager, mut receiver, last_confirmed_input, prediction_manager, timeline) =
@@ -582,9 +578,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", DebugName::type_name::<S::Action>());
         for target_data in message.inputs {
-            // - the input target has already been set to the server entity in the InputMessage
-            // - it has been mapped to a client-entity on the client during deserialization
-            //   ONLY if it's PrePredicted or ActionEntity (look at the MapEntities implementation)
             let entity = match target_data.target {
                 InputTarget::Entity(entity) => {
                     Some(entity)
@@ -592,7 +585,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 InputTarget::PreSpawned(hash) => {
                     // TODO: should clients receive rebroadcasted PreSpawned using the hash?
                     //  if they don't receive the remote clients inputs in time, they cannot prespawn, so maybe they should just use the entity?
-                    None
+                    //  Ideally, we could only pre-spawn on the controlling client (so we need a PrespawnTarget)?
+                    todo!()
                 }
             };
             let Some(entity) = entity else {

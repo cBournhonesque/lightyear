@@ -86,8 +86,9 @@ impl<
             app.add_observer(add_input_marker_from_binding::<C>);
 
             if self.config.rebroadcast_inputs {
-                #[cfg(feature = "client")]
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
+                #[cfg(feature = "server")]
+                app.add_observer(InputRegistryPlugin::add_action_of_host_server_rebroadcast::<C>);
             }
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
@@ -111,7 +112,9 @@ impl<
         }
         #[cfg(feature = "server")]
         {
-            app.add_observer(InputRegistryPlugin::on_action_of_replicated::<C>);
+            if self.config.rebroadcast_inputs {
+                app.add_observer(InputRegistryPlugin::on_action_of_replicated::<C>);
+            }
 
             app.add_plugins(
                 lightyear_inputs::server::ServerInputPlugin::<BEIStateSequence<C>> {

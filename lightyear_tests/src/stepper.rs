@@ -113,7 +113,6 @@ impl ClientServerStepper {
                     LinkOf {
                         server: self.server_entity,
                     },
-                    // Note: no need to add ReplicationSender/Receiver on the host-client entity
                     // TODO: maybe don't add Link either?
                     Link::new(None),
                     Linked,

@@ -694,6 +694,8 @@ impl Replicate {
                         "Adding replicated entity {} to sender {}",
                         context.entity, sender_entity
                     );
+                    // TODO: maybe we should update `sender` even if it's a HostClient since it might be needed
+                    //  to insert the fake replication components for host-server
                     if host_client {
                         return;
                     }
@@ -860,7 +862,7 @@ impl Replicate {
                 Entity,
                 &mut ReplicationSender,
                 &RemoteId,
-                Option<&Client>,
+                Has<Client>,
                 Option<&LinkOf>,
             ),
             With<Connected>,
@@ -878,7 +880,7 @@ impl Replicate {
                     }
                     #[cfg(feature = "client")]
                     ReplicationMode::SingleClient => {
-                        todo!()
+                        // this can only happen if we are in host-server mode. In which case we don't want to replicate on other clients
                     }
                     #[cfg(feature = "server")]
                     ReplicationMode::SingleServer(target) => {

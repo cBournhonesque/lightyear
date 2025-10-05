@@ -15,7 +15,8 @@ use lightyear_core::interpolation::Interpolated;
 #[cfg(feature = "prediction")]
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use tracing::info;
+#[allow(unused_imports)]
+use tracing::{debug, info};
 // impl ControlledBy {
 //     /// In Host-Server mode, any entity that is marked as ControlledBy the host
 //     /// should also have Controlled assigned to them
@@ -77,7 +78,7 @@ impl HostServerPlugin {
                 if d.replicate.as_ref().is_some_and(|r| {
                     (r.is_added() || host_client.is_added()) && r.senders.contains(&local_entity)
                 }) {
-                    info!(
+                    debug!(
                         "insert fake Replicated on {:?}. Replicate: {:?}",
                         entity, d.replicate
                     );
@@ -108,7 +109,7 @@ impl HostServerPlugin {
                 if d.prediction.as_ref().is_some_and(|p| {
                     (p.is_added() || host_client.is_added()) && p.senders.contains(&local_entity)
                 }) {
-                    info!(
+                    debug!(
                         "insert fake Predicted on {:?}. PredictionTarget: {:?}",
                         entity, d.prediction
                     );

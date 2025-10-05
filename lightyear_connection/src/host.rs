@@ -16,10 +16,7 @@ use crate::{
     server::Started,
 };
 use bevy_app::{App, Plugin};
-use bevy_ecs::component::Component;
-#[cfg(feature = "server")]
 use bevy_ecs::prelude::*;
-#[cfg(feature = "server")]
 use bevy_reflect::Reflect;
 use bytes::Bytes;
 #[cfg(feature = "server")]
@@ -38,7 +35,6 @@ pub struct HostClient {
     pub buffer: Vec<(Bytes, core::any::TypeId)>,
 }
 
-#[cfg(feature = "server")]
 /// Marker component inserted on a server that has a [`HostClient`]
 #[derive(Component, Debug, Reflect)]
 pub struct HostServer {

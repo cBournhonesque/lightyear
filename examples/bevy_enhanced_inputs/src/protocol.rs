@@ -1,6 +1,7 @@
 use bevy::math::Curve;
 use bevy::prelude::*;
 use bevy::prelude::{App, Plugin};
+use lightyear::input::prelude::InputConfig;
 use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -40,7 +41,12 @@ pub struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
-        app.add_plugins(InputPlugin::<Player>::default());
+        app.add_plugins(InputPlugin::<Player> {
+            config: InputConfig::<Player> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
         app.register_input_action::<Movement>();
 
         // components
