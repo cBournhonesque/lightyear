@@ -9,7 +9,7 @@ extern crate std;
 pub mod debug;
 pub mod metrics;
 
-/// Common imports for convenience.
+/// Imports
 pub mod prelude {
     pub use crate::debug::DebugUIPlugin;
     pub use crate::metrics::plugin::{ClearBucketsSystem, RegistryPlugin};
