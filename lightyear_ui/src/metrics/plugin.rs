@@ -7,7 +7,7 @@ use tracing::error;
 /// Installs and garbage collects a [`MetricsRegistry`].
 ///
 /// This plugin runs a garbage collector every frame in the
-/// [`ClearBucketsSystem`]. Direct consumers of atomic buckets (e.g. plots)
+/// [`ClearBucketsSystem`]. Direct consumers of atomic buckets (e.g., plots)
 /// should read the documentation of [`ClearBucketsSystem`].
 #[derive(Default)]
 pub struct RegistryPlugin {
@@ -51,6 +51,7 @@ impl Plugin for RegistryPlugin {
             }
             registry
         };
+
         app.insert_resource(registry).add_systems(
             Last,
             MetricsRegistry::clear_atomic_buckets_system.in_set(ClearBucketsSystem),
