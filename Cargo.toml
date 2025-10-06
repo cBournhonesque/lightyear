@@ -197,7 +197,7 @@ bevy = { version = "0.16", default-features = false, features = [
 bevy_app = { version = "0.16", default-features = false }
 bevy_derive = { version = "0.16", default-features = false }
 bevy_diagnostic = { version = "0.16", default-features = false }
-bevy_color = { version = "0.16", default-features = false }
+bevy_color = { version = "0.17", default-features = false }
 bevy_ecs = { version = "0.16", default-features = false }
 bevy_input = { version = "0.16", default-features = false }
 bevy_log = { version = "0.16", default-features = false }
