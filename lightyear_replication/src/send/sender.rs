@@ -211,7 +211,7 @@ impl ReplicationSender {
         self.replicated_entities
             .entry(entity)
             .and_modify(|e| e.authority = false)
-            .or_insert(ReplicationStatus::default());
+            .or_default();
     }
 
     /// Returns true if this sender has authority over the entity
@@ -427,7 +427,7 @@ impl ReplicationSender {
             .spawn = SpawnAction::Spawn {
             predicted,
             interpolated,
-            prespawn: prespawned.map(|p| p.hash).flatten(),
+            prespawn: prespawned.and_then(|p| p.hash),
         };
         self.group_channels
             .entry(group_id)
@@ -912,7 +912,7 @@ mod tests {
     fn test_send_tick_no_priority() {
         let (mut sender, mut transport) = setup();
 
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_bits(1);
         let group_1 = ReplicationGroupId(0);
         sender
             .group_channels
@@ -1025,7 +1025,7 @@ mod tests {
         let (mut sender, mut transport) = setup();
         sender.bandwidth_cap_enabled = true;
 
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_bits(1);
         let group_1 = ReplicationGroupId(0);
         sender
             .group_channels

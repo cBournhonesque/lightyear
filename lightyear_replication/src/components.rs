@@ -39,7 +39,7 @@ impl<C> Default for ComponentReplicationOverrides<C> {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct InitialReplicated {
-    /// Entity that holds the original [`ReplicationReceiver`] for this entity
+    /// Entity that holds the original [`ReplicationReceiver`](crate::receive::ReplicationReceiver) for this entity
     pub receiver: Entity,
 }
 
@@ -51,7 +51,7 @@ pub struct InitialReplicated {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Replicated {
-    /// Entity that holds the [`ReplicationReceiver`] for this entity
+    /// Entity that holds the [`ReplicationReceiver`](crate::receive::ReplicationReceiver) for this entity
     pub receiver: Entity,
 }
 
@@ -91,8 +91,8 @@ impl ConfirmedTick {
 ///
 /// In general, when an entity is replicated from the server to the client, multiple entities can be created on the client:
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
-/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](lightyear_core::prediction::Predicted)
-/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](lightyear_core::interpolation::Interpolated)
+/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`]
+/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`]
 #[derive(Deref, DerefMut, Component, Reflect, PartialEq, Default, Debug, Clone)]
 #[reflect(Component)]
 pub struct Confirmed<C>(pub C);

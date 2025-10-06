@@ -361,7 +361,8 @@ fn check_rollback(
                     && last_confirmed_input.received_input()
                 {
                     debug!(
-                        ?last_confirmed_input, "Rollback because we have received a new remote input. (no mismatch check)"
+                        ?last_confirmed_input,
+                        "Rollback because we have received a new remote input. (no mismatch check)"
                     );
                     let rollback_tick = last_confirmed_input.tick.get();
                     do_rollback(

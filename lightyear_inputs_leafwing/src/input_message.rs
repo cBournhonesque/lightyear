@@ -248,11 +248,7 @@ mod tests {
                 }],
             ],
         };
-        let mismatch = sequence.update_buffer(
-            &mut input_buffer,
-            Tick(8),
-            TickDuration(Duration::default()),
-        );
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(8), Duration::default());
         assert_eq!(mismatch, Some(Tick(7)));
 
         // NOTE: The action_state from the sequence are ticked to avoid having JustPressed on each tick!
@@ -285,11 +281,7 @@ mod tests {
             }]],
         };
         // Should overwrite tick 3
-        sequence.update_buffer(
-            &mut input_buffer,
-            Tick(3),
-            TickDuration(Duration::default()),
-        );
+        sequence.update_buffer(&mut input_buffer, Tick(3), Duration::default());
         assert_eq!(input_buffer.get(Tick(2)).unwrap().0, action_state);
 
         let mut expected = action_state.clone();

@@ -1,6 +1,7 @@
 //! Map between local and remote entities
 
-use crate::reader::{ReadInteger, Reader};
+use crate::reader::{ReadInteger, ReadVarInt, Reader};
+use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
 use bevy_derive::{Deref, DerefMut};
@@ -203,16 +204,13 @@ impl RemoteEntityMap {
 /// TODO: optimize for the case where generation == 1, which should be most cases
 impl ToBytes for Entity {
     fn bytes_len(&self) -> usize {
-        8
-        // varint_len(self.index() as u64) + 4
+        varint_len(self.index() as u64) + 4
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        buffer.write_u64(self.to_bits())?;
-        // buffer.to
-        // buffer.write_varint(self.index() as u64)?;
-        // buffer.write_u32(self.generation())?;
-        // buffer.write_varint(self.generation() as u64)?;
+        buffer.write_varint(self.index() as u64)?;
+        // TODO: use varint
+        buffer.write_u32(self.generation().to_bits())?;
         Ok(())
     }
 
@@ -220,15 +218,13 @@ impl ToBytes for Entity {
     where
         Self: Sized,
     {
-        // let index = buffer.read_varint()?;
+        let index = buffer.read_varint()?;
 
-        // TODO: investigate why it doesn't work with varint?
+        // TODO: use varint
         // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
         // let generation = buffer.read_varint()?;
-        // let generation = buffer.read_u32()? as u64;
-        // let bits = generation << 32 | index;
-
-        let bits = buffer.read_u64()?;
+        let generation = buffer.read_u32()? as u64;
+        let bits = generation << 32 | index;
         Ok(Entity::from_bits(bits))
     }
 }

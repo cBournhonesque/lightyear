@@ -105,7 +105,7 @@ pub trait InterpolationRegistrationExt<C> {
     where
         C: SyncComponent + Ease;
 
-    /// The remote updates will be stored in a [`ConfirmedHistory<C>`] component
+    /// The remote updates will be stored in a [`ConfirmedHistory<C>`](crate::interpolation_history::ConfirmedHistory) component
     /// but the user has to define the interpolation logic themselves
     /// (`lightyear` won't perform any kind of interpolation)
     fn add_custom_interpolation(self) -> Self

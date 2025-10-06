@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_else_if)]
 use crate::components::Confirmed;
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
 use crate::prelude::ComponentReplicationConfig;

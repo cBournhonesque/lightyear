@@ -104,7 +104,7 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
     }
 }
 
-/// When Confirmed<C> is inserted on an Interpolated entity, insert a ConfirmedHistory::<C> component
+/// When [`Confirmed<C>`] is inserted on an Interpolated entity, insert a [`ConfirmedHistory::<C>`] component
 ///
 // TODO: should we populate the history immediately with the component value?
 pub(crate) fn insert_confirmed_history<C: Component>(

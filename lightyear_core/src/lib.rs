@@ -31,10 +31,8 @@ pub mod time;
 /// Defines [`Timeline`](timeline::Timeline) for managing different views of time (local, network).
 pub mod timeline;
 
-#[cfg(feature = "interpolation")]
 pub mod interpolation;
 
-#[cfg(feature = "prediction")]
 pub mod prediction;
 
 #[cfg(feature = "test_utils")]
@@ -42,10 +40,8 @@ pub mod test;
 
 /// Commonly used items from the `lightyear_core` crate.
 pub mod prelude {
-    #[cfg(feature = "interpolation")]
     pub use crate::interpolation::Interpolated;
 
-    #[cfg(feature = "prediction")]
     pub use crate::prediction::Predicted;
 
     pub use crate::id::{LocalId, PeerId, RemoteId};

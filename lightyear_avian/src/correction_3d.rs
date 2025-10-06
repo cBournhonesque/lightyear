@@ -85,8 +85,8 @@ pub(crate) fn update_frame_interpolation_post_rollback(
             continue;
         };
         let before_last_correct_transform = to_transform(before_last_pos, before_last_rot);
-        interpolate.current_value = Some(last_correct_transform.clone());
-        interpolate.previous_value = Some(before_last_correct_transform.clone());
+        interpolate.current_value = Some(last_correct_transform);
+        interpolate.previous_value = Some(before_last_correct_transform);
         let current_visual = registry.interpolate(
             before_last_correct_transform,
             last_correct_transform,
@@ -147,7 +147,7 @@ pub(crate) fn add_visual_correction(
                     .remove::<VisualCorrection<Isometry3d>>();
                 return;
             }
-            let previous_error = visual_correction.error.clone();
+            let previous_error = visual_correction.error;
             let new_error =
                 EasingCurve::new(Isometry3d::default(), previous_error, EaseFunction::Linear)
                     .sample_unchecked(r);

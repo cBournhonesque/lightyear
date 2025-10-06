@@ -59,10 +59,9 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
     }
 }
 
-/// If a component is removed on the Predicted entity, and the PredictionMode == FULL
-/// Add the removal to the history (for potential rollbacks).
+/// If a predicted component is removed on the [`Predicted`] entity, add the removal to the history (for potential rollbacks).
 ///
-/// (if Confirmed<C> is removed from the component, we don't need to do anything. We might get a rollback
+/// (if [`Confirmed<C>`] is removed from the component, we don't need to do anything. We might get a rollback
 /// by comparing with the history)
 pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: On<Remove, C>,
@@ -77,18 +76,18 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     }
 }
 
-/// If a PredictionMode::Full gets added to [`Predicted`] entity, add a PredictionHistory component.
+/// If a predicted component gets added to [`Predicted`] entity, add a [`PredictionHistory`] component.
 ///
 /// We don't put any value in the history because the `update_history` systems will add the value.
 ///
-/// Predicted: when Confirmed<C> is added, we potentially do a rollback which will add C
+/// Predicted: when [`Confirmed<C>`] is added, we potentially do a rollback which will add C
 /// PreSpawned:
 ///   - on the client the component C is added, which should be added to the history
 ///   - before matching, any rollback should bring us back to the state of C in the history
-///   - when Predicted is added (on PreSpawn match), Confirmed<C> might be added, which shouldn't trigger a rollback
+///   - when Predicted is added (on PreSpawn match), [`Confirmed<C>`] might be added, which shouldn't trigger a rollback
 ///     beacuse it should match the state of C in the history. We remove PreSpawned to make sure that we rollback to
-///     the Confirmed<C> state
-///   - if no match, we also remove PreSpawned, so that the entity is just Predicted (and we rollback to the last Confirmed<C> state)
+///     the [`Confirmed<C>`] state
+///   - if no match, we also remove PreSpawned, so that the entity is just Predicted (and we rollback to the last [`Confirmed<C>`] state)
 pub(crate) fn add_prediction_history<C: Component>(
     trigger: On<
         Add,

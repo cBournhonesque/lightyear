@@ -16,8 +16,6 @@ use lightyear_connection::network_target::NetworkTarget;
 #[cfg(feature = "server")]
 use lightyear_connection::{client::PeerMetadata, client_of::ClientOf};
 use lightyear_core::id::RemoteId;
-use lightyear_core::interpolation::Interpolated;
-use lightyear_core::prediction::Predicted;
 use lightyear_link::server::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::server::Server;
@@ -291,7 +289,7 @@ impl ToBytes for ReplicationGroupId {
 }
 
 #[cfg(feature = "prediction")]
-pub type PredictionTarget = ReplicationTarget<Predicted>;
+pub type PredictionTarget = ReplicationTarget<lightyear_core::prediction::Predicted>;
 
 #[cfg(feature = "prediction")]
 impl PredictionTarget {
@@ -302,7 +300,7 @@ impl PredictionTarget {
 }
 
 #[cfg(feature = "interpolation")]
-pub type InterpolationTarget = ReplicationTarget<Interpolated>;
+pub type InterpolationTarget = ReplicationTarget<lightyear_core::interpolation::Interpolated>;
 
 /// Insert this component to specify which remote peers will start predicting the entity
 /// upon receiving the entity.

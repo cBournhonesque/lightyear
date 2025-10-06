@@ -18,15 +18,16 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
+use core::ops::Deref;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, SyncEvent, Tick};
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_link::prelude::Server;
-use lightyear_sync::prelude::client::Input;
 use lightyear_utils::ready_buffer::ReadyBuffer;
-use std::ops::Deref;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
+#[cfg(feature = "client")]
+use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::Input};
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
@@ -49,6 +50,7 @@ impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(PostUpdate, PreSpawnedSet::CleanUp);
         app.add_observer(Self::register_prespawn_hashes);
+        #[cfg(feature = "client")]
         app.add_observer(PreSpawnedReceiver::handle_tick_sync);
         app.add_systems(
             PostUpdate,
@@ -290,6 +292,7 @@ impl PreSpawnedReceiver {
         }
     }
 
+    #[cfg(feature = "client")]
     pub(crate) fn handle_tick_sync(
         trigger: On<SyncEvent<Input>>,
         mut manager: Single<&mut Self, With<Connected>>,

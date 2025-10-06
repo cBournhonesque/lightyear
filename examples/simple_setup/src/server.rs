@@ -45,6 +45,6 @@ fn startup(mut commands: Commands) -> Result {
             ServerUdpIo::default(),
         ))
         .id();
-    commands.trigger_targets(Start, server);
+    commands.trigger(Start { entity: server });
     Ok(())
 }

@@ -10,8 +10,6 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = []
-prediction = []
-interpolation = []
 test_utils = ["dep:mock_instant"]
 # special feature to avoid using mock_instant when running cargo doc and cargo clippy
 not_mock = []

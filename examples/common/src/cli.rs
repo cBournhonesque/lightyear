@@ -315,11 +315,11 @@ pub fn new_gui_app(add_inspector: bool) -> App {
 
     #[cfg(feature = "visualizer")]
     {
-        app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default());
-        app.add_plugins(bevy_metrics_dashboard::DashboardPlugin);
-        app.add_systems(Startup, |mut commands: Commands| {
-            commands.spawn(bevy_metrics_dashboard::DashboardWindow::new("Metrics"));
-        });
+        // app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default());
+        // app.add_plugins(bevy_metrics_dashboard::DashboardPlugin);
+        // app.add_systems(Startup, |mut commands: Commands| {
+        //     commands.spawn(bevy_metrics_dashboard::DashboardWindow::new("Metrics"));
+        // });
     }
 
     #[cfg(feature = "debug")]

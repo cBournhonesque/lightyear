@@ -395,8 +395,7 @@ impl Plugin for ProtocolPlugin {
         // Register new weapon and projectile components
         app.register_component::<WeaponType>();
 
-        app.register_component::<Weapon>()
-            .add_prediction();
+        app.register_component::<Weapon>().add_prediction();
 
         app.register_component::<ProjectileReplicationMode>();
 
@@ -407,8 +406,7 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PhysicsProjectile>()
             .add_prediction();
 
-        app.register_component::<HomingMissile>()
-            .add_prediction();
+        app.register_component::<HomingMissile>().add_prediction();
 
         app.register_component::<ShotgunPellet>();
 

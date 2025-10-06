@@ -116,7 +116,7 @@ fn trigger_serialize<M: Event>(
     serialize: SerializeFn<M>,
 ) -> Result<(), SerializationError> {
     // Serialize the trigger message
-    serialize(&message, writer)?;
+    serialize(message, writer)?;
     Ok(())
 }
 
@@ -125,7 +125,7 @@ fn trigger_deserialize<M: Event>(
     reader: &mut Reader,
     deserialize: DeserializeFn<M>,
 ) -> Result<M, SerializationError> {
-    Ok(deserialize(reader)?)
+    deserialize(reader)
 }
 
 fn trigger_serialize_mapped<M: Event + MapEntities + Clone>(

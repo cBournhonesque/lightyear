@@ -189,7 +189,7 @@ impl Plugin for PredictionPlugin {
             PreUpdate,
             (
                 ReplicationSet::Receive,
-                PredictionSet::Rollback.in_set(PredictionSet::All)
+                PredictionSet::Rollback.in_set(PredictionSet::All),
             )
                 .chain(),
         );

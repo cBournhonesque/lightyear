@@ -70,7 +70,7 @@ fn fetch_connect_token(
                 Authentication::Token(connect_token),
                 NetcodeConfig::default(),
             )?);
-            commands.trigger_targets(Connect, client);
+            commands.trigger(Connect { entity: client });
             connect_token_request.task = None;
         }
     }
@@ -142,7 +142,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     Text("Connect".to_string()),
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     TextFont::from_font_size(20.0),
-                    BorderColor(Color::BLACK),
+                    BorderColor::all(Color::BLACK),
                     Node {
                         width: Val::Px(150.0),
                         height: Val::Px(65.0),
@@ -173,7 +173,9 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             }
                             _ => {
                                 info!("Disconnecting from server");
-                                commands.trigger_targets(Disconnect, client_entity);
+                                commands.trigger(Disconnect {
+                                    entity: client_entity,
+                                });
                             }
                         };
                     },

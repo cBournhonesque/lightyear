@@ -72,23 +72,34 @@ struct Spawned(Tick);
 /// Set the correct color to show that we are ready.
 fn handle_game_start(
     timeline: Single<&LocalTimeline, (With<Client>, With<IsSynced<InputTimeline>>)>,
-    mut query: Query<(Entity, Option<&PlayerId>, Option<&mut ColorComponent>, &Spawned, &PredictionHistory<Position>), With<DisableRollback>>,
+    mut query: Query<
+        (
+            Entity,
+            Option<&PlayerId>,
+            Option<&mut ColorComponent>,
+            &Spawned,
+            &PredictionHistory<Position>,
+        ),
+        With<DisableRollback>,
+    >,
     mut commands: Commands,
 ) {
     let tick = timeline.tick();
-    query.iter_mut().for_each(|(e, player, color, spawned, history)| {
-        if tick > spawned.0 + 20 {
-            info!(
-                "Removed DisableRollback from entity: {:?}. History: {:?}",
-                e, history
-            );
-            if let (Some(player), Some(mut color)) = (player, color) {
-                color.0 = color_from_id(player.0);
+    query
+        .iter_mut()
+        .for_each(|(e, player, color, spawned, history)| {
+            if tick > spawned.0 + 20 {
+                info!(
+                    "Removed DisableRollback from entity: {:?}. History: {:?}",
+                    e, history
+                );
+                if let (Some(player), Some(mut color)) = (player, color) {
+                    color.0 = color_from_id(player.0);
+                }
+                commands
+                    .entity(e)
+                    .remove::<DisableRollback>()
+                    .remove::<Spawned>();
             }
-            commands
-                .entity(e)
-                .remove::<DisableRollback>()
-                .remove::<Spawned>();
-        }
-    });
+        });
 }

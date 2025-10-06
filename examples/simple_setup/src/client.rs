@@ -38,6 +38,6 @@ fn startup(mut commands: Commands) -> Result {
             UdpIo::default(),
         ))
         .id();
-    commands.trigger_targets(Connect, client);
+    commands.trigger(Connect { entity: client });
     Ok(())
 }

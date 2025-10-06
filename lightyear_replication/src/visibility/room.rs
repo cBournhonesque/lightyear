@@ -299,8 +299,8 @@ mod tests {
 
         // Client joins room
         let room = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
         app.world_mut().trigger(RoomEvent {
             target: RoomTarget::AddSender(sender),
             room,
@@ -348,8 +348,8 @@ mod tests {
 
         // Entity joins room
         let room = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
         app.world_mut().trigger(RoomEvent {
             target: RoomTarget::AddSender(sender),
             room,

@@ -214,7 +214,7 @@ bevy_utils = { version = "0.17", default-features = false, features = ["debug"] 
 tracy-client = { version = "=0.18.0" }
 
 # input
-bevy_enhanced_input = { git = "https://github.com/simgine/bevy_enhanced_input.git", branch = "master", features = ["serialize"] }
+bevy_enhanced_input = { version = "0.19", features = ["serialize"] }
 leafwing-input-manager = { version = "0.18", default-features = false, features = [
   "keyboard",
 ] }

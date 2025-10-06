@@ -319,7 +319,9 @@ pub(crate) fn last_log(
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
-    for (entity, position, transform, interpolate, correction, action_state, input_buffer) in players.iter() {
+    for (entity, position, transform, interpolate, correction, action_state, input_buffer) in
+        players.iter()
+    {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         let translation = transform.translation.truncate();

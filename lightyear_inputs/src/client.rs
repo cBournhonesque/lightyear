@@ -568,8 +568,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (mut receiver, last_confirmed_input, prediction_manager, timeline) =
-        link.into_inner();
+    let (mut receiver, last_confirmed_input, prediction_manager, timeline) = link.into_inner();
     let tick = timeline.tick();
     let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
@@ -660,10 +659,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     >,
     predicted_query: Query<
         &InputBuffer<S::Snapshot>,
-        (
-            Without<S::Marker>,
-            Allow<PredictionDisable>,
-        ),
+        (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let (last_confirmed_input, input_timeline, local_timeline) = last_confirmed_input.into_inner();
@@ -712,7 +708,8 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         //  it just means that we are receiving a remote tick in advance of simulating that tick.
         //  (for example in lockstep mode, we should have all player inputs for tick T before simulating tick T,
         //  so we will receive those inputs in advance)
-        if let RollbackMode::Check = prediction_manager.rollback_policy.input && mismatch <= tick
+        if let RollbackMode::Check = prediction_manager.rollback_policy.input
+            && mismatch <= tick
         {
             debug!(
                 ?entity,

@@ -518,10 +518,10 @@ mod tests {
             mapped_context_deserialize::<Message3>,
         );
 
-        let message = Message3(Entity::from_raw(1));
+        let message = Message3(Entity::from_bits(1));
         let mut writer = Writer::default();
         let mut entity_map = SendEntityMap::default();
-        entity_map.set_mapped(Entity::from_raw(1), Entity::from_raw(2));
+        entity_map.set_mapped(Entity::from_bits(1), Entity::from_bits(2));
         registry
             .serialize(&message, &mut writer, &mut entity_map)
             .unwrap();
@@ -531,6 +531,6 @@ mod tests {
         let read = registry
             .deserialize::<Message3>(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
-        assert_eq!(read.0, Entity::from_raw(2));
+        assert_eq!(read.0, Entity::from_bits(2));
     }
 }

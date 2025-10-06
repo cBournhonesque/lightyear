@@ -349,7 +349,7 @@ impl ErasedSerializeFns {
         }
     }
 
-    /// Get the CloneFn<C> for the type C
+    /// Get the [`CloneFn<C>`] for the type C
     ///
     /// # Safety
     /// erased_clone must be created for the type C

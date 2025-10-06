@@ -1,17 +1,8 @@
+- InputRollbackMode::Always -> issue on the first rollback (because we rollback to the previous time
+  where we received inputs, which is never, since we only send inputs when there are not empty!!)
 
-- system ordering issue? doesn't happen every time
-- 
-- the inputs received seem incorrect or received at the wrong time.
-  - e.g. the sender didn't send Press Left but the receiver receives that.
-  - for example started pressing Left at tick 399.
-  - I think it's the first time we receive an input, we update the ActionState.
-    Then we rollback from the start of mismatch, which is one tick before the start of the buffer.
-    Since we don't have the tick in the buffer, we don't update the buffer at all! (because normally we just decay)
-   
-
-- We get a mismatch on first input received because the InputBuffer was empty.
-  - maybe on InputBuffer empty we should only mismatch if the ActionState was not default!
-
+- Avian3dCharacter: smooth with InputDelay, very unsmooth with no input delay.
+ 
 -------------------------
 
 

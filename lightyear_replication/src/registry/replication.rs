@@ -1,3 +1,4 @@
+#![allow(clippy::collapsible_else_if)]
 use crate::components::Confirmed;
 use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;

@@ -29,17 +29,18 @@ use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
-use lightyear_core::prelude::{LocalTimeline, Predicted, SyncEvent};
+use lightyear_core::prelude::{LocalTimeline, Predicted};
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
-use lightyear_sync::prelude::client::Input;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
+#[cfg(feature = "client")]
+use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::Input};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -184,6 +185,7 @@ impl ReplicationReceivePlugin {
             });
     }
 
+    #[cfg(feature = "client")]
     pub(crate) fn on_sync_event(
         trigger: On<SyncEvent<Input>>,
         mut receiver: Query<&mut ReplicationReceiver>,
@@ -224,6 +226,7 @@ impl Plugin for ReplicationReceivePlugin {
         );
         app.add_observer(Self::handle_disconnection);
         app.add_observer(Self::receive_sender_metadata);
+        #[cfg(feature = "client")]
         app.add_observer(Self::on_sync_event);
     }
 }
@@ -758,9 +761,11 @@ impl GroupChannel {
                                       interpolated: bool,
                                       entity: &mut EntityWorldMut,
                                       remote_tick: Tick| {
+            #[cfg(any(feature = "interpolation", feature = "prediction"))]
             if interpolated || predicted {
                 entity.insert(ConfirmedTick { tick: remote_tick });
             }
+            #[cfg(feature = "interpolation")]
             if interpolated {
                 trace!("Inserting interpolated on local entity {:?}", entity.id());
                 #[cfg(feature = "metrics")]
@@ -769,6 +774,7 @@ impl GroupChannel {
                 }
                 entity.insert(Interpolated);
             }
+            #[cfg(feature = "prediction")]
             if predicted {
                 trace!("Inserting predicted on local entity {:?}", entity.id());
                 // this might also count PreSpawned entities, even if they ended up not being matched
@@ -787,7 +793,7 @@ impl GroupChannel {
             ?message,
             "Received replication actions from remote: {remote:?}"
         );
-        let world_clone = world.as_unsafe_world_cell().clone();
+        let world_clone = world.as_unsafe_world_cell();
         let mut prespawned_receiver =
             unsafe { world_clone.world_mut() }.get_mut::<PreSpawnedReceiver>(receiver_entity);
         // SAFETY: the rest of the function won't affect PreSpawnedReceiver

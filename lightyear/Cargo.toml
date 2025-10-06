@@ -94,7 +94,6 @@ replication = [
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
-  "lightyear_core/prediction",
   "lightyear_replication/prediction",
   "dep:lightyear_frame_interpolation",
   "lightyear_inputs?/prediction",
@@ -107,7 +106,6 @@ frame_interpolation = [
 interpolation = [
   "dep:lightyear_interpolation",
   "lightyear_inputs?/interpolation",
-  "lightyear_core/interpolation",
   "lightyear_replication/interpolation",
 ]
 trace = [

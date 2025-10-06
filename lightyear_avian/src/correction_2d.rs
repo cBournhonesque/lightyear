@@ -84,8 +84,8 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         };
         let before_last_correct_transform = to_transform(before_last_pos, before_last_rot);
         // TODO: here we might need the Parent to correctly get the Transform! What we have is actually the GlobalTransform!
-        interpolate.current_value = Some(last_correct_transform.clone());
-        interpolate.previous_value = Some(before_last_correct_transform.clone());
+        interpolate.current_value = Some(last_correct_transform);
+        interpolate.previous_value = Some(before_last_correct_transform);
         let current_visual = registry.interpolate(
             before_last_correct_transform,
             last_correct_transform,
@@ -146,7 +146,7 @@ pub(crate) fn add_visual_correction(
                     .remove::<VisualCorrection<Isometry2d>>();
                 return;
             }
-            let previous_error = visual_correction.error.clone();
+            let previous_error = visual_correction.error;
             let new_error =
                 EasingCurve::new(Isometry2d::default(), previous_error, EaseFunction::Linear)
                     .sample_unchecked(r);

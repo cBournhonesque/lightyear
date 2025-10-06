@@ -109,7 +109,8 @@ pub(crate) fn update_frame_interpolation_post_rollback<
 
         // compute the new visual value post-rollback but interpolating between the last 2 states of the history
         if let Some(previous_visual) = previous_visual {
-            let current_visual = registry.interpolate(previous.clone(), component.clone(), overstep);
+            let current_visual =
+                registry.interpolate(previous.clone(), component.clone(), overstep);
             // error = previous_visual - current_visual
             let error = current_visual.diff(&previous_visual.0);
             trace!(

@@ -185,13 +185,12 @@ pub trait ActionStateSequence:
                 // only try to detect mismatches after the previous_end_tick
                 if previous_end_tick.is_none_or(|t| tick > t) {
                     if match (&previous_predicted_input, &input) {
-                            // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
-                            (_, InputData::SameAsPrecedent) => true,
-                            (Some(prev), InputData::Input(latest)) => latest == prev,
-                            (None, InputData::Absent) => true,
-                            _ => false,
-                        }
-                    {
+                        // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
+                        (_, InputData::SameAsPrecedent) => true,
+                        (Some(prev), InputData::Input(latest)) => latest == prev,
+                        (None, InputData::Absent) => true,
+                        _ => false,
+                    } {
                         // no mismatch but this is a tick after our previous_end_tick so we want to add it to the buffer.
                         input_buffer.set_raw(tick, input);
                         continue;
@@ -243,11 +242,8 @@ pub struct InputMessage<S> {
 impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
-            match &mut data.target {
-                InputTarget::Entity(e) => {
-                    *e = entity_mapper.get_mapped(*e);
-                }
-                _ => {}
+            if let InputTarget::Entity(e) = &mut data.target {
+                *e = entity_mapper.get_mapped(*e);
             }
             data.states.map_entities(entity_mapper);
         });

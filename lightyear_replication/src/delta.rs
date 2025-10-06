@@ -238,7 +238,7 @@ mod tests {
     fn test_receive_ack() {
         let mut app = App::new();
         app.register_component::<Comp1>().add_delta_compression();
-        let entity = Entity::from_raw(1);
+        let entity = Entity::from_bits(1);
         let kind = ComponentKind::of::<Comp1>();
         let registry = app.world().resource::<ComponentRegistry>();
         let mut delta_manager = DeltaManager::default();

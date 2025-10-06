@@ -45,7 +45,7 @@ impl Plugin for SharedPlugin {
         // );
         app.add_systems(
             FixedPostUpdate,
-            fixed_pre_physics.before(PhysicsSet::StepSimulation),
+            fixed_pre_physics.before(PhysicsSystems::StepSimulation),
         );
 
         app.add_systems(FixedLast, fixed_last_log);
