@@ -6,7 +6,7 @@ use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
-use avian2d::position::Position;
+use avian2d::prelude::Position;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::prelude::*;

@@ -3,7 +3,7 @@ use crate::multi::MultiMessageSender;
 use crate::prelude::{MessageReceiver, MessageSender};
 use crate::registry::MessageRegistration;
 use crate::send::Priority;
-use crate::send_trigger::TriggerSender;
+use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::query::QueryFilter;
@@ -178,7 +178,7 @@ impl<M: Event> TriggerRegistration<'_, M> {
             }
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<ClientOf, TriggerSender<M>>();
+                    .register_required_components::<ClientOf, EventSender<M>>();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);

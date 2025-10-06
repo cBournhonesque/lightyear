@@ -1,5 +1,4 @@
-use avian2d::position::{Position, Rotation};
-use avian2d::prelude::RigidBody;
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::prelude::InputConfig;
@@ -63,7 +62,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(PlayerActions, ColorComponent)>();
         // inputs
         // Use new input plugin path and default config
         app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
@@ -75,56 +73,32 @@ impl Plugin for ProtocolPlugin {
             },
         });
         // components
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
-        app.register_component::<PlayerMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<Name>();
+        app.register_component::<PlayerId>();
+        app.register_component::<PlayerMarker>();
 
         app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn()
-            .add_linear_correction_fn();
+            .add_prediction()
+            .add_linear_interpolation()
+            // we enable correction without applying Correction on Position.
+            // Instead we will apply Correction/FrameInterpolation on Transform directly.
+            .enable_correction();
 
         app.register_component::<Rotation>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn()
-            .add_linear_correction_fn();
+            .add_prediction()
+            .add_linear_interpolation()
+            .enable_correction();
 
-        app.register_component::<ColorComponent>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ColorComponent>();
 
         app.register_component::<Score>();
 
-        app.register_component::<RigidBody>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<RigidBody>();
 
-        app.register_component::<BulletMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<BulletMarker>();
 
-        app.register_component::<PredictedBot>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PredictedBot>();
 
-        app.register_component::<InterpolatedBot>()
-            .add_interpolation(InterpolationMode::Once);
-
-        // do not replicate Transform but make sure to register an interpolation function
-        // for it so that we can do visual interpolation
-        // (another option would be to replicate transform and not use Position/Rotation at all)
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .set_interpolation_mode::<Transform>(InterpolationMode::None);
+        app.register_component::<InterpolatedBot>();
     }
 }

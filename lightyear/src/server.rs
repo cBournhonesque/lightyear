@@ -64,9 +64,6 @@ impl PluginGroup for ServerPlugins {
         #[cfg(feature = "replication")]
         let builder = builder.add(lightyear_replication::host::HostServerPlugin);
 
-        #[cfg(feature = "prediction")]
-        let builder = builder.add(lightyear_prediction::server::ServerPlugin);
-
         // IO
         #[cfg(all(feature = "udp", not(target_family = "wasm")))]
         let builder = builder.add(lightyear_udp::server::ServerUdpPlugin);

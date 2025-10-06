@@ -15,7 +15,7 @@ use metrics_util::{
 ///
 /// You may never need to interact with this, unless you want to call
 /// [`set_global_recorder`](metrics::set_global_recorder) manually and provide a
-/// clone of that same registry to the [`RegistryPlugin`](crate::RegistryPlugin).
+/// clone of that same registry to the [`RegistryPlugin`](super::plugin::RegistryPlugin).
 #[derive(Clone, Resource)]
 pub struct MetricsRegistry {
     inner: Arc<Inner>,

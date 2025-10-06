@@ -2,8 +2,7 @@
 //! the replication of entities and resources.
 //!
 
-use crate::control::{Controlled, ControlledBy, ControlledByRemote};
-use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike, ReplicateLikeChildren};
+use crate::control::Controlled;
 use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
 use crate::prelude::*;
 use bevy_app::{App, Plugin};
@@ -29,38 +28,9 @@ pub(crate) struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
-        // REFLECTION
-        app.register_type::<Replicated>()
-            .register_type::<InitialReplicated>()
-            .register_type::<Replicating>()
-            .register_type::<Confirmed>()
-            .register_type::<Controlled>()
-            .register_type::<ControlledBy>()
-            .register_type::<ControlledByRemote>()
-            .register_type::<Replicating>()
-            .register_type::<ReplicationMode>()
-            .register_type::<Replicate>()
-            .register_type::<DisableReplicateHierarchy>()
-            .register_type::<ReplicateLike>()
-            .register_type::<ReplicateLikeChildren>()
-            .register_type::<ComponentReplicationConfig>()
-            .register_type::<ComponentReplicationOverride>()
-            .register_type::<ReplicationGroupIdBuilder>()
-            .register_type::<ReplicationGroup>()
-            .register_type::<ReplicationGroupId>();
-
         app.register_component::<Controlled>();
 
-        #[cfg(feature = "interpolation")]
-        {
-            app.register_type::<(ShouldBeInterpolated, InterpolationTarget)>();
-            app.register_component::<ShouldBeInterpolated>();
-        }
-        #[cfg(feature = "prediction")]
-        {
-            app.register_type::<(ShouldBePredicted, PrePredicted, PredictionTarget)>();
-            app.register_component::<ShouldBePredicted>();
-        }
+        app.add_observer(ConfirmedTick::add_confirmed_tick_hook);
 
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
@@ -89,11 +59,11 @@ impl Plugin for SharedPlugin {
             priority: 10.0,
         })
         .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<ActionsMessage>()
+        app.register_message_to_bytes::<ActionsMessage>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<UpdatesMessage>()
+        app.register_message_to_bytes::<UpdatesMessage>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_trigger_to_bytes::<SenderMetadata>()
+        app.register_event_to_bytes::<SenderMetadata>()
             .add_direction(NetworkDirection::Bidirectional);
     }
 }

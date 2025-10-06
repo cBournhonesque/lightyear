@@ -6,9 +6,8 @@ use avian2d::prelude::*;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
-use bevy_enhanced_input::EnhancedInputSet;
-use bevy_enhanced_input::action::Action;
-use bevy_enhanced_input::prelude::{ActionOf, Actions, Completed, Started};
+use bevy_enhanced_input::EnhancedInputSystems;
+use bevy_enhanced_input::prelude::*;
 use core::net::SocketAddr;
 use core::ops::DerefMut;
 use core::time::Duration;
@@ -47,17 +46,17 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Startup, spawn_global_control);
 
         // we don't want to panic when trying to read the InputReader if gui is not enabled
-        app.configure_sets(PreUpdate, EnhancedInputSet::Prepare.run_if(|| false));
+        app.configure_sets(PreUpdate, EnhancedInputSystems::Prepare.run_if(|| false));
         app.add_plugins(bot::BotPlugin);
     }
 }
 
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     info!(
         "Adding ReplicationSender to new ClientOf entity: {:?}",
-        trigger.target()
+        trigger.entity
     );
-    commands.entity(trigger.target()).insert((
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
         // We need a ReplicationReceiver on the server side because the Action entities are spawned
         // on the client and replicated to the server.
@@ -82,7 +81,7 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
 // the server has already assumed authority over the entity so the `Replicated` component
 // has been removed
 pub(crate) fn spawn_player(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<(&RemoteId, Has<bot::BotClient>), With<ClientOf>>,
     mut commands: Commands,
     mut rooms: ResMut<Rooms>,
@@ -91,7 +90,7 @@ pub(crate) fn spawn_player(
         (Added<InitialReplicated>, With<PlayerId>),
     >,
 ) {
-    let sender = trigger.target();
+    let sender = trigger.entity;
     let Ok((client_id, is_bot)) = query.get(sender) else {
         return;
     };
@@ -111,9 +110,10 @@ pub(crate) fn spawn_player(
 
         // start by adding the player to the first room
         if i == 0 {
-            commands
-                .entity(room)
-                .trigger(RoomEvent::AddSender(trigger.target()));
+            commands.trigger(RoomEvent {
+                target: RoomTarget::AddSender(trigger.entity),
+                room,
+            });
         }
         let player = server_player_bundle(room, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
@@ -159,9 +159,10 @@ pub(crate) fn spawn_player(
             commands.entity(player_entity).insert(Bot);
         }
         info!("Spawning player {player_entity:?} for room: {room:?}");
-        commands
-            .entity(room)
-            .trigger(RoomEvent::AddEntity(player_entity));
+        commands.trigger(RoomEvent {
+            target: RoomTarget::AddEntity(player_entity),
+            room,
+        });
     }
 }
 
@@ -184,7 +185,7 @@ fn server_player_bundle(
 }
 
 /// Increment the score if the client told us about a detected hit.
-fn handle_hits(trigger: Trigger<RemoteTrigger<HitDetected>>, mut scores: Query<&mut Score>) {
+fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Score>) {
     // TODO: ideally we would also despawn the bullet, otherwise we will keep replicating data for it to clients
     //  even though they have already despawned it!
     if let Ok(mut score) = scores.get_mut(trigger.trigger.shooter) {
@@ -238,7 +239,7 @@ mod bot {
     /// On the server, we will create a second app to host a bot that is similar to a real client,
     /// but their inputs are mocked
     fn spawn_bot_app(
-        trigger: Trigger<SpawnBot>,
+        trigger: On<SpawnBot>,
         tick_duration: Res<TickDuration>,
         server: Single<Entity, With<Server>>,
         mut commands: Commands,
@@ -278,7 +279,6 @@ mod bot {
             .unwrap(),
             crossbeam_client,
             PredictionManager::default(),
-            InterpolationManager::default(),
             Name::from("BotClient"),
         ));
         let server = server.into_inner();
@@ -305,7 +305,7 @@ mod bot {
     fn bot_connect(bot: Single<Entity, (With<BotClient>, With<Client>)>, mut commands: Commands) {
         let entity = bot.into_inner();
         info!("Bot entity {entity:?} connecting to server");
-        commands.entity(entity).trigger(Connect);
+        commands.trigger(Connect { entity });
     }
 
     #[derive(Debug, Clone, Copy, Default)]
@@ -356,7 +356,7 @@ mod bot {
     fn bot_inputs(
         time: Res<Time>,
         mut input: ResMut<ButtonInput<KeyCode>>,
-        player: Single<&Position, (With<Controlled>, Without<Confirmed>, With<PlayerMarker>)>,
+        player: Single<&Position, (With<Controlled>, With<PlayerMarker>)>,
         mut local: Local<BotLocal>,
     ) {
         let BotLocal {
@@ -384,7 +384,7 @@ mod bot {
         shoot_timer.tick(time.delta());
 
         // we use press-space to make sure that we press the button long enough for it to be captured in FixedUpdate
-        if shoot_timer.finished() {
+        if shoot_timer.is_finished() {
             input.press(KeyCode::Space);
         } else {
             input.release(KeyCode::Space);
@@ -441,7 +441,7 @@ mod bot {
 
 /// Handle room switching when replication mode changes
 pub fn cycle_replication_mode(
-    trigger: Trigger<Completed<CycleReplicationMode>>,
+    trigger: On<Complete<CycleReplicationMode>>,
     global: Single<&mut GameReplicationMode, With<ClientContext>>,
     rooms: Res<Rooms>,
     mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
@@ -481,8 +481,14 @@ pub fn cycle_replication_mode(
             })
         }
         for client_entity in clients.iter() {
-            commands.trigger_targets(RoomEvent::RemoveSender(client_entity), *current_room);
-            commands.trigger_targets(RoomEvent::AddSender(client_entity), *next_room);
+            commands.trigger(RoomEvent {
+                target: RoomTarget::RemoveSender(client_entity),
+                room: *current_room,
+            });
+            commands.trigger(RoomEvent {
+                target: RoomTarget::AddSender(client_entity),
+                room: *next_room,
+            });
             info!(
                 "Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}"
             );
@@ -494,7 +500,7 @@ pub fn cycle_replication_mode(
 
 /// Handle cycling through projectile replication modes
 pub fn cycle_projectile_mode(
-    trigger: Trigger<Completed<CycleProjectileMode>>,
+    trigger: On<Complete<CycleProjectileMode>>,
     global: Single<&mut ProjectileReplicationMode, With<ClientContext>>,
 ) {
     let mut projectile_mode = global.into_inner();
@@ -504,7 +510,7 @@ pub fn cycle_projectile_mode(
 
 /// Handle weapon cycling input
 pub(crate) fn cycle_weapon_type(
-    trigger: Trigger<Completed<CycleWeapon>>,
+    trigger: On<Complete<CycleWeapon>>,
     global: Single<&mut WeaponType, With<ClientContext>>,
 ) {
     let mut weapon_type = global.into_inner();

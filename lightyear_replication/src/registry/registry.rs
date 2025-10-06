@@ -1,3 +1,4 @@
+use crate::components::Confirmed;
 use crate::delta::Diffable;
 use crate::prelude::{ComponentReplicationConfig, ComponentReplicationOverrides};
 use crate::registry::delta::ErasedDeltaFns;
@@ -14,7 +15,9 @@ use bevy_platform::collections::HashMap;
 use bevy_ptr::{Ptr, PtrMut};
 use bevy_reflect::TypePath;
 use bevy_transform::components::Transform;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::network::NetId;
+use lightyear_messages::Message;
 use lightyear_serde::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
@@ -71,12 +74,9 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// calling the [`add_map_entities`](ComponentRegistration::add_map_entities) method.
 ///
 /// #### Prediction
-/// When client-prediction is enabled, we create two distinct entities on the client when the server replicates an entity: a [`Confirmed`](crate::prelude::Confirmed) entity and a [`Predicted`](lightyear_core::prelude::Predicted) entity.
-/// The `Confirmed` entity will just get updated when the client receives the server updates, while the `Predicted` entity will be updated by the client's prediction system.
+/// When client-prediction is enabled, a predicted entity is one that has the [`Predicted`](lightyear_core::prelude::Predicted) component.
 ///
-/// Components are not synced from the Confirmed entity to the Predicted entity by default, you have to enable this behaviour.
-/// You can do this by calling the `add_prediction` method.
-/// You will have to provide a `PredictionMode` that defines the behaviour of the prediction system.
+/// You have to specify which components are predicted by calling the `add_prediction` method.
 ///
 /// #### Correction
 /// When client-prediction is enabled, there might be cases where there is a mismatch between the state of the Predicted entity
@@ -89,13 +89,10 @@ pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
 /// which provides linear interpolation.
 ///
 /// #### Interpolation
-/// Similarly to client-prediction, we create two distinct entities on the client when the server replicates an entity: a [`Confirmed`](crate::prelude::Confirmed) entity and an [`Interpolated`](lightyear_core::prelude::Interpolated) entity.
-/// The Confirmed entity will just get updated when the client receives the server updates, while the Interpolated entity will be updated by the client's interpolation system,
-/// which will interpolate between two Confirmed states.
+/// Similarly to client-prediction, an interpolated entity has the [`Interpolated`](lightyear_core::prelude::Interpolated) component.
 ///
-/// Components are not synced from the Confirmed entity to the Interpolated entity by default, you have to enable this behaviour.
-/// You can do this by calling the `add_interpolation` method.
-/// You will have to provide a `InterpolationMode` that defines the behaviour of the interpolation system.
+/// Interpolated componnets are added by calling the `add_interpolation` method and will interpolate between two
+/// consecutive replicated updates.
 ///
 /// You will also need to provide an interpolation function that will be used to interpolate between two states.
 /// If your component implements the `Ease` trait, you can use the `add_linear_interpolation_fn` method,
@@ -133,8 +130,9 @@ pub struct ComponentRegistry {
 
 #[derive(Debug, Clone)]
 pub struct ComponentMetadata {
+    pub confirmed_component_id: ComponentId,
     pub component_id: ComponentId,
-    pub(crate) replication: Option<ReplicationMetadata>,
+    pub replication: Option<ReplicationMetadata>,
     pub serialization: Option<ErasedSerializeFns>,
     pub(crate) delta: Option<ErasedDeltaFns>,
     #[cfg(feature = "deterministic")]
@@ -149,7 +147,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Component {} is not registered",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )
             })
     }
@@ -175,11 +173,13 @@ impl ComponentRegistry {
     ) {
         let component_kind = self.kind_map.add::<C>();
         let component_id = world.register_component::<C>();
+        let confirmed_component_id = world.register_component::<Confirmed<C>>();
         self.component_id_to_kind
             .insert(component_id, component_kind);
         self.component_metadata_map
             .entry(component_kind)
             .or_insert(ComponentMetadata {
+                confirmed_component_id,
                 component_id,
                 replication: None,
                 serialization: None,
@@ -212,7 +212,7 @@ fn mapped_context_serialize<M: MapEntities + Clone>(
     let mut message = message.clone();
     trace!(
         "mapped_context_serialize: {:?}. Mapper: {:?}",
-        core::any::type_name::<M>(),
+        DebugName::type_name::<M>(),
         mapper
     );
     message.map_entities(mapper);
@@ -229,7 +229,7 @@ fn mapped_context_deserialize<M: MapEntities>(
     Ok(message)
 }
 
-fn component_map_entities<'a, M: Component>(component: PtrMut<'a>, mapper: &mut EntityMap) {
+fn component_map_entities<M: Component>(component: PtrMut, mapper: &mut EntityMap) {
     // SAFETY: the caller must ensure that the PtrMut corresponds to type M
     let component = unsafe { component.deref_mut::<M>() };
     Component::map_entities(component, mapper);
@@ -275,7 +275,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Component {} is not part of the protocol",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )
             });
         let erased_fns = metadata.serialization.as_mut().unwrap();
@@ -297,7 +297,7 @@ impl ComponentRegistry {
             .unwrap_or_else(|| {
                 panic!(
                     "Component {} is not part of the protocol",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 )
             });
         let erased_fns = metadata.serialization.as_mut().unwrap();
@@ -374,7 +374,7 @@ impl ComponentRegistry {
         reader: &mut Reader,
         entity_map: &mut ReceiveEntityMap,
     ) -> Result<C, ComponentError> {
-        let net_id = NetId::from_bytes(reader)?;
+        let _ = NetId::from_bytes(reader)?;
         self.raw_deserialize(reader, entity_map)
     }
 
@@ -448,7 +448,7 @@ impl AppComponentExt for App {
                 if !registry.is_registered::<C>() {
                     registry.register_component_custom_serde::<C>(world, serialize_fns);
                 }
-                debug!("register component {}", core::any::type_name::<C>());
+                debug!("register component {}", DebugName::type_name::<C>());
             });
         ComponentRegistration {
             app: self,
@@ -515,7 +515,7 @@ impl<C> ComponentRegistration<'_, C> {
         let metadata = registry.component_metadata_map.get_mut(&kind).unwrap_or_else(|| {
             panic!(
                 "Component {} is not part of the protocol, did you forget to call register_component?",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
         });
         metadata.replication = Some(ReplicationMetadata::default_fns::<C>(
@@ -526,15 +526,15 @@ impl<C> ComponentRegistration<'_, C> {
     }
 
     /// Enable delta compression when serializing this component
-    pub fn add_delta_compression(self) -> Self
+    pub fn add_delta_compression<Delta>(self) -> Self
     where
-        C: Component<Mutability = Mutable> + PartialEq + Diffable,
-        C::Delta: Serialize + DeserializeOwned,
+        C: Component<Mutability = Mutable> + PartialEq + Diffable<Delta>,
+        Delta: Serialize + DeserializeOwned + Message,
     {
         self.app
             .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                registry.set_delta_compression::<C>(world);
+                registry.set_delta_compression::<C, Delta>(world);
             });
         self
     }

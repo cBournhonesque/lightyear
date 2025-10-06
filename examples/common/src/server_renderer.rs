@@ -81,7 +81,7 @@ pub(crate) fn spawn_start_button(app: &mut App) {
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     TextFont::from_font_size(20.0),
                     ServerButton,
-                    BorderColor(Color::BLACK),
+                    BorderColor::all(Color::BLACK),
                     Node {
                         width: Val::Px(100.0),
                         height: Val::Px(65.0),
@@ -96,17 +96,17 @@ pub(crate) fn spawn_start_button(app: &mut App) {
                     Button,
                 ))
                 .observe(
-                    |_: Trigger<Pointer<Click>>,
+                    |_: On<Pointer<Click>>,
                      mut commands: Commands,
                      query: Single<(Entity, Has<Started>, Has<Stopped>), With<Server>>| {
                         let (entity, started, stopped) = query.into_inner();
                         if started {
                             info!("Stopping server");
-                            commands.trigger_targets(Stop, entity)
+                            commands.trigger(Stop{ entity })
                         }
                         if stopped {
                             info!("Starting server");
-                            commands.trigger_targets(Start, entity)
+                            commands.trigger(Start{ entity })
                         }
                     },
                 );

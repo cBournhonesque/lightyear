@@ -48,17 +48,12 @@ pub mod prelude {
 // - we need to store the component values of the previous tick
 // - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
 // - in PreUpdate, we restore the component value to the previous tick values
-use bevy_app::{App, FixedLast, Plugin, PostUpdate, RunFixedMainLoop, RunFixedMainLoopSystem};
-use bevy_ecs::{
-    change_detection::DetectChangesMut,
-    component::{Component, Mutable},
-    query::With,
-    schedule::{IntoScheduleConfigs, SystemSet, common_conditions::not},
-    system::{Query, Res, Single},
-    world::Ref,
-};
+use bevy_app::prelude::*;
+use bevy_ecs::component::Mutable;
+use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::common_conditions::not;
 use bevy_time::{Fixed, Time};
-use bevy_transform::TransformSystem;
+use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
@@ -111,9 +106,10 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
         // SETS
         app.configure_sets(
             RunFixedMainLoop,
-            FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+            FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
-        // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste.
+        // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste to do
+        // it for each rollback frame
         // At the end of rollback, we have a system in lightyear_prediction that manually sets the FrameInterpolate component.
         app.configure_sets(
             FixedLast,
@@ -122,7 +118,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
         app.configure_sets(
             PostUpdate,
             FrameInterpolationSet::Interpolate
-                .before(TransformSystem::TransformPropagate)
+                .before(bevy_transform::TransformSystems::Propagate)
                 // we don't want the visual interpolation value to be the one replicated!
                 .after(ReplicationBufferSet::Buffer),
         );
@@ -133,7 +129,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
             restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSet::Restore),
         );
         app.add_systems(
-            FixedLast,
+            FixedPostUpdate,
             update_visual_interpolation_status::<C>.in_set(FrameInterpolationSet::Update),
         );
         app.add_systems(
@@ -184,7 +180,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
     timeline: Single<&LocalTimeline, With<Client>>,
     mut query: Query<(&mut C, &FrameInterpolate<C>)>,
 ) {
-    let kind = core::any::type_name::<C>();
+    let kind = DebugName::type_name::<C>();
     let tick = timeline.now.tick;
     // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
     //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
@@ -219,6 +215,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
 
 /// Update the previous and current tick values.
 /// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
+///  TODO: do not run this in rollback! since we are updating this in PostRollback
 pub(crate) fn update_visual_interpolation_status<
     C: Component<Mutability = Mutable> + Clone + Debug,
 >(
@@ -254,7 +251,7 @@ pub(crate) fn restore_from_visual_interpolation<
 >(
     mut query: Query<(&mut C, &mut FrameInterpolate<C>)>,
 ) {
-    let kind = core::any::type_name::<C>();
+    let kind = DebugName::type_name::<C>();
     for (mut component, interpolate_status) in query.iter_mut() {
         if let Some(current_value) = &interpolate_status.current_value {
             trace!(

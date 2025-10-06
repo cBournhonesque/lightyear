@@ -13,9 +13,9 @@ default = ["std"]
 std = ["lightyear_transport/std"]
 client = []
 server = ["lightyear_connection/server"]
-prediction = ["lightyear_core/prediction"]
-interpolation = ["lightyear_core/interpolation"]
-deterministic = ["dep:seahash"]
+prediction = []
+interpolation = []
+deterministic = []
 trace = []
 metrics = ["dep:metrics", "std", "lightyear_utils/metrics"]
 test_utils = []
@@ -30,14 +30,16 @@ lightyear_core.workspace = true
 lightyear_connection.workspace = true
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
+lightyear_sync.workspace = true
 
 # utils
 dashmap.workspace = true
+indexmap.workspace = true
 metrics = { workspace = true, optional = true }
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-seahash = {workspace = true, optional = true}
+seahash.workspace = true
 
 # serde
 serde.workspace = true
@@ -45,12 +47,15 @@ bytes.workspace = true
 
 # bevy
 bevy_app.workspace = true
+bevy_derive.workspace = true
 bevy_ecs.workspace = true
+bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_ptr.workspace = true
 bevy_reflect.workspace = true
 bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
+bevy_utils.workspace = true
 
 # avian
 avian2d = { workspace = true, optional = true }

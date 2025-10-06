@@ -7,8 +7,7 @@ use crate::timeline::input::Input;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy_app::{App, First, Last, Plugin, PreUpdate};
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::system::Query;
+use bevy_ecs::prelude::*;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
 use lightyear_core::time::TickDelta;
@@ -25,10 +24,10 @@ pub struct ClientPlugin;
 
 impl ClientPlugin {
     pub fn update_local_timeline(
-        trigger: Trigger<SyncEvent<InputTimeline>>,
+        trigger: On<SyncEvent<Input>>,
         mut query: Query<&mut LocalTimeline>,
     ) {
-        if let Ok(mut timeline) = query.get_mut(trigger.target()) {
+        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
             info!(
                 "TickDelta: {:?} applied to local timeline",
                 trigger.tick_delta
@@ -63,8 +62,6 @@ impl ClientPlugin {
 
 impl Plugin for ClientPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(InputTimeline, RemoteTimeline)>();
-
         if !app.is_plugin_added::<TimelineSyncPlugin>() {
             app.add_plugins(TimelineSyncPlugin);
         }

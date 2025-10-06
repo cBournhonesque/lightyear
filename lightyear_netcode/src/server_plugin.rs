@@ -1,15 +1,9 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::prelude::*;
 use bevy_ecs::{
-    component::Component,
-    entity::{Entity, UniqueEntitySlice},
-    error::Result,
-    observer::Trigger,
-    query::{Has, With, Without},
-    relationship::RelationshipTarget,
-    schedule::IntoScheduleConfigs,
-    system::{Commands, ParallelCommands, Query, Res},
+    entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
@@ -292,18 +286,14 @@ impl NetcodeServerPlugin {
         )
     }
 
-    fn start(
-        trigger: Trigger<Start>,
-        query: Query<(), With<NetcodeServer>>,
-        mut commands: Commands,
-    ) {
-        if query.get(trigger.target()).is_ok() {
-            commands.entity(trigger.target()).insert(Started);
+    fn start(trigger: On<Start>, query: Query<(), With<NetcodeServer>>, mut commands: Commands) {
+        if query.get(trigger.entity).is_ok() {
+            commands.entity(trigger.entity).insert(Started);
         }
     }
 
     fn stop(
-        trigger: Trigger<Stop>,
+        trigger: On<Stop>,
         mut commands: Commands,
         mut query: Query<(Entity, &mut NetcodeServer, &Server), Without<Stopped>>,
         mut link_query: Query<
@@ -316,7 +306,7 @@ impl NetcodeServerPlugin {
             ),
         >,
     ) -> Result {
-        if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.target()) {
+        if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.entity) {
             info!("Stopping netcode server");
 
             // TODO: should we stop the io?

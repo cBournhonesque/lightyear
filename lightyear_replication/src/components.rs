@@ -1,9 +1,10 @@
 //! Components used for replication
 
 use crate::send::components::ComponentReplicationOverride;
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use lightyear_core::id::PeerId;
+use lightyear_core::prelude::{Interpolated, LocalTimeline, NetworkTimeline, Predicted};
 use lightyear_core::tick::Tick;
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
@@ -38,8 +39,8 @@ impl<C> Default for ComponentReplicationOverrides<C> {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct InitialReplicated {
-    /// The peer that originally spawned the entity
-    pub from: PeerId,
+    /// Entity that holds the original [`ReplicationReceiver`](crate::receive::ReplicationReceiver) for this entity
+    pub receiver: Entity,
 }
 
 /// Marker component that indicates that the entity is being replicated
@@ -50,10 +51,37 @@ pub struct InitialReplicated {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct Replicated {
-    /// Entity that holds the ReplicationReceiver for this entity
+    /// Entity that holds the [`ReplicationReceiver`](crate::receive::ReplicationReceiver) for this entity
     pub receiver: Entity,
-    /// The remote peer that is actively replicating the entity
-    pub from: PeerId,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+#[reflect(Component)]
+pub struct ConfirmedTick {
+    /// For entities that are synced (predicted or interpolated), this tick indicates
+    /// the most recent tick where we applied a remote update to the entity
+    pub tick: Tick,
+}
+
+impl ConfirmedTick {
+    /// If the client manually inserted [`Predicted`] or [`Interpolated`] on an existing [`Replicated`] entity,
+    /// (i.e. they were not added via replication)
+    /// we need to initialize the [`ConfirmedTick`] so that future replication receives can update it
+    pub(crate) fn add_confirmed_tick_hook(
+        trigger: On<Add, (Predicted, Interpolated)>,
+        query: Query<&Replicated, Without<ConfirmedTick>>,
+        receiver: Query<&LocalTimeline>,
+        mut commands: Commands,
+    ) {
+        if let Ok(replicated) = query.get(trigger.entity)
+            && let Ok(timeline) = receiver.get(replicated.receiver)
+        {
+            let tick = timeline.tick();
+            commands
+                .entity(trigger.entity)
+                .insert(ConfirmedTick { tick });
+        }
+    }
 }
 
 // TODO: we need a ReplicateConfig similar to ComponentReplicationConfig
@@ -63,26 +91,8 @@ pub struct Replicated {
 ///
 /// In general, when an entity is replicated from the server to the client, multiple entities can be created on the client:
 /// - an entity that simply contains the replicated components. It will have the marker component [`Confirmed`]
-/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`](lightyear_core::prediction::Predicted)
-/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`](lightyear_core::interpolation::Interpolated)
-#[derive(Component, Reflect, Default, Debug)]
+/// - an entity that is in the future compared to the confirmed entity, and does prediction with rollback. It will have the marker component [`Predicted`]
+/// - an entity that is in the past compared to the confirmed entity and interpolates between multiple server updates. It will have the marker component [`Interpolated`]
+#[derive(Deref, DerefMut, Component, Reflect, PartialEq, Default, Debug, Clone)]
 #[reflect(Component)]
-pub struct Confirmed {
-    /// The corresponding Predicted entity
-    pub predicted: Option<Entity>,
-    /// The corresponding Interpolated entity
-    pub interpolated: Option<Entity>,
-    /// The tick that the confirmed entity is at.
-    /// (this is latest server tick for which we applied updates to the entity)
-    pub tick: Tick,
-}
-
-// TODO: enable this only if predicted feature
-/// Indicates that an entity was pre-predicted
-// NOTE: we do not map entities for this component, we want to receive the entities as is
-//  because we already do the mapping at other steps
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct PrePredicted {
-    pub confirmed_entity: Option<Entity>,
-}
+pub struct Confirmed<C>(pub C);

@@ -5,7 +5,9 @@ use crate::message::{
     ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
 };
 use crate::plugin::ReplicationSet;
-use crate::prelude::NetworkVisibility;
+use crate::prelude::{CachedReplicate, NetworkVisibility};
+use crate::prespawn;
+use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
 #[cfg(feature = "interpolation")]
@@ -16,11 +18,7 @@ use crate::send::components::{Replicate, Replicating, ReplicationGroup};
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
-use bevy_ecs::{
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{ParamBuilder, Query, QueryParamBuilder, Res, SystemChangeTick, SystemParamBuilder},
-    world::OnAdd,
-};
+use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder};
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -29,7 +27,7 @@ use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSet;
-use lightyear_messages::prelude::TriggerSender;
+use lightyear_messages::prelude::EventSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSet;
@@ -106,7 +104,7 @@ impl ReplicationSendPlugin {
         query
             .par_iter_mut()
             .for_each(|(mut sender, mut transport, timeline)| {
-                if !sender.send_timer.finished() {
+                if !sender.send_timer.is_finished() {
                     return;
                 }
                 #[cfg(feature = "metrics")]
@@ -145,7 +143,7 @@ impl ReplicationSendPlugin {
         query
             .par_iter_mut()
             .for_each(|(mut sender, mut transport)| {
-                if !sender.send_timer.finished() {
+                if !sender.send_timer.is_finished() {
                     return;
                 }
                 let messages_sent = &mut transport
@@ -159,20 +157,16 @@ impl ReplicationSendPlugin {
 
     /// Send a message containing metadata about the sender
     fn send_sender_metadata(
-        // NOTE: it's important to trigger on both OnAdd<Connected> and OnAdd<ReplicationSender> because the ClientOf could be
+        // NOTE: it's important to trigger on both Add<Connected> and Add<ReplicationSender> because the ClientOf could be
         //  added BEFORE the ReplicationSender is added. (ClientOf is spawned by netcode, ReplicationSender is added by the user)
-        trigger: Trigger<OnAdd, (Connected, ReplicationSender)>,
+        trigger: On<Add, (Connected, ReplicationSender)>,
         tick_duration: Res<TickDuration>,
         mut query: Query<
-            (
-                Entity,
-                &ReplicationSender,
-                &mut TriggerSender<SenderMetadata>,
-            ),
+            (Entity, &ReplicationSender, &mut EventSender<SenderMetadata>),
             With<Connected>,
         >,
     ) {
-        if let Ok((sender_entity, sender, mut trigger_sender)) = query.get_mut(trigger.target()) {
+        if let Ok((sender_entity, sender, mut trigger_sender)) = query.get_mut(trigger.entity) {
             let send_interval = sender.send_interval();
             let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
             let metadata = SenderMetadata {
@@ -185,19 +179,23 @@ impl ReplicationSendPlugin {
 
     /// On disconnect, reset the replication sender to its original state
     fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
-        mut replicate: Query<&mut Replicate>,
+        mut replicate: Query<(&mut Replicate, Option<&mut CachedReplicate>)>,
     ) {
-        if let Ok(mut sender) = query.get_mut(trigger.target()) {
+        if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
                 sender.send_interval(),
                 sender.send_updates_mode,
                 sender.bandwidth_cap_enabled,
             );
         }
-        replicate.iter_mut().for_each(|mut r| {
-            r.senders.swap_remove(&trigger.target());
+        replicate.iter_mut().for_each(|(mut r, cached)| {
+            r.senders.swap_remove(&trigger.entity);
+            // we also update CachedReplicate because it's only used to compute the diff when a new Replicate is inserted.
+            if let Some(mut cached) = cached {
+                cached.senders.swap_remove(&trigger.entity);
+            }
         });
     }
 
@@ -235,6 +233,9 @@ impl Plugin for ReplicationSendPlugin {
         if !app.is_plugin_added::<crate::plugin::SharedPlugin>() {
             app.add_plugins(crate::plugin::SharedPlugin);
         }
+        if !app.is_plugin_added::<prespawn::PreSpawnedPlugin>() {
+            app.add_plugins(prespawn::PreSpawnedPlugin);
+        }
 
         // SETS
         app.configure_sets(
@@ -271,14 +272,6 @@ impl Plugin for ReplicationSendPlugin {
         app.add_systems(
             PostUpdate,
             Self::handle_acks.in_set(ReplicationBufferSet::BeforeBuffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            buffer::buffer_entity_despawn_replicate_updated.in_set(ReplicationBufferSet::Buffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            buffer::update_cached_replicate_post_buffer.in_set(ReplicationBufferSet::AfterBuffer),
         );
         app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
         app.add_systems(
@@ -328,6 +321,7 @@ impl Plugin for ReplicationSendPlugin {
                         &ReplicateLikeChildren,
                         &ReplicateLike,
                         &ControlledBy,
+                        &PreSpawned,
                     )>();
                     #[cfg(feature = "prediction")]
                     b.data::<&PredictionTarget>();

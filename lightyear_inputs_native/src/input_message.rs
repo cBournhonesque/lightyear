@@ -18,9 +18,10 @@ pub struct NativeStateSequence<A> {
     states: Vec<InputData<A>>,
 }
 
-impl<A: Debug + PartialEq + Clone + Send + Sync + 'static> InputSnapshot for ActionState<A> {
+impl<A: Debug + Default + PartialEq + Clone + Send + Sync + 'static> InputSnapshot
+    for ActionState<A>
+{
     type Action = A;
-
     fn decay_tick(&mut self, tick_duration: Duration) {}
 }
 
@@ -110,11 +111,11 @@ impl<
         Some(Self { states })
     }
 
-    fn to_snapshot<'w, 's>(state: &'w ActionState<A>) -> Self::Snapshot {
+    fn to_snapshot(state: &ActionState<A>) -> Self::Snapshot {
         (*state).clone()
     }
 
-    fn from_snapshot<'w, 's>(state: &'w mut ActionState<A>, snapshot: &Self::Snapshot) {
+    fn from_snapshot(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.clone();
     }
 }
@@ -187,11 +188,7 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        sequence.update_buffer(
-            &mut input_buffer,
-            Tick(20),
-            TickDuration(Duration::default()),
-        );
+        sequence.update_buffer(&mut input_buffer, Tick(20), Duration::default());
         assert_eq!(input_buffer.get(Tick(20)), None,);
         assert_eq!(input_buffer.get(Tick(19)), None,);
         assert_eq!(input_buffer.get(Tick(18)), None,);
@@ -228,11 +225,7 @@ mod tests {
                 InputData::Input(1),
             ],
         };
-        let mismatch = sequence.update_buffer(
-            &mut input_buffer,
-            Tick(14),
-            TickDuration(Duration::default()),
-        );
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(14), Duration::default());
         assert_eq!(mismatch, Some(Tick(14)));
         assert_eq!(input_buffer.get(Tick(14)), Some(&ActionState(1)));
         assert_eq!(input_buffer.get(Tick(13)), Some(&ActionState(0)));
@@ -262,11 +255,7 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        sequence.update_buffer(
-            &mut input_buffer,
-            Tick(12),
-            TickDuration(Duration::default()),
-        );
+        sequence.update_buffer(&mut input_buffer, Tick(12), Duration::default());
         assert_eq!(input_buffer.get(Tick(12)), None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), Some(&ActionState(0)));
@@ -288,11 +277,7 @@ mod tests {
                 InputData::SameAsPrecedent,
             ],
         };
-        let mismatch = sequence.update_buffer(
-            &mut input_buffer,
-            Tick(11),
-            TickDuration(Duration::default()),
-        );
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(11), Duration::default());
         assert_eq!(mismatch, None);
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);

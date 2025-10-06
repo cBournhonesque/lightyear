@@ -19,10 +19,10 @@ This is "client-prediction": we move the client-controlled entity immediately ac
 when we receive the actual state of the entity from the server. (if there is a mismatch)
 
 To do this in lightyear, you will need to change a few things.
-In your protocol, you need to specify that the component should be synced from the `Replicated` entity to the `Predicted` entity.
+
 ```rust,ignore
 app.register_component::<PlayerPosition>()
-    .add_prediction(PredictionMode::Full);
+    .add_prediction();
 ```
 
 Then, when replicating the entity, you can also specify which clients should predict the entity by adding a `PredictionTarget` component.
@@ -38,25 +38,20 @@ let entity = commands
 (another way to spawn a predicted entity is to add the `ShouldBePredicted` component to a `Replicated` entity on the client)
 
 
-If prediction is enabled for an entity, the client will spawn a local copy of the entity along with a marker component called `Predicted`.
-The entity that is directly replicated from the server will have a marker component called `Confirmed` (because it is only updated when we receive a new server update packet).
+If prediction is enabled for an entity, the client will add a `Predicted` component on the replicated entity.
+Non-predicted components will be replicated normally, but predicted components will be inserted on the entity as `Confirmed<PlayerPosition>`. The predicted component value will then be 
+`PlayerPosition`. The reasoning is that it is very rare to want to query the confirmed value, in most cases you just want to use the predicted value.
+Non-predicted 
 
-The `Predicted` entity lives on a different timeline than the `Confirmed` entity: it lives a few ticks in the future (at least 1 RTT), enough ticks
+The predicted components live on a different timeline than the confirmed components: they live a few ticks in the future (at least 1 RTT), enough ticks
 so that the client inputs for tick `N` have time to arrive on the server before the server processes tick `N`.
 
 Whenever the player sends an input, we can apply the inputs **instantly** to the `Predicted` entity; which is the only one that we 
-show to the player. After roughly 1 RTT, we receive the actual state of the entity from the server, which is used to update the `Confirmed` entity.
-If there is a mismatch between the `Confirmed` and `Predicted` entities, we perform a **rollback**: we reset the `Predicted` entity to the state of the `Confirmed` entity,
+show to the player. After roughly 1 RTT, we receive the actual state of the entity from the server, which is used to update the `Confirmed<T>` components.
+If there is a mismatch between the `Confirmed<T>` and `T` components, we perform a **rollback**: we reset the `Predicted` entity to the state of the `Confirmed<T>` component,
 and re-run all the ticks that happened since the last server update was received. In particular, we will re-apply all the client inputs that were added 
 since the last server update.
 
-As the `Confirmed` and `Predicted` entities are 2 separate entities, you will need to specify how the components that are received on the `Confirmed` entity (replicated from the server) are copied to the `Predicted` entity.
-To do this, you will need to specify a [PredictionMode](https://docs.rs/lightyear/latest/lightyear_prediction/prelude/enum.PredictionMode.html) for each component in the `ComponentProtocol` enum.
-There are 3 different modes:
-- Full: we apply client-side prediction with rollback
-- Simple: the server-updates are copied from Confirmed to Predicted whenever we have an update
-- Once: the components are copied only once from the Confirmed entity to the Predicted entity
-  
 
 Then, on the client, you need to make sure that you also run the same simulation logic as the server, for the `Predicted` entities. This is very important!
 The client must be 'predicting' what the entity will do even though it doesn't have perfect information because it doesn't know the inputs of other players.
@@ -119,7 +114,6 @@ impl Ease for PlayerPosition {
 }
 
 app.register_component::<PlayerPosition>()
-    .add_interpolation(InterpolationMode::Full)
     .add_linear_interpolation_fn();
 ```
 
@@ -135,14 +129,11 @@ let entity = commands
 ```
 
 
-
-If interpolation is enabled for an entity, the client will spawn a local copy of the entity along with a marker component called `Interpolated`.
-The entity that is directly replicated from the server will have a marker component called `Confirmed` (because it is only updated when we receive a new server update packet).
+If interpolation is enabled for an entity, the interpolated components will be replicated as `Confirmed<T>` on the `Interpolated` entity.
+The `T` value will interpolated between the last two `Confirmed<T>` states received from the server.
 
 The `Interpolated` entity lives on a different timeline than the `Confirmed` entity: it lives a few ticks in the past.
 We want it to live slightly in the past so that we always have at least 2 confirmed states to interpolate between.
-
-And that's it! The `InterpolationMode::Full` mode is required on a component to run interpolation.
 
 Now if you run a server and two clients, each player should see the other's player slightly in the past, but with movements that are interpolated smoothly between server updates.
 

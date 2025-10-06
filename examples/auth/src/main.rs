@@ -78,7 +78,7 @@ fn main() {
                     shared: SHARED_SETTINGS,
                 })
                 .id();
-            app.world_mut().trigger_targets(Start, server);
+            app.world_mut().trigger(Start { entity: server });
         }
         _ => {}
     }

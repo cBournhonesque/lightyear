@@ -209,8 +209,8 @@ impl ToBytes for Entity {
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_varint(self.index() as u64)?;
-        buffer.write_u32(self.generation())?;
-        // buffer.write_varint(self.generation() as u64)?;
+        // TODO: use varint
+        buffer.write_u32(self.generation().to_bits())?;
         Ok(())
     }
 
@@ -220,7 +220,7 @@ impl ToBytes for Entity {
     {
         let index = buffer.read_varint()?;
 
-        // TODO: investigate why it doesn't work with varint?
+        // TODO: use varint
         // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
         // let generation = buffer.read_varint()?;
         let generation = buffer.read_u32()? as u64;

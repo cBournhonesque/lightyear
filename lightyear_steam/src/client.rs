@@ -6,13 +6,9 @@ use aeronet_steam::{
 };
 use alloc::string::ToString;
 use bevy_app::{App, Plugin};
-use bevy_ecs::component::HookContext;
-use bevy_ecs::prelude::{OnAdd, With};
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use bevy_ecs::{
-    error::Result,
-    prelude::{Commands, Component, Entity, EntityCommand, Name, Query, Trigger, Without, World},
-};
 use lightyear_aeronet::{AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnect};
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
@@ -59,11 +55,11 @@ impl SteamClientIo {
 
 impl SteamClientPlugin {
     fn link(
-        trigger: Trigger<LinkStart>,
+        trigger: On<LinkStart>,
         query: Query<(Entity, &SteamClientIo), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, client)) = query.get(trigger.target()) {
+        if let Ok((entity, client)) = query.get(trigger.entity) {
             let config = client.config.clone();
             let target = client.target;
             trace!(
@@ -100,32 +96,30 @@ impl SteamClientPlugin {
 
     /// Steam is both a Link and a Connection, so we add Connected when Linked is added
     fn on_linked(
-        trigger: Trigger<OnAdd, Linked>,
+        trigger: On<Add, Linked>,
         query: Query<(), With<SteamClientIo>>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.target()).is_ok() {
+        if query.get(trigger.entity).is_ok() {
             trace!(
                 "Steam client entity {:?} is now Linked, inserting Connected component",
-                trigger.target()
+                trigger.entity
             );
-            commands.entity(trigger.target()).insert(Connected);
+            commands.entity(trigger.entity).insert(Connected);
         }
     }
 
     /// Steam is both a Link and a Connection, so we trigger Unlink when Disconnect is triggered
     fn disconnect(
-        trigger: Trigger<Disconnect>,
+        trigger: On<Disconnect>,
         query: Query<(), With<SteamClientIo>>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.target()).is_ok() {
-            commands.trigger_targets(
-                Unlink {
-                    reason: "User requested disconnect".to_string(),
-                },
-                trigger.target(),
-            );
+        if query.get(trigger.entity).is_ok() {
+            commands.trigger(Unlink {
+                entity: trigger.entity,
+                reason: "User requested disconnect".to_string(),
+            });
         }
     }
 }

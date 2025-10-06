@@ -1,17 +1,13 @@
 //! There's a lot of overlap with `client::prediction_history` because resources are components in ECS so rollback is going to look similar.
 use crate::manager::PredictionManager;
-use bevy_ecs::{
-    change_detection::DetectChanges,
-    observer::Trigger,
-    query::With,
-    resource::Resource,
-    system::{Res, ResMut, Single},
-};
+use bevy_ecs::prelude::*;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::timeline::SyncEvent;
-use lightyear_sync::prelude::InputTimeline;
-use tracing::trace;
+use lightyear_sync::prelude::client::Input;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 
@@ -21,11 +17,25 @@ pub(crate) type ResourceHistory<R> = HistoryBuffer<R>;
 /// The history buffer ticks are only relevant relative to the current client tick.
 /// (i.e. X ticks in the past compared to the current tick)
 pub(crate) fn handle_tick_event_resource_history<R: Resource>(
-    trigger: Trigger<SyncEvent<InputTimeline>>,
+    trigger: On<SyncEvent<Input>>,
     res: Option<ResMut<ResourceHistory<R>>>,
 ) {
     if let Some(mut history) = res {
         history.update_ticks(trigger.tick_delta)
+    }
+}
+
+/// Make sure that pre-existing resources get populated in the ResourceHistory
+/// as soon as PredictionManager is added
+pub(crate) fn update_resource_history_on_prediction_manager_added<R: Resource + Clone>(
+    _: On<Add, PredictionManager>,
+    timeline: Single<&LocalTimeline>,
+    mut history: ResMut<ResourceHistory<R>>,
+    resource: Option<Res<R>>,
+) {
+    let tick = timeline.tick();
+    if let Some(resource) = resource {
+        history.add_update(tick, resource.clone());
     }
 }
 
@@ -37,10 +47,11 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
+    let kind = DebugName::type_name::<R>();
 
     if let Some(resource) = resource {
         if resource.is_changed() {
-            trace!(?tick, "Adding resource to history");
+            trace!(?tick, ?kind, "Adding resource to history");
             history.add_update(tick, resource.clone());
         }
     // resource does not exist, it might have been just removed
@@ -49,7 +60,7 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
             Some((_, HistoryState::Removed)) => (),
             // if there is no latest item or the latest item isn't a removal then the resource just got removed.
             _ => {
-                trace!(?tick, "Adding resource removal to history");
+                trace!(?tick, ?kind, "Adding resource removal to history");
                 history.add_remove(tick)
             }
         }

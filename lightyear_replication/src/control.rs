@@ -1,13 +1,5 @@
 use alloc::vec::Vec;
-use bevy_ecs::{
-    component::Component,
-    entity::Entity,
-    observer::Trigger,
-    reflect::ReflectComponent,
-    relationship::RelationshipTarget,
-    system::{Commands, Query},
-    world::OnAdd,
-};
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Disconnected;
 use serde::{Deserialize, Serialize};
@@ -40,12 +32,12 @@ pub struct ControlledBy {
 
 impl ControlledBy {
     pub(crate) fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut commands: Commands,
         controlled_by_remote: Query<&ControlledByRemote>,
         controlled_by: Query<&ControlledBy>,
     ) {
-        if let Ok(owned) = controlled_by_remote.get(trigger.target()) {
+        if let Ok(owned) = controlled_by_remote.get(trigger.entity) {
             trace!("Despawning Owned entities because client disconnected");
             for entity in owned.collection() {
                 if let Ok(owned_by) = controlled_by.get(*entity) {
@@ -53,7 +45,7 @@ impl ControlledBy {
                         Lifetime::SessionBased => {
                             trace!(
                                 "Despawning entity {entity:?} controlled by disconnected client {:?}",
-                                trigger.target()
+                                trigger.entity
                             );
                             commands.entity(*entity).try_despawn();
                         }

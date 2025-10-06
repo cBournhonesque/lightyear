@@ -1,6 +1,7 @@
 use bevy::math::Curve;
 use bevy::prelude::*;
 use bevy::prelude::{App, Plugin};
+use lightyear::input::prelude::InputConfig;
 use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -40,21 +41,21 @@ pub struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
-        app.add_plugins(InputPlugin::<Player>::default());
+        app.add_plugins(InputPlugin::<Player> {
+            config: InputConfig::<Player> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
         app.register_input_action::<Movement>();
 
         // components
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPosition>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
     }
 }

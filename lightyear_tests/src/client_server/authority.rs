@@ -10,6 +10,7 @@ use test_log::test;
 fn test_give_authority() {
     let mut stepper = ClientServerStepper::single();
 
+    let sender = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -29,6 +30,7 @@ fn test_give_authority() {
         .entity_mut(client_entity)
         .insert(Replicate::to_server().without_authority());
     stepper.server_app.world_mut().trigger(GiveAuthority {
+        sender,
         entity: server_entity,
         remote_peer: PeerId::Netcode(0),
     });
@@ -85,6 +87,7 @@ fn test_give_authority() {
 fn test_transfer_authority_despawn() {
     let mut stepper = ClientServerStepper::single();
 
+    let sender = stepper.client(0).id();
     let client_entity = stepper
         .client_app()
         .world_mut()
@@ -105,6 +108,7 @@ fn test_transfer_authority_despawn() {
         .insert(Replicate::to_clients(NetworkTarget::All).without_authority());
 
     stepper.client_app().world_mut().trigger(GiveAuthority {
+        sender,
         entity: client_entity,
         remote_peer: PeerId::Server,
     });
@@ -151,6 +155,7 @@ fn test_transfer_authority_despawn() {
 fn test_transfer_authority_map_entities() {
     let mut stepper = ClientServerStepper::single();
 
+    let sender = stepper.client(0).id();
     let client_entity = stepper
         .client_app()
         .world_mut()
@@ -174,6 +179,7 @@ fn test_transfer_authority_map_entities() {
         ));
 
     stepper.client_app().world_mut().trigger(GiveAuthority {
+        sender,
         entity: client_entity,
         remote_peer: PeerId::Server,
     });

@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::*;
 use lightyear_connection::client::PeerMetadata;
+use lightyear_messages::Message;
 use lightyear_messages::multi::MultiMessageSender;
 use test_log::test;
 use tracing::trace;
@@ -159,7 +160,7 @@ impl<M> Default for TriggerBuffer<M> {
 
 /// System to check that we received the message on the server
 fn count_triggers_observer<M: Event + Debug + Clone>(
-    trigger: Trigger<RemoteTrigger<M>>,
+    trigger: On<RemoteEvent<M>>,
     peer_metadata: Res<PeerMetadata>,
     mut buffer: ResMut<TriggerBuffer<M>>,
 ) {
@@ -168,7 +169,7 @@ fn count_triggers_observer<M: Event + Debug + Clone>(
     let remote = *peer_metadata.mapping.get(&trigger.from).unwrap();
     buffer
         .0
-        .push((remote, trigger.trigger.clone(), trigger.target()));
+        .push((remote, trigger.trigger.clone(), Entity::PLACEHOLDER));
 }
 
 #[test]
@@ -185,7 +186,7 @@ fn test_send_triggers() {
     let send_trigger = StringTrigger("Hello".to_string());
     stepper
         .host_client_mut()
-        .get_mut::<TriggerSender<StringTrigger>>()
+        .get_mut::<EventSender<StringTrigger>>()
         .unwrap()
         .trigger::<Channel1>(send_trigger.clone());
     stepper.frame_step(2);

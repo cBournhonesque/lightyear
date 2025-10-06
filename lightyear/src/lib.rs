@@ -117,8 +117,8 @@ You can add a trigger to listen to this event and add the extra components to cu
 # use bevy_ecs::prelude::*;
 # use lightyear::prelude::*;
 # use core::time::Duration;
-fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
+fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
         ReplicationSender::new(Duration::from_millis(100), SendUpdatesMode::SinceLastAck, false),
         Name::from("Client"),
     ));
@@ -421,7 +421,7 @@ pub mod prelude {
         pub use lightyear_netcode::prelude::server::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::server::*;
-        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
+        #[cfg(feature = "websocket")]
         pub use lightyear_websocket::prelude::server::*;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use lightyear_webtransport::prelude::server::*;

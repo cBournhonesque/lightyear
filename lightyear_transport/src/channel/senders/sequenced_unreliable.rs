@@ -73,7 +73,7 @@ impl ChannelSend for SequencedUnreliableSender {
     /// Take messages from the buffer of messages to be sent, and build a list of packets
     /// to be sent
     fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
-        if self.timer.as_ref().is_some_and(|t| !t.finished()) {
+        if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
             return (VecDeque::new(), VecDeque::new());
         }
         (
@@ -95,7 +95,7 @@ mod tests {
     #[test]
     fn test_sequenced_unreliable_sender_internals() {
         let mut sender = SequencedUnreliableSender::new(Duration::from_secs(1));
-        assert!(sender.timer.as_ref().is_some_and(|t| !t.finished()));
+        assert!(sender.timer.as_ref().is_some_and(|t| !t.is_finished()));
 
         sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
 

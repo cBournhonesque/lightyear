@@ -25,14 +25,9 @@ use alloc::{collections::vec_deque::Drain, string::String};
 pub use crate::conditioner::LinkConditioner;
 use alloc::collections::VecDeque;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::{
-    component::{Component, HookContext},
-    event::Event,
-    observer::Trigger,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query},
-    world::DeferredWorld,
-};
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
+use bevy_ecs::world::DeferredWorld;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::time::Instant;
@@ -219,15 +214,19 @@ pub enum LinkReceiveSet {
 ///
 /// This event typically signals the underlying IO layer to start connecting
 /// to a remote peer.
-#[derive(Event)]
-pub struct LinkStart;
+#[derive(EntityEvent)]
+pub struct LinkStart {
+    pub entity: Entity,
+}
 
 /// Event triggered to initiate the process of terminating a `Link`.
 ///
 /// This event typically signals the underlying IO layer to disconnect
 /// from the remote peer.
-#[derive(Event, Clone, Debug)]
+#[derive(EntityEvent, Clone, Debug)]
 pub struct Unlink {
+    #[event_target]
+    pub entity: Entity,
     pub reason: String,
 }
 
@@ -306,10 +305,10 @@ impl LinkPlugin {
     }
 
     /// If the user requested to unlink, then we insert the Unlinked component
-    fn unlink(mut trigger: Trigger<Unlink>, mut commands: Commands) {
-        if let Ok(mut c) = commands.get_entity(trigger.target()) {
+    fn unlink(mut unlink: On<Unlink>, mut commands: Commands) {
+        if let Ok(mut c) = commands.get_entity(unlink.entity) {
             c.insert(Unlinked {
-                reason: core::mem::take(&mut trigger.reason),
+                reason: core::mem::take(&mut unlink.reason),
             });
         }
     }

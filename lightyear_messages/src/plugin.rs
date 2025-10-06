@@ -1,11 +1,10 @@
 use crate::MessageManager;
 use crate::registry::MessageRegistry;
 use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
+use bevy_ecs::prelude::{Add, On};
 use bevy_ecs::{
-    observer::Trigger,
     schedule::{IntoScheduleConfigs, SystemSet},
     system::{ParamBuilder, Query, QueryParamBuilder, SystemParamBuilder},
-    world::OnAdd,
 };
 use lightyear_connection::client::Disconnected;
 use lightyear_transport::plugin::{TransportPlugin, TransportSet};
@@ -33,10 +32,10 @@ impl MessagePlugin {
     /// On disconnect:
     /// - Reset the MessageManager to its original state
     fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut manager_query: Query<&mut MessageManager>,
     ) {
-        if let Ok(mut manager) = manager_query.get_mut(trigger.target()) {
+        if let Ok(mut manager) = manager_query.get_mut(trigger.entity) {
             manager.entity_mapper.clear();
         }
     }
@@ -44,8 +43,6 @@ impl MessagePlugin {
 
 impl Plugin for MessagePlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<MessageManager>();
-
         if !app.is_plugin_added::<TransportPlugin>() {
             app.add_plugins(TransportPlugin);
         }
@@ -189,7 +186,7 @@ mod tests {
         app.add_plugins(TestTransportPlugin);
 
         // Register the message before adding the MessagePlugin
-        app.add_message::<M>();
+        app.register_message::<M>();
         app.add_plugins(MessagePlugin);
         app.finish();
 
@@ -262,7 +259,7 @@ mod tests {
         app.add_plugins(CorePlugins {
             tick_duration: core::time::Duration::from_millis(10),
         });
-        app.add_message::<M>();
+        app.register_message::<M>();
         app.add_plugins(MessagePlugin);
         app.finish();
 

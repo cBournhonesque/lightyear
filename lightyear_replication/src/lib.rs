@@ -41,14 +41,16 @@ pub mod message;
 pub mod control;
 pub mod host;
 mod impls;
+
+pub mod prespawn;
 /// Manages entity visibility for replication (e.g., interest management, rooms).
 pub mod visibility;
 
 /// Commonly used items for replication.
 pub mod prelude {
     pub use crate::authority::{
-        AuthorityPlugin, AuthorityTransfer, AuthorityTransferRequest, AuthorityTransferResponse,
-        GiveAuthority, RequestAuthority,
+        AuthorityPlugin, AuthorityRequestEvent, AuthorityResponseEvent, AuthorityTransfer,
+        AuthorityTransferRequest, AuthorityTransferResponse, GiveAuthority, RequestAuthority,
     };
     pub use crate::components::*;
     pub use crate::control::{Controlled, ControlledBy, ControlledByRemote, Lifetime};
@@ -58,6 +60,7 @@ pub mod prelude {
     };
     pub use crate::message::*;
     pub use crate::plugin::ReplicationSet;
+    pub use crate::prespawn::PreSpawned;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::{
         AppComponentExt, ComponentRegistration, ComponentRegistry, TransformLinearInterpolation,
@@ -66,5 +69,5 @@ pub mod prelude {
     pub use crate::send::plugin::{ReplicationBufferSet, ReplicationSendPlugin};
     pub use crate::send::sender::{ReplicationSender, SendUpdatesMode};
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
-    pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin};
+    pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin, RoomTarget};
 }

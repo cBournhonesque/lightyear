@@ -16,8 +16,6 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        // all actions related-system that can be rolled back should be in FixedUpdate schedule
-        app.add_systems(FixedUpdate, (player_movement, shared_player_firing).chain());
         app.add_observer(add_ball_physics);
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
@@ -25,7 +23,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>)
+                .run_if(on_message::<BulletHitMessage>)
                 .after(process_collisions),
         );
     }
@@ -38,11 +36,11 @@ impl Plugin for ExampleClientPlugin {
 /// We only add the physical properties on the ball that is displayed on screen (i.e the Predicted ball)
 /// We want the ball to be rigid so that when players collide with it, they bounce off.
 fn add_ball_physics(
-    trigger: Trigger<OnAdd, BallMarker>,
+    trigger: On<Add, BallMarker>,
     ball_query: Query<&BallMarker, With<Predicted>>,
     mut commands: Commands,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if let Ok(ball) = ball_query.get(entity) {
         info!("Adding physics to a replicated ball {entity:?}");
         commands.entity(entity).insert(ball.physics_bundle());
@@ -53,11 +51,11 @@ fn add_ball_physics(
 /// replication, which means they will already have the physics components.
 /// So, we filter the query using `Without<Collider>`.
 fn add_bullet_physics(
-    trigger: Trigger<OnAdd, BulletMarker>,
+    trigger: On<Add, BulletMarker>,
     mut commands: Commands,
     bullet_query: Query<(), (With<Predicted>, Without<Collider>)>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if let Ok(()) = bullet_query.get(entity) {
         info!("Adding physics to a replicated bullet: {entity:?}");
         commands.entity(entity).insert(PhysicsBundle::bullet());
@@ -67,11 +65,11 @@ fn add_bullet_physics(
 /// Decorate newly connecting players with physics components
 /// ..and if it's our own player, set up input stuff
 fn handle_new_player(
-    trigger: Trigger<OnAdd, (Player, Predicted)>,
+    trigger: On<Add, (Player, Predicted)>,
     mut commands: Commands,
     player_query: Query<(&Player, Has<Controlled>), With<Predicted>>,
 ) {
-    let entity = trigger.target();
+    let entity = trigger.entity;
     if let Ok((player, is_controlled)) = player_query.get(entity) {
         info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
         // is this our own entity?
@@ -98,7 +96,7 @@ fn handle_new_player(
 // Generate an explosion effect for bullet collisions
 fn handle_hit_event(
     time: Res<Time>,
-    mut events: EventReader<BulletHitEvent>,
+    mut events: MessageReader<BulletHitMessage>,
     mut commands: Commands,
 ) {
     for ev in events.read() {
@@ -107,27 +105,5 @@ fn handle_hit_event(
             Visibility::default(),
             crate::renderer::Explosion::new(time.elapsed(), ev.bullet_color),
         ));
-    }
-}
-
-// only apply movements to predicted entities
-fn player_movement(
-    mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), (With<Player>, With<Predicted>)>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
-) {
-    // get the tick, even if during rollback
-    let tick = timeline.tick();
-
-    for (action_state, mut aiq) in q.iter_mut() {
-        if !action_state.get_pressed().is_empty() {
-            trace!(
-                "🎹 {:?} {tick:?} = {:?}",
-                aiq.player.client_id,
-                action_state.get_pressed(),
-            );
-        }
-        // if we haven't received any input for some tick, lightyear will predict that the player is still pressing the same keys.
-        // (it does that by not modifying the ActionState, so it will still have the last pressed keys)
-        apply_action_state_to_player_movement(action_state, &mut aiq, tick);
     }
 }

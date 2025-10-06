@@ -16,17 +16,7 @@ use crate::{
     server::Started,
 };
 use bevy_app::{App, Plugin};
-use bevy_ecs::component::Component;
-#[cfg(feature = "server")]
-use bevy_ecs::{
-    entity::Entity,
-    observer::Trigger,
-    query::{With, Without},
-    relationship::RelationshipTarget,
-    system::{Commands, Query},
-    world::OnAdd,
-};
-#[cfg(feature = "server")]
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bytes::Bytes;
 #[cfg(feature = "server")]
@@ -45,7 +35,6 @@ pub struct HostClient {
     pub buffer: Vec<(Bytes, core::any::TypeId)>,
 }
 
-#[cfg(feature = "server")]
 /// Marker component inserted on a server that has a [`HostClient`]
 #[derive(Component, Debug, Reflect)]
 pub struct HostServer {
@@ -64,16 +53,16 @@ impl HostPlugin {
     ///  Connected?
     #[cfg(feature = "server")]
     fn connect(
-        trigger: Trigger<Connect>,
+        trigger: On<Connect>,
         mut commands: Commands,
         query: Query<&LinkOf, (With<Client>, Without<HostClient>)>,
         server_query: Query<(), (With<Server>, With<Started>)>,
     ) {
-        if let Ok(link_of) = query.get(trigger.target())
+        if let Ok(link_of) = query.get(trigger.entity)
             && server_query.get(link_of.server).is_ok()
         {
-            info!("Connected host-client");
-            commands.entity(trigger.target()).insert((
+            info!(entity=?trigger.entity, "Connected host-client");
+            commands.entity(trigger.entity).insert((
                 Connected,
                 // We cannot insert the ids purely from the point of view of the client
                 // so we set both its to Local
@@ -86,24 +75,24 @@ impl HostPlugin {
                 HostClient { buffer: Vec::new() },
             ));
             commands.entity(link_of.server).insert(HostServer {
-                client: trigger.target(),
+                client: trigger.entity,
             });
         }
     }
 
     #[cfg(feature = "server")]
     fn disconnect(
-        trigger: Trigger<Disconnect>,
+        trigger: On<Disconnect>,
         mut commands: Commands,
         query: Query<&LinkOf, With<HostClient>>,
         server_query: Query<(), With<HostServer>>,
     ) {
-        if let Ok(link_of) = query.get(trigger.target())
+        if let Ok(link_of) = query.get(trigger.entity)
             && server_query.get(link_of.server).is_ok()
         {
-            info!("Disconnected host-client");
+            info!(entity=?trigger.entity,"Disconnected host-client");
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .remove::<HostClient>()
                 .insert(Disconnected {
                     reason: Some("Client trigger".to_string()),
@@ -116,38 +105,38 @@ impl HostPlugin {
     fn check_if_host_on_client_change(
         // NOTE: we handle Connecting in the trigger because otherwise the client
         //  would never be Connected
-        trigger: Trigger<OnAdd, (Client, Connected, LinkOf)>,
+        trigger: On<Add, (Client, Connected, LinkOf)>,
         client_query: Query<&LinkOf, (With<Client>, With<Connected>, Without<HostClient>)>,
         server_query: Query<(), (With<Started>, With<Server>)>,
         mut commands: Commands,
     ) {
-        if let Ok(link_of) = client_query.get(trigger.target())
+        if let Ok(link_of) = client_query.get(trigger.entity)
             && server_query.get(link_of.server).is_ok()
         {
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .insert(HostClient { buffer: Vec::new() });
             commands.entity(link_of.server).insert(HostServer {
-                client: trigger.target(),
+                client: trigger.entity,
             });
         }
     }
 
     #[cfg(feature = "server")]
     fn check_if_host_on_server_change(
-        trigger: Trigger<OnAdd, (Server, Started)>,
+        trigger: On<Add, (Server, Started)>,
         server_query: Query<&Server, With<Started>>,
         client_query: Query<(), (With<Client>, With<Connected>, Without<HostClient>)>,
         mut commands: Commands,
     ) {
-        if let Ok(server) = server_query.get(trigger.target()) {
+        if let Ok(server) = server_query.get(trigger.entity) {
             for client in server.collection() {
                 if client_query.get(*client).is_ok() {
                     commands
                         .entity(*client)
                         .insert(HostClient { buffer: Vec::new() });
-                    commands.entity(trigger.target()).insert(HostServer {
-                        client: trigger.target(),
+                    commands.entity(trigger.entity).insert(HostServer {
+                        client: trigger.entity,
                     });
                 }
             }

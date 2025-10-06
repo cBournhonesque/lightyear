@@ -76,11 +76,11 @@ fn main() {
                     conditioner: Some(RecvLinkConditioner::new(
                         LinkConditionerConfig::average_condition(),
                     )),
-                    transport: ClientTransports::WebTransport,
+                    transport: ClientTransports::Udp,
                     shared: SHARED_SETTINGS,
                 })
                 .id();
-            app.world_mut().trigger_targets(Connect, client)
+            app.world_mut().trigger(Connect { entity: client })
         }
     }
 
@@ -95,6 +95,7 @@ fn main() {
         let port = match cli.mode {
             Some(Mode::Server) => SERVER_PORT,
             // in client mode, we still start a server in case the server becomes a host-server
+            #[cfg(feature = "client")]
             Some(Mode::Client { .. }) => HOST_SERVER_PORT,
             _ => panic!("Only server or client mode is supported in this example"),
         };
@@ -102,17 +103,18 @@ fn main() {
             .world_mut()
             .spawn(ExampleServer {
                 conditioner: None,
-                transport: ServerTransports::WebTransport {
-                    local_port: port,
-                    certificate: WebTransportCertificateSettings::FromFile {
-                        cert: "../../certificates/cert.pem".to_string(),
-                        key: "../../certificates/key.pem".to_string(),
-                    },
-                },
+                transport: ServerTransports::Udp { local_port: port },
+                // transport: ServerTransports::WebTransport {
+                //     local_port: port,
+                //     certificate: WebTransportCertificateSettings::FromFile {
+                //         cert: "../../certificates/cert.pem".to_string(),
+                //         key: "../../certificates/key.pem".to_string(),
+                //     },
+                // },
                 shared: SHARED_SETTINGS,
             })
             .id();
-        app.world_mut().trigger_targets(Start, server);
+        app.world_mut().trigger(Start { entity: server });
     }
 
     #[cfg(feature = "gui")]

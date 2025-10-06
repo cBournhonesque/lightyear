@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -43,12 +44,12 @@ fn main() {
         }
         #[cfg(feature = "server")]
         Some(Mode::Server) => {
-            app.add_plugins(ExampleServerPlugin { predict_all: true });
+            app.add_plugins(ExampleServerPlugin);
         }
         #[cfg(all(feature = "client", feature = "server"))]
         Some(Mode::HostClient { client_id }) => {
             app.add_plugins(ExampleClientPlugin);
-            app.add_plugins(ExampleServerPlugin { predict_all: true });
+            app.add_plugins(ExampleServerPlugin);
             add_input_delay(&mut app);
         }
         _ => {}
@@ -63,6 +64,7 @@ fn main() {
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
     use lightyear::prelude::Client;
+    use lightyear::prelude::client::InputDelayConfig;
 
     let client = app
         .world_mut()
@@ -71,9 +73,9 @@ fn add_input_delay(app: &mut App) {
         .unwrap();
 
     // set some input-delay since we are predicting all entities
-    // app.world_mut()
-    //     .entity_mut(client)
-    //     .insert(InputTimeline(Timeline::from(
-    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-    //     )));
+    app.world_mut()
+        .entity_mut(client)
+        .insert(InputTimeline(Timeline::from(
+            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+        )));
 }

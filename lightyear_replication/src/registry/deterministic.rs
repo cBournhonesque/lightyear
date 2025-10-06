@@ -4,6 +4,7 @@ use crate::registry::registry::ComponentMetadata;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
 use bevy_ptr::Ptr;
+use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use tracing::trace;
 
@@ -34,7 +35,7 @@ fn custom_hash_fn<C: Debug>(ptr: Ptr, hasher: &mut seahash::SeaHasher, f: unsafe
     trace!(
         "Hashing component value: {:?} into {:?}",
         value,
-        core::any::type_name::<C>()
+        DebugName::type_name::<C>()
     );
     f(value, hasher);
 }
@@ -54,6 +55,7 @@ impl<C: Debug> ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                let confirmed_component_id = world.register_component::<C>();
                 let component_id = world.register_component::<C>();
 
                 let kind = ComponentKind::of::<C>();
@@ -61,6 +63,7 @@ impl<C: Debug> ComponentRegistration<'_, C> {
                     .component_metadata_map
                     .entry(kind)
                     .or_insert_with(|| ComponentMetadata {
+                        confirmed_component_id,
                         component_id,
                         replication: None,
                         serialization: None,
@@ -82,12 +85,14 @@ impl<C: Debug> ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+                let confirmed_component_id = world.register_component::<C>();
                 let component_id = world.register_component::<C>();
                 let kind = ComponentKind::of::<C>();
                 registry
                     .component_metadata_map
                     .entry(kind)
                     .or_insert_with(|| ComponentMetadata {
+                        confirmed_component_id,
                         component_id,
                         replication: None,
                         serialization: None,

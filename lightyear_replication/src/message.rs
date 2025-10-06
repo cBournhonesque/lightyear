@@ -71,7 +71,14 @@ impl ToBytes for EntityActions {
 #[derive(Clone, PartialEq, Debug)]
 pub(crate) enum SpawnAction {
     None,
-    Spawn,
+    Spawn {
+        // TODO: make it impossible to enable both predicted and interpolatd
+        predicted: bool,
+        interpolated: bool,
+        // If a PreSpawn hash is provided, instead of spawning an entity on the receiver we will try to match
+        // with an entity that has the same PreSpawn hash
+        prespawn: Option<u64>,
+    },
     Despawn,
 }
 
@@ -79,16 +86,45 @@ impl ToBytes for SpawnAction {
     fn bytes_len(&self) -> usize {
         match &self {
             SpawnAction::None => 1,
-            SpawnAction::Spawn => 1,
             SpawnAction::Despawn => 1,
+            SpawnAction::Spawn { prespawn, .. } => 1 + prespawn.map_or(0, |p| 8),
         }
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         match &self {
             SpawnAction::None => buffer.write_u8(0)?,
-            SpawnAction::Spawn => buffer.write_u8(1)?,
-            SpawnAction::Despawn => buffer.write_u8(2)?,
+            SpawnAction::Despawn => buffer.write_u8(1)?,
+            SpawnAction::Spawn {
+                predicted,
+                interpolated,
+                prespawn,
+            } => {
+                if *predicted && *interpolated {
+                    return Err(SerializationError::InvalidValue);
+                }
+                // Use bits to store the flags:
+                // 0: predicted
+                // 1: interpolated
+                // 2: prespawn.is_some()
+                let mut flags = 0u8;
+                if *predicted {
+                    flags |= 1 << 0;
+                }
+                if *interpolated {
+                    flags |= 1 << 1;
+                }
+                if prespawn.is_some() {
+                    flags |= 1 << 2;
+                }
+
+                // The spawn variant starts at tag 2
+                buffer.write_u8(2 + flags)?;
+
+                if let Some(prespawn) = prespawn {
+                    buffer.write_u64(*prespawn)?;
+                }
+            }
         }
         Ok(())
     }
@@ -99,8 +135,25 @@ impl ToBytes for SpawnAction {
     {
         match buffer.read_u8()? {
             0 => Ok(SpawnAction::None),
-            1 => Ok(SpawnAction::Spawn),
-            2 => Ok(SpawnAction::Despawn),
+            1 => Ok(SpawnAction::Despawn),
+            // Spawn variants are in the range [2, 9]
+            val @ 2..=9 => {
+                let flags = val - 2;
+                let predicted = (flags & (1 << 0)) != 0;
+                let interpolated = (flags & (1 << 1)) != 0;
+                let has_prespawn = (flags & (1 << 2)) != 0;
+
+                let prespawn = if has_prespawn {
+                    Some(buffer.read_u64()?)
+                } else {
+                    None
+                };
+                Ok(SpawnAction::Spawn {
+                    predicted,
+                    interpolated,
+                    prespawn,
+                })
+            }
             _ => Err(SerializationError::InvalidPacketType),
         }
     }

@@ -27,61 +27,70 @@ use crate::manager::PredictionManager;
 use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
 use crate::rollback::RollbackSet;
-use bevy_app::{App, PostUpdate, PreUpdate};
-use bevy_ecs::prelude::IntoScheduleConfigs;
-use bevy_ecs::{
-    change_detection::DetectChangesMut,
-    component::Component,
-    entity::Entity,
-    query::With,
-    system::{Commands, Query, Res, Single},
-};
+use bevy_app::prelude::*;
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
+use bevy_utils::prelude::DebugName;
+use core::fmt::Debug;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_frame_interpolation::FrameInterpolate;
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationSet};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::delta::Diffable;
 use tracing::trace;
 
 /// The visual value of the component before the rollback started
 #[derive(Component, Debug, Reflect)]
-pub(crate) struct PreviousVisual<C: Component>(pub(crate) C);
+pub struct PreviousVisual<C: Component>(pub C);
 
-// TODO: actually we just need the delta to be lerpable!
 #[derive(Component, Debug, Reflect)]
-pub struct VisualCorrection<C: Component + Diffable> {
+pub struct VisualCorrection<D> {
     /// The error between the original visual value and the new visual value.
     /// Will decay over time.
-    error: C::Delta,
+    pub error: D,
 }
 
-pub fn add_correction_systems<C: SyncComponent + Diffable<Delta = C>>(app: &mut App) {
+pub fn add_correction_systems<
+    C: SyncComponent + Diffable<D>,
+    D: Default + Clone + Debug + Send + Sync + 'static,
+>(
+    app: &mut App,
+) {
     // When rollback finishes, compute the new corrected visual value and compare it with the original visual value
     // to set the visual correction error.
     app.add_systems(
         PreUpdate,
-        update_frame_interpolation_post_rollback::<C>.in_set(RollbackSet::EndRollback),
+        update_frame_interpolation_post_rollback::<C, D>.in_set(RollbackSet::EndRollback),
+    );
+    app.configure_sets(
+        PostUpdate,
+        // If FrameInterpolation runs after Correction, it would overwrite the applied correction.
+        RollbackSet::VisualCorrection.after(FrameInterpolationSet::Interpolate),
     );
     app.add_systems(
         PostUpdate,
-        add_visual_correction::<C>.in_set(RollbackSet::VisualCorrection),
+        add_visual_correction::<C, D>.in_set(RollbackSet::VisualCorrection),
     );
 }
 
 /// After the rollback is over, we need to update the values in the [`FrameInterpolate<C>`] component.
+/// This is important to run now and not in FixedUpdate because FixedUpdate could not run this frame.
+/// (if we have two frames in a row)
 ///
 /// If we have correction enabled, then we can compute the error between the previous visual value
 /// [`PreviousVisual<C>`] and the new visual value.
-pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffable<Delta = C>>(
+pub(crate) fn update_frame_interpolation_post_rollback<
+    C: SyncComponent + Diffable<D>,
+    D: Debug + Send + Sync + 'static,
+>(
     time: Res<Time<Fixed>>,
     // only run if there is a VisualCorrection<C> to do.
     timeline: Single<&LocalTimeline, With<PredictionManager>>,
     registry: Res<InterpolationRegistry>,
     mut query: Query<(
         Entity,
-        &mut C,
-        &PreviousVisual<C>,
+        &C,
+        Option<&PreviousVisual<C>>,
         &PredictionHistory<C>,
         &mut FrameInterpolate<C>,
     )>,
@@ -91,30 +100,35 @@ pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffab
     let overstep = time.overstep_fraction();
     let tick = timeline.tick();
     for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
-        // compute the new visual value post-rollback but interpolating between the last 2 states of the history
+        // update the FrameInterpolation with the last 2 history values
         interpolate.current_value = Some(component.clone());
         interpolate.previous_value = history.second_most_recent(tick).cloned();
         let Some(previous) = &interpolate.previous_value else {
             continue;
         };
-        let current_visual = registry.interpolate(previous.clone(), component.clone(), overstep);
-        // error = previous_visual - current_visual
-        let error = current_visual.diff(&previous_visual.0);
-        trace!(
-            ?tick,
-            ?entity,
-            ?current_visual,
-            ?previous_visual,
-            ?error,
-            // two_previous_values = ?interpolate,
-            // ?history,
-            "Updating VisualCorrection post rollback for {:?}",
-            core::any::type_name::<C>()
-        );
-        commands
-            .entity(entity)
-            .insert(VisualCorrection::<C> { error })
-            .remove::<PreviousVisual<C>>();
+
+        // compute the new visual value post-rollback but interpolating between the last 2 states of the history
+        if let Some(previous_visual) = previous_visual {
+            let current_visual =
+                registry.interpolate(previous.clone(), component.clone(), overstep);
+            // error = previous_visual - current_visual
+            let error = current_visual.diff(&previous_visual.0);
+            trace!(
+                ?tick,
+                ?entity,
+                ?current_visual,
+                ?previous_visual,
+                ?error,
+                // two_previous_values = ?interpolate,
+                // ?history,
+                "Updating VisualCorrection post rollback for {:?}",
+                DebugName::type_name::<C>()
+            );
+            commands
+                .entity(entity)
+                .insert(VisualCorrection::<D> { error })
+                .remove::<PreviousVisual<C>>();
+        }
     }
 }
 
@@ -122,40 +136,48 @@ pub(crate) fn update_frame_interpolation_post_rollback<C: SyncComponent + Diffab
 /// decay the visual correction error over time.
 ///
 /// If it gets small enough, we remove the `VisualCorrection<C>` component.
-pub(crate) fn add_visual_correction<C: SyncComponent + Diffable<Delta = C>>(
+///
+/// The delta D must have a interpolation function registered in the [`InterpolationRegistry`].
+pub(crate) fn add_visual_correction<
+    C: SyncComponent + Diffable<D>,
+    D: Default + Clone + Debug + Send + Sync + 'static,
+>(
     time: Res<Time<Virtual>>,
-    interpolation: Res<InterpolationRegistry>,
     prediction: Res<PredictionRegistry>,
     manager: Single<&PredictionManager>,
-    mut query: Query<(Entity, &mut C, &mut VisualCorrection<C>)>,
+    mut query: Query<(Entity, &mut C, &mut VisualCorrection<D>)>,
     mut commands: Commands,
 ) {
     let r = manager.correction_policy.lerp_ratio(time.delta());
     query
         .iter_mut()
         .for_each(|(entity, mut component, mut visual_correction)| {
-            if !prediction.should_rollback(&C::base_value(), &visual_correction.error) {
+            let mut error_as_transform = C::base_value();
+            error_as_transform.apply_diff(&visual_correction.error);
+            if !prediction.should_rollback(&C::base_value(), &error_as_transform) {
                 trace!(
                     ?visual_correction,
                     "Removing visual correction error {:?} since it is already small enough",
-                    core::any::type_name::<C>()
+                    DebugName::type_name::<C>()
                 );
-                commands.entity(entity).remove::<VisualCorrection<C>>();
+                commands.entity(entity).remove::<VisualCorrection<D>>();
                 return;
             }
-            let error =
-                interpolation.interpolate(C::base_value(), visual_correction.error.clone(), r);
-            component.bypass_change_detection().apply_diff(&error);
+            let previous_error = &visual_correction.error;
+            let new_error = prediction
+                .apply_correction::<C, D>(previous_error.clone(), r)
+                .expect("No correction fn was found");
+            component.bypass_change_detection().apply_diff(&new_error);
             trace!(
                 ?entity,
                 ?component,
-                previous = ?visual_correction,
-                new = ?error,
+                ?previous_error,
+                ?new_error,
                 ?r,
                 "Applied visual correction and decaying error for {:?}",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
-            visual_correction.error = error;
+            visual_correction.error = new_error;
         });
 }
 

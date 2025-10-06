@@ -33,7 +33,7 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 
 pub(crate) fn confirmed_log(
     timeline: Single<&LocalTimeline, With<Client>>,
-    players: Query<(Entity, &PlayerPosition), Changed<Confirmed>>,
+    players: Query<(Entity, &Confirmed<PlayerPosition>), Changed<Confirmed<PlayerPosition>>>,
 ) {
     let tick = timeline.tick();
     for status in players.iter() {
@@ -63,7 +63,7 @@ pub(crate) fn fixed_post_log(
     players: Query<
         (Entity, &PlayerPosition),
         // (Entity, &PlayerPosition, &ActionState<Inputs>, &InputBuffer<ActionState<Inputs>>),
-        (Without<Confirmed>, With<PlayerId>),
+        With<PlayerId>,
     >,
 ) {
     let (timeline, rollback) = timeline.into_inner();

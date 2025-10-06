@@ -1,10 +1,7 @@
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::entity::MapEntities;
+use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
-use bevy_ecs::{
-    component::Component,
-    entity::{EntityMapper, MapEntities},
-    prelude::Mut,
-};
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
@@ -29,15 +26,19 @@ impl<A: Default + Send + Sync + 'static> ActionStateQueryData for ActionState<A>
     type Main = ActionState<A>;
     type Bundle = ActionState<A>;
 
-    fn as_read_only<'a, 'w: 'a>(state: &'a Mut<'w, ActionState<A>>) -> &'a ActionState<A> {
+    fn as_read_only<'a, 'w: 'a, 's>(
+        state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's> {
         state
     }
 
-    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w> {
+    fn into_inner<'w, 's>(
+        mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> Self::MutItemInner<'w> {
         mut_item.into_inner()
     }
 
-    fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w> {
+    fn as_mut(bundle: &mut Self::Bundle) -> Self::MutItemInner<'_> {
         bundle
     }
 

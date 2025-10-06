@@ -65,8 +65,6 @@ pub type LagCompensationHistory = HistoryBuffer<(Position, Rotation, ColliderAab
 
 impl Plugin for LagCompensationPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<LagCompensationHistory>();
-
         app.init_resource::<LagCompensationConfig>();
         app.add_observer(spawn_broad_phase_aabb_envelope);
         // We want the history buffer at tick N to contain the collider state (Position, Rotation)
@@ -85,19 +83,19 @@ impl Plugin for LagCompensationPlugin {
         app.configure_sets(
             PhysicsSchedule,
             (
-                PhysicsStepSet::Solver,
+                PhysicsStepSystems::Solver,
                 // the history must be updated before the SpatialQuery is updated
-                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSet::Sleeping),
-                PhysicsStepSet::SpatialQuery,
+                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSystems::Sleeping),
+                PhysicsStepSystems::SpatialQuery,
                 // collisions must run after the SpatialQuery has been updated
                 // NOTE: we set it as ambiguous with Finalize, but maybe we should run before?
-                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSet::Finalize),
+                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSystems::Finalize),
             )
                 .chain(),
         );
         app.configure_sets(
             FixedPostUpdate,
-            LagCompensationSet::Collisions.after(PhysicsSet::Sync),
+            LagCompensationSet::Collisions.after(PhysicsSystems::Prepare),
         );
     }
 }
@@ -105,12 +103,12 @@ impl Plugin for LagCompensationPlugin {
 /// Spawns a child entity with a collider that represents the broad-phase aabb envelope
 /// for lag compensation purposes
 fn spawn_broad_phase_aabb_envelope(
-    trigger: Trigger<OnAdd, LagCompensationHistory>,
+    trigger: On<Add, LagCompensationHistory>,
     query: Query<Option<&CollisionLayers>>,
     mut commands: Commands,
 ) {
     debug!("spawning broad-phase collider from aabb!");
-    commands.entity(trigger.target()).with_children(|builder| {
+    commands.entity(trigger.entity).with_children(|builder| {
         let mut child_commands = builder.spawn((
             // the collider/position/rotation values don't matter here because they will be updated in the
             // `update_lag_compensation_broad_phase_collider` system
@@ -123,7 +121,7 @@ fn spawn_broad_phase_aabb_envelope(
             AabbEnvelopeHolder,
         ));
         // the aabb_envelope has the same collision_layers as the parent
-        if let Ok(Some(collision_layers)) = query.get(trigger.target()) {
+        if let Ok(Some(collision_layers)) = query.get(trigger.entity) {
             child_commands.insert(*collision_layers);
         }
     });

@@ -70,7 +70,7 @@ fn fetch_connect_token(
                 Authentication::Token(connect_token),
                 NetcodeConfig::default(),
             )?);
-            commands.trigger_targets(Connect, client);
+            commands.trigger(Connect { entity: client });
             connect_token_request.task = None;
         }
     }
@@ -113,7 +113,7 @@ async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -
 
 /// Remove all entities when the client disconnect
 fn on_disconnect(
-    trigger: Trigger<OnInsert, Disconnected>,
+    trigger: On<Insert, Disconnected>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
 ) {
@@ -142,7 +142,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     Text("Connect".to_string()),
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     TextFont::from_font_size(20.0),
-                    BorderColor(Color::BLACK),
+                    BorderColor::all(Color::BLACK),
                     Node {
                         width: Val::Px(150.0),
                         height: Val::Px(65.0),
@@ -156,7 +156,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     Button,
                 ))
                 .observe(
-                    |trigger: Trigger<Pointer<Click>>,
+                    |trigger: On<Pointer<Click>>,
                      mut commands: Commands,
                      mut task_state: ResMut<ConnectTokenRequestTask>,
                      client: Single<(Entity, &Client)>| {
@@ -173,7 +173,9 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                             }
                             _ => {
                                 info!("Disconnecting from server");
-                                commands.trigger_targets(Disconnect, client_entity);
+                                commands.trigger(Disconnect {
+                                    entity: client_entity,
+                                });
                             }
                         };
                     },

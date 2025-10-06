@@ -32,9 +32,7 @@ impl Plugin for ExampleRendererPlugin {
         // - we use ReplicateOnce and DisableRollback to stop replicating any packets for these bullets
         app.add_systems(
             PreUpdate,
-            (add_projectile_cosmetics)
-                .after(PredictionSet::Sync)
-                .before(RollbackSet::Check),
+            add_projectile_cosmetics.before(RollbackSet::Check),
         );
 
         // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate
@@ -69,22 +67,17 @@ fn init(mut commands: Commands) {
 /// Add the FrameInterpolate::<Position> component to non-floor entities with
 /// component `Position`. Floors don't need to be frame interpolated because we
 /// don't expect them to move.
-///
-/// We query Without<Confirmed> instead of With<Predicted> so that the server's
-/// gui will also get some frame interpolation. But we're usually just
-/// concerned that the client's Predicted entities get the interpolation
-/// treatment.
 fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
-    trigger: Trigger<OnAdd, Position>,
+    trigger: On<Add, Position>,
     query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
     mut commands: Commands,
 ) {
-    if !query.contains(trigger.target()) {
+    if !query.contains(trigger.entity) {
         return;
     }
-    commands.entity(trigger.target()).insert((
+    commands.entity(trigger.entity).insert((
         FrameInterpolate::<Position> {
             // We must trigger change detection on visual interpolation
             // to make sure that child entities (sprites, meshes, text)

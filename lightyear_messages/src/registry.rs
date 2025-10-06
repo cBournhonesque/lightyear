@@ -4,6 +4,7 @@ use crate::{Message, MessageNetId};
 use bevy_app::App;
 use bevy_ecs::{component::ComponentId, entity::MapEntities, error::Result, resource::Resource};
 use bevy_reflect::{Reflect, TypePath};
+use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::cell::UnsafeCell;
 use core::hash::Hash;
@@ -22,6 +23,8 @@ use lightyear_utils::collections::HashMap;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+#[allow(unused_imports)]
+use tracing::{debug, trace};
 
 #[derive(thiserror::Error, Debug)]
 pub enum MessageError {
@@ -66,7 +69,7 @@ impl From<TypeId> for MessageKind {
     }
 }
 
-use crate::receive_trigger::ReceiveTriggerFn;
+use crate::receive_event::ReceiveTriggerFn;
 use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
 #[derive(Debug, Clone)]
@@ -87,7 +90,7 @@ pub(crate) struct SendMessageMetadata {
 
 #[derive(Debug, Clone, TypePath)]
 pub(crate) struct SendTriggerMetadata {
-    /// ComponentId of the [`TriggerSender<M>`](crate::send_trigger::TriggerSender) component
+    /// ComponentId of the [`TriggerSender<M>`](crate::send_trigger::EventSender) component
     pub(crate) component_id: ComponentId,
     pub(crate) send_trigger_fn: SendTriggerFn,
     pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
@@ -99,7 +102,7 @@ pub(crate) struct SendTriggerMetadata {
 ///
 /// ### Adding Messages
 ///
-/// You register messages by calling the [`add_message`](AppMessageExt::add_message) method directly on the App.
+/// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
 ///
 /// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
 /// Messages can be sent and receives if your Link entity contains the [`MessageSender<M>`] and [`MessageReceiver<M>`] components. Adding a [`NetworkDirection`] simply registers the sender/receiver components as a required components, but you can also just add and remove them manually.
@@ -193,6 +196,7 @@ impl MessageRegistry {
         serialize: ContextSerializeFns<SendEntityMap, M, I>,
         deserialize: ContextDeserializeFns<ReceiveEntityMap, M, I>,
     ) {
+        trace!("Registering message: {}", DebugName::type_name::<M>());
         self.hasher.hash::<M>();
         let message_kind = self.kind_map.add::<I>();
         self.serialize_fns_map.insert(
@@ -337,28 +341,28 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
 pub trait AppMessageExt {
     /// Register a regular message type `M`.
     /// This adds `MessageSender<M>` and `MessageReceiver<M>` components.
-    fn add_message<M: Message + Serialize + DeserializeOwned>(
+    fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
     ) -> MessageRegistration<'_, M>;
 
     fn is_message_registered<M: Message>(&self) -> bool;
 
     /// Register a regular message type `M` with custom serialization functions.
-    fn add_message_custom_serde<M: Message>(
+    fn register_message_custom_serde<M: Message>(
         &mut self,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M>;
 
     #[doc(hidden)]
     /// Register a regular message type `M` that uses `ToBytes` for serialization.
-    fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
+    fn register_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M>;
 }
 
 impl AppMessageExt for App {
-    fn add_message<M: Message + Serialize + DeserializeOwned>(
+    fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
     ) -> MessageRegistration<'_, M> {
-        self.add_message_custom_serde::<M>(SerializeFns::<M>::default())
+        self.register_message_custom_serde::<M>(SerializeFns::<M>::default())
     }
 
     fn is_message_registered<M: Message>(&self) -> bool {
@@ -367,7 +371,7 @@ impl AppMessageExt for App {
             .is_some_and(|r| r.kind_map.net_id(&MessageKind::of::<M>()).is_some())
     }
 
-    fn add_message_custom_serde<M: Message>(
+    fn register_message_custom_serde<M: Message>(
         &mut self,
         serialize_fns: SerializeFns<M>,
     ) -> MessageRegistration<'_, M> {
@@ -398,8 +402,8 @@ impl AppMessageExt for App {
         }
     }
 
-    fn add_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M> {
-        self.add_message_custom_serde::<M>(SerializeFns::<M>::with_to_bytes())
+    fn register_message_to_bytes<M: Message + ToBytes>(&mut self) -> MessageRegistration<'_, M> {
+        self.register_message_custom_serde::<M>(SerializeFns::<M>::with_to_bytes())
     }
 }
 
@@ -514,10 +518,10 @@ mod tests {
             mapped_context_deserialize::<Message3>,
         );
 
-        let message = Message3(Entity::from_raw(1));
+        let message = Message3(Entity::from_bits(1));
         let mut writer = Writer::default();
         let mut entity_map = SendEntityMap::default();
-        entity_map.set_mapped(Entity::from_raw(1), Entity::from_raw(2));
+        entity_map.set_mapped(Entity::from_bits(1), Entity::from_bits(2));
         registry
             .serialize(&message, &mut writer, &mut entity_map)
             .unwrap();
@@ -527,6 +531,6 @@ mod tests {
         let read = registry
             .deserialize::<Message3>(&mut reader, &mut ReceiveEntityMap::default())
             .unwrap();
-        assert_eq!(read.0, Entity::from_raw(2));
+        assert_eq!(read.0, Entity::from_bits(2));
     }
 }

@@ -10,15 +10,13 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["lightyear_replication/std"]
+std = ["lightyear_replication/std", "bevy_math/std"]
 deterministic = []
 server = ["dep:lightyear_messages"]
 metrics = ["dep:metrics", "std"]
 
 [dependencies]
 lightyear_utils.workspace = true
-lightyear_serde.workspace = true
-lightyear_link.workspace = true
 lightyear_core = { workspace = true }
 lightyear_connection = { workspace = true }
 lightyear_replication = { workspace = true, features = [
@@ -38,7 +36,6 @@ tracing.workspace = true
 
 # serde
 serde.workspace = true
-bytes = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true
@@ -49,6 +46,7 @@ bevy_math = { workspace = true, features = ["curve"] }
 bevy_platform.workspace = true
 bevy_reflect.workspace = true
 bevy_time.workspace = true
+bevy_utils.workspace = true
 
 [lints]
 workspace = true

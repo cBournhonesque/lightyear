@@ -1,26 +1,8 @@
-Issue with correction/visual interpolation
+- InputRollbackMode::Always -> issue on the first rollback (because we rollback to the previous time
+  where we received inputs, which is never, since we only send inputs when there are not empty!!)
 
-Frame 1
-- we had local at -30.0, stable
-- after rollback, we get -10.0 for some reason (1)
-- we get a correction of -20.0
-FI: stable at -30.0
-Correction: we get something like -28.
-
-Frame 2
-- restore the tick value at -10.0
-FI: Stable at -10.0 -> WEIRD? (2)
-Correction: we get -27
-
-
-0) Position and Transform are not in sync in PostUpdate!!
-
-1) How come there is a misprediction for the local entity? Check input logs
-
-2) The FrameInterpolation should be using the previous Visual value.
-Actually maybe not because the FI is just to interpolate between Fixed updates.
-
-
+- Avian3dCharacter: smooth with InputDelay, very unsmooth with no input delay.
+ 
 -------------------------
 
 

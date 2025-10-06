@@ -4,8 +4,9 @@ use crate::time::{Overstep, TickDelta, TickInstant};
 use bevy_app::{App, FixedFirst, Plugin};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::component::{Component, Mutable};
-use bevy_ecs::event::Event;
-use bevy_ecs::observer::Trigger;
+use bevy_ecs::entity::Entity;
+use bevy_ecs::event::{EntityEvent, Event};
+use bevy_ecs::prelude::On;
 use bevy_ecs::query::With;
 use bevy_ecs::system::{Query, ResMut};
 use bevy_reflect::Reflect;
@@ -37,6 +38,7 @@ pub trait TimelineContext: Send + Sync + 'static {}
 // TODO: should we get rid of this trait and just use the Timeline<T> struct?
 //  maybe a trait gives us more options in the future
 pub trait NetworkTimeline: Component<Mutability = Mutable> {
+    type Context: TimelineContext;
     const PAUSED_DURING_ROLLBACK: bool = true;
 
     /// Estimate of the current time in the [`Timeline`]
@@ -53,9 +55,13 @@ pub trait NetworkTimeline: Component<Mutability = Mutable> {
     }
 }
 
+impl<T: NetworkTimeline> TimelineContext for T {}
+
 impl<C: TimelineContext, T: Component<Mutability = Mutable> + DerefMut<Target = Timeline<C>>>
     NetworkTimeline for T
 {
+    type Context = C;
+
     /// Estimate of the current time in the [`Timeline`]
     fn now(&self) -> TickInstant {
         self.now
@@ -138,15 +144,13 @@ pub struct TimelinePlugin {
 }
 
 impl TimelinePlugin {
-    fn update_tick_duration(trigger: Trigger<SetTickDuration>, mut time: ResMut<Time<Fixed>>) {
+    fn update_tick_duration(trigger: On<SetTickDuration>, mut time: ResMut<Time<Fixed>>) {
         time.set_timestep(trigger.0);
     }
 }
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<LocalTimeline>();
-
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut()
             .resource_mut::<Time<Fixed>>()
@@ -163,8 +167,10 @@ impl Plugin for TimelinePlugin {
     }
 }
 
-#[derive(Event, Debug)]
-pub struct SyncEvent<T> {
+#[derive(EntityEvent, Debug)]
+pub struct SyncEvent<T: TimelineContext> {
+    /// Entity holding a [`Timeline`]
+    pub entity: Entity,
     // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
     //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
     //  to update the LocalTimeline
@@ -174,21 +180,22 @@ pub struct SyncEvent<T> {
 }
 
 impl<T: TimelineContext> SyncEvent<T> {
-    pub fn new(tick_delta: i16) -> Self {
+    pub fn new(entity: Entity, tick_delta: i16) -> Self {
         SyncEvent {
+            entity,
             tick_delta,
             marker: core::marker::PhantomData,
         }
     }
 }
 
-impl<T> Clone for SyncEvent<T> {
+impl<T: TimelineContext> Clone for SyncEvent<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T> Copy for SyncEvent<T> {}
+impl<T: TimelineContext> Copy for SyncEvent<T> {}
 
 /// Marker component inserted on the Link if we are currently in rollback
 ///

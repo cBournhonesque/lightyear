@@ -5,7 +5,6 @@ use lightyear::input::prelude::InputBuffer;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
@@ -105,33 +104,25 @@ fn test_remote_client_predicted_input() {
 
     stepper.frame_step(2);
 
-    let client_confirmed = stepper
+    let client_entity = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
         .get_local(server_entity)
         .expect("entity was not replicated to client");
-
-    let client_predicted = stepper
-        .client_app()
-        .world()
-        .get::<Confirmed>(client_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
-    info!(?client_predicted, ?client_confirmed, "client entities");
+    info!(?client_entity, "client entities");
 
     // TEST
     stepper
         .client_app()
         .world_mut()
-        .entity_mut(client_predicted)
+        .entity_mut(client_entity)
         .insert(InputMarker::<MyInput>::default());
     stepper
         .client_app()
         .world_mut()
-        .get_mut::<ActionState<MyInput>>(client_predicted)
+        .get_mut::<ActionState<MyInput>>(client_entity)
         .unwrap()
         .0 = MyInput(2);
 
@@ -198,13 +189,6 @@ fn test_host_client_inputers_replicated_to_remote_client() {
         .entity_mapper
         .get_local(server_entity)
         .expect("entity was not replicated to client");
-    let client_predicted = stepper
-        .client_app()
-        .world()
-        .get::<Confirmed>(client_entity)
-        .unwrap()
-        .predicted
-        .expect("entity does not have a predicted entity");
 
     // TEST
     stepper
@@ -229,7 +213,7 @@ fn test_host_client_inputers_replicated_to_remote_client() {
         stepper
             .client_app()
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(client_predicted)
+            .get::<InputBuffer<ActionState<MyInput>>>(client_entity)
             .unwrap()
             .get(server_tick)
             .unwrap(),

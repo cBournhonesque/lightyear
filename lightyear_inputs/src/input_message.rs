@@ -11,6 +11,7 @@ use bevy_ecs::{
     entity::{Entity, EntityMapper, MapEntities},
 };
 use bevy_reflect::Reflect;
+use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter, Write};
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
@@ -19,20 +20,20 @@ use lightyear_interpolation::plugin::InterpolationDelay;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
-use tracing::{debug, info, trace};
+use tracing::{debug, error, info, trace};
 
 /// Enum indicating the target entity for the input.
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Reflect)]
 pub enum InputTarget {
     /// The input is for a predicted or confirmed entity.
-    /// On the client, the server's local entity is mapped to the client's confirmed entity.
+    /// When sending from client to server, entity mapping is applied.
+    /// (Also when rebroadcast from server to client)
     Entity(Entity),
-    /// The input is for a pre-predicted entity.
-    /// On the server, the server's local entity is mapped to the client's pre-predicted entity.
-    PrePredictedEntity(Entity),
-    /// The input is on a BEI action entity that was spawned on the client and replicated to the server.
-    /// Entity must be applied on the server-side
-    ActionEntity(Entity),
+    /// The input is for a prespawned entity.
+    /// We wan the client to be able to send inputs for a prespawned entity before it gets matched with a server entity.
+    /// To achieve this, the client sends the PreSpawned hash and the server will map it to the correct server entity.
+    /// When rebroadcasting from server to other client, we rebroadcast it as a normal Entity?
+    PreSpawned(u64),
 }
 
 /// Contains the input data for a specific target entity over a range of ticks.
@@ -46,7 +47,7 @@ pub struct PerTargetData<S> {
     pub states: S,
 }
 
-pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + 'static {
+pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + Default + 'static {
     /// The type of the Action that this snapshot represents.
     type Action: Send + Sync + 'static;
 
@@ -66,7 +67,7 @@ pub trait ActionStateQueryData {
     // If the ActionState is a single component, then this is simply `&'static mut Self`.
     type Mut: QueryData;
 
-    // The inner value corresponding to Self::Mut::Item<'w> (i.e. for Mut<'w, ActionState<A>, this is &'mut ActionState<A>)
+    // The inner value corresponding to Self::Mut::Item<'w, 's> (i.e. for Mut<'w, 's, ActionState<A>, this is &'mut ActionState<A>)
     type MutItemInner<'w>;
 
     // Component that should always be present to represent the ActionState.
@@ -77,12 +78,14 @@ pub trait ActionStateQueryData {
     type Bundle: Bundle + Send + Sync + 'static;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the read-only query item (i.e. &ActionState<A>)
-    fn as_read_only<'a, 'w: 'a>(
-        state: &'a <Self::Mut as QueryData>::Item<'w>,
-    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a>;
+    fn as_read_only<'a, 'w: 'a, 's>(
+        state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's>;
 
     // Convert from the mutable query item (i.e. Mut<'w, ActionState<A>>) to the inner mutable item (i.e. &mut ActionState<A>)
-    fn into_inner<'w>(mut_item: <Self::Mut as QueryData>::Item<'w>) -> Self::MutItemInner<'w>;
+    fn into_inner<'w, 's>(
+        mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
+    ) -> Self::MutItemInner<'w>;
 
     // Convert from the Bundle (ActionState<A>) to the inner mutable item (i.e. &mut ActionState<A>)
     fn as_mut<'w>(bundle: &'w mut Self::Bundle) -> Self::MutItemInner<'w>;
@@ -94,13 +97,15 @@ pub(crate) type StateRef<S: ActionStateSequence> =
     <<S::State as ActionStateQueryData>::Mut as QueryData>::ReadOnly;
 
 // equivalent to &'w ActionState<S::Action>
-pub(crate) type StateRefItem<'w, S: ActionStateSequence> = <StateRef<S> as QueryData>::Item<'w>;
+pub(crate) type StateRefItem<'w, 's, S: ActionStateSequence> =
+    <StateRef<S> as QueryData>::Item<'w, 's>;
 
 // equivalent to &mut ActionState<S::Action>
 pub(crate) type StateMut<S: ActionStateSequence> = <S::State as ActionStateQueryData>::Mut;
 
 // equivalent to Mut<'w, ActionState<S::Action>>
-pub(crate) type StateMutItem<'w, S: ActionStateSequence> = <StateMut<S> as QueryData>::Item<'w>;
+pub(crate) type StateMutItem<'w, 's, S: ActionStateSequence> =
+    <StateMut<S> as QueryData>::Item<'w, 's>;
 
 pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
     <S::State as ActionStateQueryData>::MutItemInner<'w>;
@@ -130,10 +135,10 @@ pub trait ActionStateSequence:
 
     /// Register the required components for this ActionStateSequence in the App.
     fn register_required_components(app: &mut App) {
-        app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
+        // TODO: cannot create cyclic required dependencies in bevy 0.17
+        // app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
         app.register_required_components::<InputBuffer<Self::Snapshot>, <Self::State as ActionStateQueryData>::Main>();
-        app.try_register_required_components::<Self::Marker, <Self::State as ActionStateQueryData>::Main>()
-            .ok();
+        app.register_required_components::<Self::Marker, InputBuffer<Self::Snapshot>>();
     }
 
     /// Returns the sequence of snapshots from the ActionStateSequence.
@@ -179,15 +184,13 @@ pub trait ActionStateSequence:
             } else {
                 // only try to detect mismatches after the previous_end_tick
                 if previous_end_tick.is_none_or(|t| tick > t) {
-                    if previous_end_tick.is_some()
-                        && match (&previous_predicted_input, &input) {
-                            // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
-                            (_, InputData::SameAsPrecedent) => true,
-                            (Some(prev), InputData::Input(latest)) => latest == prev,
-                            (None, InputData::Absent) => true,
-                            _ => false,
-                        }
-                    {
+                    if match (&previous_predicted_input, &input) {
+                        // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
+                        (_, InputData::SameAsPrecedent) => true,
+                        (Some(prev), InputData::Input(latest)) => latest == prev,
+                        (None, InputData::Absent) => true,
+                        _ => false,
+                    } {
                         // no mismatch but this is a tick after our previous_end_tick so we want to add it to the buffer.
                         input_buffer.set_raw(tick, input);
                         continue;
@@ -216,7 +219,7 @@ pub trait ActionStateSequence:
         Self: Sized;
 
     /// Create a snapshot from the given state.
-    fn to_snapshot<'w>(state: StateRefItem<'w, Self>) -> Self::Snapshot;
+    fn to_snapshot<'w, 's>(state: StateRefItem<'w, 's, Self>) -> Self::Snapshot;
 
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
@@ -239,20 +242,17 @@ pub struct InputMessage<S> {
 impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
     fn map_entities<M: EntityMapper>(&mut self, entity_mapper: &mut M) {
         self.inputs.iter_mut().for_each(|data| {
-            match &mut data.target {
-                InputTarget::PrePredictedEntity(e) | InputTarget::ActionEntity(e) => {
-                    *e = entity_mapper.get_mapped(*e);
-                }
-                _ => {}
+            if let InputTarget::Entity(e) = &mut data.target {
+                *e = entity_mapper.get_mapped(*e);
             }
             data.states.map_entities(entity_mapper);
         });
     }
 }
 
-impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMessage<S> {
+impl<S: ActionStateSequence + Debug> core::fmt::Display for InputMessage<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let ty = core::any::type_name::<S::Action>();
+        let ty = DebugName::type_name::<S::Action>();
 
         if self.inputs.is_empty() {
             return write!(f, "EmptyInputMessage<{ty:?}>");
@@ -262,7 +262,7 @@ impl<S: ActionStateSequence + core::fmt::Display> core::fmt::Display for InputMe
             .iter()
             .map(|data| {
                 let mut str = format!("Target: {:?}\n", data.target);
-                let _ = writeln!(&mut str, "States: {}", data.states);
+                let _ = writeln!(&mut str, "States: {:?}", data.states);
                 str
             })
             .collect::<Vec<String>>()

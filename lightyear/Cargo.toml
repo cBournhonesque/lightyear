@@ -94,7 +94,6 @@ replication = [
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
-  "lightyear_core/prediction",
   "lightyear_replication/prediction",
   "dep:lightyear_frame_interpolation",
   "lightyear_inputs?/prediction",
@@ -107,7 +106,6 @@ frame_interpolation = [
 interpolation = [
   "dep:lightyear_interpolation",
   "lightyear_inputs?/interpolation",
-  "lightyear_core/interpolation",
   "lightyear_replication/interpolation",
 ]
 trace = [
@@ -145,9 +143,15 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 ##       enable essential features (like f32 or f64).
 ## Use avian2d
-avian2d = ["dep:lightyear_avian2d"]
+avian2d = [
+  "dep:lightyear_avian2d",
+  "lightyear_replication?/avian2d"
+]
 ## Use avian3d
-avian3d = ["dep:lightyear_avian3d"]
+avian3d = [
+  "dep:lightyear_avian3d",
+  "lightyear_replication?/avian3d"
+]
 
 # IO LAYERS
 ## Enables UDP as an IO layer

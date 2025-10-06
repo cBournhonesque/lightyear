@@ -32,8 +32,8 @@ let entity = commands.spawn(Replicate::default()).id();
 let client = commands.spawn(ReplicationSender::default()).id();
 
 // add the client and entity to the same room: the entity will be replicated/visible to the client
-commands.trigger_targets(RoomEvent::AddEntity(entity), room);
-commands.trigger_targets(RoomEvent::AddSender(client), room);
+commands.trigger(RoomEvent { target: RoomTarget::AddEntity(entity), room });
+commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
 ```
 
 */
@@ -43,7 +43,6 @@ use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::entity::{EntityHashMap, EntityHashSet, EntityIndexMap};
-use bevy_ecs::prelude::OnAdd;
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
@@ -78,22 +77,22 @@ pub struct RoomPlugin;
 
 impl RoomPlugin {
     /// Pop the disconnected client from all rooms
-    fn handle_disconnect(trigger: Trigger<OnAdd, Disconnected>, mut query: Query<&mut Room>) {
+    fn handle_disconnect(trigger: On<Add, Disconnected>, mut query: Query<&mut Room>) {
         query.iter_mut().for_each(|mut room| {
-            room.clients.remove(&trigger.target());
+            room.clients.remove(&trigger.entity);
         });
     }
 
     fn handle_room_event(
-        trigger: Trigger<RoomEvent>,
+        trigger: On<RoomEvent>,
         mut room_events: ResMut<RoomEvents>,
         mut query: Query<&mut Room>,
     ) -> Result {
-        let Ok(mut room) = query.get_mut(trigger.target()) else {
-            return Err(NetworkVisibilityError::RoomNotFound(trigger.target()))?;
+        let Ok(mut room) = query.get_mut(trigger.room) else {
+            return Err(NetworkVisibilityError::RoomNotFound(trigger.room))?;
         };
-        match trigger.event() {
-            RoomEvent::AddEntity(entity) => {
+        match &trigger.event().target {
+            RoomTarget::AddEntity(entity) => {
                 trace!("Adding entity {entity:?} to room {room:?}");
                 room.clients.iter().for_each(|c| {
                     room_events
@@ -104,7 +103,7 @@ impl RoomPlugin {
                 });
                 room.entities.insert(*entity);
             }
-            RoomEvent::RemoveEntity(entity) => {
+            RoomTarget::RemoveEntity(entity) => {
                 trace!("Removing entity {entity:?} from room {room:?}");
                 room.clients.iter().for_each(|c| {
                     room_events
@@ -115,7 +114,7 @@ impl RoomPlugin {
                 });
                 room.entities.remove(entity);
             }
-            RoomEvent::AddSender(entity) => {
+            RoomTarget::AddSender(entity) => {
                 trace!("Adding sender {entity:?} to room {room:?}");
                 room.entities.iter().for_each(|e| {
                     room_events
@@ -126,7 +125,7 @@ impl RoomPlugin {
                 });
                 room.clients.insert(*entity);
             }
-            RoomEvent::RemoveSender(entity) => {
+            RoomTarget::RemoveSender(entity) => {
                 trace!("Removing sender {entity:?} from room {room:?}");
                 room.entities.iter().for_each(|e| {
                     room_events
@@ -183,8 +182,16 @@ pub enum RoomSet {
 }
 
 /// Event that can be triggered to modify the entities/peers that belong in a [`Room`]
-#[derive(Event, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RoomEvent {
+#[derive(EntityEvent, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub struct RoomEvent {
+    #[event_target]
+    pub room: Entity,
+    pub target: RoomTarget,
+}
+
+/// Identifies the entity that will be added or removed in the room
+#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum RoomTarget {
     AddEntity(Entity),
     RemoveEntity(Entity),
     AddSender(Entity),
@@ -251,7 +258,6 @@ impl Plugin for RoomPlugin {
             app.add_plugins(NetworkVisibilityPlugin);
         }
         // REFLECT
-        app.register_type::<Room>();
         // RESOURCES
         app.init_resource::<RoomEvents>();
         // SETS
@@ -293,12 +299,16 @@ mod tests {
 
         // Client joins room
         let room = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -310,8 +320,10 @@ mod tests {
         );
 
         // Client leaves room
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveSender(sender), room);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveSender(sender),
+            room,
+        });
         app.world_mut().flush();
         app.world_mut()
             .run_system_once(RoomPlugin::apply_room_events)
@@ -336,12 +348,16 @@ mod tests {
 
         // Entity joins room
         let room = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -353,8 +369,10 @@ mod tests {
         );
 
         // Entity leaves room
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveEntity(entity), room);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveEntity(entity),
+            room,
+        });
         app.world_mut().flush();
         app.world_mut()
             .run_system_once(RoomPlugin::apply_room_events)
@@ -379,12 +397,16 @@ mod tests {
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room,
+        });
         app.update();
 
         assert_eq!(
@@ -398,14 +420,22 @@ mod tests {
 
         // Entity leaves room
         let room_2 = app.world_mut().spawn(Room::default()).id();
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveEntity(entity), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room_2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room_2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveEntity(entity),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room: room_2,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room: room_2,
+        });
         app.world_mut().flush();
         app.world_mut()
             .run_system_once(RoomPlugin::apply_room_events)
@@ -431,14 +461,20 @@ mod tests {
 
         let room = app.world_mut().spawn(Room::default()).id();
         let room_2 = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room_2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room: room_2,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -450,10 +486,14 @@ mod tests {
         );
 
         // Entity leaves room
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveEntity(entity), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room_2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveEntity(entity),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room: room_2,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -476,14 +516,20 @@ mod tests {
 
         let room = app.world_mut().spawn(Room::default()).id();
         let room_2 = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room_2);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room: room_2,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -495,10 +541,14 @@ mod tests {
         );
 
         // Entity leaves room
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room_2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room: room_2,
+        });
         app.update();
         app.world_mut()
             .run_system_once(RoomPlugin::apply_room_events)
@@ -524,12 +574,16 @@ mod tests {
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
-        let entity = Entity::from_raw(1);
-        let sender = Entity::from_raw(2);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::AddEntity(entity), room);
+        let entity = Entity::from_bits(1);
+        let sender = Entity::from_bits(2);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::AddEntity(entity),
+            room,
+        });
         app.update();
         assert_eq!(
             app.world_mut()
@@ -541,10 +595,14 @@ mod tests {
         );
 
         // Entity leaves room
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveSender(sender), room);
-        app.world_mut()
-            .trigger_targets(RoomEvent::RemoveEntity(entity), room);
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveSender(sender),
+            room,
+        });
+        app.world_mut().trigger(RoomEvent {
+            target: RoomTarget::RemoveEntity(entity),
+            room,
+        });
         app.update();
         assert_eq!(
             app.world_mut()

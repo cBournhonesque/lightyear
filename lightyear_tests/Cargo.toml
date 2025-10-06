@@ -76,7 +76,7 @@ serde.workspace = true
 bytes.workspace = true
 
 # bevy
-bevy = { workspace = true, features = ["bevy_state"] }
+bevy = { workspace = true, features = ["bevy_state", "reflect_auto_register"] }
 
 # test
 mock_instant.workspace = true

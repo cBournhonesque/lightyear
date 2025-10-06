@@ -159,10 +159,10 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = "0.16"
-aeronet_websocket = "0.16"
-aeronet_steam = "0.16"
-aeronet_io = "0.16"
+aeronet_webtransport = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_websocket = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_steam = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_io = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
@@ -184,7 +184,7 @@ approx = "0.5.1"
 
 # Bevy
 # (the full app is used for examples)
-bevy = { version = "0.16", default-features = false, features = [
+bevy = { version = "0.17", default-features = false, features = [
   "bevy_state",
   "bevy_log",
   "serialize",
@@ -193,49 +193,50 @@ bevy = { version = "0.16", default-features = false, features = [
   "bevy_color",
   "multi_threaded",
   "sysinfo_plugin",
+  "zstd_rust"
 ] }
-bevy_app = { version = "0.16", default-features = false }
-bevy_derive = { version = "0.16", default-features = false }
-bevy_diagnostic = { version = "0.16", default-features = false }
-bevy_color = { version = "0.16", default-features = false }
-bevy_ecs = { version = "0.16", default-features = false }
-bevy_input = { version = "0.16", default-features = false }
-bevy_log = { version = "0.16", default-features = false }
-bevy_math = { version = "0.16", default-features = false }
-bevy_platform = { version = "0.16", default-features = false }
-bevy_ptr = { version = "0.16", default-features = false }
-bevy_reflect = { version = "0.16", default-features = false }
-bevy_text = { version = "0.16", default-features = false }
-bevy_time = { version = "0.16", default-features = false }
-bevy_transform = { version = "0.16", default-features = false }
-bevy_ui = { version = "0.16", default-features = false }
-bevy_utils = { version = "0.16", default-features = false }
+bevy_app = { version = "0.17", default-features = false }
+bevy_derive = { version = "0.17", default-features = false }
+bevy_diagnostic = { version = "0.17", default-features = false }
+bevy_color = { version = "0.17", default-features = false }
+bevy_ecs = { version = "0.17", default-features = false }
+bevy_input = { version = "0.17", default-features = false }
+bevy_log = { version = "0.17", default-features = false }
+bevy_math = { version = "0.17", default-features = false }
+bevy_platform = { version = "0.17", default-features = false }
+bevy_ptr = { version = "0.17", default-features = false }
+bevy_reflect = { version = "0.17", default-features = false }
+bevy_text = { version = "0.17", default-features = false }
+bevy_time = { version = "0.17", default-features = false }
+bevy_transform = { version = "0.17", default-features = false }
+bevy_ui = { version = "0.17", default-features = false }
+bevy_utils = { version = "0.17", default-features = false, features = ["debug"] }
 tracy-client = { version = "=0.18.0" }
 
 # input
-bevy_enhanced_input = { version = "0.18" }
-leafwing-input-manager = { version = "0.17.1", default-features = false, features = [
+bevy_enhanced_input = { version = "0.19", features = ["serialize"] }
+leafwing-input-manager = { version = "0.18", default-features = false, features = [
   "keyboard",
 ] }
 
 # physics
-avian2d = { version = "0.3", default-features = false }
-avian3d = { version = "0.3", default-features = false }
+avian2d = { git = "https://github.com/Jondolf/avian.git",  branch = "main", default-features = false }
+avian3d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.32", default-features = false, features = [
+bevy-inspector-egui = { version = "0.34", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.35", default-features = false, features = [
+bevy_egui = { version = "0.37", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
 bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"] }
-egui_extras = "0.31"
+egui_extras = "0.32"
 
 [workspace.lints.rust]
 dead_code = "allow"

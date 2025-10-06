@@ -5,7 +5,7 @@ use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
     change_detection::MutUntyped,
-    component::{Component, HookContext},
+    component::Component,
     entity::Entity,
     event::Event,
     query::With,
@@ -21,6 +21,8 @@ use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
 
 use alloc::sync::Arc;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_utils::prelude::DebugName;
 use bytes::Bytes;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
@@ -34,7 +36,7 @@ use tracing::{error, trace};
 ///
 /// Contains the original trigger `M` and the [`PeerId`] of the sender.
 #[derive(Event)]
-pub struct RemoteTrigger<M: Message> {
+pub struct RemoteOn<M: Message> {
     pub trigger: M,
     pub from: PeerId,
 }
@@ -146,7 +148,7 @@ impl<M: Message> MessageReceiver<M> {
         };
         trace!(
             "Received message {:?} on channel {channel_kind:?}",
-            core::any::type_name::<M>()
+            DebugName::type_name::<M>()
         );
         receiver.recv.push(received_message);
         Ok(())
@@ -171,7 +173,7 @@ impl MessagePlugin {
         message_manager: &mut MessageManager,
         commands: &ParallelCommands,
         remote_peer_id: PeerId,
-    ) -> core::result::Result<(), MessageError> {
+    ) -> Result<(), MessageError> {
         trace!(
             "Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}",
             remote_peer_id
@@ -208,7 +210,7 @@ impl MessagePlugin {
             }
         } else if let Some(trigger_fn) = registry.receive_trigger.get(message_kind) {
             // SAFETY: We assume the trigger handler function is correctly implemented
-            // for the RemoteTrigger<M> type associated with this message_kind.
+            // for the RemoteOn<M> type associated with this message_kind.
             unsafe {
                 trigger_fn(
                     commands,
@@ -228,7 +230,7 @@ impl MessagePlugin {
 
     /// Receive bytes from each channel of the Transport
     /// Deserialize the bytes into Messages.
-    /// - If the message is a `RemoteTrigger<M>`, emit a `TriggerEvent<M>` via `Commands`.
+    /// - If the message is a `RemoteOn<M>`, emit a `TriggerEvent<M>` via `Commands`.
     /// - Otherwise, buffer the message in the `MessageReceiver<M>` component.
     pub fn recv(
         // NOTE: we only need the mut bound on MessageManager because EntityMapper requires mut

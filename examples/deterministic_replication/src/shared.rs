@@ -8,9 +8,12 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::host::HostClient;
 use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::leafwing::prelude::LeafwingSnapshot;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
+use lightyear_avian2d::plugin::AvianReplicationMode;
+use lightyear_frame_interpolation::FrameInterpolate;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
@@ -29,23 +32,22 @@ impl Plugin for SharedPlugin {
 
         // physics
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position,
             rollback_resources: true,
             ..default()
         });
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                // disable Sync as it is handled by lightyear_avian
-                .disable::<SyncPlugin>()
+                // disable syncing position<>transform as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>()
                 // interpolation is handled by lightyear_frame_interpolation
                 .disable::<PhysicsInterpolationPlugin>()
-                // disable Sleeping plugin as it can mess up physics rollbacks
-                .disable::<SleepingPlugin>(),
+                // disable island sleeping plugin as it's not compatible with rollbacks
+                .disable::<IslandPlugin>()
+                .disable::<IslandSleepingPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
-
-        // registry types for reflection
-        app.register_type::<PlayerId>();
 
         // Game logic
         app.add_systems(FixedUpdate, player_movement);
@@ -53,13 +55,18 @@ impl Plugin for SharedPlugin {
         // DEBUG
         // app.add_systems(
         //     RunFixedMainLoop,
-        //     debug.in_set(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+        //     debug.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         // );
         // app.add_systems(
         //     FixedPreUpdate,
         //     fixed_pre_log.after(InputSet::BufferClientInputs),
         // );
-        // app.add_systems(FixedPostUpdate, fixed_pre_physics.before(PhysicsSet::StepSimulation));
+        // app.add_systems(FixedPostUpdate, fixed_pre_prepare
+        //     .after(PhysicsSet::First)
+        //     .before(PhysicsSet::Prepare));
+        // app.add_systems(FixedPostUpdate, fixed_pre_physics
+        //     .after(PhysicsSet::Prepare)
+        //     .before(PhysicsSet::StepSimulation));
         app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
     }
@@ -99,14 +106,13 @@ pub(crate) fn init(mut commands: Commands) {
 
 pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {
     let y = (peer_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-    let color = color_from_id(peer_id);
     (
         Position::from(Vec2::new(-50.0, y)),
-        ColorComponent(color),
+        ColorComponent(Color::BLACK),
         PhysicsBundle::player(),
         Name::from("Player"),
         // this indicates that the entity will only do rollbacks from input updates, and not state updates!
-        // It is currently REQUIRED to add this component to indicate which entities will be rollbacked
+        // It is REQUIRED to add this component to indicate which entities will be rollbacked
         // in deterministic replication mode.
         DeterministicPredicted,
         // this is a bit subtle:
@@ -201,6 +207,34 @@ pub(crate) fn fixed_pre_log(
     }
 }
 
+pub(crate) fn fixed_pre_prepare(
+    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    remote_client_inputs: Query<
+        (
+            Entity,
+            &Position,
+            &LinearVelocity,
+            &ActionState<PlayerActions>,
+        ),
+        With<Predicted>,
+    >,
+) {
+    let (timeline, rollback) = timeline.into_inner();
+    let tick = timeline.tick();
+    for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
+        let pressed = action_state.get_pressed();
+        info!(
+            ?rollback,
+            ?tick,
+            ?entity,
+            ?position,
+            ?velocity,
+            ?pressed,
+            "Client in FixedPostUpdate right before prepare"
+        );
+    }
+}
+
 pub(crate) fn fixed_pre_physics(
     timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
     remote_client_inputs: Query<
@@ -230,29 +264,23 @@ pub(crate) fn fixed_pre_physics(
 }
 
 pub(crate) fn fixed_last_log(
-    contact_graph: Res<ContactGraph>,
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, With<HostClient>)>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     players: Query<
         (
             Entity,
             &Position,
-            &LinearVelocity,
+            Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<ActionState<PlayerActions>>>,
+            Option<&InputBuffer<LeafwingSnapshot<PlayerActions>>>,
         ),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+        (Without<BallMarker>, With<PlayerId>),
     >,
-    ball: Query<
-        (&Position, Option<&VisualCorrection<Position>>),
-        (With<BallMarker>, Without<Confirmed>),
-    >,
+    ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
-    // info!(?tick, "contact graph: {:#?}", contact_graph);
-
-    for (entity, position, velocity, correction, action_state, input_buffer) in players.iter() {
+    for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
@@ -260,11 +288,11 @@ pub(crate) fn fixed_last_log(
             ?tick,
             ?entity,
             ?position,
-            ?velocity,
+            ?interpolate,
             ?correction,
             ?pressed,
             ?last_buffer_tick,
-            "Player after physics update"
+            "Player in FixedLast"
         );
     }
     // for (position, correction) in ball.iter() {
@@ -273,37 +301,41 @@ pub(crate) fn fixed_last_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     players: Query<
         (
             Entity,
             &Position,
+            &Transform,
+            Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<ActionState<PlayerActions>>>,
+            Option<&InputBuffer<LeafwingSnapshot<PlayerActions>>>,
         ),
-        (Without<BallMarker>, Without<Confirmed>, With<PlayerId>),
+        (Without<BallMarker>, With<PlayerId>),
     >,
-    ball: Query<
-        (&Position, Option<&VisualCorrection<Position>>),
-        (With<BallMarker>, Without<Confirmed>),
-    >,
+    ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
-    for (entity, position, correction, action_state, input_buffer) in players.iter() {
+    for (entity, position, transform, interpolate, correction, action_state, input_buffer) in
+        players.iter()
+    {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        trace!(
+        let translation = transform.translation.truncate();
+        info!(
             ?rollback,
             ?tick,
             ?entity,
             ?position,
+            ?translation,
+            ?interpolate,
             ?correction,
             ?pressed,
             ?last_buffer_tick,
-            "Player after physics update"
+            "Player in Last"
         );
     }
     // for (position, correction) in ball.iter() {

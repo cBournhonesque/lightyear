@@ -43,6 +43,7 @@ gui = [
   "bevy/bevy_winit",
   "bevy/bevy_picking",
   "bevy/bevy_sprite",
+  "bevy/bevy_sprite_render",
   "bevy/bevy_text",
   "bevy/bevy_ui",
   "bevy/bevy_ui_picking_backend",
@@ -65,7 +66,7 @@ async-compat.workspace = true
 cfg-if.workspace = true
 clap.workspace = true
 serde.workspace = true
-bevy = { workspace = true, features = ["bevy_state", "bevy_log"] }
+bevy = { workspace = true, features = ["bevy_state", "bevy_log", "reflect_auto_register"] }
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }

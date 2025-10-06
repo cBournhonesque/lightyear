@@ -1,11 +1,7 @@
 use crate::protocol::{CompFull, CompSimple};
 use crate::stepper::ClientServerStepper;
 use bevy::prelude::Component;
-use lightyear_connection::prelude::NetworkTarget;
-use lightyear_messages::MessageManager;
-use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
-use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::prelude::{Confirmed, PredictionTarget, Replicate};
+use lightyear::prelude::*;
 
 #[derive(Component, Debug, PartialEq)]
 struct TestComponent(usize);
@@ -27,7 +23,7 @@ fn test_despawned_predicted_rollback() {
         ))
         .id();
     stepper.frame_step(2);
-    let confirmed_entity = stepper
+    let predicted_entity = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
@@ -35,13 +31,6 @@ fn test_despawned_predicted_rollback() {
         .get_local(server_entity)
         .expect("entity is not present in entity map");
 
-    let confirmed = stepper
-        .client_app()
-        .world()
-        .entity(confirmed_entity)
-        .get::<Confirmed>()
-        .expect("Confirmed component missing");
-    let predicted_entity = confirmed.predicted.unwrap();
     // check that a rollback occurred to add the components on the predicted entity
     assert_eq!(
         stepper
@@ -90,6 +79,21 @@ fn test_despawned_predicted_rollback() {
             .is_some()
     );
 
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Replicated>(predicted_entity)
+            .is_some()
+    );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(predicted_entity)
+            .is_some()
+    );
+
     // update the server entity to trigger a rollback where the predicted entity should be 're-spawned'
     stepper
         .server_app
@@ -107,6 +111,7 @@ fn test_despawned_predicted_rollback() {
             .get::<PredictionDisable>(predicted_entity)
             .is_none()
     );
+
     assert_eq!(
         stepper
             .client_app()
@@ -124,67 +129,4 @@ fn test_despawned_predicted_rollback() {
             .unwrap(),
         &CompSimple(1.0)
     );
-}
-
-/// Check that when the confirmed entity gets despawned, the predicted entity gets despawned as well
-#[test]
-fn test_despawned_confirmed() {
-    let mut stepper = ClientServerStepper::single();
-
-    let server_entity = stepper
-        .server_app
-        .world_mut()
-        .spawn((
-            CompFull(1.0),
-            CompSimple(1.0),
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::All),
-        ))
-        .id();
-    stepper.frame_step(2);
-    let confirmed_entity = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
-        .expect("entity is not present in entity map");
-
-    // check that prediction
-    let confirmed = stepper
-        .client_app()
-        .world()
-        .entity(confirmed_entity)
-        .get::<Confirmed>()
-        .expect("Confirmed component missing");
-    let predicted_entity = confirmed.predicted.unwrap();
-
-    // despawn the confirmed entity
-    stepper.client_app().world_mut().despawn(confirmed_entity);
-    stepper.frame_step(1);
-
-    // check that the predicted entity got despawned
-    assert!(
-        stepper
-            .client_app()
-            .world()
-            .get_entity(predicted_entity)
-            .is_err()
-    );
-    // check that the confirmed to predicted map got updated
-    unsafe {
-        assert!(
-            stepper
-                .client(0)
-                .get::<PredictionManager>()
-                .unwrap()
-                .predicted_entity_map
-                .get()
-                .as_ref()
-                .unwrap()
-                .confirmed_to_predicted
-                .get(&confirmed_entity)
-                .is_none()
-        );
-    }
 }

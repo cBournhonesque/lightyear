@@ -6,8 +6,6 @@
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use lightyear::prelude::client::*;
-use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 use tracing::{info, trace};
@@ -55,14 +53,12 @@ const MAX_POSITION_DELTA: f32 = 200.0;
 
 // Since between two ticks the position doesn't change much, we could encode
 // the diff using a discrete set of values to reduce the bandwidth
-impl Diffable for PlayerPosition {
-    type Delta = (i8, i8);
-
+impl Diffable<(i8, i8)> for PlayerPosition {
     fn base_value() -> Self {
         Self(Vec2::new(0.0, 0.0))
     }
 
-    fn diff(&self, new: &Self) -> Self::Delta {
+    fn diff(&self, new: &Self) -> (i8, i8) {
         let mut diff = new.0 - self.0;
 
         // Clamp the diff to a discrete set of values
@@ -82,7 +78,7 @@ impl Diffable for PlayerPosition {
         (diff.x as i8, diff.y as i8)
     }
 
-    fn apply_diff(&mut self, delta: &Self::Delta) {
+    fn apply_diff(&mut self, delta: &(i8, i8)) {
         trace!("Applying diff {:?} to {:?}", delta, self);
         let mut diff = Vec2::new(delta.0 as f32, delta.1 as f32);
         diff.x = diff.x / (i8::MAX as f32) * MAX_POSITION_DELTA;
@@ -137,23 +133,17 @@ pub(crate) struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
-        app.register_type::<Inputs>();
         app.add_plugins(lightyear::prelude::input::native::InputPlugin::<Inputs>::default());
         // components
         // Use PredictionMode and InterpolationMode
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPosition>()
-            // NOTE: remember to add delta compression in the protocol!
-            .add_delta_compression()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation()
+            // NOTE: currently there is a limitation that DeltaCompression must be added AFTER prediction/interpolation
+            .add_delta_compression::<(i8, i8)>();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
     }
 }

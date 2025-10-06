@@ -1,4 +1,4 @@
-use bevy_ecs::{component::Component, entity::Entity, reflect::ReflectComponent};
+use bevy_ecs::{component::Component, reflect::ReflectComponent};
 use bevy_reflect::Reflect;
 
 /// Component added to client-side entities that are predicted.
@@ -11,10 +11,6 @@ use bevy_reflect::Reflect;
 /// - Rollback and re-simulate the entity when a server correction is received.
 /// - Manage the relationship between the predicted entity and its corresponding confirmed entity received from the server.
 // NOTE: we create Predicted here because it is used by multiple crates (prediction, replication)
-#[derive(Debug, Reflect, Component)]
+#[derive(Component, Debug, Reflect)]
 #[reflect(Component)]
-pub struct Predicted {
-    // This is an option because we could spawn pre-predicted entities on the client that exist before we receive
-    // the corresponding confirmed entity
-    pub confirmed_entity: Option<Entity>,
-}
+pub struct Predicted;

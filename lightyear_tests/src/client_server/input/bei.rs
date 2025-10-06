@@ -17,7 +17,6 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::{Input, InputDelayConfig};
@@ -403,7 +402,7 @@ fn test_input_broadcasting_prediction() {
     stepper.frame_step_server_first(1);
 
     // Get the predicted entities on both clients
-    let client0_confirmed = stepper
+    let client0_predicted = stepper
         .client(0)
         .get::<MessageManager>()
         .unwrap()
@@ -411,19 +410,12 @@ fn test_input_broadcasting_prediction() {
         .get_local(server_entity)
         .expect("entity not replicated to client 0");
 
-    let client0_predicted = stepper.client_apps[0]
-        .world()
-        .get::<Confirmed>(client0_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
     // we spawn an action entity on the client
     // Add input markers to client 0, and make sure that it's replicated to client 1
     let client0_tick = stepper.client_tick(0);
     let client1_tick = stepper.client_tick(1);
     info!(
         ?server_entity,
-        ?client0_confirmed,
         ?client0_predicted,
         ?client0_tick,
         ?client1_tick,
@@ -442,20 +434,13 @@ fn test_input_broadcasting_prediction() {
         ))
         .id();
 
-    let client1_confirmed = stepper
+    let client1_predicted = stepper
         .client(1)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
         .get_local(server_entity)
         .expect("entity not replicated to client 1");
-
-    let client1_predicted = stepper.client_apps[1]
-        .world()
-        .get::<Confirmed>(client1_confirmed)
-        .unwrap()
-        .predicted
-        .unwrap();
 
     stepper.frame_step(5);
     // client0 + 1: client 0 sends the input (with 2 ticks delay)

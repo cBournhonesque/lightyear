@@ -29,6 +29,7 @@ bevy_ecs = { workspace = true, features = ["bevy_reflect"] }
 bevy_platform.workspace = true
 bevy_ptr.workspace = true
 bevy_reflect.workspace = true
+bevy_utils.workspace = true
 
 # no_std
 no_std_io2.workspace = true

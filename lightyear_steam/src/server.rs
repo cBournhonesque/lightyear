@@ -5,17 +5,9 @@ use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
 use alloc::format;
-use alloc::string::ToString;
 use bevy_app::{App, Plugin};
-use bevy_ecs::prelude::With;
+use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
-use bevy_ecs::{
-    error::Result,
-    prelude::{
-        ChildOf, Commands, Component, Entity, EntityCommand, Name, OnAdd, Query, Trigger, Without,
-        World,
-    },
-};
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
 use lightyear_connection::client::{Connected, Disconnected};
@@ -73,11 +65,11 @@ pub struct SteamClientOf;
 
 impl SteamServerPlugin {
     fn link(
-        trigger: Trigger<LinkStart>,
+        trigger: On<LinkStart>,
         query: Query<(Entity, &SteamServerIo), (Without<Linking>, Without<Linked>)>,
         mut commands: Commands,
     ) -> Result {
-        if let Ok((entity, io)) = query.get(trigger.target()) {
+        if let Ok((entity, io)) = query.get(trigger.entity) {
             let config = io.config.clone();
             let target = io.target;
             commands.queue(move |world: &mut World| {
@@ -91,40 +83,42 @@ impl SteamServerPlugin {
 
     /// Steam is both a Link and a Connection, so we add Started when Linked is added
     fn on_linked(
-        trigger: Trigger<OnAdd, Linked>,
+        trigger: On<Add, Linked>,
         query: Query<(), With<SteamServerIo>>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.target()).is_ok() {
-            commands.entity(trigger.target()).insert(Started);
+        if query.get(trigger.entity).is_ok() {
+            commands.entity(trigger.entity).insert(Started);
         }
     }
 
     /// Steam is both a Link and a Connection, so on a Start trigger we will just try to LinkStart.
     fn start(
-        trigger: Trigger<Start>,
+        trigger: On<Start>,
         query: Query<(), (Without<Linking>, Without<Linked>, With<SteamServerIo>)>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.target()).is_ok() {
+        if query.get(trigger.entity).is_ok() {
             trace!("SteamServer Start triggered, triggering LinkStart");
-            commands.trigger_targets(LinkStart, trigger.target());
+            commands.trigger(LinkStart {
+                entity: trigger.entity,
+            });
         }
     }
 
-    fn on_session_request(mut request: Trigger<SessionRequest>) {
-        trace!("Accepted steam link-of request: {:?}", request.target());
+    fn on_session_request(mut request: On<SessionRequest>) {
+        trace!("Accepted steam link-of request: {:?}", request.event());
         request.respond(SessionResponse::Accepted);
     }
 
     // fn on_connecting(
     //     // SteamNetServerClient is added at the same time as SessionEndpoint
-    //     trigger: Trigger<OnAdd, SteamNetServerClient<ClientManager>>,
+    //     trigger: On<Add, SteamNetServerClient<ClientManager>>,
     //     query: Query<&AeronetLinkOf>,
     //     child_query: Query<(&ChildOf, &SteamNetServerClient<ClientManager>)>,
     //     mut commands: Commands,
     // ) {
-    //     if let Ok((child_of, steam_conn)) = child_query.get(trigger.target()) {
+    //     if let Ok((child_of, steam_conn)) = child_query.get(trigger.entity) {
     //         if let Ok(server_link) = query.get(child_of.parent()) {
     //
     //             let link_entity = commands
@@ -142,27 +136,27 @@ impl SteamServerPlugin {
     //                 .id();
     //             trace!(
     //                 "New Steam LinkOf connecting. AeronetEntity: {:?}, LinkOf: {:?}. Steam id: {:?}",
-    //                 trigger.target(),
+    //                 trigger.entity,
     //                 link_entity,
     //                 steam_conn.steam_id()
     //             );
     //             commands
-    //                 .entity(trigger.target())
+    //                 .entity(trigger.entity)
     //                 .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
     //         }
     //     }
     // }
     //
     // fn on_connection(
-    //     trigger: Trigger<OnAdd, Session>,
+    //     trigger: On<Add, Session>,
     //     link_of_query: Query<&AeronetLinkOf, With<SteamNetServerClient<ClientManager>>>,
     //     mut commands: Commands,
     // ) {
     //     info!("steam connection");
-    //     if let Ok(link_of) = link_of_query.get(trigger.target()) {
+    //     if let Ok(link_of) = link_of_query.get(trigger.entity) {
     //         if let Ok(mut link) = commands.get_entity(link_of.0) {
     //             trace!(
-    //                 "Steam link-of connection established. AeronetEntity: {:?}, LinkOf: {:?}", trigger.target(), link_of.0
+    //                 "Steam link-of connection established. AeronetEntity: {:?}, LinkOf: {:?}", trigger.entity, link_of.0
     //             );
     //             link.insert(Connected);
     //         }
@@ -170,12 +164,12 @@ impl SteamServerPlugin {
     // }
 
     fn on_connection(
-        trigger: Trigger<OnAdd, Session>,
+        trigger: On<Add, Session>,
         query: Query<&AeronetLinkOf>,
         child_query: Query<(&ChildOf, &SteamNetServerClient)>,
         mut commands: Commands,
     ) {
-        if let Ok((child_of, steam_conn)) = child_query.get(trigger.target())
+        if let Ok((child_of, steam_conn)) = child_query.get(trigger.entity)
             && let Ok(server_link) = query.get(child_of.parent())
         {
             trace!(
@@ -195,23 +189,23 @@ impl SteamServerPlugin {
                 ))
                 .id();
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .insert((AeronetLinkOf(link_entity), Name::from("SteamClientOf")));
         }
     }
 
     /// Steam is both a Link and a Connection, so on a aeronet Disconnected we trigger Unlinked, Disconnected and we despawn the entity
     fn on_disconnected(
-        trigger: Trigger<aeronet_io::connection::Disconnected>,
+        trigger: On<aeronet_io::connection::Disconnected>,
         query: Query<&AeronetLinkOf, With<SteamNetServerClient>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link_of) = query.get(trigger.target())
+        if let Ok(aeronet_link_of) = query.get(trigger.entity)
             && let Ok(mut link_of_entity) = commands.get_entity(aeronet_link_of.0)
         {
             trace!(
                 "Aeronet SteamClientOf entity {:?} disconnected: {:?}. Disconnecting and despawning LinkOf entity {:?}.",
-                trigger.target(),
+                trigger.entity,
                 trigger,
                 link_of_entity.id()
             );
@@ -230,18 +224,13 @@ impl SteamServerPlugin {
     /// Steam is both a Link and a Connection, so on an Stop we also trigger Close.
     /// This will despawn the underlying steam entity.
     fn stop(
-        trigger: Trigger<Stop>,
+        trigger: On<Stop>,
         query: Query<&AeronetLink, With<SteamServerIo>>,
         mut commands: Commands,
     ) {
-        if let Ok(aeronet_link) = query.get(trigger.target()) {
+        if let Ok(aeronet_link) = query.get(trigger.entity) {
             trace!("SteamServer Stop triggered, closing.");
-            commands.trigger_targets(
-                Close {
-                    reason: "User requested".to_string(),
-                },
-                *aeronet_link.collection(),
-            );
+            commands.trigger(Close::new(*aeronet_link.collection(), "User requested"));
         }
     }
 }

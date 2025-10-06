@@ -1,13 +1,9 @@
 use alloc::format;
 use bevy_app::{App, Plugin};
-use bevy_ecs::{
-    observer::Trigger,
-    system::{Commands, Query},
-    world::OnAdd,
-};
+use bevy_ecs::prelude::*;
 
 use crate::AeronetLinkOf;
-use aeronet_io::server::{Closed, Server, ServerEndpoint};
+use aeronet_io::server::{CloseReason, Closed, Server, ServerEndpoint};
 use lightyear_link::server::ServerLinkPlugin;
 use lightyear_link::{Linked, Linking, Unlinked};
 use tracing::trace;
@@ -16,11 +12,11 @@ pub struct ServerAeronetPlugin;
 
 impl ServerAeronetPlugin {
     fn on_opening(
-        trigger: Trigger<OnAdd, ServerEndpoint>,
+        trigger: On<Add, ServerEndpoint>,
         query: Query<&AeronetLinkOf>,
         mut commands: Commands,
     ) {
-        if let Ok(child_of) = query.get(trigger.target())
+        if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
@@ -31,12 +27,8 @@ impl ServerAeronetPlugin {
         }
     }
 
-    fn on_opened(
-        trigger: Trigger<OnAdd, Server>,
-        query: Query<&AeronetLinkOf>,
-        mut commands: Commands,
-    ) {
-        if let Ok(child_of) = query.get(trigger.target())
+    fn on_opened(trigger: On<Add, Server>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
+        if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
@@ -47,19 +39,19 @@ impl ServerAeronetPlugin {
         }
     }
 
-    fn on_closed(trigger: Trigger<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
-        if let Ok(child_of) = query.get(trigger.target())
+    fn on_closed(trigger: On<Closed>, query: Query<&AeronetLinkOf>, mut commands: Commands) {
+        if let Ok(child_of) = query.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             trace!(
                 "AeronetServer closed for {:?}. Adding unlinked on Server",
                 child_of.0
             );
-            let reason = match &*trigger {
-                Closed::ByUser(reason) => {
+            let reason = match &trigger.reason {
+                CloseReason::ByUser(reason) => {
                     format!("Closed by user: {reason}")
                 }
-                Closed::ByError(err) => {
+                CloseReason::ByError(err) => {
                     format!("Closed due to error: {err:?}")
                 }
             };

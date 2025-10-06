@@ -68,8 +68,6 @@ impl Plugin for PredictionDiagnosticsPlugin {
         // let should_run = on_timer(self.flush_interval).and(not(is_host_server.or(is_disconnected)));
         let should_run = on_timer(self.flush_interval);
 
-        app.register_type::<PredictionMetrics>();
-
         app.init_resource::<PredictionMetrics>();
         app.add_systems(PostUpdate, Self::flush_measurements.run_if(should_run));
         app.register_diagnostic(

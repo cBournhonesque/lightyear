@@ -1,7 +1,6 @@
 use crate::protocol::*;
 use bevy::color::palettes::basic::GREEN;
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -20,10 +19,7 @@ fn init(mut commands: Commands) {
 /// System that draws the boxed of the player positions.
 /// The components should be replicated from the server to the client
 /// This time we will only draw the predicted/interpolated entities
-pub(crate) fn draw_boxes(
-    mut gizmos: Gizmos,
-    players: Query<(&Position, &PlayerColor), Without<Confirmed>>,
-) {
+pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&Position, &PlayerColor)>) {
     for (position, color) in &players {
         gizmos.rect(
             Isometry3d::from_translation(Vec3::new(position.x, position.y, 0.0)),

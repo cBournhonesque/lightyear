@@ -25,11 +25,11 @@ impl<C> Default for InputMarker<C> {
 /// Propagate the InputMarker component from the Context entity to the Action entities
 /// whenever an InputMarker is added to a Context entity.
 pub(crate) fn propagate_input_marker<C: Component>(
-    trigger: Trigger<OnAdd, InputMarker<C>>,
+    trigger: On<Add, InputMarker<C>>,
     actions: Query<&Actions<C>>,
     mut commands: Commands,
 ) {
-    if let Ok(actions) = actions.get(trigger.target()) {
+    if let Ok(actions) = actions.get(trigger.entity) {
         actions.iter().for_each(|action| {
             commands.entity(action).insert(InputMarker::<C>::default());
         });
@@ -39,29 +39,29 @@ pub(crate) fn propagate_input_marker<C: Component>(
 /// When an Action entity is added to a Context entity that has an InputMarker,
 /// add the InputMarker to the Action entity as well.
 pub(crate) fn add_input_marker_from_parent<C: Component>(
-    trigger: Trigger<OnAdd, ActionOf<C>>,
+    trigger: On<Add, ActionOf<C>>,
     action_of: Query<&ActionOf<C>>,
     context: Query<(), With<InputMarker<C>>>,
     mut commands: Commands,
 ) {
-    if let Ok(action_of) = action_of.get(trigger.target())
+    if let Ok(action_of) = action_of.get(trigger.entity)
         && context.get(action_of.get()).is_ok()
     {
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .insert(InputMarker::<C>::default());
     }
 }
 
 /// If Bindings or ActionMock is added to an Action entity, add the InputMarker to that Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
-    trigger: Trigger<OnAdd, (Bindings, ActionMock)>,
+    trigger: On<Add, (Bindings, ActionMock)>,
     action: Query<(), With<ActionOf<C>>>,
     mut commands: Commands,
 ) {
-    if action.get(trigger.target()).is_ok() {
+    if action.get(trigger.entity).is_ok() {
         commands
-            .entity(trigger.target())
+            .entity(trigger.entity)
             .insert(InputMarker::<C>::default());
     }
 }

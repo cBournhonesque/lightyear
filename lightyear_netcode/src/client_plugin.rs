@@ -5,16 +5,9 @@ use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
 use aeronet_io::connection::PeerAddr;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::{
-    component::{Component, HookContext},
-    entity::Entity,
-    error::Result,
-    observer::Trigger,
-    query::{Has, With, Without},
-    schedule::IntoScheduleConfigs,
-    system::{Commands, ParallelCommands, Query, Res},
-    world::DeferredWorld,
-};
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
+use bevy_ecs::{system::ParallelCommands, world::DeferredWorld};
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSet;
@@ -35,21 +28,23 @@ pub struct NetcodeClientPlugin;
 #[derive(Component)]
 #[require(Link, lightyear_connection::client::Client)]
 #[require(Disconnected)]
-#[component(on_insert = on_client_insert)]
+#[component(on_insert = NetcodeClient::on_insert)]
 pub struct NetcodeClient {
     pub inner: crate::client::Client<()>,
 }
 
-fn on_client_insert(mut world: DeferredWorld, context: HookContext) {
-    if let Some(server_addr) = world
-        .get::<NetcodeClient>(context.entity)
-        .map(|client| client.inner.server_addr())
-    {
-        world
-            .commands()
-            .get_entity(context.entity)
-            .unwrap()
-            .insert(PeerAddr(server_addr));
+impl NetcodeClient {
+    fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        if let Some(server_addr) = world
+            .get::<NetcodeClient>(context.entity)
+            .map(|client| client.inner.server_addr())
+        {
+            world
+                .commands()
+                .get_entity(context.entity)
+                .unwrap()
+                .insert(PeerAddr(server_addr));
+        }
     }
 }
 
@@ -196,25 +191,25 @@ impl NetcodeClientPlugin {
     }
 
     fn connect(
-        trigger: Trigger<Connect>,
+        trigger: On<Connect>,
         mut commands: Commands,
         mut query: Query<&mut NetcodeClient, Without<Connected>>,
     ) {
-        if let Ok(mut client) = query.get_mut(trigger.target()) {
+        if let Ok(mut client) = query.get_mut(trigger.entity) {
             debug!("Starting netcode connection process");
             client.inner.connect();
-            commands.entity(trigger.target()).insert(Connecting);
+            commands.entity(trigger.entity).insert(Connecting);
         }
     }
 
     fn disconnect(
-        trigger: Trigger<Disconnect>,
+        trigger: On<Disconnect>,
         mut commands: Commands,
         mut query: Query<&mut NetcodeClient, Without<Disconnected>>,
     ) -> Result {
-        if let Ok(mut client) = query.get_mut(trigger.target()) {
+        if let Ok(mut client) = query.get_mut(trigger.entity) {
             client.inner.disconnect()?;
-            commands.entity(trigger.target()).insert(Disconnected {
+            commands.entity(trigger.entity).insert(Disconnected {
                 reason: Some("Client trigger".to_string()),
             });
         }

@@ -85,26 +85,18 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(input::native::InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerId>();
 
-        app.register_component::<BallMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<BallMarker>();
 
         app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
 
         app.register_component::<Speed>()
-            .add_prediction(PredictionMode::Full)
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_prediction()
+            .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<PlayerColor>();
     }
 }

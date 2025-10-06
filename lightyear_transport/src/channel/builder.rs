@@ -24,6 +24,7 @@ use lightyear_link::SendPayload;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
 use alloc::{vec, vec::Vec};
+use bevy_utils::prelude::DebugName;
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 
@@ -136,7 +137,7 @@ impl Transport {
                 messages_sent: vec![],
                 channel_id,
                 mode,
-                name: core::any::type_name::<C>(),
+                name: DebugName::type_name::<C>(),
             },
         );
     }
@@ -145,13 +146,13 @@ impl Transport {
     pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         trace!(
             "Adding sender from registry for channel {}. Kind: {:?}",
-            core::any::type_name::<C>(),
+            DebugName::type_name::<C>(),
             ChannelKind::of::<C>()
         );
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!(
                 "ChannelSettings not found for channel {}",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
@@ -177,7 +178,7 @@ impl Transport {
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!(
                 "ChannelSettings not found for channel {}",
-                core::any::type_name::<C>()
+                DebugName::type_name::<C>()
             );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
@@ -254,7 +255,7 @@ impl Transport {
                 messages_sent: vec![],
                 channel_id: s.channel_id,
                 mode: s.mode,
-                name: s.name,
+                name: s.name.clone(),
             };
         });
         self.priority_manager = Default::default();
@@ -287,7 +288,7 @@ pub struct SenderMetadata {
     pub messages_sent: Vec<MessageId>,
     pub(crate) channel_id: ChannelId,
     pub(crate) mode: ChannelMode,
-    pub(crate) name: &'static str,
+    pub(crate) name: DebugName,
 }
 
 // fn on_add<C: Channel>(mut world: DeferredWorld, context: HookContext) {
@@ -295,7 +296,7 @@ pub struct SenderMetadata {
 //     let mut registry = world.resource_mut::<ChannelRegistry>();
 //     // TODO: merge settings and SenderId in a SenderMetadata so that we don't fetch twice
 //     let Some(settings) = registry.settings::<C>() else {
-//         panic!("ChannelSettings not found for channel {}", core::any::type_name::<C>());
+//         panic!("ChannelSettings not found for channel {}", DebugName::type_name::<C>());
 //     };
 //     let sender_id = registry.get_sender_id::<C>().unwrap();
 //     let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();

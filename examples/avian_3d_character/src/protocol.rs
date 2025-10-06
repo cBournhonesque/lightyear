@@ -55,42 +55,28 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        app.register_component::<ColorComponent>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ColorComponent>();
 
-        app.register_component::<Name>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<Name>();
 
-        app.register_component::<CharacterMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<CharacterMarker>();
 
-        app.register_component::<ProjectileMarker>()
-            .add_prediction(PredictionMode::Once)
-            .add_interpolation(InterpolationMode::Once);
+        app.register_component::<ProjectileMarker>();
 
-        app.register_component::<FloorMarker>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<FloorMarker>();
 
-        app.register_component::<BlockMarker>()
-            .add_prediction(PredictionMode::Once);
+        app.register_component::<BlockMarker>();
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
         app.register_component::<LinearVelocity>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction()
+            .add_should_rollback(linear_velocity_should_rollback);
 
         app.register_component::<AngularVelocity>()
-            .add_prediction(PredictionMode::Full);
+            .add_prediction()
+            .add_should_rollback(angular_velocity_should_rollback);
 
-        app.register_component::<ExternalForce>()
-            .add_prediction(PredictionMode::Full);
-
-        app.register_component::<ExternalImpulse>()
-            .add_prediction(PredictionMode::Full);
-
-        app.register_component::<ComputedMass>()
-            .add_prediction(PredictionMode::Full);
+        // app.register_component::<ComputedMass>().add_prediction();
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
@@ -98,18 +84,16 @@ impl Plugin for ProtocolPlugin {
         // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
         // out rendering between fixedupdate ticks.
         app.register_component::<Position>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             .add_should_rollback(position_should_rollback)
             .add_linear_correction_fn()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
 
         app.register_component::<Rotation>()
-            .add_prediction(PredictionMode::Full)
+            .add_prediction()
             .add_should_rollback(rotation_should_rollback)
             .add_linear_correction_fn()
-            .add_interpolation(InterpolationMode::Full)
-            .add_linear_interpolation_fn();
+            .add_linear_interpolation();
     }
 }
 
@@ -118,5 +102,13 @@ fn position_should_rollback(this: &Position, that: &Position) -> bool {
 }
 
 fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
-    this.angle_between(that.0) >= 0.01
+    this.angle_between(*that) >= 0.01
+}
+
+fn linear_velocity_should_rollback(this: &LinearVelocity, that: &LinearVelocity) -> bool {
+    (this.0 - that.0).length() >= 0.01
+}
+
+fn angular_velocity_should_rollback(this: &AngularVelocity, that: &AngularVelocity) -> bool {
+    (this.0 - that.0).length() >= 0.01
 }

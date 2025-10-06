@@ -2,11 +2,7 @@ use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::observer::Trigger;
-use bevy_ecs::query::{With, Without};
-use bevy_ecs::schedule::{IntoScheduleConfigs, SystemSet};
-use bevy_ecs::system::{Query, Res};
-use bevy_ecs::world::OnAdd;
+use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
 use core::time::Duration;
 use lightyear_connection::client::Connected;
@@ -20,8 +16,9 @@ use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
-use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, Transport};
-use tracing::trace;
+use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum PingSet {
@@ -114,11 +111,8 @@ impl PingPlugin {
     }
 
     /// On connection, reset the PingManager.
-    pub(crate) fn handle_connect(
-        trigger: Trigger<OnAdd, Connected>,
-        mut query: Query<&mut PingManager>,
-    ) {
-        if let Ok(mut manager) = query.get_mut(trigger.target()) {
+    pub(crate) fn handle_connect(trigger: On<Add, Connected>, mut query: Query<&mut PingManager>) {
+        if let Ok(mut manager) = query.get_mut(trigger.entity) {
             manager.reset();
         }
     }
@@ -134,16 +128,21 @@ impl Plugin for PingPlugin {
             priority: f32::INFINITY,
         })
         .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<Ping>()
+        app.register_message_to_bytes::<Ping>()
             .add_direction(NetworkDirection::Bidirectional);
-        app.add_message_to_bytes::<Pong>()
+        app.register_message_to_bytes::<Pong>()
             .add_direction(NetworkDirection::Bidirectional);
 
         // NOTE: the Transport's PacketBuilder needs accurate LinkStats to function correctly.
         //   Theoretically anything can modify the LinkStats but in practice it's done in the PingManager
         //   so we make the Transport require a PingManager.
         //   Maybe we should error if TransportPlugin is added without PingPlugin?
-        app.register_required_components::<Transport, PingManager>();
+
+        // We used to have Client -> InputTimeline -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
+        // but it is not possible anymore since we also have a Transport -> PingManager dependency and cyclic dependencies are not allowed anymore.
+        //
+        // So we removed Transport -> PingManager dependency and hope that PingManager will always be added to entities that have a Transport...
+        // app.register_required_components::<Transport, PingManager>();
 
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, PingManager>();

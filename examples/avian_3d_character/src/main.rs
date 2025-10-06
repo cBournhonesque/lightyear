@@ -13,7 +13,6 @@ use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
-
 #[cfg(feature = "client")]
 mod client;
 mod protocol;
@@ -67,10 +66,10 @@ fn add_input_delay(app: &mut App) {
         .single(app.world_mut())
         .unwrap();
 
-    // // set some input-delay since we are predicting all entities
-    // app.world_mut()
-    //     .entity_mut(client)
-    //     .insert(InputTimeline(Timeline::from(
-    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-    //     )));
+    // set some input-delay since we are predicting all entities
+    app.world_mut()
+        .entity_mut(client)
+        .insert(InputTimeline(Timeline::from(
+            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+        )));
 }

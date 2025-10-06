@@ -5,7 +5,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::action::Action;
-use bevy_enhanced_input::prelude::{ActionValue, Completed, Fired, Started};
+use bevy_enhanced_input::prelude::*;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
@@ -14,7 +14,6 @@ use lightyear::connection::client_of::ClientOf;
 use lightyear::core::tick::TickDuration;
 use lightyear::prediction::plugin::PredictionSet;
 use lightyear::prediction::predicted_history::PredictionHistory;
-use lightyear::prediction::prespawn::PreSpawned;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::LagCompensationSpatialQuery;
 
@@ -22,6 +21,7 @@ use crate::protocol::*;
 
 #[cfg(feature = "server")]
 use lightyear::prelude::{Room, RoomEvent};
+use lightyear_avian2d::plugin::AvianReplicationMode;
 
 const EPS: f32 = 0.0001;
 const BULLET_MOVE_SPEED: f32 = 300.0;
@@ -37,7 +37,6 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        app.register_type::<PlayerId>();
 
         app.add_observer(rotate_player);
         app.add_observer(move_player);
@@ -45,11 +44,7 @@ impl Plugin for SharedPlugin {
         // shooting
         app.add_observer(shoot_weapon);
         // - In PreUpdate so that the interpolation tick has been updated (in the previous frame's PostUpdate)
-        // - After PredictionSet::Sync so that there's no 1-frame delay when ProjectileSpawn is synced to the PreSpawned entity
-        app.add_systems(
-            PreUpdate,
-            direction_only::handle_projectile_spawn.after(PredictionSet::Sync),
-        );
+        app.add_systems(PreUpdate, direction_only::handle_projectile_spawn);
         app.add_observer(direction_only::despawn_projectile_spawn);
 
         // hit detection
@@ -75,11 +70,16 @@ impl Plugin for SharedPlugin {
 
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
+        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position,
+            ..default()
+        });
         app.add_plugins(
             PhysicsPlugins::default()
                 .build()
-                // disable Sync as it is handled by lightyear_avian
-                .disable::<SyncPlugin>(),
+                // disable the position<>transform sync plugins as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>()
+                .disable::<PhysicsInterpolationPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
     }
@@ -93,10 +93,10 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 }
 
 pub(crate) fn rotate_player(
-    trigger: Trigger<Fired<MoveCursor>>,
-    mut player: Query<(&mut Rotation, &Position), (Without<Confirmed>, Without<Bot>)>,
+    trigger: On<Fire<MoveCursor>>,
+    mut player: Query<(&mut Rotation, &Position), (Without<Bot>, Without<Interpolated>)>,
 ) {
-    if let Ok((mut rotation, position)) = player.get_mut(trigger.target()) {
+    if let Ok((mut rotation, position)) = player.get_mut(trigger.context) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
         // careful to only activate change detection if there was an actual change
         if (angle - rotation.as_radians()).abs() > EPS {
@@ -106,19 +106,17 @@ pub(crate) fn rotate_player(
 }
 
 pub(crate) fn move_player(
-    trigger: Trigger<Fired<MovePlayer>>,
+    trigger: On<Fire<MovePlayer>>,
     // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
-    mut player: Query<&mut Position, Without<Confirmed>>,
+    mut player: Query<&mut Position, Without<Interpolated>>,
     is_bot: Query<(), With<Bot>>,
 ) {
     const PLAYER_MOVE_SPEED: f32 = 1.5;
-    if let Ok(mut position) = player.get_mut(trigger.target()) {
-        if is_bot.get(trigger.target()).is_err() {
+    if let Ok(mut position) = player.get_mut(trigger.context) {
+        if is_bot.get(trigger.context).is_err() {
             trace!(
                 ?position,
-                "Moving player {:?} by {:?}",
-                trigger.target(),
-                trigger.value
+                "Moving player {:?} by {:?}", trigger.context, trigger.value
             );
         }
         let value = trigger.value;
@@ -139,15 +137,7 @@ pub(crate) fn move_player(
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<
-        (Entity, &Position),
-        (
-            With<PlayerMarker>,
-            With<PlayerId>,
-            Without<Confirmed>,
-            Without<Bot>,
-        ),
-    >,
+    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>, Without<Bot>)>,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
     //     (With<BulletMarker>, Without<Confirmed>),
@@ -173,12 +163,7 @@ pub(crate) fn last_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     player: Query<
         (Entity, &Position, &Transform),
-        (
-            With<PlayerMarker>,
-            With<PlayerId>,
-            Without<Confirmed>,
-            Without<Bot>,
-        ),
+        (With<PlayerMarker>, With<PlayerId>, Without<Bot>),
     >,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
@@ -209,7 +194,7 @@ pub(crate) fn last_log(
 
 /// Main weapon shooting system that handles all weapon types
 pub(crate) fn shoot_weapon(
-    trigger: Trigger<Completed<Shoot>>,
+    trigger: On<Complete<Shoot>>,
     mut commands: Commands,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
     time: Res<Time>,
@@ -236,12 +221,10 @@ pub(crate) fn shoot_weapon(
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
-    let shooter = trigger.target();
+    let shooter = trigger.context;
     let (projectile_mode, replication_mode, weapon_type) = global.into_inner();
 
-    if let Ok((id, transform, color, mut weapon, controlled_by)) =
-        player_query.get_mut(trigger.target())
-    {
+    if let Ok((id, transform, color, mut weapon, controlled_by)) = player_query.get_mut(shooter) {
         let is_server = controlled_by.is_some();
         // Check fire rate
         if let Some(last_fire) = weapon.last_fire_tick {
@@ -337,19 +320,19 @@ fn shoot_with_ring_buffer_replication(
 mod hit_detection {
     use super::*;
     pub(crate) fn hitscan_hit_detection(
-        trigger: Trigger<OnAdd, HitscanVisual>,
+        trigger: On<Add, HitscanVisual>,
         commands: Commands,
         server: Query<Entity, With<Server>>,
         timeline: Query<&LocalTimeline, Without<ClientOf>>,
         mode: Query<&GameReplicationMode, With<ClientContext>>,
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
-        bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId), Without<Confirmed>>,
-        target_query: Query<&GameReplicationMode, (With<PlayerMarker>, Without<Confirmed>)>,
+        bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
+        target_query: Query<&GameReplicationMode, With<PlayerMarker>>,
         // the InterpolationDelay component is stored directly on the client entity
         // (the server creates one entity for each client to store client-specific
         // metadata)
         client_query: Query<&InterpolationDelay, With<ClientOf>>,
-        mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
+        mut hit_sender: Query<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
         mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
     ) {
         let Ok(timeline) = timeline.single() else {
@@ -360,7 +343,7 @@ mod hit_detection {
             info!("no unique mode");
             return;
         };
-        let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.target()) else {
+        let Ok((hitscan, bullet_marker, id)) = bullet.get(trigger.entity) else {
             return;
         };
 
@@ -461,16 +444,9 @@ mod hit_detection {
                     if !is_server
                         && mode == &GameReplicationMode::ClientSideHitDetection
                         && let Ok((_, mut sender)) = hit_sender.single_mut()
-                        && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
                     {
                         info!("Client detected hit! Sending hit detection trigger to server");
-                        // the shooter was predicted, we need to convert it to the confirmed entity
-                        let confirmed_shooter = predicted.confirmed_entity.unwrap();
-                        sender.trigger::<HitChannel>(HitDetected {
-                            shooter: confirmed_shooter,
-                            // TODO: similarly, we should convert the target entity!
-                            target,
-                        });
+                        sender.trigger::<HitChannel>(HitDetected { shooter, target });
                     }
                 }
             }
@@ -484,16 +460,13 @@ mod hit_detection {
         timeline: Single<&LocalTimeline, Without<ClientOf>>,
         mode: Single<&GameReplicationMode, With<ClientContext>>,
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
-        bullet: Query<
-            (Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId),
-            Without<Confirmed>,
-        >,
-        target_query: Query<&GameReplicationMode, (With<PlayerMarker>, Without<Confirmed>)>,
+        bullet: Query<(Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
+        target_query: Query<&GameReplicationMode, With<PlayerMarker>>,
         // the InterpolationDelay component is stored directly on the client entity
         // (the server creates one entity for each client to store client-specific
         // metadata)
         client_query: Query<&InterpolationDelay, With<ClientOf>>,
-        mut hit_sender: Query<(&LocalId, &mut TriggerSender<HitDetected>), With<Client>>,
+        mut hit_sender: Query<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
         mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
     ) {
         let tick = timeline.tick();
@@ -608,18 +581,11 @@ mod hit_detection {
                             if !is_server
                                 && mode == &GameReplicationMode::ClientSideHitDetection
                                 && let Ok((_, mut sender)) = hit_sender.single_mut()
-                                && let Ok((_, _, Some(predicted))) = player_query.get(shooter)
                             {
                                 info!(
                                     "Client detected hit! Sending hit detection trigger to server"
                                 );
-                                // the shooter was predicted, we need to convert it to the confirmed entity
-                                let confirmed_shooter = predicted.confirmed_entity.unwrap();
-                                sender.trigger::<HitChannel>(HitDetected {
-                                    shooter: confirmed_shooter,
-                                    // TODO: similarly, we should convert the target entity!
-                                    target,
-                                });
+                                sender.trigger::<HitChannel>(HitDetected { shooter, target });
                             }
                         }
                     }
@@ -1284,11 +1250,11 @@ pub(crate) mod direction_only {
 
     /// When the child bullet gets despawned, despawn the parent ProjectileSpawn entity
     pub(crate) fn despawn_projectile_spawn(
-        trigger: Trigger<OnRemove, BulletOf>,
+        trigger: On<Remove, BulletOf>,
         bullet: Query<&BulletOf, With<BulletMarker>>,
         mut commands: Commands,
     ) {
-        if let Ok(child_of) = bullet.get(trigger.target())
+        if let Ok(child_of) = bullet.get(trigger.entity)
             && let Ok(mut c) = commands.get_entity(child_of.0)
         {
             c.try_despawn();
@@ -1755,7 +1721,7 @@ fn despawn_after(
 ) {
     for (entity, mut despawn_after) in query.iter_mut() {
         despawn_after.0.tick(time.delta());
-        if despawn_after.0.finished() {
+        if despawn_after.0.is_finished() {
             commands.entity(entity).try_despawn();
         }
     }

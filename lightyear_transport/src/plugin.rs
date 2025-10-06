@@ -8,17 +8,9 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
-use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
+use bevy_app::prelude::*;
+use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_ecs::{
-    entity::Entity,
-    event::Event,
-    query::{With, Without},
-    schedule::SystemSet,
-    system::{ParallelCommands, Query, Res},
-};
-#[cfg(any(feature = "client", feature = "server"))]
-use bevy_ecs::{observer::Trigger, world::OnAdd};
 use bevy_platform::collections::hash_map::Entry;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
@@ -48,8 +40,10 @@ pub enum TransportSet {
     Send,
 }
 
-#[derive(Event)]
+/// Event triggered on a [`Transport`] entity when it receives a new packet
+#[derive(EntityEvent)]
 pub struct PacketReceived {
+    pub entity: Entity,
     pub remote_tick: Tick,
 }
 
@@ -138,7 +132,7 @@ impl TransportPlugin {
 
                         // TODO: maybe switch to event buffer instead of triggers?
                         par_commands.command_scope(|mut commands| {
-                            commands.trigger_targets(PacketReceived { remote_tick: tick }, entity);
+                            commands.trigger(PacketReceived { entity, remote_tick: tick });
                         });
 
                         // Update the packet acks
@@ -384,11 +378,11 @@ impl TransportPlugin {
     /// On disconnection, reset the Transport to its original state.
     #[cfg(any(feature = "client", feature = "server"))]
     fn handle_disconnection(
-        trigger: Trigger<OnAdd, Disconnected>,
+        trigger: On<Add, Disconnected>,
         mut query: Query<&mut Transport>,
         registry: Res<ChannelRegistry>,
     ) {
-        if let Ok(mut transport) = query.get_mut(trigger.target()) {
+        if let Ok(mut transport) = query.get_mut(trigger.entity) {
             transport.reset(&registry);
         }
     }

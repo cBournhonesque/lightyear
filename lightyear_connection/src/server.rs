@@ -1,15 +1,9 @@
 use crate::client::{Client, Disconnected, Disconnecting};
 use crate::client_of::ClientOf;
 use bevy_app::{App, Last, Plugin};
-use bevy_ecs::{
-    component::{Component, HookContext},
-    entity::Entity,
-    event::Event,
-    observer::Trigger,
-    query::With,
-    system::{Commands, Query},
-    world::{DeferredWorld, OnAdd},
-};
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::prelude::*;
+use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use lightyear_link::prelude::Server;
@@ -28,12 +22,16 @@ pub enum ConnectionError {
 }
 
 /// Trigger to start the server
-#[derive(Event)]
-pub struct Start;
+#[derive(EntityEvent)]
+pub struct Start {
+    pub entity: Entity,
+}
 
 /// Trigger to stop the server
-#[derive(Event)]
-pub struct Stop;
+#[derive(EntityEvent)]
+pub struct Stop {
+    pub entity: Entity,
+}
 
 #[derive(Component)]
 #[component(on_add = Starting::on_add)]
@@ -96,24 +94,26 @@ pub struct ConnectionPlugin;
 impl ConnectionPlugin {
     /// When the start request to Start, we also start the ServerLink.
     /// We also despawn any existing ClientOf.
-    fn start(trigger: Trigger<Start>, mut commands: Commands) {
+    fn start(trigger: On<Start>, mut commands: Commands) {
         trace!("Triggering LinkStart because Start was triggered");
-        commands.trigger_targets(LinkStart, trigger.target());
+        commands.trigger(LinkStart {
+            entity: trigger.entity,
+        });
 
         // TODO: this was a crutch to make sure that all ClientOfs are despawned when Stop is called..
-        // commands.entity(trigger.target()).despawn_related::<Server>();
+        // commands.entity(trigger.entity).despawn_related::<Server>();
     }
 
     /// If the underlying link fails, we also stop the server
     fn stop_if_link_fails(
-        trigger: Trigger<OnAdd, Unlinked>,
+        trigger: On<Add, Unlinked>,
         // TODO: is Start/Stop reserved for the `Server` and not the `ServerLink`?
         query: Query<(), (With<Server>, With<Started>)>,
         mut commands: Commands,
     ) {
-        if let Ok(()) = query.get(trigger.target()) {
+        if let Ok(()) = query.get(trigger.entity) {
             trace!("Triggering Stopped because Unlinked was triggered");
-            commands.entity(trigger.target()).insert(Stopped);
+            commands.entity(trigger.entity).insert(Stopped);
         }
     }
 

@@ -47,7 +47,7 @@ use crate::config::{InputConfig, SharedInputConfig};
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
-    PerTargetData, StateMut, StateMutItemInner, StateRef,
+    PerTargetData, StateMut, StateRef,
 };
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
@@ -55,17 +55,11 @@ use crate::{HISTORY_DEPTH, InputChannel};
 use alloc::format;
 use alloc::{vec, vec::Vec};
 use bevy_app::{
-    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystem,
+    App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystems,
 };
-use bevy_ecs::query::Or;
-use bevy_ecs::{
-    entity::{Entity, MapEntities},
-    observer::Trigger,
-    query::{Has, With, Without},
-    resource::Resource,
-    schedule::{IntoScheduleConfigs, SystemSet},
-    system::{Commands, Query, Res, ResMut, Single},
-};
+use bevy_ecs::entity::MapEntities;
+use bevy_ecs::prelude::*;
+use bevy_utils::prelude::DebugName;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
@@ -75,16 +69,14 @@ use lightyear_core::time::TickDelta;
 use lightyear_connection::client::Client;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::*;
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSet;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
-use lightyear_replication::components::{Confirmed, PrePredicted};
-use lightyear_replication::prelude::Replicate;
+use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSet;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
+use lightyear_sync::prelude::{Input, InputTimeline};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
@@ -154,15 +146,15 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // SETS
 
         // NOTE: this is subtle! We receive remote players messages after
-        //  RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the local leafwing `states` have
+        //  RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the local leafwing `states` have
         //  been switched to the `fixed_update` state (see https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
         //  We can move this system back in PreUpdate if we drop leafwing support.
         //  Conveniently, this also ensures that we run this after MessageSet::Receive.
         app.configure_sets(
             PreUpdate,
             InputSet::ReceiveInputMessages
-                .before(RunFixedMainLoopSystem::FixedMainLoop)
-                .after(RunFixedMainLoopSystem::BeforeFixedMainLoop),
+                .before(RunFixedMainLoopSystems::FixedMainLoop)
+                .after(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
 
         app.configure_sets(
@@ -187,7 +179,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // SYSTEMS
         #[cfg(feature = "prediction")]
         if self.config.rebroadcast_inputs {
-            // NOTE: we do NOT need to run this after RunFixedMainLoopSystem::BeforeFixedMainLoop to ensure that the
+            // NOTE: we do NOT need to run this after RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the
             //  local leafwing `states` have been switched to the `fixed_update` state (see
             //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
             //  because when applying the diffs we manually update the fixed_update_state .
@@ -264,7 +256,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
     mut action_state_query: Query<
         (Entity, StateRef<S>, &mut InputBuffer<S::Snapshot>),
-        With<S::Marker>,
+        (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let (input_timeline, local_timeline) = sender.into_inner();
@@ -305,12 +297,15 @@ fn get_action_state<S: ActionStateSequence>(
     // - remote player: during rollbacks, we need to fetch the ActionState from the InputBuffer
     // (for the remote players, we update the ActionState as soon as we receive the RemoteMessage.)
     //  TODO: We could maybe have some decay logic where the input decays to the middle)
-    mut action_state_query: Query<(
-        Entity,
-        StateMut<S>,
-        &InputBuffer<S::Snapshot>,
-        Has<S::Marker>,
-    )>,
+    mut action_state_query: Query<
+        (
+            Entity,
+            StateMut<S>,
+            &InputBuffer<S::Snapshot>,
+            Has<S::Marker>,
+        ),
+        Allow<PredictionDisable>,
+    >,
 ) {
     let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
@@ -344,12 +339,11 @@ fn get_action_state<S: ActionStateSequence>(
         //   predicting that the action hasn't changed since. We just need to decay it (for rollback or without rollback)
         if let Some(snapshot) = input_buffer.get(tick) {
             // TODO: should we decay_tick the snapshot?
-
-            trace!(?is_local, "Updating action_state for tick {tick:?}");
             S::from_snapshot(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?entity,
                 ?tick,
+                ?is_local,
                 ?snapshot,
                 // ?action_state,
                 "fetched action state from input buffer: {:?}",
@@ -369,7 +363,7 @@ fn get_action_state<S: ActionStateSequence>(
                 ?entity,
                 ?tick,
                 "Action = {}, For remote input; no input for tick so we decay the ActionState to: {:?}",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
                 snapshot
             );
             // update the action state with decay
@@ -385,7 +379,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     mut action_state_query: Query<
         (Entity, StateMut<S>, &InputBuffer<S::Snapshot>),
         // Filter so that this is only for directly controlled players, not remote players
-        With<S::Marker>,
+        (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let Ok((input_timeline, local_timeline, is_rollback)) = sender.single() else {
@@ -418,7 +412,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     sender: Query<&LocalTimeline, (With<InputTimeline>, Without<HostClient>)>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
+    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>, Allow<PredictionDisable>>,
 ) {
     let Ok(local_timeline) = sender.single() else {
         return;
@@ -463,12 +457,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<
-        (
-            &LocalTimeline,
-            &InputTimeline,
-            &MessageManager,
-            Has<HostClient>,
-        ),
+        (&LocalTimeline, &InputTimeline, Has<HostClient>),
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients (in which
         // case we prepare the input-message, which will be send_local to the server)
@@ -476,19 +465,14 @@ fn prepare_input_message<S: ActionStateSequence>(
     >,
     channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
-        (
-            Entity,
-            &InputBuffer<S::Snapshot>,
-            Option<&Predicted>,
-            Option<&PrePredicted>,
-            Option<&Replicate>,
-        ),
-        With<S::Marker>,
+        (Entity, &InputBuffer<S::Snapshot>, Option<&PreSpawned>),
+        (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (local_timeline, input_timeline, message_manager, is_host_client) = sender.into_inner();
+    let (local_timeline, input_timeline, is_host_client) = sender.into_inner();
     #[cfg(not(feature = "prediction"))]
     if is_host_client {
+        // if there is not prediction, no need to rebroadcast inputs
         return;
     }
 
@@ -519,7 +503,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         .unwrap();
     num_tick *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, predicted, pre_predicted, replicate) in input_buffer_query.iter() {
+    for (entity, input_buffer, pre_spawned) in input_buffer_query.iter() {
         trace!(
             ?tick,
             ?entity,
@@ -527,54 +511,17 @@ fn prepare_input_message<S: ActionStateSequence>(
             input_buffer
         );
 
-        // Make sure that server can read the inputs correctly
-        // TODO: currently we are not sending inputs for pre-predicted entities until we receive the confirmation from the server
-        //  could we find a way to do it?
-        //  maybe if it's pre-predicted, we send the original entity (pre-predicted), and the server will apply the conversion
-        //   on their end?
-        if let Some(target) = if is_host_client {
-            // we are using PrePredictedEntity to make sure that MapEntities will be used on the client receiving side
-            Some(InputTarget::PrePredictedEntity(entity))
-        } else if pre_predicted.is_some() {
-            // wait until the client receives the PrePredicted entity confirmation to send inputs
-            // otherwise we get failed entity_map logs
-            // TODO: the problem is that we wait until we have received the server answer. Ideally we would like
-            //  to wait until the server has received the PrePredicted entity
-            if predicted.is_none() {
-                continue;
-            }
-            trace!(
-                ?tick,
-                "sending inputs for pre-predicted entity! Local client entity: {:?}", entity
-            );
-            // TODO: not sure if this whole pre-predicted inputs thing is worth it, because the server won't be able to
-            //  to receive the inputs until it receives the pre-predicted spawn message.
-            //  so all the inputs sent between pre-predicted spawn and server-receives-pre-predicted will be lost
-
-            // TODO: I feel like pre-predicted inputs work well only for global-inputs, because then the server can know
-            //  for which client the inputs were!
-
-            // 0. the entity is pre-predicted, no need to convert the entity (the mapping will be done on the server, when
-            // receiving the message. It's possible because the server received the PrePredicted entity before)
-            Some(InputTarget::PrePredictedEntity(entity))
-        } else if replicate.is_some() {
-            // this only happens if the entity is a BEI Action entity
-            Some(InputTarget::ActionEntity(entity))
-        } else {
-            // 1. if the entity is confirmed, we need to convert the entity to the server's entity
-            // 2. if the entity is predicted, we need to first convert the entity to confirmed, and then from confirmed to remote
-            if let Some(confirmed) = predicted.map_or(Some(entity), |p| p.confirmed_entity) {
-                message_manager.entity_mapper.get_remote(confirmed).map(|server_entity|{
-                    trace!("sending input for server entity: {:?}. local entity: {:?}, confirmed: {:?}", server_entity, entity, confirmed);
-                    InputTarget::Entity(server_entity)
-                })
-            } else {
-                // TODO: entity is not predicted or not confirmed? also need to do the conversion, no?
-                trace!("not sending inputs because couldnt find server entity");
-                None
-            }
-        } && let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick)
+        // PreSpawned: the include the Prespawned Hash
+        let target = if let Some(prespawned) = pre_spawned
+            && let Some(hash) = prespawned.hash
         {
+            debug!(?hash, ?entity, "Sending input for prespawned entity");
+            InputTarget::PreSpawned(hash)
+        } else {
+            InputTarget::Entity(entity)
+        };
+
+        if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick) {
             message.inputs.push(PerTargetData {
                 target,
                 states: state_sequence,
@@ -587,8 +534,8 @@ fn prepare_input_message<S: ActionStateSequence>(
     debug!(
         ?tick,
         ?num_tick,
-        "sending input message for {:?}: {:?}",
-        core::any::type_name::<S::Action>(),
+        "sending input message for {:?}: {}",
+        DebugName::type_name::<S::Action>(),
         message
     );
     message_buffer.0.push(message);
@@ -608,7 +555,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     link: Single<
         (
-            &MessageManager,
             &mut MessageReceiver<InputMessage<S>>,
             Option<&LastConfirmedInput>,
             &PredictionManager,
@@ -617,37 +563,28 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         // the host-client won't receive input messages from the Server
         (With<IsSynced<InputTimeline>>, Without<HostClient>),
     >,
-    // TODO: for deterministic replication, the
-    confirmed_query: Query<&Confirmed, Without<S::Marker>>,
     mut predicted_query: Query<
-        (Option<&mut InputBuffer<S::Snapshot>>, Option<StateMut<S>>),
-        (
-            Or<(With<Predicted>, With<DeterministicPredicted>)>,
-            Without<S::Marker>,
-        ),
+        Option<&mut InputBuffer<S::Snapshot>>,
+        (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (manager, mut receiver, last_confirmed_input, prediction_manager, timeline) =
-        link.into_inner();
+    let (mut receiver, last_confirmed_input, prediction_manager, timeline) = link.into_inner();
     let tick = timeline.tick();
     let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
-        trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", core::any::type_name::<S::Action>());
+        trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", DebugName::type_name::<S::Action>());
         for target_data in message.inputs {
-            // - the input target has already been set to the server entity in the InputMessage
-            // - it has been mapped to a client-entity on the client during deserialization
-            //   ONLY if it's PrePredicted or ActionEntity (look at the MapEntities implementation)
-            let entity = match target_data.target {
+            let Some(entity) = (match target_data.target {
                 InputTarget::Entity(entity) => {
-                    // TODO: find a better way!
-                    // if InputTarget = Entity, we still need to do the mapping
-                    manager
-                        .entity_mapper
-                        .get_local(entity)
+                    Some(entity)
                 }
-                InputTarget::ActionEntity(entity) | InputTarget::PrePredictedEntity(entity) => Some(entity),
-            };
-            let Some(entity) = entity else {
+                InputTarget::PreSpawned(hash) => {
+                    // TODO: should clients receive rebroadcasted PreSpawned using the hash?
+                    //  if they don't receive the remote clients inputs in time, they cannot prespawn, so maybe they should just use the entity?
+                    //  Ideally, we could only pre-spawn on the controlling client (so we need a PrespawnTarget)?
+                    todo!()
+                }
+            }) else {
                 warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
                 continue;
             };
@@ -657,22 +594,22 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 entity
             );
             // TODO: careful of entity collisions!
-            // StateReplication: we will receive the input message for the confirmed entity, which we need to map to the predicted
-            // DeterministicReplication: we will receive the input message for the predicted entity
-            let Some(predicted) = confirmed_query.get(entity).map_or_else(|_| Some(entity), |confirmed| confirmed.predicted) else {
-                error!("received remote player input message for non existent entity {entity:?}");
-                continue
-            };
-            let Ok((input_buffer, action_state)) = predicted_query.get_mut(predicted) else {
+            let Ok(input_buffer) = predicted_query.get_mut(entity) else {
                 error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                 continue
             };
-            trace!(confirmed=?entity, ?predicted, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+            trace!(predicted=?entity, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
+
             if let Some(mut input_buffer) = input_buffer {
+                // do not parse the remote message our current Buffer end_tick is later than the message end_tick
+                // this can happen if we receive multiple messages out of order.
+                if input_buffer.end_tick().is_some_and(|t| t >= message.end_tick) {
+                    trace!("Ignoring input message becase our current end_tick {:?} is more recent than the remote_end_tick", input_buffer.end_tick());
+                    continue
+                }
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
-                    S::State::into_inner(action_state.expect("there should always be an ActionState if the InputBuffer is present")),
                     tick,
                     message.end_tick,
                     entity,
@@ -682,12 +619,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             } else {
                 // add the ActionState or InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot>::default();
-                let mut action_state = S::State::base_value();
-
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
-                    S::State::as_mut(&mut action_state),
                     tick,
                     message.end_tick,
                     entity,
@@ -695,9 +629,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     *tick_duration
                 );
                 // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
-                commands.entity(predicted).insert((
+                commands.entity(entity).insert((
                     input_buffer,
-                    action_state,
+                    S::State::base_value()
                 ));
             };
         }
@@ -725,10 +659,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     >,
     predicted_query: Query<
         &InputBuffer<S::Snapshot>,
-        (
-            Or<(With<Predicted>, With<DeterministicPredicted>)>,
-            Without<S::Marker>,
-        ),
+        (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let (last_confirmed_input, input_timeline, local_timeline) = last_confirmed_input.into_inner();
@@ -750,7 +681,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         }
     });
     trace!(
-        kind = ?core::any::type_name::<S::Action>(),
+        kind = ?DebugName::type_name::<S::Action>(),
         "Updated LastConfirmedTick to tick {:?}",
         last_confirmed_input.tick.get()
     );
@@ -760,33 +691,24 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
 fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     sequence: S,
     input_buffer: &mut InputBuffer<S::Snapshot>,
-    action_state: StateMutItemInner<S>,
     tick: Tick,
     end_tick: Tick,
     entity: Entity,
     prediction_manager: &PredictionManager,
     tick_duration: TickDuration,
 ) {
-    let mismatch = sequence.update_buffer(input_buffer, end_tick, tick_duration.0);
-
-    if let Some((new_end_tick, snapshot)) = input_buffer.get_last_with_tick() {
-        // IMPORTANT: immediately update the ActionState from the buffer ONLY if the new_end_tick is in the past!
-        //  this means that we are predicting that the remote player kept playing the same action since then.
-        //
-        // If the new_end_tick is in the future (for example in lockstep mode where we have plenty of delay), we do NOT
-        // update the ActionState immediately with the `last_value` because that would be incorrect, instead we will
-        // fetch the ActionState from the buffer in the `get_action_state` system when we reach that tick.
-        if new_end_tick <= tick {
-            S::from_snapshot(action_state, snapshot);
-        }
-
+    // we don't need to update the ActionState here because:
+    // - if it's in the future, we will fetch the ActionState from the buffer in the `get_action_state` system when
+    //   we reach that tick.
+    // - if it's in the past, we will start a rollback and fetch the correct ActionState from the buffer in the
+    //   `get_action_state` system
+    if let Some(mismatch) = sequence.update_buffer(input_buffer, end_tick, tick_duration.0) {
         // find the earliest mismatch tick across all clients
         // NOTE: if the mismatch tick is more recent than our current tick, then it's not a mismatch!
         //  it just means that we are receiving a remote tick in advance of simulating that tick.
         //  (for example in lockstep mode, we should have all player inputs for tick T before simulating tick T,
         //  so we will receive those inputs in advance)
         if let RollbackMode::Check = prediction_manager.rollback_policy.input
-            && let Some(mismatch) = mismatch
             && mismatch <= tick
         {
             debug!(
@@ -810,19 +732,19 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         {
             metrics::counter!(format!(
                 "inputs::{}::remote_player::receive",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
             ))
             .increment(1);
             let margin = input_buffer.end_tick().unwrap() - tick;
             metrics::gauge!(format!(
                 "inputs::{}::remote_player::{}::buffer_margin",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
                 entity
             ))
             .set(margin as f64);
             metrics::gauge!(format!(
                 "inputs::{}::remote_player::{}::buffer_size",
-                core::any::type_name::<S::Action>(),
+                DebugName::type_name::<S::Action>(),
                 entity
             ))
             .set(input_buffer.len() as f64);
@@ -898,9 +820,9 @@ fn send_input_messages<S: ActionStateSequence>(
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(
-    trigger: Trigger<SyncEvent<InputTimeline>>,
+    trigger: On<SyncEvent<Input>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>>,
+    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot>, Allow<PredictionDisable>>,
 ) {
     let delta = trigger.tick_delta;
     for mut input_buffer in input_buffer_query.iter_mut() {

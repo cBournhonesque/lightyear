@@ -15,31 +15,15 @@ use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::ApplyInputsQuery;
-use crate::shared::ApplyInputsQueryItem;
 use crate::shared::{apply_action_state_to_player_movement, color_from_id};
 
 // Plugin for server-specific logic
-pub struct ExampleServerPlugin {
-    pub(crate) predict_all: bool,
-}
-
-#[derive(Resource)]
-pub struct Global {
-    predict_all: bool,
-}
+pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(Global {
-            predict_all: self.predict_all,
-        });
         app.add_systems(Startup, init);
-        // the physics/FixedUpdates systems that consume inputs should be run in this set
-        app.add_systems(
-            FixedUpdate,
-            (player_movement, shared::shared_player_firing).chain(),
-        );
+
         app.add_observer(handle_new_client);
         app.add_observer(handle_connections);
         app.add_systems(
@@ -50,7 +34,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedUpdate,
             handle_hit_event
-                .run_if(on_event::<BulletHitEvent>)
+                .run_if(on_message::<BulletHitMessage>)
                 .after(shared::process_collisions),
         );
     }
@@ -90,9 +74,9 @@ fn init(mut commands: Commands) {
 }
 
 /// Add the ReplicationSender component to new clients
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
@@ -102,14 +86,14 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 
 /// Whenever a new client connects, spawn their spaceship
 pub(crate) fn handle_connections(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
     all_players: Query<Entity, With<Player>>,
 ) {
     // track the number of connected players in order to pick colors and starting positions
     let player_n = all_players.iter().count();
-    if let Ok(remote_id) = query.get(trigger.target()) {
+    if let Ok(remote_id) = query.get(trigger.entity) {
         let client_id = remote_id.0;
         info!("New connected client, client_id: {client_id:?}. Spawning player entity..");
         // pick color and x,y pos for player
@@ -143,7 +127,7 @@ pub(crate) fn handle_connections(
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::All),
                 ControlledBy {
-                    owner: trigger.target(),
+                    owner: trigger.entity,
                     lifetime: Default::default(),
                 },
                 // prevent rendering children to be replicated
@@ -204,7 +188,7 @@ const NAMES: [&str; 35] = [
 /// the `Score` component is a simple replication. Score is fully server-authoritative.
 pub(crate) fn handle_hit_event(
     peer_metadata: Res<PeerMetadata>,
-    mut events: EventReader<BulletHitEvent>,
+    mut events: MessageReader<BulletHitMessage>,
     mut player_q: Query<(&Player, &mut Score)>,
 ) {
     let client_id_to_player_entity =
@@ -222,28 +206,5 @@ pub(crate) fn handle_hit_event(
                 score.0 += 1;
             }
         }
-    }
-}
-
-/// Read inputs and move players
-///
-/// If we didn't receive the input for a given player, we do nothing (which is the default behaviour from lightyear),
-/// which means that we will be using the last known input for that player
-/// (i.e. we consider that the player kept pressing the same keys).
-/// see: https://github.com/cBournhonesque/lightyear/issues/492
-pub(crate) fn player_movement(
-    mut q: Query<(&ActionState<PlayerActions>, ApplyInputsQuery), With<Player>>,
-    timeline: Single<&LocalTimeline, With<Server>>,
-) {
-    let tick = timeline.tick();
-    for (action_state, mut aiq) in q.iter_mut() {
-        if !action_state.get_pressed().is_empty() {
-            trace!(
-                "🎹 {:?} {tick:?} = {:?}",
-                aiq.player.client_id,
-                action_state.get_pressed(),
-            );
-        }
-        apply_action_state_to_player_movement(action_state, &mut aiq, tick);
     }
 }

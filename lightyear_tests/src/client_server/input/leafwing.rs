@@ -125,6 +125,7 @@ fn test_buffer_inputs_with_delay() {
         &[LeafwingInput1::Jump]
     );
     // the fixed_update_state ActionState outside of FixedUpdate is the delayed one
+    // It has been ticked by LWIM so now it's only released and not just_released
     assert!(
         stepper
             .client_app()
@@ -135,7 +136,7 @@ fn test_buffer_inputs_with_delay() {
             .button_data(&LeafwingInput1::Jump)
             .unwrap()
             .fixed_update_state
-            .just_released()
+            .released()
     );
 
     stepper.frame_step(1);

@@ -35,14 +35,14 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             FixedPostUpdate,
             // check collisions after physics have run
-            compute_hit_prediction.after(PhysicsSet::Sync),
+            compute_hit_prediction.after(PhysicsSystems::StepSimulation),
         );
     }
 }
 
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
-        .entity(trigger.target())
+        .entity(trigger.entity)
         .insert(ReplicationSender::new(
             SEND_INTERVAL,
             SendUpdatesMode::SinceLastAck,
@@ -55,7 +55,7 @@ pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: C
 // the server has already assumed authority over the entity so the `Replicated` component
 // has been removed
 pub(crate) fn spawn_player(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
     replicated_players: Query<
@@ -63,7 +63,7 @@ pub(crate) fn spawn_player(
         (Added<InitialReplicated>, With<PlayerId>),
     >,
 ) {
-    let Ok(client_id) = query.get(trigger.target()) else {
+    let Ok(client_id) = query.get(trigger.entity) else {
         return;
     };
     let client_id = client_id.0;
@@ -75,7 +75,7 @@ pub(crate) fn spawn_player(
         PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
         ControlledBy {
-            owner: trigger.target(),
+            owner: trigger.entity,
             lifetime: Default::default(),
         },
         Score(0),
@@ -178,7 +178,7 @@ pub(crate) fn compute_hit_prediction(
     timeline: Single<&LocalTimeline, With<Server>>,
     query: SpatialQuery,
     bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
-    bot_query: Query<(), (With<PredictedBot>, Without<Confirmed>)>,
+    bot_query: Query<(), With<PredictedBot>>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)

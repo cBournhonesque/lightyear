@@ -44,7 +44,7 @@ pub struct ChecksumSendPlugin;
 impl ChecksumSendPlugin {
     /// Compute a checksum for all deterministic entities with hashable components.
     fn compute_and_send_checksum(
-        world: ChecksumWorld<'_, '_, true>,
+        mut world: ChecksumWorld<'_, '_, true>,
         client: Single<
             (
                 &LocalTimeline,
@@ -66,7 +66,9 @@ impl ChecksumSendPlugin {
             return;
         }
 
-        world.iter_archetypes().for_each(|(archetype, checksum_archetype)| {
+        world.update_archetypes();
+        // SAFETY: world.update_archetypes() has been called
+        unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
             // TODO: how can we guarantee that the order is the same on client and server? We need a stable order for entities, otherwise the checksum will differ even if the data is the same.
             archetype.entities().iter().for_each(|entity| {
                 // // TODO: currently this only works if the entity was replicated from the server
@@ -118,7 +120,7 @@ impl Plugin for ChecksumSendPlugin {
         // we need the LastConfirmedInput to compute the checksums
         app.register_required_components::<InputTimeline, LastConfirmedInput>();
 
-        app.add_message::<ChecksumMessage>()
+        app.register_message::<ChecksumMessage>()
             .add_direction(NetworkDirection::ClientToServer);
     }
 
@@ -141,7 +143,7 @@ pub struct ChecksumReceivePlugin;
 impl ChecksumReceivePlugin {
     /// Compute a checksum for all deterministic entities with hashable components.
     fn compute_and_store_checksum(
-        world: ChecksumWorld<'_, '_, false>,
+        mut world: ChecksumWorld<'_, '_, false>,
         server: Single<(&LocalTimeline, &mut ChecksumHistory), With<Started>>,
     ) {
         let mut checksum = 0u64;
@@ -149,24 +151,42 @@ impl ChecksumReceivePlugin {
         let (timeline, mut history) = server.into_inner();
         let tick = timeline.tick();
 
-        world.iter_archetypes().for_each(|(archetype, checksum_archetype)| {
+        // SAFETY: world.update_archetypes() has been called
+        world.update_archetypes();
+        unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
             // TODO: how can we ensure that we are iterating entities in a stable order on both client and server?
             archetype.entities().iter().for_each(|entity| {
                 // TODO: we don't write entities in the checksum because if there are some non-replicated entities, the entity ids will differ between client and server.
                 //  We should maybe wait for the ability to reserve ranges of entities so that entity ids match perfectly.
                 // hasher.write_u64(entity.id().to_bits());
-                checksum_archetype.components.iter().for_each(|(component_id, storage_type)| {
-                    trace!("Adding component {:?} from entity {:?} to checksum for tick {:?}", component_id, entity.id(), tick);
-                    // SAFETY: the way we constructed the archetypes guarantees that the component exists on the entity and we have unique write access
-                    let component_ptr = unsafe {
-                        lightyear_utils::ecs::get_component_unchecked(world.world, entity, archetype.table_id(), *storage_type, *component_id)
-                    };
-                    let (hash_fn, _) = world.state.hash_fns.get(component_id).expect("Component in checksum archetype must have a hash function registered");
-                    let mut hasher = seahash::SeaHasher::default();
-                    hash_fn.hash_component(component_ptr, &mut hasher);
-                    let hash = hasher.finish();
-                    checksum ^= hash; // XOR the hashes together to get an order-independent checksum
-                });
+                checksum_archetype
+                    .components
+                    .iter()
+                    .for_each(|(component_id, storage_type)| {
+                        trace!(
+                            "Adding component {:?} from entity {:?} to checksum for tick {:?}",
+                            component_id,
+                            entity.id(),
+                            tick
+                        );
+                        // SAFETY: the way we constructed the archetypes guarantees that the component exists on the entity and we have unique write access
+                        let component_ptr = unsafe {
+                            lightyear_utils::ecs::get_component_unchecked(
+                                world.world,
+                                entity,
+                                archetype.table_id(),
+                                *storage_type,
+                                *component_id,
+                            )
+                        };
+                        let (hash_fn, _) = world.state.hash_fns.get(component_id).expect(
+                            "Component in checksum archetype must have a hash function registered",
+                        );
+                        let mut hasher = seahash::SeaHasher::default();
+                        hash_fn.hash_component(component_ptr, &mut hasher);
+                        let hash = hasher.finish();
+                        checksum ^= hash; // XOR the hashes together to get an order-independent checksum
+                    });
             });
         });
 
@@ -220,7 +240,7 @@ impl Plugin for ChecksumReceivePlugin {
         app.register_required_components::<Server, ChecksumHistory>();
 
         if !app.is_message_registered::<ChecksumMessage>() {
-            app.add_message::<ChecksumMessage>()
+            app.register_message::<ChecksumMessage>()
                 .add_direction(NetworkDirection::ClientToServer);
         }
 

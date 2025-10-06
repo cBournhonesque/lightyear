@@ -60,7 +60,7 @@ impl PredictedArchetypes {
         {
             let mut predicted_archetype = Vec::new();
             // add all components from the registry that are predicted
-            archetype.components().for_each(|component| {
+            archetype.iter_components().for_each(|component| {
                 let info = unsafe { components.get_info(component).unwrap_unchecked() };
                 // if the component has a type_id (i.e. is a rust type)
                 if let Some(kind) = info.type_id().map(ComponentKind) {

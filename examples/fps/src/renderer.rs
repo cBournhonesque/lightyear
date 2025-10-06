@@ -6,8 +6,7 @@ use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::interpolation::Interpolated;
-use lightyear::prediction::prespawn::PreSpawned;
-use lightyear::prelude::{Predicted, Replicate, Replicated};
+use lightyear::prelude::{PreSpawned, Predicted, Replicate, Replicated};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -77,33 +76,17 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
     })
 }
 
-/// Convenient for filter for entities that should be visible
-/// Works either on the client or the server
-#[derive(QueryFilter)]
-pub struct VisibleFilter {
-    a: Or<(
-        With<Predicted>,
-        // to show prespawned entities
-        With<PreSpawned>,
-        With<Interpolated>,
-        // to show entities on the server
-        With<Replicate>,
-    )>,
-    // we don't show any replicated (confirmed) entities
-    b: Without<Replicated>,
-}
-
 // TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: Trigger<OnAdd, PlayerId>,
-    query: Query<(Has<Predicted>, &ColorComponent), (VisibleFilter, Without<BulletMarker>)>,
+    trigger: On<Add, PlayerId>,
+    query: Query<(Has<Predicted>, &ColorComponent), Without<BulletMarker>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, color)) = query.get(trigger.target()) {
-        commands.entity(trigger.target()).insert((
+    if let Ok((is_predicted, color)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -113,7 +96,7 @@ fn add_player_visuals(
         ));
         if is_predicted {
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .insert(FrameInterpolate::<Transform>::default());
         }
     }
@@ -121,14 +104,14 @@ fn add_player_visuals(
 
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
-    trigger: Trigger<OnAdd, BulletMarker>,
-    query: Query<(&ColorComponent, Has<Interpolated>), VisibleFilter>,
+    trigger: On<Add, BulletMarker>,
+    query: Query<(&ColorComponent, Has<Interpolated>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.target()) {
-        commands.entity(trigger.target()).insert((
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -140,7 +123,7 @@ fn add_bullet_visuals(
         ));
         if interpolated {
             commands
-                .entity(trigger.target())
+                .entity(trigger.entity)
                 .insert(FrameInterpolate::<Transform>::default());
         }
     }
@@ -148,45 +131,39 @@ fn add_bullet_visuals(
 
 /// Add visuals to newly spawned bots
 fn add_interpolated_bot_visuals(
-    trigger: Trigger<OnAdd, InterpolatedBot>,
-    query: Query<(), VisibleFilter>,
+    trigger: On<Add, InterpolatedBot>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.target();
-    if query.get(entity).is_ok() {
-        // add visibility
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: GREEN.into(),
-                ..Default::default()
-            })),
-        ));
-    }
+    let entity = trigger.entity;
+    // add visibility
+    commands.entity(entity).insert((
+        Visibility::default(),
+        Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
+        MeshMaterial2d(materials.add(ColorMaterial {
+            color: GREEN.into(),
+            ..Default::default()
+        })),
+    ));
 }
 
 fn add_predicted_bot_visuals(
-    trigger: Trigger<OnAdd, PredictedBot>,
-    query: Query<(), VisibleFilter>,
+    trigger: On<Add, PredictedBot>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let entity = trigger.target();
-    if query.get(entity).is_ok() {
-        // add visibility
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: BLUE.into(),
-                ..Default::default()
-            })),
-            // predicted entities are updated in FixedUpdate so they need to be visually interpolated
-            FrameInterpolate::<Transform>::default(),
-        ));
-    }
+    let entity = trigger.entity;
+    // add visibility
+    commands.entity(entity).insert((
+        Visibility::default(),
+        Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
+        MeshMaterial2d(materials.add(ColorMaterial {
+            color: BLUE.into(),
+            ..Default::default()
+        })),
+        // predicted entities are updated in FixedUpdate so they need to be visually interpolated
+        FrameInterpolate::<Transform>::default(),
+    ));
 }
