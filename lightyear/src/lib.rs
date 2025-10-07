@@ -226,7 +226,7 @@ fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>
 //!
 //! ### Feature Flags
 #![doc = document_features::document_features!()]
-#![cfg_attr(docsrs, feature(doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![allow(ambiguous_glob_reexports)]
 
 #[cfg(feature = "client")]

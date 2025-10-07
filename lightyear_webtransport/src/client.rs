@@ -130,7 +130,7 @@ impl WebTransportClientPlugin {
 
 // Adapted from https://github.com/briansmith/ring/blob/befdc87ac7cbca615ab5d68724f4355434d3a620/src/test.rs#L364-L393
 fn from_hex(hex_str: &str) -> core::result::Result<Vec<u8>, String> {
-    if hex_str.len() % 2 != 0 {
+    if !hex_str.len().is_multiple_of(2) {
         return Err(format!(
             "Hex string does not have an even number of digits. Length: {}. String: .{}.",
             hex_str.len(),
