@@ -27,7 +27,8 @@ use lightyear_messages::receive::MessageReceiver;
 use lightyear_prediction::manager::LastConfirmedInput;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace};
+#[allow(unused_imports)]
+use tracing::{debug, error, info, trace};
 
 /// History of the checksums on the server to validate client checksums against.
 #[derive(Component, Debug, Default)]
@@ -97,8 +98,8 @@ impl ChecksumSendPlugin {
             });
         });
         debug!(
-            "Computed checksum for LastConfirmedInput tick {:?}: {:016x}",
-            tick, checksum
+            ?current_tick,
+            "Computed checksum for LastConfirmedInput tick {:?}: {:016x}", tick, checksum
         );
 
         sender.send::<InputChannel>(ChecksumMessage { tick, checksum });
