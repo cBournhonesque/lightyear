@@ -1,4 +1,4 @@
-/// Defines the [`Message`](message::Message) struct, which is a piece of serializable data
+/// Defines the messages that a packet will be split into
 use core::fmt::Debug;
 
 use bytes::Bytes;

@@ -8,7 +8,7 @@
 //! and receive messages over the Steam network infrastructure.
 //!
 //! Note: This crate requires the `steamworks` crate and a running Steam client.
-#![cfg_attr(docsrs, feature(doc_cfg, doc_auto_cfg))]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
 
 extern crate alloc;
