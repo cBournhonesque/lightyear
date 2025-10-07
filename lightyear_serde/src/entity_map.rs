@@ -5,7 +5,7 @@ use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::entity::Entity;
+use bevy_ecs::entity::{Entity, EntityGeneration, EntityRow};
 use bevy_ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy_ecs::world::{EntityWorldMut, World};
 use bevy_reflect::Reflect;
@@ -209,7 +209,7 @@ impl ToBytes for Entity {
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_varint(self.index() as u64)?;
-        // TODO: use varint
+        // TODO: use varint by using index = u32::MAX (which is not allowed) as niche.
         buffer.write_u32(self.generation().to_bits())?;
         Ok(())
     }
@@ -220,12 +220,52 @@ impl ToBytes for Entity {
     {
         let index = buffer.read_varint()?;
 
-        // TODO: use varint
+        // TODO: use varint by using index = u32::MAX (which is not allowed) as niche.
         // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
         // let generation = buffer.read_varint()?;
-        let generation = buffer.read_u32()? as u64;
-        let bits = generation << 32 | index;
-        Ok(Entity::from_bits(bits))
+        let generation = EntityGeneration::from_bits(buffer.read_u32()?);
+        Ok(Entity::from_row_and_generation(
+            EntityRow::from_raw_u32(index as u32).unwrap(),
+            generation,
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::ToBytes;
+    use crate::entity_map::RemoteEntityMap;
+    use crate::reader::Reader;
+    use crate::writer::Writer;
+    use bevy_ecs::entity::{Entity, EntityGeneration, EntityRow};
+    use test_log::test;
+
+    #[test]
+    fn test_entity_serde() {
+        let e = Entity::from_row_and_generation(
+            EntityRow::from_raw_u32(1).unwrap(),
+            EntityGeneration::from_bits(1),
+        );
+
+        let mut writer = Writer::with_capacity(100);
+        let ser = e.to_bytes(&mut writer).unwrap();
+        let mut reader = Reader::from(writer.split());
+        let serde_e = Entity::from_bytes(&mut reader).unwrap();
+        assert_eq!(e, serde_e);
+    }
+
+    #[test]
+    fn test_entity_serde_mapped() {
+        let entity = Entity::from_raw_u32(10).unwrap();
+        assert!(!RemoteEntityMap::is_mapped(entity));
+        let entity_mapped = RemoteEntityMap::mark_mapped(entity);
+        assert!(RemoteEntityMap::is_mapped(entity_mapped));
+
+        let mut writer = Writer::with_capacity(100);
+        let ser = entity_mapped.to_bytes(&mut writer).unwrap();
+        let mut reader = Reader::from(writer.split());
+        let serde_e = Entity::from_bytes(&mut reader).unwrap();
+        assert_eq!(entity_mapped, serde_e);
     }
 }
 

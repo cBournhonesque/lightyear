@@ -183,7 +183,7 @@ fn debug() {
 }
 
 pub(crate) fn fixed_pre_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     remote_client_inputs: Query<
         (
             Entity,
@@ -208,7 +208,7 @@ pub(crate) fn fixed_pre_log(
 }
 
 pub(crate) fn fixed_pre_prepare(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     remote_client_inputs: Query<
         (
             Entity,
@@ -236,7 +236,7 @@ pub(crate) fn fixed_pre_prepare(
 }
 
 pub(crate) fn fixed_pre_physics(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     remote_client_inputs: Query<
         (
             Entity,

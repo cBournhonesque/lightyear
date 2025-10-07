@@ -34,6 +34,9 @@ bevy_utils.workspace = true
 # no_std
 no_std_io2.workspace = true
 
+[dev-dependencies]
+test-log.workspace = true
+
 [lints]
 workspace = true
 

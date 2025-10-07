@@ -22,7 +22,6 @@ use bevy_ecs::{
 use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
 use lightyear_connection::client::Connected;
-use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
@@ -149,7 +148,6 @@ fn receive_input_message<S: ActionStateSequence>(
         (
             Entity,
             &LinkOf,
-            &ClientOf,
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
             Option<&InputRebroadcaster<S::Action>>,
@@ -163,7 +161,7 @@ fn receive_input_message<S: ActionStateSequence>(
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().try_for_each(|(client_entity, link_of, client_of, mut receiver, client_id, rebroadcaster)| {
+    receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read instead?
         let server_entity = link_of.server;
