@@ -4,7 +4,6 @@ use bevy_app::FixedPreUpdate;
 use bevy_app::{App, Plugin};
 #[cfg(feature = "client")]
 use bevy_ecs::schedule::IntoScheduleConfigs;
-use bevy_utils::prelude::DebugName;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear_inputs::config::InputConfig;
 use lightyear_inputs::input_buffer::InputBuffer;
@@ -44,7 +43,7 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
             if app.is_plugin_added::<bevy_input::InputPlugin>() {
                 trace!(
                     "adding client input plugin for action {:?}",
-                    DebugName::type_name::<A>()
+                    bevy_utils::prelude::DebugName::type_name::<A>()
                 );
                 app.add_plugins(InputManagerPlugin::<A>::default());
                 app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
@@ -63,7 +62,7 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
         {
             trace!(
                 "adding server input plugin for action {:?}",
-                DebugName::type_name::<A>()
+                bevy_utils::prelude::DebugName::type_name::<A>()
             );
             app.add_plugins(
                 lightyear_inputs::server::ServerInputPlugin::<LeafwingSequence<A>> {

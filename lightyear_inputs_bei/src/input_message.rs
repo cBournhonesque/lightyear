@@ -178,10 +178,12 @@ impl<C: Send + Sync + 'static> InputSnapshot for ActionsSnapshot<C> {
 }
 
 impl ActionsMessage {
+    #[inline]
     fn from_snapshot<C>(snapshot: &ActionsSnapshot<C>) -> Self {
         snapshot.state
     }
 
+    #[inline]
     #[allow(clippy::wrong_self_convention)]
     fn to_snapshot<C>(self) -> ActionsSnapshot<C> {
         ActionsSnapshot::<C> {
@@ -216,6 +218,7 @@ impl ActionStateQueryData for ActionData {
     type Main = ActionState;
     type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
 
+    #[inline]
     fn as_read_only<'a, 'w: 'a, 's>(
         state: &'a <Self::Mut as QueryData>::Item<'w, 's>,
     ) -> <<Self::Mut as QueryData>::ReadOnly as QueryData>::Item<'a, 's> {
@@ -227,6 +230,7 @@ impl ActionStateQueryData for ActionData {
         }
     }
 
+    #[inline]
     fn into_inner<'w, 's>(
         mut_item: <Self::Mut as QueryData>::Item<'w, 's>,
     ) -> Self::MutItemInner<'w> {
@@ -238,6 +242,7 @@ impl ActionStateQueryData for ActionData {
         }
     }
 
+    #[inline]
     fn as_mut(bundle: &mut Self::Bundle) -> Self::MutItemInner<'_> {
         let (state, value, events, time) = bundle;
         ActionDataInnerItem {
@@ -248,6 +253,7 @@ impl ActionStateQueryData for ActionData {
         }
     }
 
+    #[inline]
     fn base_value() -> Self::Bundle {
         (
             ActionState::default(),
@@ -520,6 +526,7 @@ mod tests {
 
         // Set up buffer with an absent action at tick 5
         input_buffer.set_empty(Tick(5));
+        input_buffer.last_remote_tick = Some(Tick(5));
 
         // Create a new action for the message
         state.state = ActionState::Fired;
@@ -551,6 +558,7 @@ mod tests {
         state.state = ActionState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(5), state.to_snapshot());
+        input_buffer.last_remote_tick = Some(Tick(5));
 
         let sequence = BEIStateSequence::<Context1> {
             states: vec![InputData::Absent, InputData::SameAsPrecedent],
@@ -577,6 +585,7 @@ mod tests {
         state.state = ActionState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(5), state.to_snapshot());
+        input_buffer.last_remote_tick = Some(Tick(5));
 
         // Create a different action for the message
         state.state = ActionState::Ongoing;
@@ -598,6 +607,46 @@ mod tests {
     }
 
     #[test]
+    fn test_update_buffer_same_as_precedent_mismatch() {
+        let mut input_buffer = InputBuffer::default();
+
+        // Set up buffer with an action at tick 5
+        let mut state = ActionsMessage::default();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+        input_buffer.set(Tick(5), state.to_snapshot());
+        input_buffer.last_remote_tick = Some(Tick(5));
+
+        // Receive a snapshot for ticks 6 and 7 with the same action (decayed)
+        let mut snapshot: ActionsSnapshot<Context1> = state.to_snapshot();
+        snapshot.decay_tick(Duration::from_millis(10));
+        let state = ActionsMessage::from_snapshot(&snapshot);
+
+        info!("Input buffer before update: {:?}", input_buffer);
+
+        // the second action is wrong! it should be decayed
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![InputData::Input(state), InputData::SameAsPrecedent],
+            marker: Default::default(),
+        };
+        info!("Sequence to apply: {:?}", sequence);
+
+        let earliest_mismatch =
+            sequence.update_buffer(&mut input_buffer, Tick(7), Duration::from_millis(10));
+
+        // Should be no mismatch since the action matches our prediction
+        assert_eq!(earliest_mismatch, Some(Tick(7)));
+        assert_eq!(
+            input_buffer.get_raw(Tick(6)),
+            &InputData::Input(snapshot.clone())
+        );
+        assert_eq!(
+            input_buffer.get_raw(Tick(7)),
+            &InputData::Input(snapshot.clone())
+        );
+    }
+
+    #[test]
     fn test_update_buffer_no_mismatch_same_action() {
         let mut input_buffer = InputBuffer::default();
 
@@ -606,11 +655,13 @@ mod tests {
         state.state = ActionState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(5), state.to_snapshot());
+        input_buffer.last_remote_tick = Some(Tick(5));
 
         // Receive a snapshot for ticks 6 and 7 with the same action (decayed)
         let mut snapshot: ActionsSnapshot<Context1> = state.to_snapshot();
         snapshot.decay_tick(Duration::default());
         let state = ActionsMessage::from_snapshot(&snapshot);
+        // the second action doesn't mismatch because there are no durations
         let sequence = BEIStateSequence::<Context1> {
             states: vec![InputData::Input(state), InputData::SameAsPrecedent],
             marker: Default::default(),
@@ -621,8 +672,11 @@ mod tests {
 
         // Should be no mismatch since the action matches our prediction
         assert_eq!(earliest_mismatch, None);
-        assert_eq!(input_buffer.get_raw(Tick(6)), &InputData::Input(snapshot));
-        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::SameAsPrecedent);
+        assert_eq!(
+            input_buffer.get_raw(Tick(6)),
+            &InputData::Input(snapshot.clone())
+        );
+        assert_eq!(input_buffer.get(Tick(7)), Some(&snapshot));
         assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Absent);
     }
 
@@ -637,6 +691,7 @@ mod tests {
         let first_state = state;
         input_buffer.set(Tick(5), first_state.to_snapshot());
         input_buffer.set(Tick(6), first_state.to_snapshot());
+        input_buffer.last_remote_tick = Some(Tick(6));
 
         // Create a different action
         state.state = ActionState::Ongoing;
@@ -665,5 +720,40 @@ mod tests {
         // Ticks 7 and 8 should be updated
         assert_eq!(input_buffer.get(Tick(7)), Some(&second_state.to_snapshot()));
         assert_eq!(input_buffer.get(Tick(8)), Some(&second_state.to_snapshot()));
+    }
+
+    /// Even if last_remote_tick < end_tick, we should correctly compute the mismatch
+    #[test]
+    fn test_update_buffer_last_remote_tick_before_end_tick() {
+        let mut input_buffer = InputBuffer::default();
+
+        // Set up buffer with actions at ticks 5 and 6
+        let mut state = ActionsMessage::default();
+        state.state = ActionState::Fired;
+        state.value = ActionValue::Bool(true);
+
+        let first_state = state;
+        input_buffer.set(Tick(6), first_state.to_snapshot());
+
+        let mut first_state_decay = first_state.to_snapshot();
+        ActionsSnapshot::<Context1>::decay_tick(&mut first_state_decay, Duration::from_millis(10));
+        input_buffer.set(Tick(7), first_state_decay);
+        input_buffer.last_remote_tick = Some(Tick(6));
+
+        info!("Input buffer before update: {:?}", input_buffer);
+
+        let sequence = BEIStateSequence::<Context1> {
+            states: vec![
+                InputData::Input(first_state), // tick 6 - should match
+                InputData::SameAsPrecedent, // tick 7 - should be mismatch because it's not decayed!
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch =
+            sequence.update_buffer(&mut input_buffer, Tick(7), Duration::default());
+
+        // Should detect mismatch at tick 7 (first tick after previous_end_tick=6)
+        assert_eq!(earliest_mismatch, Some(Tick(7)));
     }
 }

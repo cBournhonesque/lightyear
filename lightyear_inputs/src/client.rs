@@ -195,6 +195,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 PreUpdate,
                 InputSet::ReceiveInputMessages
                     .after(MessageSet::Receive)
+                    // NOTE: there is no point in running this after ReplicationSet::Receive, because even if we spawned the entity
+                    //  before the corresponding input entity, entity-mapping is applied in MessageSet::Receive and would fail
                     .before(RollbackSet::Check),
             );
             app.add_systems(
@@ -301,7 +303,7 @@ fn get_action_state<S: ActionStateSequence>(
         (
             Entity,
             StateMut<S>,
-            &InputBuffer<S::Snapshot>,
+            &mut InputBuffer<S::Snapshot>,
             Has<S::Marker>,
         ),
         Allow<PredictionDisable>,
@@ -314,7 +316,7 @@ fn get_action_state<S: ActionStateSequence>(
         return;
     }
     // TODO!: if config.rebroadcast = False, we don't need to handle remote players, try to encode that statically!
-    for (entity, action_state, input_buffer, is_local) in action_state_query.iter_mut() {
+    for (entity, action_state, mut input_buffer, is_local) in action_state_query.iter_mut() {
         if !is_rollback && is_local && input_delay == 0 {
             // for local clients, if there is no rollback and no input_delay:
             // we just buffered the input for the current tick so the action state is already up to date
@@ -368,6 +370,8 @@ fn get_action_state<S: ActionStateSequence>(
             );
             // update the action state with decay
             S::from_snapshot(S::State::into_inner(action_state), &snapshot);
+            // add the new snapshot in the buffer
+            input_buffer.set(tick, snapshot);
         }
     }
 }
@@ -603,8 +607,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             if let Some(mut input_buffer) = input_buffer {
                 // do not parse the remote message our current Buffer end_tick is later than the message end_tick
                 // this can happen if we receive multiple messages out of order.
-                if input_buffer.end_tick().is_some_and(|t| t >= message.end_tick) {
-                    trace!("Ignoring input message becase our current end_tick {:?} is more recent than the remote_end_tick", input_buffer.end_tick());
+                if input_buffer.last_remote_tick.is_some_and(|t| t >= message.end_tick) {
+                    trace!("Ignoring input message because our current last_remote_tick {:?} is more recent than the remote_end_tick", input_buffer.last_remote_tick);
                     continue
                 }
                 update_buffer_from_remote_player_message::<S>(
@@ -676,7 +680,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     predicted_query.iter().for_each(|buffer| {
         // if we received any messages, we update the LastConfirmedInput
         // (this is used to determine the last confirmed tick for each client)
-        if let Some(end_tick) = buffer.end_tick() {
+        if let Some(end_tick) = buffer.last_remote_tick {
             last_confirmed_input.tick.set_if_lower(end_tick);
         }
     });
@@ -735,7 +739,7 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
                 DebugName::type_name::<S::Action>(),
             ))
             .increment(1);
-            let margin = input_buffer.end_tick().unwrap() - tick;
+            let margin = input_buffer.last_remote_tick.unwrap() - tick;
             metrics::gauge!(format!(
                 "inputs::{}::remote_player::{}::buffer_margin",
                 DebugName::type_name::<S::Action>(),
@@ -833,6 +837,9 @@ fn receive_tick_events<S: ActionStateSequence>(
                 trigger.event(),
                 input_buffer.start_tick
             );
+        }
+        if let Some(last_remote_tick) = input_buffer.last_remote_tick {
+            input_buffer.last_remote_tick = Some(last_remote_tick + delta);
         }
     }
     for message in message_buffer.0.iter_mut() {

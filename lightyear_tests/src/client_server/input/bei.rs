@@ -363,12 +363,12 @@ fn test_client_rollback() {
 }
 
 /// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
-/// Then for the missing ticks we should be predicting the future value of the inpu
+/// Then for the missing ticks we should be predicting the future value of the input
 ///
 /// Also checks that during rollbacks we fetch the correct input value even for remote inputs.
 ///
-/// For example if we receive inputs from client 1 with 5 tick delay, then when we are tick 35 we receive
-/// the input for tick 30. In that case we should either:
+/// For example if we receive inputs from client 1 with 5 tick delay, then when we are at tick 35
+/// we receive the input for tick 30. In that case we should either:
 /// - launch a rollback check immediately for tick 30
 /// - or at least at tick 35 use the newly received input value for prediction!
 #[test]
