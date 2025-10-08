@@ -25,6 +25,10 @@ use tracing::trace;
 pub struct InputBuffer<T> {
     pub start_tick: Option<Tick>,
     pub buffer: VecDeque<InputData<T>>,
+    /// For remote inputs, keep track of the last tick we have received from the remote.
+    /// (this is necessary because even without receiving a remote tick we keep updating the buffer with
+    /// predicted inputs)
+    pub last_remote_tick: Option<Tick>,
 }
 
 impl<T: Debug> core::fmt::Display for InputBuffer<T> {
@@ -75,6 +79,7 @@ impl<T> Default for InputBuffer<T> {
         Self {
             buffer: VecDeque::new(),
             start_tick: None,
+            last_remote_tick: None,
         }
     }
 }

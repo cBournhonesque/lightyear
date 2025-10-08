@@ -137,7 +137,7 @@ fn update_player_label(
         // hopefully this is positive, ie we have received remote player inputs before they are needed.
         // this can happen because of input_delay. The server receives inputs in advance of
         // needing them, and rebroadcasts to other players.
-        let num_buffered_inputs = if let Some(end_tick) = input_buffer.end_tick() {
+        let num_buffered_inputs = if let Some(end_tick) = input_buffer.last_remote_tick {
             end_tick - tick
         } else {
             0

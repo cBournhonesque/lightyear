@@ -232,6 +232,7 @@ mod tests {
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
         input_buffer.set(Tick(6), action_state.clone().into());
+        input_buffer.last_remote_tick = Some(Tick(6));
         let sequence = LeafwingSequence::<Action> {
             // Tick 5
             start_state: action_state.clone(),
@@ -274,6 +275,34 @@ mod tests {
         let mut action_state = ActionState::<Action>::default();
         action_state.press(&Action::Jump);
         input_buffer.set(Tick(2), action_state.clone().into());
+        let sequence = LeafwingSequence::<Action> {
+            start_state: action_state.clone(),
+            diffs: vec![vec![ActionDiff::Released {
+                action: Action::Jump,
+            }]],
+        };
+        // Should overwrite tick 3
+        sequence.update_buffer(&mut input_buffer, Tick(3), Duration::default());
+        assert_eq!(input_buffer.get(Tick(2)).unwrap().0, action_state);
+
+        let mut expected = action_state.clone();
+        expected.release(&Action::Jump);
+        expected.set_update_state_from_state();
+        expected.set_fixed_update_state_from_state();
+        assert_eq!(input_buffer.get(Tick(3)).unwrap().0, expected);
+    }
+
+    /// Check that if the input buffer has ticks beyond the previous mismatch, we still find the mismatch correctly
+    #[test]
+    fn test_update_buffer_mismatch() {
+        let mut input_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        input_buffer.set(Tick(2), action_state.clone().into());
+        input_buffer.last_remote_tick = Some(Tick(2));
+        input_buffer.set(Tick(3), action_state.clone().into());
+        input_buffer.set(Tick(4), action_state.clone().into());
+
         let sequence = LeafwingSequence::<Action> {
             start_state: action_state.clone(),
             diffs: vec![vec![ActionDiff::Released {

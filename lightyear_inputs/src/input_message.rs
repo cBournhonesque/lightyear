@@ -157,9 +157,10 @@ pub trait ActionStateSequence:
         end_tick: Tick,
         tick_duration: Duration,
     ) -> Option<Tick> {
+        let last_remote_tick = input_buffer.last_remote_tick;
         let previous_end_tick = input_buffer.end_tick();
 
-        let mut previous_predicted_input = input_buffer.get_last().cloned();
+        let mut previous_predicted_input = last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
         let mut earliest_mismatch: Option<Tick> = None;
         let start_tick = end_tick + 1 - self.len() as u16;
 
@@ -182,8 +183,8 @@ pub trait ActionStateSequence:
             if earliest_mismatch.is_some() {
                 input_buffer.set_raw(tick, input);
             } else {
-                // only try to detect mismatches after the previous_end_tick
-                if previous_end_tick.is_none_or(|t| tick > t) {
+                // only try to detect mismatches after the last_remote_tick
+                if last_remote_tick.is_none_or(|t| tick > t) {
                     if match (&previous_predicted_input, &input) {
                         // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
                         (_, InputData::SameAsPrecedent) => true,
@@ -206,6 +207,7 @@ pub trait ActionStateSequence:
             }
         }
         trace!("input buffer after update: {input_buffer:?}");
+        input_buffer.last_remote_tick = Some(end_tick);
         earliest_mismatch
     }
 
