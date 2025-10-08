@@ -265,7 +265,7 @@ fn test_input_broadcasting_prediction() {
         .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
         .expect("input buffer should exist");
     info!(?buffer, "client 1 tick: {:?}", client1_tick);
-    assert_eq!(buffer.end_tick().unwrap(), client1_tick);
+    assert_eq!(buffer.last_remote_tick.unwrap(), client1_tick);
     // make sure that the ActionState on client 1's predicted entity has been updated
     let action_state = stepper.client_apps[1]
         .world()

@@ -158,50 +158,56 @@ pub trait ActionStateSequence:
         tick_duration: Duration,
     ) -> Option<Tick> {
         let last_remote_tick = input_buffer.last_remote_tick;
-        let previous_end_tick = input_buffer.end_tick();
 
-        let mut previous_predicted_input = last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
+        let mut previous_predicted_input =
+            last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
         let mut earliest_mismatch: Option<Tick> = None;
         let start_tick = end_tick + 1 - self.len() as u16;
+        let mut latest_received_input = None;
 
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in self.get_snapshots_from_message().enumerate() {
             let tick = start_tick + Tick(delta as u16);
 
-            // TODO: instead of doing this every time, should we just keep updating/mocking the inputs for the remote clients?
-            //  then the buffer would be filled with predicted inputs up to the current tick
-            // for ticks after the last tick in the buffer, we start decaying our previous_predicted_input
-            if previous_end_tick.is_some_and(|t| tick > t) {
+            // TODO: we might want to just fetch the predicted ActionState from the InputBuffer?
+            //   and we decay only for inputs that are in the future
+            //   It might also be more correct to fetch the value from the InputBuffer because its the value we actually used!
+            // for ticks after the last remote tick in the buffer, we start decaying our previous_predicted_input
+            // (we could fetch predicted values from the buffer, but then we would have to start predicting after we reach
+            // the end of the buffer)
+            if last_remote_tick.is_some_and(|t| tick > t) {
                 previous_predicted_input = previous_predicted_input.map(|prev| {
                     let mut prev = prev;
                     prev.decay_tick(tick_duration);
                     prev
                 });
             }
-
             // after the mismatch, we just fill with the data from the message
             if earliest_mismatch.is_some() {
                 input_buffer.set_raw(tick, input);
             } else {
+                match input {
+                    InputData::Absent => latest_received_input = None,
+                    InputData::Input(latest) => latest_received_input = Some(latest),
+                    _ => {}
+                }
                 // only try to detect mismatches after the last_remote_tick
                 if last_remote_tick.is_none_or(|t| tick > t) {
-                    if match (&previous_predicted_input, &input) {
-                        // it is not possible to get a mismatch from SameAsPrecedent without first getting a mismatch from Input or Absent
-                        (_, InputData::SameAsPrecedent) => true,
-                        (Some(prev), InputData::Input(latest)) => latest == prev,
-                        (None, InputData::Absent) => true,
+                    // TODO: maybe don't add if it's before the end_tick?
+                    // this is a tick after our last_remote_tick so we always want to add it to the buffer
+                    input_buffer.set_raw(tick, InputData::from(latest_received_input.clone()));
+
+                    if match (&previous_predicted_input, &latest_received_input) {
+                        (Some(prev), Some(latest)) => latest == prev,
+                        (None, None) => true,
                         _ => false,
                     } {
-                        // no mismatch but this is a tick after our previous_end_tick so we want to add it to the buffer.
-                        input_buffer.set_raw(tick, input);
                         continue;
                     }
-                    // first mismatch tick!
-                    // set the new value for the mismatch tick
+                    // first mismatch tick! set the new value for the mismatch tick
                     debug!(
-                        "Mismatch detected at tick {tick:?} for new_input {input:?}. Previous predicted input: {previous_predicted_input:?}"
+                        "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
                     );
-                    input_buffer.set_raw(tick, input);
                     earliest_mismatch = Some(tick);
                 }
             }
@@ -225,6 +231,17 @@ pub trait ActionStateSequence:
 
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
+
+    /// Apply decay to the given state for the given tick duration.
+    fn decay_tick(state: StateMutItem<Self>, tick_duration: Duration) {
+        let mut snapshot =
+            Self::to_snapshot(<Self::State as ActionStateQueryData>::as_read_only(&state));
+        snapshot.decay_tick(tick_duration);
+        Self::from_snapshot(
+            <Self::State as ActionStateQueryData>::into_inner(state),
+            &snapshot,
+        );
+    }
 }
 
 /// Message used to send client inputs to the server.

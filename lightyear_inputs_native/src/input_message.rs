@@ -210,6 +210,7 @@ mod tests {
                 InputData::SameAsPrecedent,
                 InputData::SameAsPrecedent,
             ]),
+            last_remote_tick: Some(Tick(12)),
         };
         let sequence = NativeStateSequence::<usize> {
             states: vec![
@@ -246,6 +247,7 @@ mod tests {
                 InputData::Absent,
                 InputData::SameAsPrecedent,
             ]),
+            last_remote_tick: Some(Tick(12)),
         };
         let sequence = NativeStateSequence::<usize> {
             states: vec![
@@ -266,6 +268,7 @@ mod tests {
         let mut input_buffer = InputBuffer {
             start_tick: Some(Tick(10)),
             buffer: VecDeque::from([InputData::Absent, InputData::SameAsPrecedent]),
+            last_remote_tick: Some(Tick(11)),
         };
         let sequence = NativeStateSequence::<usize> {
             states: vec![

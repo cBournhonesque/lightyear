@@ -195,6 +195,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 PreUpdate,
                 InputSet::ReceiveInputMessages
                     .after(MessageSet::Receive)
+                    // NOTE: there is no point in running this after ReplicationSet::Receive, because even if we spawned the entity
+                    //  before the corresponding input entity, entity-mapping is applied in MessageSet::Receive and would fail
                     .before(RollbackSet::Check),
             );
             app.add_systems(
@@ -835,6 +837,9 @@ fn receive_tick_events<S: ActionStateSequence>(
                 trigger.event(),
                 input_buffer.start_tick
             );
+        }
+        if let Some(last_remote_tick) = input_buffer.last_remote_tick {
+            input_buffer.last_remote_tick = Some(last_remote_tick + delta);
         }
     }
     for message in message_buffer.0.iter_mut() {
