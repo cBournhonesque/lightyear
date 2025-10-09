@@ -7,7 +7,6 @@ extern crate std;
 pub mod server;
 
 use alloc::format;
-
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSystems, Session, SessionEndpoint};
@@ -70,6 +69,7 @@ impl AeronetPlugin {
     fn on_connecting(
         trigger: On<Add, (SessionEndpoint, AeronetLinkOf)>,
         query: Query<&AeronetLinkOf, With<SessionEndpoint>>,
+        linked_query: Query<(), With<Linked>>,
         mut commands: Commands,
     ) {
         if let Ok(aeronet_link) = query.get(trigger.entity)
@@ -79,7 +79,11 @@ impl AeronetPlugin {
                 "SessionEndpoint added on AeronetLink {:?}. Adding Linking on Link entity {:?}",
                 trigger.entity, aeronet_link.0
             );
-            c.insert(Linking);
+            // If `Linked` is already inserted, we don't want to insert `Linking`
+            // (sometimes, both `Linked` and `Linking` get inserted at the same frame).
+            if !linked_query.contains(aeronet_link.0) {
+                c.insert(Linking);
+            }
         }
     }
 
