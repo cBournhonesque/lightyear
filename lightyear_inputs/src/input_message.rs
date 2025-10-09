@@ -158,6 +158,7 @@ pub trait ActionStateSequence:
         tick_duration: Duration,
     ) -> Option<Tick> {
         let last_remote_tick = input_buffer.last_remote_tick;
+        let previous_end_tick = input_buffer.end_tick();
 
         let mut previous_predicted_input =
             last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
@@ -169,19 +170,19 @@ pub trait ActionStateSequence:
         for (delta, input) in self.get_snapshots_from_message().enumerate() {
             let tick = start_tick + Tick(delta as u16);
 
-            // TODO: we might want to just fetch the predicted ActionState from the InputBuffer?
-            //   and we decay only for inputs that are in the future
-            //   It might also be more correct to fetch the value from the InputBuffer because its the value we actually used!
-            // for ticks after the last remote tick in the buffer, we start decaying our previous_predicted_input
-            // (we could fetch predicted values from the buffer, but then we would have to start predicting after we reach
-            // the end of the buffer)
-            if last_remote_tick.is_some_and(|t| tick > t) {
+            // if the tick is within the buffer, just fetch from it
+            // TODO: ideally we just clone the last element from the buffer
+            if previous_end_tick.is_some_and(|end_tick| end_tick >= tick) {
+                previous_predicted_input = input_buffer.get(tick).cloned();
+            } else {
+                // else manually decay
                 previous_predicted_input = previous_predicted_input.map(|prev| {
                     let mut prev = prev;
                     prev.decay_tick(tick_duration);
                     prev
                 });
-            }
+            };
+
             // after the mismatch, we just fill with the data from the message
             if earliest_mismatch.is_some() {
                 input_buffer.set_raw(tick, input);
@@ -193,27 +194,30 @@ pub trait ActionStateSequence:
                 }
                 // only try to detect mismatches after the last_remote_tick
                 if last_remote_tick.is_none_or(|t| tick > t) {
-                    // TODO: maybe don't add if it's before the end_tick?
-                    // this is a tick after our last_remote_tick so we always want to add it to the buffer
-                    input_buffer.set_raw(tick, InputData::from(latest_received_input.clone()));
-
                     if match (&previous_predicted_input, &latest_received_input) {
-                        (Some(prev), Some(latest)) => latest == prev,
+                        (Some(prev), Some(latest)) => prev == latest,
                         (None, None) => true,
                         _ => false,
                     } {
+                        if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
+                            input_buffer
+                                .set_raw(tick, InputData::from(latest_received_input.clone()));
+                        }
                         continue;
                     }
                     // first mismatch tick! set the new value for the mismatch tick
                     debug!(
                         "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
                     );
+                    input_buffer.set_raw(tick, InputData::from(latest_received_input.clone()));
+                    // remove all existing inputs in the buffer that come after `tick`
+                    input_buffer.clip_after(tick);
                     earliest_mismatch = Some(tick);
                 }
             }
         }
-        trace!("input buffer after update: {input_buffer:?}");
         input_buffer.last_remote_tick = Some(end_tick);
+        trace!("input buffer after update: {input_buffer:?}");
         earliest_mismatch
     }
 

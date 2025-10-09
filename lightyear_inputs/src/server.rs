@@ -172,9 +172,11 @@ fn receive_input_message<S: ActionStateSequence>(
                 error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", DebugName::type_name::<S::Action>());
                 return Ok(())
             }
-            if message.is_empty() {
-                return Ok(())
-            }
+            // NOTE: This can cause issues because the clients expect a steady stream of messages.
+            //  For example the LastConfirmedTick could be really old which would cause a massive rollback
+            // if message.is_empty() {
+            //     return Ok(())
+            // }
             trace!(?client_id, action = ?DebugName::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick

@@ -16,10 +16,12 @@ use alloc::{
 use bevy_ecs::component::Component;
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
+use core::convert::TryFrom;
 use core::fmt::{Debug, Formatter};
 use lightyear_core::tick::Tick;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 #[derive(Component, Debug, Reflect)]
 pub struct InputBuffer<T> {
@@ -86,8 +88,27 @@ impl<T> Default for InputBuffer<T> {
 
 impl<T: Clone + PartialEq> InputBuffer<T> {
     /// Number of elements in the buffer
-    pub(crate) fn len(&self) -> usize {
+    pub fn len(&self) -> usize {
         self.buffer.len()
+    }
+
+    /// Remove all elements in the buffer that are strictly after `tick`
+    /// (leaves `tick` in the buffer)
+    pub fn clip_after(&mut self, tick: Tick) {
+        let Some(end_tick) = self.end_tick() else {
+            return;
+        };
+        let start_tick = self.start_tick.unwrap();
+        if tick < start_tick {
+            self.start_tick = None;
+            self.buffer.clear();
+            return;
+        }
+        if tick >= end_tick {
+            return;
+        }
+        let new_end = usize::try_from(tick - start_tick + 1).unwrap();
+        self.buffer.drain(new_end..);
     }
 
     /// Make sure that the buffer fits the range [start_tick, end_tick]
@@ -486,5 +507,22 @@ mod tests {
         assert_eq!(input_buffer.len(), 1);
         input_buffer.set(Tick(2), 2);
         assert_eq!(input_buffer.len(), 2);
+    }
+
+    #[test]
+    fn test_clip_after() {
+        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        input_buffer.set(Tick(1), 1);
+        input_buffer.set(Tick(2), 2);
+        input_buffer.set(Tick(3), 2);
+
+        // clip anything strictly after 3: nothing happens
+        input_buffer.clip_after(Tick(3));
+        assert_eq!(input_buffer.len(), 3);
+
+        input_buffer.clip_after(Tick(1));
+        assert_eq!(input_buffer.len(), 1);
+        assert_eq!(input_buffer.get(Tick(1)), Some(&1));
+        assert_eq!(input_buffer.get(Tick(2)), None);
     }
 }

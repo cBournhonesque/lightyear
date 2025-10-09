@@ -197,9 +197,9 @@ pub struct CorrectionPolicy {
 impl Default for CorrectionPolicy {
     fn default() -> Self {
         Self {
-            decay_period: core::time::Duration::from_millis(100),
+            decay_period: core::time::Duration::from_millis(200),
             decay_ratio: 0.5,
-            max_correction_period: core::time::Duration::from_secs(500),
+            max_correction_period: core::time::Duration::from_secs(600),
         }
     }
 }

@@ -608,7 +608,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 // do not parse the remote message our current Buffer end_tick is later than the message end_tick
                 // this can happen if we receive multiple messages out of order.
                 if input_buffer.last_remote_tick.is_some_and(|t| t >= message.end_tick) {
-                    trace!("Ignoring input message because our current last_remote_tick {:?} is more recent than the remote_end_tick", input_buffer.last_remote_tick);
+                    trace!("Ignoring input message because our current last_remote_tick {:?} is more recent than the remote_end_tick {:?}", input_buffer.last_remote_tick, message.end_tick);
                     continue
                 }
                 update_buffer_from_remote_player_message::<S>(
