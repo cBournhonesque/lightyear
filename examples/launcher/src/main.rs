@@ -3,7 +3,7 @@ mod config;
 
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
-use bevy_egui::{egui, EguiContexts, EguiPlugin};
+use bevy_egui::{egui, EguiContexts, EguiPlugin, EguiPrimaryContextPass};
 use lightyear::prelude::client;
 use lightyear::prelude::server;
 
@@ -131,9 +131,7 @@ fn main() {
                 })
                 .disable::<LogPlugin>(),
         ) // Use Log settings from helper below
-        .add_plugins(EguiPlugin {
-            enable_multipass_for_primary_context: false,
-        })
+        .add_plugins(EguiPlugin::default())
         .init_resource::<LauncherConfig>() // Initialize with defaults for UI
         .add_plugins(LogPlugin {
             // Add common log settings here for UI app
@@ -141,12 +139,17 @@ fn main() {
             filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,lightyear=info".to_string(),
             ..default()
         })
-        .add_systems(Update, ui_system)
+        .add_systems(Startup, setup_system)
+        .add_systems(EguiPrimaryContextPass, ui_system)
         .run();
 }
 
-fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
-    egui::CentralPanel::default().show(contexts.ctx_mut(), |ui| {
+fn setup_system(mut commands: Commands) {
+    commands.spawn(Camera2d);
+}
+
+fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) -> Result {
+    egui::CentralPanel::default().show(contexts.ctx_mut()?, |ui| {
         ui.heading("Lightyear Example Launcher");
         ui.separator();
 
@@ -364,6 +367,7 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) {
             ui.label("(Please complete configuration for the selected mode)");
         }
     });
+    Ok(())
 }
 
 fn new_launcher_gui_app(title: String) -> App {
@@ -432,7 +436,7 @@ fn build_server_app(config: LauncherConfig, _asset_path: String) -> App {
             shared: simple_box::shared::SHARED_SETTINGS,
         })
         .id();
-    app.world_mut().trigger_targets(Start, server);
+    app.world_mut().trigger(Start { entity: server });
 
     app
 }
@@ -478,7 +482,7 @@ fn build_client_app(config: LauncherConfig, _asset_path: String) -> App {
             shared: simple_box::shared::SHARED_SETTINGS,
         })
         .id();
-    app.world_mut().trigger_targets(Connect, client);
+    app.world_mut().trigger(Connect { entity: client });
 
     app
 }
