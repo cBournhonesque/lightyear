@@ -236,6 +236,11 @@ pub struct Linking;
 
 impl Linking {
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
+        // If `Linked` got inserted at the same frame right after `Linking`, we don't want to
+        // change the state or remove the `Linked` component.
+        if world.get::<Linked>(context.entity).is_some() {
+            return;
+        }
         if let Some(mut link) = world.get_mut::<Link>(context.entity) {
             link.state = LinkState::Linking;
         }
