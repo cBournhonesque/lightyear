@@ -118,7 +118,7 @@ pub(crate) struct SendTriggerMetadata {
 /// struct MyMessage;
 ///
 /// fn add_messages(app: &mut App) {
-///   app.add_message::<MyMessage>()
+///   app.register_message::<MyMessage>()
 ///     .add_direction(NetworkDirection::ServerToClient);
 /// }
 /// ```
@@ -149,7 +149,7 @@ pub(crate) struct SendTriggerMetadata {
 /// }
 ///
 /// fn add_messages(app: &mut App) {
-///   app.add_message::<MyMessage>()
+///   app.register_message::<MyMessage>()
 ///       .add_map_entities();
 /// }
 /// ```

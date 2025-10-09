@@ -135,6 +135,7 @@ mod tests {
     use super::*;
     use alloc::collections::VecDeque;
     use std::time::Duration;
+    use test_log::test;
 
     #[test]
     fn test_build_sequence_from_buffer() {
@@ -285,5 +286,26 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(11)), None);
         assert_eq!(input_buffer.get(Tick(10)), None);
         assert_eq!(input_buffer.get(Tick(9)), None);
+    }
+
+    /// Check that everything after the mismatch is cleared
+    #[test]
+    fn test_update_buffer_from_sequence_clip_after() {
+        let mut input_buffer = InputBuffer {
+            start_tick: Some(Tick(10)),
+            buffer: VecDeque::from([InputData::Absent, InputData::Input(ActionState(3))]),
+            last_remote_tick: Some(Tick(9)),
+        };
+        let sequence = NativeStateSequence::<usize> {
+            states: vec![
+                // Tick 10
+                InputData::Input(0),
+            ],
+        };
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(10), Duration::default());
+        assert_eq!(mismatch, Some(Tick(10)));
+        // check that everything after tick 10 is empty
+        assert_eq!(input_buffer.get(Tick(11)), None);
+        assert_eq!(input_buffer.len(), 1);
     }
 }
