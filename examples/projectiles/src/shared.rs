@@ -1,4 +1,3 @@
-use avian2d::PhysicsPlugins;
 use avian2d::prelude::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::platform::collections::HashMap;
@@ -29,7 +28,7 @@ const MAP_LIMIT: f32 = 2000.0;
 const HITSCAN_COLLISION_DISTANCE_CHECK: f32 = 2000.0;
 const BULLET_COLLISION_DISTANCE_CHECK: f32 = 0.5;
 
-const HITSCAN_LIFETIME: f32 = 0.1;
+const HITSCAN_LIFETIME: f32 = 0.2;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -79,7 +78,9 @@ impl Plugin for SharedPlugin {
                 .build()
                 // disable the position<>transform sync plugins as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
-                .disable::<PhysicsInterpolationPlugin>(),
+                .disable::<PhysicsInterpolationPlugin>()
+                .disable::<IslandPlugin>()
+                .disable::<IslandSleepingPlugin>(),
         )
         .insert_resource(Gravity(Vec2::ZERO));
     }
@@ -107,15 +108,18 @@ pub(crate) fn rotate_player(
 
 pub(crate) fn move_player(
     trigger: On<Fire<MovePlayer>>,
+    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
     // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
     mut player: Query<&mut Position, Without<Interpolated>>,
     is_bot: Query<(), With<Bot>>,
 ) {
+    let (timeline, is_rollback) = timeline.into_inner();
+    let tick = timeline.tick();
     const PLAYER_MOVE_SPEED: f32 = 1.5;
     if let Ok(mut position) = player.get_mut(trigger.context) {
-        if is_bot.get(trigger.context).is_err() {
-            trace!(
-                ?position,
+        if is_bot.get(trigger.context).is_ok() {
+            debug!(
+                ?tick, ?is_rollback, ?position,
                 "Moving player {:?} by {:?}", trigger.context, trigger.value
             );
         }
@@ -137,7 +141,7 @@ pub(crate) fn move_player(
 
 pub(crate) fn fixed_update_log(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>, Without<Bot>)>,
+    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>)>,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
     //     (With<BulletMarker>, Without<Confirmed>),
@@ -160,36 +164,42 @@ pub(crate) fn fixed_update_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Single<(&LocalTimeline, Option<&InterpolationTimeline>, Has<Rollback>), Without<ClientOf>>,
     player: Query<
-        (Entity, &Position, &Transform),
-        (With<PlayerMarker>, With<PlayerId>, Without<Bot>),
+        (Entity, Option<&Position>, &Confirmed<Position>, Option<&Rotation>, Option<&Transform>),
+        (With<PlayerMarker>, With<PlayerId>, With<Bot>),
     >,
-    // predicted_bullet: Query<
-    //     (Entity, &Position, Option<&PredictionHistory<Position>>),
-    //     (With<BulletMarker>, Without<Confirmed>),
-    // >,
+    interpolated_bullet: Query<
+        (Entity, Option<&Position>, &Confirmed<Position>, &ConfirmedHistory<Position>, Option<&Transform>),
+        (With<BulletMarker>, With<Interpolated>),
+    >,
 ) {
-    let (timeline, is_rollback) = timeline.into_inner();
+    let (timeline, interpolation_timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
-    for (entity, pos, transform) in player.iter() {
-        debug!(
+    let interpolate_tick = interpolation_timeline.map(|t| t.tick());
+    for (entity, pos, confirmed, rotation, transform) in player.iter() {
+        info!(
             ?tick,
             ?entity,
             ?pos,
-            transform = ?transform.translation,
+            ?confirmed,
+            ?rotation,
+            transform = ?transform.map(|t| t.translation.truncate()),
             "Player after last"
         );
     }
-    // for (entity, transform, history) in predicted_bullet.iter() {
-    //     debug!(
-    //         ?tick,
-    //         ?entity,
-    //         pos = ?transform.translation.truncate(),
-    //         ?history,
-    //         "Bullet after fixed update"
-    //     );
-    // }
+    for (entity, position, confirmed, history, transform) in interpolated_bullet.iter() {
+        debug!(
+            ?tick,
+            ?interpolate_tick,
+            ?entity,
+            ?position,
+            ?confirmed,
+            ?history,
+            transform = ?transform.map(|t| t.translation.truncate()),
+            "Bullet after fixed update"
+        );
+    }
 }
 
 /// Main weapon shooting system that handles all weapon types
@@ -203,7 +213,9 @@ pub(crate) fn shoot_weapon(
     mut player_query: Query<
         (
             &PlayerId,
-            &Transform,
+            // have to use Position/Rotation, as we don't do PositionToTransform until PostUpdate so the Transform is not accurate
+            &Position,
+            &Rotation,
             &ColorComponent,
             &mut Weapon,
             Option<&ControlledBy>,
@@ -224,7 +236,7 @@ pub(crate) fn shoot_weapon(
     let shooter = trigger.context;
     let (projectile_mode, replication_mode, weapon_type) = global.into_inner();
 
-    if let Ok((id, transform, color, mut weapon, controlled_by)) = player_query.get_mut(shooter) {
+    if let Ok((id, position, rotation, color, mut weapon, controlled_by)) = player_query.get_mut(shooter) {
         let is_server = controlled_by.is_some();
         // Check fire rate
         if let Some(last_fire) = weapon.last_fire_tick {
@@ -253,7 +265,8 @@ pub(crate) fn shoot_weapon(
                 full_entity::shoot_with_full_entity_replication(
                     &mut commands,
                     &timeline,
-                    transform,
+                    position,
+                    rotation,
                     id,
                     shooter,
                     color,
@@ -267,7 +280,8 @@ pub(crate) fn shoot_weapon(
                 direction_only::shoot_with_direction_only_replication(
                     &mut commands,
                     &timeline,
-                    transform,
+                    position,
+                    rotation,
                     id,
                     shooter,
                     color,
@@ -277,16 +291,16 @@ pub(crate) fn shoot_weapon(
                     weapon_type,
                 );
             }
-            (_, ProjectileReplicationMode::RingBuffer) => {
-                shoot_with_ring_buffer_replication(
-                    &mut weapon,
-                    &timeline,
-                    transform,
-                    id,
-                    shooter,
-                    weapon_type,
-                );
-            }
+            // (_, ProjectileReplicationMode::RingBuffer) => {
+            //     shoot_with_ring_buffer_replication(
+            //         &mut weapon,
+            //         &timeline,
+            //         transform,
+            //         id,
+            //         shooter,
+            //         weapon_type,
+            //     );
+            // }
         }
     }
 }
@@ -295,18 +309,16 @@ pub(crate) fn shoot_weapon(
 fn shoot_with_ring_buffer_replication(
     weapon: &mut Weapon,
     timeline: &LocalTimeline,
-    transform: &Transform,
+    position: &Position,
+    rotation: &Rotation,
     id: &PlayerId,
     shooter: Entity,
     weapon_type: &WeaponType,
 ) {
-    let direction = transform.up().as_vec3().truncate();
-    let position = transform.translation.truncate();
-
     let projectile_info = ProjectileSpawnInfo {
         spawn_tick: timeline.tick(),
-        position,
-        direction,
+        position: *position,
+        rotation: *rotation,
         weapon_type: *weapon_type,
     };
 
@@ -595,6 +607,7 @@ mod hit_detection {
 }
 
 mod full_entity {
+    use core::f32::consts::PI;
     use super::*;
 
     /// Full entity replication: spawn a replicated entity for the projectile
@@ -602,7 +615,8 @@ mod full_entity {
     pub(super) fn shoot_with_full_entity_replication(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -616,7 +630,8 @@ mod full_entity {
                 shoot_hitscan(
                     commands,
                     timeline,
-                    transform,
+                    position,
+                    rotation,
                     id,
                     shooter,
                     color,
@@ -628,7 +643,8 @@ mod full_entity {
                 shoot_linear_projectile(
                     commands,
                     timeline,
-                    transform,
+                    position,
+                    rotation,
                     id,
                     shooter,
                     color,
@@ -637,7 +653,7 @@ mod full_entity {
                     is_server,
                 );
             }
-            WeaponType::Shotgun => {
+            // WeaponType::Shotgun => {
                 // shoot_shotgun(
                 //     commands,
                 //     timeline,
@@ -648,8 +664,8 @@ mod full_entity {
                 //     replication_mode,
                 //     is_server,
                 // );
-            }
-            WeaponType::PhysicsProjectile => {
+            // }
+            // WeaponType::PhysicsProjectile => {
                 // shoot_physics_projectile(
                 //     commands,
                 //     timeline,
@@ -660,8 +676,8 @@ mod full_entity {
                 //     replication_mode,
                 //     is_server,
                 // );
-            }
-            WeaponType::HomingMissile => {
+            // }
+            // WeaponType::HomingMissile => {
                 // let target = find_nearest_target(transform);
                 // shoot_homing_missile(
                 //     commands,
@@ -673,13 +689,14 @@ mod full_entity {
                 //     is_server,
                 //     target,
                 // );
-            }
+            // }
         }
     }
     fn shoot_hitscan(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -688,9 +705,9 @@ mod full_entity {
     ) {
         let tick = timeline.tick();
         let is_server = controlled_by.is_some();
-        let direction = transform.up().as_vec3().truncate();
-        let start = transform.translation.truncate();
-        let end = start + direction * 1000.0; // Long hitscan range
+        let up = Vec2::new(0.0, 1.0);
+        let start = position.0;
+        let end = start + rotation * up * 1000.0; // Long hitscan range
 
         // For Hitscan, we directly spawn an entity that represents the 'bullet'
         let spawn_bundle = (
@@ -706,7 +723,7 @@ mod full_entity {
             *id,
             Name::new("HitscanProjectileSpawn"),
         );
-        info!(?is_server, ?tick, ?shooter, "FullEnttiy Hitscan shoot");
+        info!(?is_server, ?tick, ?shooter, "FullEntity Hitscan shoot");
         if is_server {
             #[cfg(feature = "server")]
             match replication_mode {
@@ -798,7 +815,8 @@ mod full_entity {
     fn shoot_linear_projectile(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -806,11 +824,11 @@ mod full_entity {
         replication_mode: &GameReplicationMode,
         is_server: bool,
     ) {
-        let bullet_transform = transform.clone();
+        let velocity = LinearVelocity(*rotation * Vec2::new(0.0, 1.0) * BULLET_MOVE_SPEED);
         let bullet_bundle = (
-            bullet_transform,
-            Position::new(transform.translation.truncate()),
-            LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
+            *position,
+            *rotation,
+            velocity,
             DespawnAfter(Timer::new(Duration::from_secs(3), TimerMode::Once)),
             RigidBody::Kinematic,
             *id,
@@ -818,7 +836,7 @@ mod full_entity {
             BulletMarker { shooter },
             Name::new("LinearProjectile"),
         );
-
+        info!(?bullet_bundle, "Shooting FullEntity LinearProjectile");
         if is_server {
             #[cfg(feature = "server")]
             match replication_mode {
@@ -843,6 +861,8 @@ mod full_entity {
                         Replicate::to_clients(NetworkTarget::All),
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                        // only replicate RigidBody to the shooter. We don't want interpolated bullets to have RigidBody
+                        ComponentReplicationOverrides::<RigidBody>::default().disable_all().enable_for(shooter),
                         controlled_by.unwrap().clone(),
                     ));
                 }
@@ -851,6 +871,8 @@ mod full_entity {
                         bullet_bundle,
                         Replicate::to_clients(NetworkTarget::All),
                         InterpolationTarget::to_clients(NetworkTarget::All),
+                        // We don't want interpolated bullets to have RigidBody
+                        ComponentReplicationOverrides::<RigidBody>::default().disable_all(),
                         controlled_by.unwrap().clone(),
                     ));
                 }
@@ -880,7 +902,8 @@ mod full_entity {
     fn shoot_shotgun(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -889,19 +912,19 @@ mod full_entity {
         is_server: bool,
     ) {
         let pellet_count = 8;
-        let spread_angle = 0.3; // 30 degrees spread
+        let spread_angle = PI / 6.0; // 30 degrees spread
 
         for i in 0..pellet_count {
             let angle_offset = (i as f32 - (pellet_count - 1) as f32 / 2.0) * spread_angle
                 / (pellet_count - 1) as f32;
-            let mut pellet_transform = transform.clone();
-            pellet_transform.rotate_z(angle_offset);
+
+            let mut new_rotation = rotation.add_angle_fast(angle_offset);
+            let velocity = LinearVelocity(new_rotation * Vec2::new(0.0, BULLET_MOVE_SPEED * 0.8));
 
             let pellet_bundle = (
-                pellet_transform,
-                LinearVelocity(
-                    pellet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED * 0.8,
-                ),
+                *position,
+                new_rotation,
+                velocity,
                 RigidBody::Kinematic,
                 *id,
                 *color,
@@ -935,7 +958,8 @@ mod full_entity {
     fn shoot_physics_projectile(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -943,10 +967,10 @@ mod full_entity {
         replication_mode: &GameReplicationMode,
         is_server: bool,
     ) {
-        let bullet_transform = transform.clone();
         let bullet_bundle = (
-            bullet_transform,
-            LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED * 0.6),
+            *position,
+            *rotation,
+            LinearVelocity(*rotation * Vec2::new(0.0, BULLET_MOVE_SPEED * 0.6)),
             RigidBody::Dynamic, // Use dynamic for physics interactions
             Collider::circle(BULLET_SIZE),
             Restitution::new(0.8), // Bouncy
@@ -980,7 +1004,8 @@ mod full_entity {
     fn shoot_homing_missile(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -988,10 +1013,10 @@ mod full_entity {
         is_server: bool,
         target: Option<Entity>,
     ) {
-        let missile_transform = transform.clone();
         let missile_bundle = (
-            missile_transform,
-            LinearVelocity(missile_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED * 0.4),
+            *position,
+            *rotation,
+            LinearVelocity(*rotation * Vec2::new(0.0, BULLET_MOVE_SPEED * 0.4)),
             RigidBody::Kinematic,
             *id,
             *color,
@@ -1023,6 +1048,7 @@ mod full_entity {
 
 /// To save bandwidth, the server only sends a message 'Client Fired Bullet'
 pub(crate) mod direction_only {
+    use core::f32::consts::PI;
     use super::*;
 
     /// Identifies the ProjectileSpawn that spawned the bullet
@@ -1039,7 +1065,8 @@ pub(crate) mod direction_only {
     pub(crate) fn shoot_with_direction_only_replication(
         commands: &mut Commands,
         timeline: &LocalTimeline,
-        transform: &Transform,
+        position: &Position,
+        rotation: &Rotation,
         id: &PlayerId,
         shooter: Entity,
         color: &ColorComponent,
@@ -1048,27 +1075,26 @@ pub(crate) mod direction_only {
         replication_mode: &GameReplicationMode,
         weapon_type: &WeaponType,
     ) {
-        let direction = transform.up().as_vec3().truncate();
-        let position = transform.translation.truncate();
         let speed = match weapon_type {
             WeaponType::Hitscan => 1000.0, // Instant
             WeaponType::LinearProjectile => BULLET_MOVE_SPEED,
-            WeaponType::Shotgun => BULLET_MOVE_SPEED * 0.8,
-            WeaponType::PhysicsProjectile => BULLET_MOVE_SPEED * 0.6,
-            WeaponType::HomingMissile => BULLET_MOVE_SPEED * 0.4,
+            // WeaponType::Shotgun => BULLET_MOVE_SPEED * 0.8,
+            // WeaponType::PhysicsProjectile => BULLET_MOVE_SPEED * 0.6,
+            // WeaponType::HomingMissile => BULLET_MOVE_SPEED * 0.4,
         };
 
         // TODO: for hitscan, maybe we can just do similar to FullEntity replication? We add HitscanVisual
         let spawn_info = ProjectileSpawn {
             spawn_tick: timeline.tick(),
-            position,
-            direction,
+            position: *position,
+            rotation: *rotation,
             speed,
             color: *color,
             weapon_type: *weapon_type,
             shooter,
             player_id: id.0,
         };
+        info!(?spawn_info, "Shooting ProjectileSpawn");
         let spawn_bundle = (spawn_info, Name::new("ProjectileSpawn"));
 
         // TODO: instead of replicating an entity; we can just send a one-off message?
@@ -1156,9 +1182,8 @@ pub(crate) mod direction_only {
     /// Handle ProjectileSpawn by spawning child entities for projectiles
     ///
     /// - Prediction: the client will PreSpawn the ProjectileSpawn entity, at which point they will locally spawn
-    ///    a bullet. Then they will receive a Confirmed entity with (ProjectileSpawn, PreSpawn) that they will match
-    ///    with their prespawned ProjectileSpawn. We want to only spawn a bullet for the PreSpawned ProjectileSpawn on the client,
-    ///    not the Replicated one!
+    ///    a bullet. Then they will receive the Replicated (ProjectileSpawn, Prespawned) from the server which will match
+    ///    with their prespawned ProjectileSpawn.
     ///
     /// - Interpolation: the client receives a Replicated (Confirmed) and Interpolated entities with ProjectileSpawn.
     ///     The Replicated entity doesn't spawn any bullet.
@@ -1172,8 +1197,8 @@ pub(crate) mod direction_only {
         tick_duration: Res<TickDuration>,
         spawn_query: Query<
             (Entity, &ProjectileSpawn, Has<Interpolated>),
-            // we don't want to spawn a child bullet on the replicated entity
-            (Without<Replicated>, Without<Bullets>),
+            // avoid spawning bullets multiple times for one ProjectileSpawn
+            Without<Bullets>,
         >,
     ) {
         let (local_timeline, interpolated_timeline) = timeline.into_inner();
@@ -1187,6 +1212,7 @@ pub(crate) mod direction_only {
                     && let Some(interpolation_tick) = interpolated_timeline.map(|t| t.tick())
                     && interpolation_tick < spawn_info.spawn_tick
                 {
+                    info!(?interpolation_tick, "Waiting for interpolation_tick to spawn ProjectileSpawn with spawn tick {:?}", spawn_info.spawn_tick);
                     return;
                 }
                 match spawn_info.weapon_type {
@@ -1205,7 +1231,7 @@ pub(crate) mod direction_only {
                             tick_duration.0,
                         );
                     }
-                    WeaponType::Shotgun => {
+                    // WeaponType::Shotgun => {
                         // // Create shotgun pellets
                         // spawn_shotgun_pellets(
                         //     &mut commands,
@@ -1217,8 +1243,8 @@ pub(crate) mod direction_only {
                         //     is_predicted,
                         //     is_interpolated,
                         // );
-                    }
-                    WeaponType::PhysicsProjectile => {
+                    // }
+                    // WeaponType::PhysicsProjectile => {
                         // // Create physics projectile child entity
                         // spawn_physics_projectile_child(
                         //     &mut commands,
@@ -1230,8 +1256,8 @@ pub(crate) mod direction_only {
                         //     is_predicted,
                         //     is_interpolated,
                         // );
-                    }
-                    WeaponType::HomingMissile => {
+                    // }
+                    // WeaponType::HomingMissile => {
                         // // Create homing missile child entity
                         // spawn_homing_missile_child(
                         //     &mut commands,
@@ -1243,7 +1269,7 @@ pub(crate) mod direction_only {
                         //     is_predicted,
                         //     is_interpolated,
                         // );
-                    }
+                    // }
                 }
             });
     }
@@ -1268,8 +1294,8 @@ pub(crate) mod direction_only {
         spawn_entity: Entity,
         current_tick: Tick,
     ) {
-        let start = spawn_info.position;
-        let end = start + spawn_info.direction * 1000.0;
+        let start = spawn_info.position.0;
+        let end = spawn_info.rotation * Vec2::new(0.0, 1000.0);
 
         let visual_bundle = (
             HitscanVisual {
@@ -1299,8 +1325,8 @@ pub(crate) mod direction_only {
         current_tick: Tick,
         tick_duration: Duration,
     ) {
-        let mut position = spawn_info.position;
-        let mut transform = Transform::from_translation(position.extend(0.0));
+        let position = spawn_info.position;
+        let rotation = spawn_info.rotation;
 
         // // For interpolation, adjust spawn position to account for delay
         // if is_interpolated {
@@ -1310,13 +1336,13 @@ pub(crate) mod direction_only {
         //     transform.translation = position.extend(0.0);
         // }
 
-        let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
-        transform.rotation = Quat::from_rotation_z(angle);
+        // transform.rotation = Quat::from_rotation_z(angle);
+        info!(?current_tick, ?position, "Spawning DirectionOnly LinearProjectile");
 
         let bullet_bundle = (
-            transform,
-            Position(position),
-            LinearVelocity(spawn_info.direction * spawn_info.speed),
+            position,
+            rotation,
+            LinearVelocity(rotation * Vec2::new(0.0, spawn_info.speed)),
             RigidBody::Kinematic,
             PlayerId(spawn_info.player_id),
             spawn_info.color,
@@ -1343,18 +1369,16 @@ pub(crate) mod direction_only {
         tick_duration: Duration,
     ) {
         let pellet_count = 8;
-        let spread_angle = 0.3; // 30 degrees spread
+        let spread_angle = PI / 6.0; // 30 degrees spread
+
+        let position = spawn_info.position;
+        let rotation = spawn_info.rotation;
 
         for i in 0..pellet_count {
             let angle_offset = (i as f32 - (pellet_count - 1) as f32 / 2.0) * spread_angle
                 / (pellet_count - 1) as f32;
 
-            let rotation = Quat::from_rotation_z(angle_offset);
-            let pellet_direction = rotation * spawn_info.direction.extend(0.0);
-            let pellet_direction = pellet_direction.truncate();
-
-            let mut position = spawn_info.position;
-            let mut transform = Transform::from_translation(position.extend(0.0));
+            let new_rotation = rotation.add_angle_fast(angle_offset);
 
             // // For interpolation, adjust spawn position to account for delay
             // if is_interpolated {
@@ -1364,13 +1388,10 @@ pub(crate) mod direction_only {
             //     transform.translation = position.extend(0.0);
             // }
 
-            let angle = Vec2::new(0.0, 1.0).angle_to(pellet_direction);
-            transform.rotation = Quat::from_rotation_z(angle);
-
             let pellet_bundle = (
-                transform,
-                Position(position),
-                LinearVelocity(pellet_direction * spawn_info.speed * 0.8),
+                position,
+                new_rotation,
+                LinearVelocity(new_rotation * Vec2::new(0.0, spawn_info.speed * 0.8)),
                 RigidBody::Kinematic,
                 PlayerId(spawn_info.player_id),
                 spawn_info.color,
@@ -1399,9 +1420,6 @@ pub(crate) mod direction_only {
         current_tick: Tick,
         tick_duration: Duration,
     ) {
-        let mut position = spawn_info.position;
-        let mut transform = Transform::from_translation(position.extend(0.0));
-
         // // For interpolation, adjust spawn position to account for delay
         // if is_interpolated {
         //     let ticks_elapsed = current_tick.0.saturating_sub(spawn_info.spawn_tick.0);
@@ -1410,12 +1428,13 @@ pub(crate) mod direction_only {
         //     transform.translation = position.extend(0.0);
         // }
 
-        let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
-        transform.rotation = Quat::from_rotation_z(angle);
+        let position = spawn_info.position;
+        let rotation = spawn_info.rotation;
 
         let bullet_bundle = (
-            transform,
-            LinearVelocity(spawn_info.direction * spawn_info.speed * 0.6),
+            position,
+            rotation,
+            LinearVelocity(rotation * Vec2::new(0.0, spawn_info.speed * 0.6)),
             RigidBody::Dynamic,
             Collider::circle(BULLET_SIZE),
             Restitution::new(0.8),
@@ -1446,9 +1465,6 @@ pub(crate) mod direction_only {
         current_tick: Tick,
         tick_duration: Duration,
     ) {
-        let mut position = spawn_info.position;
-        let mut transform = Transform::from_translation(position.extend(0.0));
-
         // For interpolation, adjust spawn position to account for delay
         // if is_interpolated {
         //     let ticks_elapsed = current_tick.0.saturating_sub(spawn_info.spawn_tick.0);
@@ -1457,14 +1473,12 @@ pub(crate) mod direction_only {
         //     transform.translation = position.extend(0.0);
         // }
 
-        let angle = Vec2::new(0.0, 1.0).angle_to(spawn_info.direction);
-        transform.rotation = Quat::from_rotation_z(angle);
-
+        let position = spawn_info.position;
+        let rotation = spawn_info.rotation;
         let missile_bundle = (
-            // TODO: need to add ROTATION DIRECTLY!
-            transform,
-            Position(position),
-            LinearVelocity(spawn_info.direction * spawn_info.speed * 0.4),
+            position,
+            rotation,
+            LinearVelocity(rotation * Vec2::new(0.0, spawn_info.speed * 0.4)),
             RigidBody::Kinematic,
             PlayerId(spawn_info.player_id),
             spawn_info.color,
@@ -1561,23 +1575,19 @@ mod ring_buffer {
         controlled_by: Option<&ControlledBy>,
         is_server: bool,
     ) {
-        let mut transform = Transform::from_translation(projectile_info.position.extend(0.0));
-        let angle = Vec2::new(0.0, 1.0).angle_to(projectile_info.direction);
-        transform.rotation = Quat::from_rotation_z(angle);
-
         let speed = match projectile_info.weapon_type {
             WeaponType::LinearProjectile => BULLET_MOVE_SPEED,
-            WeaponType::Shotgun => BULLET_MOVE_SPEED * 0.8,
-            WeaponType::PhysicsProjectile => BULLET_MOVE_SPEED * 0.6,
-            WeaponType::HomingMissile => BULLET_MOVE_SPEED * 0.4,
+            // WeaponType::Shotgun => BULLET_MOVE_SPEED * 0.8,
+            // WeaponType::PhysicsProjectile => BULLET_MOVE_SPEED * 0.6,
+            // WeaponType::HomingMissile => BULLET_MOVE_SPEED * 0.4,
             _ => BULLET_MOVE_SPEED, // Default for hitscan weapons (though they shouldn't use ring buffer)
         };
-
-        let velocity = projectile_info.direction * speed;
-
+        let position = projectile_info.position;
+        let rotation = projectile_info.rotation;
         let bullet_bundle = (
-            transform,
-            LinearVelocity(velocity),
+            position,
+            rotation,
+            LinearVelocity(rotation * Vec2::new(0.0, speed)),
             RigidBody::Kinematic,
             *player_id,
             *color,
@@ -1640,6 +1650,7 @@ pub(crate) fn update_hitscan_visuals(
     for (entity, mut visual) in query.iter_mut() {
         visual.lifetime += time.delta_secs();
         if visual.lifetime >= visual.max_lifetime {
+            info!(?entity, "despawn hitscan");
             commands.entity(entity).try_despawn();
         }
     }
@@ -1736,12 +1747,6 @@ pub fn player_bundle(client_id: PeerId, mode: GameReplicationMode) -> impl Bundl
         Score(0),
         PlayerId(client_id),
         RigidBody::Kinematic,
-        // TODO: just adding Transform does NOT work, maybe because we disable Transform->Position sync?
-        //  or some system ordering issue?
-        //  I THINK it's because the SyncSet runs in FixedPostUpdate; so it's possible that we didn't sync Transform to Position
-        //  before we replicate Position
-        //  for now do NOT spawn Transform, instead directly use Position/Rotation!
-        // Transform::from_xyz(0.0, y, 0.0),
         Position::from_xy(0.0, y),
         Rotation::default(),
         ColorComponent(color),

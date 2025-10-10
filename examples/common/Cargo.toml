@@ -47,6 +47,7 @@ gui = [
   "bevy/bevy_text",
   "bevy/bevy_ui",
   "bevy/bevy_ui_picking_backend",
+  "bevy/bevy_ui_render",
   "bevy/bevy_window",
 ]
 

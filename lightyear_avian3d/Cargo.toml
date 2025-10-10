@@ -12,11 +12,11 @@ categories = ["game-development", "network-programming"]
 license.workspace = true
 publish = true
 
-[lib]
-name = "lightyear_avian3d"
-path = "../lightyear_avian/src/lib.rs"
-required-features = ["3d"]
-bench = false
+#[lib]
+#name = "lightyear_avian3d"
+#path = "../lightyear_avian/src/lib.rs"
+#required-features = ["3d"]
+#bench = false
 
 [features]
 default = ["std", "3d"]
