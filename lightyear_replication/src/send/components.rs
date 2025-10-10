@@ -540,6 +540,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
     }
 }
 
+// TODO: accept EntityTarget on top of NetworkTarget.
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
     /// Will try to find a single ReplicationSender entity in the world

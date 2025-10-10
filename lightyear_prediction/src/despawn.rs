@@ -6,7 +6,8 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::host::HostClient;
 use lightyear_replication::prelude::PreSpawned;
-use tracing::{error, info};
+#[allow(unused_imports)]
+use tracing::{debug, error, info};
 // TODO (IMPORTANT): we need to add PredictionDisable in the replication receiver systems!!!
 
 /// This command must be used to despawn Predicted entities.
@@ -51,7 +52,7 @@ impl Command for PredictionDespawnCommand {
                 // if this is a predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDisable component to it to mark it as disabled until the confirmed
                 // entity catches up to it
-                info!("inserting prediction disable marker");
+                debug!("inserting prediction disable marker");
                 entity.insert(PredictionDisable);
             } else {
                 error!("This command should only be called for predicted entities!");

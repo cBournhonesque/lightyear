@@ -14,7 +14,8 @@ use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{CloneFn, ContextDeserializeFns, ErasedSerializeFns};
-use tracing::{debug, trace};
+#[allow(unused_imports)]
+use tracing::{debug, info, trace};
 
 #[derive(Debug, Clone)]
 pub struct ReplicationMetadata {

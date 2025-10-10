@@ -26,7 +26,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_bullet_visuals);
         app.add_observer(add_bullet_visuals_interpolated);
         app.add_observer(add_player_visuals);
-        // app.add_observer(add_hitscan_visual);
+        app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
 
@@ -160,7 +160,6 @@ fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent)>, mut giz
         let progress = visual.lifetime / visual.max_lifetime;
         let alpha = (1.0 - progress).max(0.0);
         let line_color = color.0.with_alpha(alpha);
-
         gizmos.line_2d(visual.start, visual.end, line_color);
     }
 }

@@ -294,7 +294,7 @@ mod bot {
         ));
 
         app.add_systems(Startup, bot_connect);
-        app.add_systems(FixedFirst, bot_inputs);
+        app.add_systems(FixedFirst, bot_inputs.run_if(not(is_in_rollback)));
         app.add_systems(Update, bot_wait);
         let mut bot_app = BotApp(app);
         std::thread::spawn(move || {

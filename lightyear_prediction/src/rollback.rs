@@ -230,7 +230,6 @@ fn check_rollback(
     let tick = local_timeline.tick();
     let received_state = replication_receiver.received_this_frame;
     let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
-    trace!(?received_state, ?tick, "Check rollback");
     let mut skip_state_check = false;
 
     let do_rollback = move |rollback_tick: Tick,
@@ -292,7 +291,6 @@ fn check_rollback(
     if !skip_state_check {
         trace!(?tick, "Checking for state-based rollback");
         predicted_entities.par_iter_mut().for_each(|mut entity_mut| {
-            trace!("Checking rollback for entity {:?}", entity_mut.id());
             // TODO: should we introduce a Rollback marker component?
             // we already know we are in rollback, no need to check again
             if prediction_manager.is_rollback() {
@@ -316,7 +314,7 @@ fn check_rollback(
                 return
             };
             let confirmed_tick = entity_mut.get::<ConfirmedTick>().unwrap().tick;
-            debug!("Checking rollback for entity {:?} that received update at tick {:?}", entity_mut.id(), confirmed_tick);
+            trace!("Checking rollback for entity {:?} that received update at tick {:?}", entity_mut.id(), confirmed_tick);
             if confirmed_tick > tick {
                 debug!(
                     "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",

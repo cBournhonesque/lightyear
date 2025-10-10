@@ -85,7 +85,10 @@ impl Plugin for LightyearAvianPlugin {
                     // TODO: I think we should disable TranformToPosition, otherwise the FrameInterpolation::Restore will restore the correct Position,
                     //  but TransformToPosition might overwrite it!
 
-                    LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
+                    // TODO: causes issues; for example in case a rollback fixes Position, this would reset the Position to the Transform! (if no
+                    //  FrameInterpolation is enabled)
+                    // LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
+
                     // In case we do the TransformToPosition sync in RunFixedMainLoop, do it BEFORE
                     // restoring the correct Position in FrameInterpolation::Restore, since we want Position to take priority.
                     //
@@ -279,6 +282,8 @@ impl LightyearAvianPlugin {
             .resource::<PhysicsTransformConfig>()
             .position_to_transform
         {
+            app.register_required_components_with::<Position, ApplyPosToTransform>(|| ApplyPosToTransform);
+            app.register_required_components_with::<Rotation, ApplyPosToTransform>(|| ApplyPosToTransform);
             // TODO(important): handle this
             app.try_register_required_components::<Position, Transform>()
                 .ok();
