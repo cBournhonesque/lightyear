@@ -76,9 +76,6 @@ pub(crate) fn handle_interpolated_spawn(
             // add these so we can do hit-detection on the client
             commands.entity(trigger.entity).insert((
                 Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-                // TODO: that's annoying, I wish we could do hit detection and raycasts on Colliders
-                //  that are not rigid bodies
-                RigidBody::Kinematic,
             ));
         }
         // In the interpolated case, the client sends inputs but doesn't apply them.
