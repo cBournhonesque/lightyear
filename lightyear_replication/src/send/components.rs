@@ -24,7 +24,7 @@ use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-                    use tracing::warn;
+use tracing::warn;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
 
