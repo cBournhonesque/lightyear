@@ -76,7 +76,8 @@ fn main() {
                     conditioner: Some(RecvLinkConditioner::new(
                         LinkConditionerConfig::average_condition(),
                     )),
-                    transport: ClientTransports::Udp,
+                    // transport: ClientTransports::Udp,
+                    transport: ClientTransports::WebTransport,
                     shared: SHARED_SETTINGS,
                 })
                 .id();
@@ -103,14 +104,14 @@ fn main() {
             .world_mut()
             .spawn(ExampleServer {
                 conditioner: None,
-                transport: ServerTransports::Udp { local_port: port },
-                // transport: ServerTransports::WebTransport {
-                //     local_port: port,
-                //     certificate: WebTransportCertificateSettings::FromFile {
-                //         cert: "../../certificates/cert.pem".to_string(),
-                //         key: "../../certificates/key.pem".to_string(),
-                //     },
-                // },
+                // transport: ServerTransports::Udp { local_port: port },
+                transport: ServerTransports::WebTransport {
+                    local_port: port,
+                    certificate: WebTransportCertificateSettings::FromFile {
+                        cert: "../../certificates/cert.pem".to_string(),
+                        key: "../../certificates/key.pem".to_string(),
+                    },
+                },
                 shared: SHARED_SETTINGS,
             })
             .id();
