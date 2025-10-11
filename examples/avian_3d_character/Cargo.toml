@@ -13,6 +13,7 @@ client = [
   "lightyear_examples_common/client"
 ]
 gui = [
+  "lightyear_examples_common/debug",
   "lightyear_examples_common/gui"
 ]
 server = [

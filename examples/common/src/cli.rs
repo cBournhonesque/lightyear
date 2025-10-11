@@ -24,7 +24,10 @@ use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSett
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEAM_APP_ID};
 #[cfg(feature = "gui")]
-use bevy::window::PresentMode;
+use {
+    bevy::window::PresentMode,
+    bevy::winit::{UpdateMode, WinitSettings}
+};
 use lightyear::link::RecvLinkConditioner;
 use lightyear::prelude::*;
 
@@ -312,6 +315,9 @@ pub fn new_gui_app(add_inspector: bool) -> App {
             .set(log_plugin())
             .set(window_plugin()),
     );
+    // we want the same frequency of updates for both focused and unfocused
+    // Otherwise when testing the movement can look choppy for unfocused windows
+    app.insert_resource(WinitSettings::continuous());
 
     #[cfg(feature = "visualizer")]
     {

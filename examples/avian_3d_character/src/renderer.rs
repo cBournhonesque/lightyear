@@ -189,11 +189,11 @@ fn disable_projectile_rollback(
             // disabling character rollbacks while we debug projectiles with this janky setup
 
             // We stop checking for state rollbacks after the first frame where the projectile is predicted
-            Without<DeterministicPredicted>,
+            Without<DisableRollback>,
         ),
     >,
 ) {
     for proj in &q_projectile {
-        commands.entity(proj).insert(DeterministicPredicted);
+        commands.entity(proj).insert(DisableRollback);
     }
 }
