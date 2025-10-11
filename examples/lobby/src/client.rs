@@ -422,7 +422,7 @@ mod lobby {
             if let Some(host) = host {
                 if host == local_id.0 {
                     info!("We are the host of the game!");
-                    // First clone the previous link
+                    // First remove the previous link
                     commands.trigger(Unlink {
                         entity: local_client,
                         reason: "Client becoming Host".to_string(),
