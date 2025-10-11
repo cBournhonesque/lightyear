@@ -103,8 +103,11 @@ pub(crate) fn handle_deterministic_spawn(
     {
         commands.entity(trigger.entity).insert((
             shared::player_bundle(player_id.0, GameReplicationMode::OnlyInputsReplicated),
-            DeterministicPredicted,
-            DisableRollback,
+            DeterministicPredicted {
+                // make sure that we don't despawn the player if there is a rollback
+                skip_despawn: true,
+                ..default()
+            },
         ));
         info!("Adding PlayerContext for player {:?}", player_id);
 

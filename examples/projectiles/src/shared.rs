@@ -814,7 +814,7 @@ mod full_entity {
                 }
                 GameReplicationMode::OnlyInputsReplicated => {
                     // do hit detection
-                    commands.spawn((spawn_bundle, DeterministicPredicted));
+                    commands.spawn((spawn_bundle, DeterministicPredicted::default()));
                 }
             }
         }
@@ -901,7 +901,7 @@ mod full_entity {
                     // we don't spawn anything, it will be replicated to us
                 }
                 GameReplicationMode::OnlyInputsReplicated => {
-                    commands.spawn((bullet_bundle, DeterministicPredicted));
+                    commands.spawn((bullet_bundle, DeterministicPredicted::default()));
                 }
             }
         }
@@ -1181,7 +1181,7 @@ pub(crate) mod direction_only {
                     //  and it spawns the bullet at the correct offset from the player ?
                 }
                 GameReplicationMode::OnlyInputsReplicated => {
-                    commands.spawn((spawn_bundle, DeterministicPredicted));
+                    commands.spawn((spawn_bundle, DeterministicPredicted::default()));
                 }
             }
         }

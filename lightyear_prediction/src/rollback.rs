@@ -4,7 +4,7 @@ use super::{Predicted, SyncComponent};
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
-use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode};
+use crate::manager::{LastConfirmedInput, PredictionManager, PredictionResource, RollbackMode};
 use crate::plugin::PredictionSet;
 use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
@@ -13,11 +13,12 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
-use bevy_ecs::world::FilteredEntityMut;
+use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
+use bevy_ecs::lifecycle::HookContext;
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -167,15 +168,58 @@ impl Plugin for RollbackPlugin {
     }
 }
 
-#[derive(Component, PartialEq, Debug, Serialize, Deserialize)]
-/// Marker component used to indicate this entity is predicted (It has a PredictionHistory),
+#[derive(Component, PartialEq, Debug, Clone, Copy, Serialize, Deserialize)]
+#[component(on_add = DeterministicPredicted::on_add)]
+/// Marker component used to indicate this entity is predicted (it has a PredictionHistory),
 /// but it won't check for rollback from state updates.
 ///
 /// This can be used to mark predicted non-networked entities in deterministic replication, or to stop a
 /// state-replicated entity from being able to trigger rollbacks from state mismatch.
 ///
 /// This entity will still get rolled back to its predicted history when a rollback happens.
-pub struct DeterministicPredicted;
+pub struct DeterministicPredicted {
+    /// After spawning a DeterministicPredicted entity, any rollback that happens shortly after might
+    /// despawn the entity (since it didn't exist at the start of rollback) or remove its components.
+    ///
+    /// If the entity was spawned in a deterministic manner (for instance with a 'Shoot' input), then we
+    /// want the entity to be despawned as it will get re-created during rollback.
+    /// But if the entity was spawned as a one-off event (for example replicated by the server upon connection),
+    /// we don't want the entity to be affected by rollbacks for a short period after being spawned.
+    pub skip_despawn: bool,
+    /// For entities where skip_despawn is True, after how many ticks do we start enabling back rollbacks?
+    pub enable_rollback_after: u8,
+}
+
+impl Default for DeterministicPredicted {
+    fn default() -> Self {
+        Self {
+            skip_despawn: false,
+            enable_rollback_after: 20,
+        }
+    }
+}
+
+impl DeterministicPredicted {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        // TODO: avoid fetching DeterministicPredicted twice when we can convert DeferredWorld to UnsafeWorldCell (0.17.3)
+        let deterministic_predicted = *world.get::<DeterministicPredicted>(context.entity).unwrap();
+        let Some(prediction_manager_entity) = world.get_resource::<PredictionResource>().map(|r| r.link_entity) else {
+            error!("No PredictionManager entity found");
+            return
+        };
+        let tick = world.get::<LocalTimeline>(prediction_manager_entity).unwrap().tick();
+        let Some(mut manager) = world.get_mut::<PredictionManager>(prediction_manager_entity) else {
+            return
+        };
+        if !deterministic_predicted.skip_despawn {
+            manager.deterministic_despawn.push((tick, context.entity));
+        } else {
+            info!(entity = ?context.entity, "ADDING SKIP DESPAWN");
+            manager.deterministic_skip_despawn.push((tick + (deterministic_predicted.enable_rollback_after as i16), context.entity));
+        }
+    }
+}
+
 
 /// Marker component to indicate that the entity will be completely excluded from rollbacks.
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
@@ -223,7 +267,7 @@ fn check_rollback(
         manager_entity,
         mut replication_receiver,
         last_confirmed_input,
-        prediction_manager,
+        mut prediction_manager,
         mut prespawned_receiver,
         local_timeline,
     ) = receiver_query.into_inner();
@@ -392,18 +436,48 @@ fn check_rollback(
         }
     }
 
-    // if we have a rollback, despawn any PreSpawned entities that were spawned since the rollback tick
-    // and were not matched with a remote entity
+    // if we have a rollback, despawn any PreSpawned/DeterministicPredicted entities that were spawned since the rollback tick
     // (they will get respawned during the rollback)
+    //
+    // NOTE: if rollback happened at rollback_tick, then we will start running systems starting from rollback_tick + 1.
+    //  so if the entity was spawned at tick >= rollback_tick + 1, we despawn it, and it can get respawned again
     if let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() {
         debug!(
             ?rollback_tick,
-            "Rollback! Despawning all PreSpawned entities spawned after that"
+            "Rollback! Despawning all PreSpawned/DeterministicPredicted entities spawned after the rollback tick"
         );
-        // 0. If the prespawned entity didn't exist at the rollback tick, despawn it
-        // NOTE: if rollback happened at rollback_tick, then we will start running systems starting from rollback_tick + 1.
-        //  so if the entity was spawned at tick >= rollback_tick + 1, we despawn it, and it can get respawned again
+        // If the prespawned entity didn't exist at the rollback tick, despawn it
         prespawned_receiver.despawn_prespawned_after(rollback_tick + 1, &mut commands);
+
+        // If the deterministic predicted entity didn't exist at the rollback tick, despawn it
+        // We can drain everything because:
+        // - entities spawned before the rollback_tick were created early enough to not need to be despawned
+        //   and we don't want to check them again (since future rollbacks will happen even more in the future)
+        // - entities spawned after the rollback tick will be despawned
+        prediction_manager.deterministic_despawn.drain(..).for_each(|(t, e)| {
+            if t > rollback_tick && let Ok(mut c) = commands.get_entity(e) {
+                c.despawn();
+            }
+        });
+
+        // For skip_despawn, the tick is the first tick after which we should start enabling despawn on the entity
+        // - if rollback_tick is bigger than the tick, then we remove DisableRollback and remove the entity from the vec because
+        //   the entity was spawned a while ago and we want to enable rollbacks again
+        // - for all remaining entities (where rollback_tick < tick) we insert DisableRollback
+        let split_idx = prediction_manager.deterministic_skip_despawn.partition_point(|(t, _)| *t <= rollback_tick);
+        let should_disable_rollback = prediction_manager.deterministic_skip_despawn.split_off(split_idx);
+        should_disable_rollback.iter().for_each(|(_, e)| {
+            if let Ok(mut c) = commands.get_entity(*e) {
+                c.insert(DisableRollback);
+            }
+        });
+        prediction_manager.deterministic_skip_despawn.iter().for_each(|(_, e)| {
+            if let Ok(mut c) = commands.get_entity(*e) {
+                c.remove::<DisableRollback>();
+            }
+        });
+        // we only keep the entities for which we disabled rollback
+        prediction_manager.deterministic_skip_despawn = should_disable_rollback;
     }
 }
 
