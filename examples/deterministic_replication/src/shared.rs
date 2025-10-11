@@ -78,8 +78,10 @@ pub(crate) fn init(mut commands: Commands) {
         ColorComponent(css::AZURE.into()),
         PhysicsBundle::ball(),
         BallMarker,
-        DeterministicPredicted,
-        DisableRollback,
+        DeterministicPredicted {
+            skip_despawn: true,
+            ..default()
+        },
         Name::from("Ball"),
     ));
     commands.spawn(WallBundle::new(
@@ -105,23 +107,24 @@ pub(crate) fn init(mut commands: Commands) {
 }
 
 pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {
+    let color = color_from_id(peer_id);
     let y = (peer_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
     (
         Position::from(Vec2::new(-50.0, y)),
-        ColorComponent(Color::BLACK),
+        ColorComponent(color),
         PhysicsBundle::player(),
         Name::from("Player"),
         // this indicates that the entity will only do rollbacks from input updates, and not state updates!
         // It is REQUIRED to add this component to indicate which entities will be rollbacked
         // in deterministic replication mode.
-        DeterministicPredicted,
-        // this is a bit subtle:
-        // when we add DeterministicPredicted to the entity, we enable it for rollbacks. Since we have RollbackMode::Always,
-        // we will try to rollback on every input received. We will therefore rollback to before the entity was spawned,
-        // which will immediately despawn the entity!
-        // This is because we are not creating the entity in a deterministic way. (if we did, we would be re-creating the
-        // entity during the rollbacks). As a workaround, we disable rollbacks for this entity for a few ticks.
-        DisableRollback,
+        DeterministicPredicted {
+            // any rollback would try to reset this entity to the rollback tick. If the entity was spawned after the rollback tick,
+            // it would get despawned instantly. For entities that are spawned via a one-off event, we can mark them as
+            // `skip_despawn` which will temporarily disable this entity from rollbacks for a few ticks after being spawned.
+            skip_despawn: true,
+            ..default()
+        },
+
     )
 }
 

@@ -238,6 +238,7 @@ pub struct PreSpawnedReceiver {
     /// If the interpolation_tick reaches that tick and there is till no match, we should despawn the entity
     pub prespawn_hash_to_entities: EntityHashMap<u64, Vec<Entity>>,
     #[doc(hidden)]
+    // TODO(perf): prespawned entities are added in order or tick, so we can use a Vec!
     /// Store the spawn tick of the entity, as well as the corresponding hash
     pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
 }

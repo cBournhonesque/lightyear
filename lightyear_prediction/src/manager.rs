@@ -4,6 +4,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 
+use alloc::vec::Vec;
 use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
 use bevy_ecs::entity::EntityHash;
@@ -105,15 +106,28 @@ pub struct PredictionManager {
     /// to the corrected state over a period of time after a rollback
     pub correction_policy: CorrectionPolicy,
     pub earliest_mismatch_input: EarliestMismatchedInput,
+
+    // NOTE: this is pub because ..Default::default() syntax needs all fields to be pub
+    // For deterministic entity that might be despawned if there is a rollback,
+    // record their tick here so we can iterate through them.
+    // The Vec is ordered by Tick.
+    #[doc(hidden)]
+    pub deterministic_despawn: Vec<(Tick, Entity)>,
+    // For deterministic skip despawn, at the time of rollback we iterate through them
+    // and either insert DisableRollback if has not been long, or remove it
+    #[doc(hidden)]
+    pub deterministic_skip_despawn: Vec<(Tick, Entity)>,
     // // TODO: this needs to be cleaned up at regular intervals!
     // //  do a centralized TickCleanup system in lightyear_core
     // /// The tick when we last did a rollback. This is used to prevent rolling back multiple times to the same tick.
     // pub last_rollback_tick: Option<Tick>,
     /// We use a RwLock because we want to be able to update this value from multiple systems
     /// in parallel.
+    #[doc(hidden)]
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
 }
+
 
 /// Store the most recent confirmed input across all remote clients.
 ///
@@ -160,6 +174,8 @@ impl Default for PredictionManager {
             rollback_policy: RollbackPolicy::default(),
             correction_policy: CorrectionPolicy::default(),
             earliest_mismatch_input: EarliestMismatchedInput::default(),
+            deterministic_skip_despawn: Vec::default(),
+            deterministic_despawn: Vec::default(),
             // last_rollback_tick: None,
             rollback: RwLock::new(RollbackState::Default),
         }
