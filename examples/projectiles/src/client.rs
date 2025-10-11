@@ -1,7 +1,7 @@
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{Rooms, color_from_id};
-use avian2d::prelude::{Collider, RigidBody};
+use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
@@ -34,10 +34,10 @@ pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
     mut commands: Commands,
-    mut player_query: Query<(&PlayerId, &GameReplicationMode), With<Predicted>>,
+    mut player_query: Query<(&PlayerId, &Position, &Confirmed<Position>, &GameReplicationMode), With<Predicted>>,
 ) {
     let client_id = client.into_inner().0;
-    if let Ok((player_id, mode)) = player_query.get_mut(trigger.entity) {
+    if let Ok((player_id, pos, confirmed_pos, mode)) = player_query.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
@@ -55,7 +55,7 @@ pub(crate) fn handle_predicted_spawn(
         if player_id.0 != client_id {
             return;
         }
-        info!("Adding actions to predicted player {:?}", trigger.entity);
+        info!(?pos, ?confirmed_pos, "Adding actions to predicted player {:?}", trigger.entity);
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
         add_actions(&mut commands, trigger.entity);
     }
@@ -76,6 +76,8 @@ pub(crate) fn handle_interpolated_spawn(
             // add these so we can do hit-detection on the client
             commands.entity(trigger.entity).insert((
                 Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+                // TODO: that's annoying, I wish we could do hit detection and raycasts on Colliders
+                //  that are not rigid bodies
                 RigidBody::Kinematic,
             ));
         }

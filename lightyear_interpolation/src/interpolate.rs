@@ -4,10 +4,12 @@ use crate::timeline::InterpolationTimeline;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::prelude::*;
+use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::NetworkTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_sync::prelude::client::IsSynced;
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 // if we haven't received updates since UPDATE_INTERPOLATION_START_TICK_FACTOR * send_interval
 // then we update the start_tick so that the interpolation looks good when we receive a new update
@@ -55,7 +57,8 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             // we have 2 updates, we can start interpolating!
             if !present {
                 trace!(
-                    "insert interpolated comp value because we have 2 values to interpolate between"
+                    ?entity, ?history_tick, ?current_interpolate_tick,
+                    "insert interpolated comp value because we have 2 values to interpolate between. Kind = {:?}", DebugName::type_name::<C>()
                 );
                 // we can insert the end_value because:
                 // - if H1..X...H2, we will do interpolation right after
@@ -77,7 +80,10 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             && (current_interpolate_tick - history_tick) >= send_interval_delta_tick
         {
             if !present {
-                trace!("insert interpolated comp value because enough time has passed");
+                trace!(
+                    ?entity, ?history_tick, ?current_interpolate_tick,
+                    "insert interpolated comp value because we enough time has passed. Kind = {:?}", DebugName::type_name::<C>()
+                );
                 commands.entity(entity).insert(val.clone());
             }
 

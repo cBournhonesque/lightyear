@@ -1,9 +1,9 @@
 //! Handles spawning entities that are predicted
 
 use crate::components::Replicated;
-use crate::control::Controlled;
+use crate::control::{Controlled, ControlledBy};
 use crate::hierarchy::ReplicateLike;
-use crate::prelude::ComponentRegistry;
+use crate::prelude::{ComponentRegistry, InterpolationTarget, PredictionTarget, Replicate};
 use crate::registry::ComponentKind;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
@@ -398,6 +398,10 @@ pub(crate) fn compute_default_hash(
                 if type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<Controlled>()
                     && type_id != TypeId::of::<ReplicateLike>()
+                    && type_id != TypeId::of::<Replicate>()
+                    && type_id != TypeId::of::<PredictionTarget>()
+                    && type_id != TypeId::of::<InterpolationTarget>()
+                    && type_id != TypeId::of::<ControlledBy>()
                 {
                     return component_registry
                         .kind_map

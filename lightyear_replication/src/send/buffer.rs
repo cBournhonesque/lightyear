@@ -416,7 +416,7 @@ pub(crate) fn replicate_entity_spawn(
     replicate: &Ref<Replicate>,
     #[cfg(feature = "prediction")] prediction_target: Option<&PredictionTarget>,
     #[cfg(feature = "interpolation")] interpolation_target: Option<&InterpolationTarget>,
-    prespawned: Option<&PreSpawned>,
+    mut prespawned: Option<&PreSpawned>,
     controlled_by: Option<&ControlledBy>,
     network_visibility: Option<&NetworkVisibility>,
     entity_map: &mut RemoteEntityMap,
@@ -474,7 +474,9 @@ pub(crate) fn replicate_entity_spawn(
         }
         #[cfg(feature = "interpolation")]
         if interpolation_target.is_some_and(|p| p.senders.contains(&sender_entity)) {
-            interpolated = true
+            interpolated = true;
+            // if the entity is interpolated, we don't want to Prespawn it
+            prespawned = None;
         }
         sender.prepare_entity_spawn(
             entity,

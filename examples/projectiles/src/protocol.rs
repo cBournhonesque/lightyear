@@ -77,10 +77,10 @@ pub struct CycleReplicationMode;
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum WeaponType {
     Hitscan,
-    LinearProjectile,
-    Shotgun,
-    PhysicsProjectile,
-    HomingMissile,
+    Bullet,
+    // Shotgun,
+    // PhysicsProjectile,
+    // HomingMissile,
 }
 
 impl Default for WeaponType {
@@ -92,31 +92,31 @@ impl Default for WeaponType {
 impl WeaponType {
     pub fn next(&self) -> Self {
         match self {
-            WeaponType::Hitscan => WeaponType::LinearProjectile,
-            WeaponType::LinearProjectile => WeaponType::Shotgun,
-            WeaponType::Shotgun => WeaponType::PhysicsProjectile,
-            WeaponType::PhysicsProjectile => WeaponType::HomingMissile,
-            WeaponType::HomingMissile => WeaponType::Hitscan,
+            WeaponType::Hitscan => WeaponType::Bullet,
+            WeaponType::Bullet => WeaponType::Hitscan,
+            // WeaponType::Shotgun => WeaponType::PhysicsProjectile,
+            // WeaponType::PhysicsProjectile => WeaponType::HomingMissile,
+            // WeaponType::HomingMissile => WeaponType::Hitscan,
         }
     }
 
     pub fn name(&self) -> &'static str {
         match self {
             WeaponType::Hitscan => "Hitscan",
-            WeaponType::LinearProjectile => "Linear Projectile",
-            WeaponType::Shotgun => "Shotgun",
-            WeaponType::PhysicsProjectile => "Physics Projectile",
-            WeaponType::HomingMissile => "Homing Missile",
+            WeaponType::Bullet => "Linear Projectile",
+            // WeaponType::Shotgun => "Shotgun",
+            // WeaponType::PhysicsProjectile => "Physics Projectile",
+            // WeaponType::HomingMissile => "Homing Missile",
         }
     }
 
     pub fn fire_rate(&self) -> f32 {
         match self {
             WeaponType::Hitscan => 5.0,
-            WeaponType::LinearProjectile => 2.0,
-            WeaponType::Shotgun => 1.0,
-            WeaponType::PhysicsProjectile => 1.5,
-            WeaponType::HomingMissile => 0.5,
+            WeaponType::Bullet => 2.0,
+            // WeaponType::Shotgun => 1.0,
+            // WeaponType::PhysicsProjectile => 1.5,
+            // WeaponType::HomingMissile => 0.5,
         }
     }
 }
@@ -125,7 +125,7 @@ impl WeaponType {
 pub enum ProjectileReplicationMode {
     FullEntity,    // Spawn a new entity per projectile
     DirectionOnly, // Only initial direction replicated
-    RingBuffer,    // Weapon component with ring buffer
+    // RingBuffer,    // Weapon component with ring buffer
 }
 
 impl Default for ProjectileReplicationMode {
@@ -138,8 +138,8 @@ impl ProjectileReplicationMode {
     pub fn next(&self) -> Self {
         match self {
             ProjectileReplicationMode::FullEntity => ProjectileReplicationMode::DirectionOnly,
-            ProjectileReplicationMode::DirectionOnly => ProjectileReplicationMode::RingBuffer,
-            ProjectileReplicationMode::RingBuffer => ProjectileReplicationMode::FullEntity,
+            ProjectileReplicationMode::DirectionOnly => ProjectileReplicationMode::FullEntity,
+            // ProjectileReplicationMode::RingBuffer => ProjectileReplicationMode::FullEntity,
         }
     }
 
@@ -147,7 +147,7 @@ impl ProjectileReplicationMode {
         match self {
             ProjectileReplicationMode::FullEntity => "Full Entity Replication",
             ProjectileReplicationMode::DirectionOnly => "Direction-Only Replication",
-            ProjectileReplicationMode::RingBuffer => "Ring Buffer Replication",
+            // ProjectileReplicationMode::RingBuffer => "Ring Buffer Replication",
         }
     }
 }
@@ -232,8 +232,8 @@ pub struct Weapon {
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct ProjectileSpawnInfo {
     pub spawn_tick: Tick,
-    pub position: Vec2,
-    pub direction: Vec2,
+    pub position: Position,
+    pub rotation: Rotation,
     pub weapon_type: WeaponType,
 }
 
@@ -291,8 +291,8 @@ pub struct ShotgunPellet {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct ProjectileSpawn {
     pub spawn_tick: Tick,
-    pub position: Vec2,
-    pub direction: Vec2,
+    pub position: Position,
+    pub rotation: Rotation,
     pub speed: f32,
     pub color: ColorComponent,
     pub weapon_type: WeaponType,
@@ -380,6 +380,13 @@ impl Plugin for ProtocolPlugin {
         // make sure that we have an Interpolated HitscanVisual entity since we only render entities
         // that are interpolated or predicted
         app.register_component::<HitscanVisual>();
+
+        // We do not need to replicate RigidBody:
+        // - for interpolated entities, we just interpolate between Position updates
+        // - for predicted entities, we add the RigidBody component ourselves?
+        // The issue we want to avoid is that we don't want RigidBody to be included on Interpolated
+        // entities because that means that we would be doing expensive simulation work on interpolated
+        // entities.
         app.register_component::<RigidBody>();
 
         app.register_component::<BulletMarker>().add_map_entities();

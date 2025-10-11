@@ -821,7 +821,7 @@ impl GroupChannel {
                             .and_then(|receiver| receiver.matches(hash, *remote_entity))
                     })
                     .inspect(|e| {
-                        error!(?remote_entity, ?e, "Update prespawn entity map");
+                        debug!(?remote_entity, local_entity = ?e, "Update prespawn entity map");
                         // we update the entity map for the prespawning case
                         remote_entity_map.insert(*remote_entity, *e);
                     })
@@ -857,7 +857,7 @@ impl GroupChannel {
                     // }
 
                     warn!(
-                        "Received spawn for an entity that is already in our entity mapping! Not spawning"
+                        "Received spawn for an entity that is already in our entity mapping but doesn't exist! Not spawning"
                     );
                     continue;
                 }

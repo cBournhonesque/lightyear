@@ -147,6 +147,7 @@ fn receive_input_message<S: ActionStateSequence>(
     mut receivers: Query<
         (
             Entity,
+            &LocalTimeline,
             &LinkOf,
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
@@ -161,10 +162,11 @@ fn receive_input_message<S: ActionStateSequence>(
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
+    receivers.iter_mut().try_for_each(|(client_entity, timeline, link_of, mut receiver, client_id, rebroadcaster)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read instead?
         let server_entity = link_of.server;
+        let tick = timeline.tick();
         receiver.receive().try_for_each(|message| {
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
@@ -177,7 +179,7 @@ fn receive_input_message<S: ActionStateSequence>(
             // if message.is_empty() {
             //     return Ok(())
             // }
-            trace!(?client_id, action = ?DebugName::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(?tick, ?client_id, action = ?DebugName::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
