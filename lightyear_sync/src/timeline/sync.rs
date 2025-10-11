@@ -120,7 +120,7 @@ impl SyncConfig {
 impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
-            jitter_multiple: 3,
+            jitter_multiple: 4,
             jitter_margin: Duration::from_millis(5),
             handshake_pings: 3,
             error_margin: 1.0,

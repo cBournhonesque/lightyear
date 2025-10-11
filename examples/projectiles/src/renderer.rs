@@ -24,7 +24,6 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(Startup, init);
 
         app.add_observer(add_bullet_visuals);
-        app.add_observer(add_bullet_visuals_interpolated);
         app.add_observer(add_player_visuals);
         app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
@@ -175,10 +174,9 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
     })
 }
 
-// TODO: interpolated players are not visible because components are not inserted at the same time?
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: On<Insert, PlayerId>,
+    trigger: On<Insert, (PlayerId, Rotation)>,
     mut query: Query<
         (
             Has<Predicted>,
@@ -187,7 +185,9 @@ fn add_player_visuals(
             Has<Interpolated>,
             &mut ColorComponent,
         ),
-        With<PlayerMarker>,
+        // Same thing, for interpolation, make sure that both Position and Rotation
+        // are present! Otherwise the Mesh will insert Transform::default()
+        (With<PlayerMarker>, With<Rotation>)
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -225,61 +225,31 @@ fn add_player_visuals(
     }
 }
 
-/// Add visuals to newly spawned bullets
-fn add_bullet_visuals(
-    trigger: On<Add, BulletMarker>,
-    // Hitscan are rendered differently
-    query: Query<(&ColorComponent, Has<BulletOf>), (Without<HitscanVisual>, With<Position>)>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    if let Ok((color, has_bullet_of)) = query.get(trigger.entity) {
-        // TODO: for interpolation, we want to only start showing the bullet when the Position component gets synced to Interpolated.
-        commands.entity(trigger.entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle {
-                radius: BULLET_SIZE,
-            }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: color.0,
-                ..Default::default()
-            })),
-        ));
-        // we know that the entity is predicted since
-        // - it cannot be interpolated because Position is added later on, not immediately on sync
-        // - it cannot be a BulletOf
-        if !has_bullet_of {
-            commands.entity(trigger.entity).insert((
-                FrameInterpolate::<Position>::default(),
-                FrameInterpolate::<Rotation>::default(),
-            ));
-        }
-    }
-}
 
 /// Add visuals to newly spawned bullets
-///
-/// For interpolation, we want to only start showing the bullet when the Position component gets synced to Interpolated.
-/// (otherwise it would first appear in the middle of the screen)
-fn add_bullet_visuals_interpolated(
-    trigger: On<Add, Position>,
+fn add_bullet_visuals(
+    trigger: On<Add, (Position, Rotation)>,
     // Hitscan are rendered differently
     query: Query<
-        &ColorComponent,
+        (&ColorComponent, Has<Interpolated>),
         (
-            With<Interpolated>,
             Without<HitscanVisual>,
             With<Position>,
+            // only add Transform when BOTH Position/Rotation are present
+            // otherwise the Transform will not get synced and the entity will
+            // appear in the middle of the screen
+            // This can happen because Rotation is added later than Position for
+            // interpolated bullets.
+            With<Rotation>,
             With<BulletMarker>,
+            Without<Mesh2d>,
         ),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok(color) = query.get(trigger.entity) {
-        // TODO: for interpolation, we want to only start showing the bullet when the Position component gets synced to Interpolated.
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
         commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
@@ -290,6 +260,14 @@ fn add_bullet_visuals_interpolated(
                 ..Default::default()
             })),
         ));
+        // if not interpolated, then the entity gets updated in FixedUpdate and needs
+        // FrameInterpolation to be smooth
+        if !interpolated {
+            commands.entity(trigger.entity).insert((
+                FrameInterpolate::<Position>::default(),
+                FrameInterpolate::<Rotation>::default(),
+            ));
+        }
     }
 }
 
@@ -300,7 +278,6 @@ fn add_hitscan_visual(
     mut commands: Commands,
 ) {
     if let Ok((visual, color)) = query.get(trigger.entity) {
-        info!("Add hitscan vis");
         // For now, we'll use gizmos to draw the line in a separate system
         // This is a simple implementation; in a real game you might want
         // more sophisticated line rendering

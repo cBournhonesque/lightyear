@@ -56,7 +56,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
         if let Some((history_tick, end_value)) = history.end() {
             // we have 2 updates, we can start interpolating!
             if !present {
-                info!(
+                trace!(
                     ?entity, ?history_tick, ?current_interpolate_tick,
                     "insert interpolated comp value because we have 2 values to interpolate between. Kind = {:?}", DebugName::type_name::<C>()
                 );
@@ -80,7 +80,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             && (current_interpolate_tick - history_tick) >= send_interval_delta_tick
         {
             if !present {
-                info!(
+                trace!(
                     ?entity, ?history_tick, ?current_interpolate_tick,
                     "insert interpolated comp value because we enough time has passed. Kind = {:?}", DebugName::type_name::<C>()
                 );

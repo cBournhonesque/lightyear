@@ -105,6 +105,7 @@ impl<
                     // do not run Update during rollback as we already know all inputs
                     EnhancedInputSystems::Update.run_if(not(is_in_rollback)),
                     InputSet::BufferClientInputs,
+                    // Apply is after BufferClientInputs so that events can re-trigger after we update the ActionState from Buffer during rollbacks
                     EnhancedInputSystems::Apply,
                 )
                     .chain(),

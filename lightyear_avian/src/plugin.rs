@@ -282,13 +282,16 @@ impl LightyearAvianPlugin {
             .resource::<PhysicsTransformConfig>()
             .position_to_transform
         {
-            app.register_required_components_with::<Position, ApplyPosToTransform>(|| ApplyPosToTransform);
-            app.register_required_components_with::<Rotation, ApplyPosToTransform>(|| ApplyPosToTransform);
+            // Make sure that PositionToTransform sync also runs for Interpolated entities
+            app.register_required_components::<Position, ApplyPosToTransform>();
+            app.register_required_components::<Rotation, ApplyPosToTransform>();
+
             // TODO(important): handle this
-            app.try_register_required_components::<Position, Transform>()
-                .ok();
-            app.try_register_required_components::<Rotation, Transform>()
-                .ok();
+            // NOTE: we do NOT include this because Position/Rotation might not be added at the same time (for example on the Interpolated entity)
+            //  we only want to add Transform if both are added at the same time
+            // app.try_register_required_components::<Position, Transform>().ok();
+            // app.try_register_required_components::<Rotation, Transform>().ok();
+            app.add_observer(Self::position_rotation_to_transform);
         }
         let schedule = schedule.intern();
         app.configure_sets(
@@ -301,5 +304,19 @@ impl LightyearAvianPlugin {
                 .in_set(PhysicsTransformSystems::PositionToTransform)
                 .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
         );
+    }
+
+    /// Add Transform only when Position/Rotation are both present.
+    fn position_rotation_to_transform(
+        trigger: On<Add, (Position, Rotation)>,
+        query: Query<(), (With<Position>, With<Rotation>)>,
+        mut commands: Commands,
+    ) {
+        if query.get(trigger.entity).is_ok() {
+            // the Transform will be updated by the sync system
+            commands
+                .entity(trigger.entity)
+                .insert(Transform::default());
+        }
     }
 }

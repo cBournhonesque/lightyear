@@ -362,6 +362,100 @@ fn test_client_rollback() {
     stepper.frame_step(1);
 }
 
+#[derive(Resource, Default)]
+struct Counter(usize);
+
+/// Check that Actions<C> is restored correctly after a rollback, and observers are re-triggerd
+#[test]
+fn test_client_rollback_bei_events() {
+    let mut stepper = ClientServerStepper::single();
+
+
+    stepper.client_apps[0].init_resource::<Counter>();
+    stepper.client_apps[0].add_observer(|trigger: On<bevy_enhanced_input::prelude::Start<BEIAction1>>, mut counter: ResMut<Counter>| counter.0 += 1);
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity is not present in entity map");
+
+    // we spawn an action entity on the client
+    let client_action = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client_entity),
+            Action::<BEIAction1>::default(),
+        ))
+        .id();
+
+    // check that the Action entity contains Replicate
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_action)
+            .contains::<Replicate>()
+    );
+
+    stepper.frame_step(1);
+
+    // Add an InputMarker to the Context entity on the client to indicate that the client controls this entity
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(bei::prelude::InputMarker::<BEIContext>::default());
+
+    let server_action = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<Actions<BEIContext>>()
+        .unwrap()
+        .collection()[0];
+
+    // mock press on a key
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_action)
+        .insert(ActionMock::new(
+            ActionState::Fired,
+            true,
+            MockSpan::Updates(1),
+        ));
+    // first tick: we start pressing the button
+    // second tick: the action is released
+    // third tick: the action is released
+    stepper.frame_step(3);
+    let client_tick = stepper.client_tick(0);
+
+    // Check that the START event got fired
+    assert_eq!(stepper.client_app().world().resource::<Counter>().0, 1);
+
+    let client_action_ref = stepper.client_app().world().entity(client_action);
+    // trigger a rollback
+    // We rollback to client_tick - 4, before the first action press
+    trigger_state_rollback(&mut stepper, client_tick - 4);
+
+    // Do the rollback
+    stepper.frame_step(1);
+
+    // check that the START event got fired again
+    assert_eq!(stepper.client_app().world().resource::<Counter>().0, 2);
+}
+
 /// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
 /// Then for the missing ticks we should be predicting the future value of the input
 ///

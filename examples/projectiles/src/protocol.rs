@@ -77,7 +77,7 @@ pub struct CycleReplicationMode;
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum WeaponType {
     Hitscan,
-    LinearProjectile,
+    Bullet,
     // Shotgun,
     // PhysicsProjectile,
     // HomingMissile,
@@ -92,8 +92,8 @@ impl Default for WeaponType {
 impl WeaponType {
     pub fn next(&self) -> Self {
         match self {
-            WeaponType::Hitscan => WeaponType::LinearProjectile,
-            WeaponType::LinearProjectile => WeaponType::Hitscan,
+            WeaponType::Hitscan => WeaponType::Bullet,
+            WeaponType::Bullet => WeaponType::Hitscan,
             // WeaponType::Shotgun => WeaponType::PhysicsProjectile,
             // WeaponType::PhysicsProjectile => WeaponType::HomingMissile,
             // WeaponType::HomingMissile => WeaponType::Hitscan,
@@ -103,7 +103,7 @@ impl WeaponType {
     pub fn name(&self) -> &'static str {
         match self {
             WeaponType::Hitscan => "Hitscan",
-            WeaponType::LinearProjectile => "Linear Projectile",
+            WeaponType::Bullet => "Linear Projectile",
             // WeaponType::Shotgun => "Shotgun",
             // WeaponType::PhysicsProjectile => "Physics Projectile",
             // WeaponType::HomingMissile => "Homing Missile",
@@ -113,7 +113,7 @@ impl WeaponType {
     pub fn fire_rate(&self) -> f32 {
         match self {
             WeaponType::Hitscan => 5.0,
-            WeaponType::LinearProjectile => 2.0,
+            WeaponType::Bullet => 2.0,
             // WeaponType::Shotgun => 1.0,
             // WeaponType::PhysicsProjectile => 1.5,
             // WeaponType::HomingMissile => 0.5,

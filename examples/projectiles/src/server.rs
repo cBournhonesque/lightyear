@@ -124,11 +124,17 @@ pub(crate) fn spawn_player(
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                // we don't want to add RigidBody to the Interpolation target because that
+                // will add Position::default()/Rotation::default() via RequiredComponents.
+                ComponentReplicationOverrides::<RigidBody>::default().disable_all().enable_for(sender),
             )),
             GameReplicationMode::ClientPredictedLagComp => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                // we don't want to add RigidBody to the Interpolation target because that
+                // will add Position::default()/Rotation::default() via RequiredComponents.
+                ComponentReplicationOverrides::<RigidBody>::default().disable_all().enable_for(sender),
                 // add the component to make lag-compensation possible!
                 LagCompensationHistory::default(),
             )),
@@ -136,9 +142,19 @@ pub(crate) fn spawn_player(
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+                // we don't want to add RigidBody to the Interpolation target because that
+                // will add Position::default()/Rotation::default() via RequiredComponents.
+                ComponentReplicationOverrides::<RigidBody>::default().disable_all().enable_for(sender),
             )),
             GameReplicationMode::AllInterpolated => {
-                commands.spawn((player, InterpolationTarget::to_clients(NetworkTarget::All)))
+                commands.spawn((
+                    player,
+                    InterpolationTarget::to_clients(NetworkTarget::All),
+                    // we don't want to add RigidBody to the Interpolation target because that
+                    // will add Position::default()/Rotation::default() via RequiredComponents.
+                    // that means the entity will be in the middle of the screen until Position/Rotation are added
+                    ComponentReplicationOverrides::<RigidBody>::default().disable_all()
+                ))
             }
             GameReplicationMode::OnlyInputsReplicated => commands.spawn((
                 PlayerContext,
