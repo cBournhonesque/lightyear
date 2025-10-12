@@ -1,5 +1,5 @@
 use crate::client_server::prediction::{
-    RollbackInfo, trigger_rollback_check, trigger_state_rollback, trigger_rollback_system,
+    RollbackInfo, trigger_rollback_check, trigger_rollback_system, trigger_state_rollback,
 };
 use crate::protocol::{CompFull, CompNotNetworked, NativeInput};
 use crate::stepper::ClientServerStepper;
@@ -514,6 +514,7 @@ fn test_rollback_time_resource() {
     );
 }
 
+/// Clients 1 and 2 have inputs and send them to the Server, who rebroadcasts to client 0
 fn setup_stepper_for_input_rollback(
     mode: RollbackMode,
 ) -> (ClientServerStepper, Entity, Entity, Entity, Entity) {
@@ -576,10 +577,11 @@ fn setup_stepper_for_input_rollback(
         .entity_mapper
         .get_local(server_entity_1)
         .expect("entity was not replicated to client");
+    // we want to predict this entity
     stepper.client_apps[0]
         .world_mut()
         .entity_mut(client_entity_a)
-        .insert(CompNotNetworked(1.0));
+        .insert((CompNotNetworked(1.0), DeterministicPredicted::default()));
     let client_entity_b = stepper
         .client(0)
         .get::<MessageManager>()
@@ -624,7 +626,7 @@ fn test_input_rollback_always_mode() {
                 let rollback_start = manager.get_rollback_start_tick();
                 // We receive the input message for tick `input_tick`, but we rollback at the previous LastConfirmedInput tick,
                 // which is `input_tick - 1`
-                assert_eq!(rollback_start.unwrap(), input_tick - 1,);
+                assert_eq!(rollback_start.unwrap(), input_tick - 1);
             }
         };
     stepper.client_apps[0].add_systems(
@@ -769,7 +771,6 @@ fn test_no_rollback_without_input_mismatches() {
     stepper.frame_step_server_first(1);
 }
 
-
 /// Test that if we spawn a DeterministicPredicted entity with skip_despawn = true
 /// We only start enabling rollback for this entity a few ticks after it was spawned.
 #[test]
@@ -795,19 +796,25 @@ fn test_deterministic_predicted_skip_despawn() {
     // Rollback check: the entity should have DisableRollback added
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
-    assert!(stepper
-        .client_app()
-        .world()
-        .get::<DisableRollback>(predicted_a).is_some());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<DisableRollback>(predicted_a)
+            .is_some()
+    );
 
     // trigger a rollback at tick + 2, we should re-enable rollback
     // since it's the spawn_tick of DeterministicPredicted + 2
     trigger_state_rollback(&mut stepper, tick + 2);
     stepper.frame_step(1);
-    assert!(stepper
-        .client_app()
-        .world()
-        .get::<DisableRollback>(predicted_a).is_none());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<DisableRollback>(predicted_a)
+            .is_none()
+    );
 }
 
 /// Test that if we spawn a DeterministicPredicted entity with skip_despawn = false
@@ -824,20 +831,18 @@ fn test_deterministic_predicted_despawn() {
     let predicted_a = stepper
         .client_app()
         .world_mut()
-        .spawn((
-            Predicted,
-            DeterministicPredicted::default(),
-            CompFull(1.0),
-        ))
+        .spawn((Predicted, DeterministicPredicted::default(), CompFull(1.0)))
         .id();
-
 
     // trigger a rollback at tick - 2, we should despawn the DeterministicPredicted
     // since it was spawned before the rollback
     trigger_state_rollback(&mut stepper, tick - 1);
     stepper.frame_step(1);
-    assert!(stepper
-        .client_app()
-        .world()
-        .get_entity(predicted_a).is_err())
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get_entity(predicted_a)
+            .is_err()
+    )
 }

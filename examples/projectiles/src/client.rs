@@ -34,7 +34,15 @@ pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
     mut commands: Commands,
-    mut player_query: Query<(&PlayerId, &Position, &Confirmed<Position>, &GameReplicationMode), With<Predicted>>,
+    mut player_query: Query<
+        (
+            &PlayerId,
+            &Position,
+            &Confirmed<Position>,
+            &GameReplicationMode,
+        ),
+        With<Predicted>,
+    >,
 ) {
     let client_id = client.into_inner().0;
     if let Ok((player_id, pos, confirmed_pos, mode)) = player_query.get_mut(trigger.entity) {
@@ -55,7 +63,12 @@ pub(crate) fn handle_predicted_spawn(
         if player_id.0 != client_id {
             return;
         }
-        info!(?pos, ?confirmed_pos, "Adding actions to predicted player {:?}", trigger.entity);
+        info!(
+            ?pos,
+            ?confirmed_pos,
+            "Adding actions to predicted player {:?}",
+            trigger.entity
+        );
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
         add_actions(&mut commands, trigger.entity);
     }
@@ -74,9 +87,9 @@ pub(crate) fn handle_interpolated_spawn(
     if let Ok((player_id, interpolated, mode)) = interpolated.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::ClientSideHitDetection {
             // add these so we can do hit-detection on the client
-            commands.entity(trigger.entity).insert((
-                Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-            ));
+            commands
+                .entity(trigger.entity)
+                .insert((Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),));
         }
         // In the interpolated case, the client sends inputs but doesn't apply them.
         // Only the server applies the inputs, and the position changes are replicated back

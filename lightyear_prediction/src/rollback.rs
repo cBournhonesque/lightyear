@@ -10,6 +10,7 @@ use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
 use bevy_app::FixedMain;
 use bevy_app::prelude::*;
+use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick};
@@ -18,7 +19,6 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use bevy_ecs::lifecycle::HookContext;
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -203,22 +203,31 @@ impl DeterministicPredicted {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         // TODO: avoid fetching DeterministicPredicted twice when we can convert DeferredWorld to UnsafeWorldCell (0.17.3)
         let deterministic_predicted = *world.get::<DeterministicPredicted>(context.entity).unwrap();
-        let Some(prediction_manager_entity) = world.get_resource::<PredictionResource>().map(|r| r.link_entity) else {
-            return
+        let Some(prediction_manager_entity) = world
+            .get_resource::<PredictionResource>()
+            .map(|r| r.link_entity)
+        else {
+            return;
         };
-        let tick = world.get::<LocalTimeline>(prediction_manager_entity).unwrap().tick();
-        let Some(mut manager) = world.get_mut::<PredictionManager>(prediction_manager_entity) else {
-            return
+        let tick = world
+            .get::<LocalTimeline>(prediction_manager_entity)
+            .unwrap()
+            .tick();
+        let Some(mut manager) = world.get_mut::<PredictionManager>(prediction_manager_entity)
+        else {
+            return;
         };
         if !deterministic_predicted.skip_despawn {
             manager.deterministic_despawn.push((tick, context.entity));
         } else {
             info!(entity = ?context.entity, "ADDING SKIP DESPAWN");
-            manager.deterministic_skip_despawn.push((tick + (deterministic_predicted.enable_rollback_after as i16), context.entity));
+            manager.deterministic_skip_despawn.push((
+                tick + (deterministic_predicted.enable_rollback_after as i16),
+                context.entity,
+            ));
         }
     }
 }
-
 
 /// Marker component to indicate that the entity will be completely excluded from rollbacks.
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
@@ -453,28 +462,40 @@ fn check_rollback(
         // - entities spawned before the rollback_tick were created early enough to not need to be despawned
         //   and we don't want to check them again (since future rollbacks will happen even more in the future)
         // - entities spawned after the rollback tick will be despawned
-        prediction_manager.deterministic_despawn.drain(..).for_each(|(t, e)| {
-            if t > rollback_tick && let Ok(mut c) = commands.get_entity(e) {
-                c.despawn();
-            }
-        });
+        prediction_manager
+            .deterministic_despawn
+            .drain(..)
+            .for_each(|(t, e)| {
+                if t > rollback_tick
+                    && let Ok(mut c) = commands.get_entity(e)
+                {
+                    c.despawn();
+                }
+            });
 
         // For skip_despawn, the tick is the first tick after which we should start enabling despawn on the entity
         // - if rollback_tick is bigger than the tick, then we remove DisableRollback and remove the entity from the vec because
         //   the entity was spawned a while ago and we want to enable rollbacks again
         // - for all remaining entities (where rollback_tick < tick) we insert DisableRollback
-        let split_idx = prediction_manager.deterministic_skip_despawn.partition_point(|(t, _)| *t <= rollback_tick);
-        let should_disable_rollback = prediction_manager.deterministic_skip_despawn.split_off(split_idx);
+        let split_idx = prediction_manager
+            .deterministic_skip_despawn
+            .partition_point(|(t, _)| *t <= rollback_tick);
+        let should_disable_rollback = prediction_manager
+            .deterministic_skip_despawn
+            .split_off(split_idx);
         should_disable_rollback.iter().for_each(|(_, e)| {
             if let Ok(mut c) = commands.get_entity(*e) {
                 c.insert(DisableRollback);
             }
         });
-        prediction_manager.deterministic_skip_despawn.iter().for_each(|(_, e)| {
-            if let Ok(mut c) = commands.get_entity(*e) {
-                c.remove::<DisableRollback>();
-            }
-        });
+        prediction_manager
+            .deterministic_skip_despawn
+            .iter()
+            .for_each(|(_, e)| {
+                if let Ok(mut c) = commands.get_entity(*e) {
+                    c.remove::<DisableRollback>();
+                }
+            });
         // we only keep the entities for which we disabled rollback
         prediction_manager.deterministic_skip_despawn = should_disable_rollback;
     }

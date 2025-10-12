@@ -23,13 +23,13 @@ use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSett
 #[cfg(all(feature = "gui", feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEAM_APP_ID};
+use lightyear::link::RecvLinkConditioner;
+use lightyear::prelude::*;
 #[cfg(feature = "gui")]
 use {
     bevy::window::PresentMode,
-    bevy::winit::{UpdateMode, WinitSettings}
+    bevy::winit::{UpdateMode, WinitSettings},
 };
-use lightyear::link::RecvLinkConditioner;
-use lightyear::prelude::*;
 
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]

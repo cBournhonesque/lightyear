@@ -123,9 +123,9 @@ impl WeaponType {
 
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
 pub enum ProjectileReplicationMode {
-    FullEntity,    // Spawn a new entity per projectile
+    FullEntity, // Spawn a new entity per projectile
     DirectionOnly, // Only initial direction replicated
-    // RingBuffer,    // Weapon component with ring buffer
+                // RingBuffer,    // Weapon component with ring buffer
 }
 
 impl Default for ProjectileReplicationMode {

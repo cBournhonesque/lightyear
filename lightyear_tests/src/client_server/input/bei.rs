@@ -370,9 +370,11 @@ struct Counter(usize);
 fn test_client_rollback_bei_events() {
     let mut stepper = ClientServerStepper::single();
 
-
     stepper.client_apps[0].init_resource::<Counter>();
-    stepper.client_apps[0].add_observer(|trigger: On<bevy_enhanced_input::prelude::Start<BEIAction1>>, mut counter: ResMut<Counter>| counter.0 += 1);
+    stepper.client_apps[0].add_observer(
+        |trigger: On<bevy_enhanced_input::prelude::Start<BEIAction1>>,
+         mut counter: ResMut<Counter>| counter.0 += 1,
+    );
 
     let server_entity = stepper
         .server_app

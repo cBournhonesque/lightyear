@@ -67,7 +67,6 @@ fn main() {
     app.run();
 }
 
-
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
     use lightyear::prelude::client::{Input, InputDelayConfig};

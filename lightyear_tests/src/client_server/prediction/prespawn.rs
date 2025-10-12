@@ -18,7 +18,6 @@ use lightyear_replication::prelude::{
 };
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_utils::ready_buffer::ItemWithReadyKey;
 use test_log::test;
 use tracing::info;
 
@@ -51,14 +50,11 @@ fn test_compute_hash() {
         2
     );
     assert_eq!(
-        prediction_manager.prespawn_tick_to_hash.heap.peek(),
-        Some(&ItemWithReadyKey {
-            // NOTE: in this test we have to add + 1 here because the `register_prespawn_hashes` observer
-            //  runs outside of the FixedUpdate schedule so the entity is registered with the previous tick
-            //  in a real situation the entity would be spawned inside FixedUpdate so the hash would be correct
-            key: current_tick - 1,
-            item: expected_hash,
-        })
+        prediction_manager.prespawn_tick_to_hash.last(),
+        // NOTE: in this test we have to add + 1 here because the `register_prespawn_hashes` observer
+        //  runs outside of the FixedUpdate schedule so the entity is registered with the previous tick
+        //  in a real situation the entity would be spawned inside FixedUpdate so the hash would be correct
+        Some(&(current_tick - 1, expected_hash))
     );
 
     // check that a PredictionHistory got added to the entity

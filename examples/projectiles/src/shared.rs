@@ -1,3 +1,4 @@
+use avian2d::physics_transform::PhysicsTransformConfig;
 use avian2d::prelude::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::platform::collections::HashMap;
@@ -7,7 +8,6 @@ use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::prelude::*;
 use core::ops::DerefMut;
 use core::time::Duration;
-use avian2d::physics_transform::PhysicsTransformConfig;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
@@ -126,8 +126,12 @@ pub(crate) fn move_player(
     if let Ok(mut position) = player.get_mut(trigger.context) {
         if is_bot.get(trigger.context).is_ok() {
             debug!(
-                ?tick, ?is_rollback, ?position,
-                "Moving player {:?} by {:?}", trigger.context, trigger.value
+                ?tick,
+                ?is_rollback,
+                ?position,
+                "Moving player {:?} by {:?}",
+                trigger.context,
+                trigger.value
             );
         }
         let value = trigger.value;
@@ -171,13 +175,32 @@ pub(crate) fn fixed_update_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<(&LocalTimeline, Option<&InterpolationTimeline>, Has<Rollback>), Without<ClientOf>>,
+    timeline: Single<
+        (
+            &LocalTimeline,
+            Option<&InterpolationTimeline>,
+            Has<Rollback>,
+        ),
+        Without<ClientOf>,
+    >,
     player: Query<
-        (Entity, Option<&Position>, &Confirmed<Position>, Option<&Rotation>, Option<&Transform>),
+        (
+            Entity,
+            Option<&Position>,
+            &Confirmed<Position>,
+            Option<&Rotation>,
+            Option<&Transform>,
+        ),
         (With<PlayerMarker>, With<PlayerId>, With<Bot>),
     >,
     interpolated_bullet: Query<
-        (Entity, Option<&Position>, &Confirmed<Position>, &ConfirmedHistory<Position>, Option<&Transform>),
+        (
+            Entity,
+            Option<&Position>,
+            &Confirmed<Position>,
+            &ConfirmedHistory<Position>,
+            Option<&Transform>,
+        ),
         (With<BulletMarker>, With<Interpolated>),
     >,
 ) {
@@ -244,7 +267,9 @@ pub(crate) fn shoot_weapon(
     let (projectile_mode, replication_mode, weapon_type) = global.into_inner();
     info!(?tick, ?shooter, "Shoot!");
 
-    if let Ok((id, position, rotation, color, mut weapon, controlled_by)) = player_query.get_mut(shooter) {
+    if let Ok((id, position, rotation, color, mut weapon, controlled_by)) =
+        player_query.get_mut(shooter)
+    {
         let is_server = controlled_by.is_some();
         // Check fire rate
         if let Some(last_fire) = weapon.last_fire_tick {
@@ -259,7 +284,8 @@ pub(crate) fn shoot_weapon(
                     ?last_fire,
                     ?shooter,
                     ?tick,
-                    "Cannot shoot, too soon!");
+                    "Cannot shoot, too soon!"
+                );
                 return; // Too soon to fire again
             }
         }
@@ -305,17 +331,16 @@ pub(crate) fn shoot_weapon(
                     replication_mode,
                     weapon_type,
                 );
-            }
-            // (_, ProjectileReplicationMode::RingBuffer) => {
-            //     shoot_with_ring_buffer_replication(
-            //         &mut weapon,
-            //         &timeline,
-            //         transform,
-            //         id,
-            //         shooter,
-            //         weapon_type,
-            //     );
-            // }
+            } // (_, ProjectileReplicationMode::RingBuffer) => {
+              //     shoot_with_ring_buffer_replication(
+              //         &mut weapon,
+              //         &timeline,
+              //         transform,
+              //         id,
+              //         shooter,
+              //         weapon_type,
+              //     );
+              // }
         }
     }
 }
@@ -622,8 +647,8 @@ mod hit_detection {
 }
 
 mod full_entity {
-    use core::f32::consts::PI;
     use super::*;
+    use core::f32::consts::PI;
 
     /// Full entity replication: spawn a replicated entity for the projectile
     /// The entity keeps getting replicated from server to clients
@@ -667,44 +692,43 @@ mod full_entity {
                     replication_mode,
                     is_server,
                 );
-            }
-            // WeaponType::Shotgun => {
-                // shoot_shotgun(
-                //     commands,
-                //     timeline,
-                //     transform,
-                //     id,
-                //     color,
-                //     controlled_by,
-                //     replication_mode,
-                //     is_server,
-                // );
-            // }
-            // WeaponType::PhysicsProjectile => {
-                // shoot_physics_projectile(
-                //     commands,
-                //     timeline,
-                //     transform,
-                //     id,
-                //     color,
-                //     controlled_by,
-                //     replication_mode,
-                //     is_server,
-                // );
-            // }
-            // WeaponType::HomingMissile => {
-                // let target = find_nearest_target(transform);
-                // shoot_homing_missile(
-                //     commands,
-                //     timeline,
-                //     transform,
-                //     id,
-                //     color,
-                //     controlled_by,
-                //     is_server,
-                //     target,
-                // );
-            // }
+            } // WeaponType::Shotgun => {
+              // shoot_shotgun(
+              //     commands,
+              //     timeline,
+              //     transform,
+              //     id,
+              //     color,
+              //     controlled_by,
+              //     replication_mode,
+              //     is_server,
+              // );
+              // }
+              // WeaponType::PhysicsProjectile => {
+              // shoot_physics_projectile(
+              //     commands,
+              //     timeline,
+              //     transform,
+              //     id,
+              //     color,
+              //     controlled_by,
+              //     replication_mode,
+              //     is_server,
+              // );
+              // }
+              // WeaponType::HomingMissile => {
+              // let target = find_nearest_target(transform);
+              // shoot_homing_missile(
+              //     commands,
+              //     timeline,
+              //     transform,
+              //     id,
+              //     color,
+              //     controlled_by,
+              //     is_server,
+              //     target,
+              // );
+              // }
         }
     }
     fn shoot_hitscan(
@@ -877,7 +901,9 @@ mod full_entity {
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         // only replicate RigidBody to the shooter. We don't want interpolated bullets to have RigidBody
-                        ComponentReplicationOverrides::<RigidBody>::default().disable_all().enable_for(shooter),
+                        ComponentReplicationOverrides::<RigidBody>::default()
+                            .disable_all()
+                            .enable_for(shooter),
                         controlled_by.unwrap().clone(),
                     ));
                 }
@@ -1063,8 +1089,8 @@ mod full_entity {
 
 /// To save bandwidth, the server only sends a message 'Client Fired Bullet'
 pub(crate) mod direction_only {
-    use core::f32::consts::PI;
     use super::*;
+    use core::f32::consts::PI;
 
     /// Identifies the ProjectileSpawn that spawned the bullet
     #[derive(Component, Debug)]

@@ -57,8 +57,11 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             // we have 2 updates, we can start interpolating!
             if !present {
                 trace!(
-                    ?entity, ?history_tick, ?current_interpolate_tick,
-                    "insert interpolated comp value because we have 2 values to interpolate between. Kind = {:?}", DebugName::type_name::<C>()
+                    ?entity,
+                    ?history_tick,
+                    ?current_interpolate_tick,
+                    "insert interpolated comp value because we have 2 values to interpolate between. Kind = {:?}",
+                    DebugName::type_name::<C>()
                 );
                 // we can insert the end_value because:
                 // - if H1..X...H2, we will do interpolation right after
@@ -81,8 +84,11 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
         {
             if !present {
                 trace!(
-                    ?entity, ?history_tick, ?current_interpolate_tick,
-                    "insert interpolated comp value because we enough time has passed. Kind = {:?}", DebugName::type_name::<C>()
+                    ?entity,
+                    ?history_tick,
+                    ?current_interpolate_tick,
+                    "insert interpolated comp value because we enough time has passed. Kind = {:?}",
+                    DebugName::type_name::<C>()
                 );
                 commands.entity(entity).insert(val.clone());
             }
