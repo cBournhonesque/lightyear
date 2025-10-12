@@ -77,17 +77,15 @@ pub struct LightyearAvianPlugin {
 
 impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<PhysicsTransformConfig>();
         match self.replication_mode {
             AvianReplicationMode::Position => {
                 // I think Transform to Position is updating Position to 0.0 ?
 
                 if !self.update_syncs_manually {
-                    // TODO: I think we should disable TranformToPosition, otherwise the FrameInterpolation::Restore will restore the correct Position,
-                    //  but TransformToPosition might overwrite it!
-
-                    // TODO: causes issues; for example in case a rollback fixes Position, this would reset the Position to the Transform! (if no
-                    //  FrameInterpolation is enabled)
-                    // LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
+                    // TODO: causes issues if no FrameInterpolation is enabled, because we don't override the transform->position with the correct Position
+                    //  (for example in case a rollback updates Position, that change will be overriden by the transform->position)
+                    LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
 
                     // In case we do the TransformToPosition sync in RunFixedMainLoop, do it BEFORE
                     // restoring the correct Position in FrameInterpolation::Restore, since we want Position to take priority.
@@ -244,7 +242,6 @@ impl Plugin for LightyearAvianPlugin {
 
 impl LightyearAvianPlugin {
     fn sync_transform_to_position(app: &mut App, schedule: impl ScheduleLabel) {
-        app.init_resource::<PhysicsTransformConfig>();
         let schedule = schedule.intern();
         // Manually propagate Transform to GlobalTransform before running physics
         app.configure_sets(
@@ -276,7 +273,6 @@ impl LightyearAvianPlugin {
     }
 
     fn sync_position_to_transform(app: &mut App, schedule: impl ScheduleLabel) {
-        app.init_resource::<PhysicsTransformConfig>();
         if app
             .world()
             .resource::<PhysicsTransformConfig>()

@@ -7,6 +7,7 @@ use bevy_enhanced_input::action::Action;
 use bevy_enhanced_input::prelude::*;
 use core::ops::DerefMut;
 use core::time::Duration;
+use avian2d::physics_transform::PhysicsTransformConfig;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
@@ -69,6 +70,12 @@ impl Plugin for SharedPlugin {
 
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
+        app.insert_resource(PhysicsTransformConfig {
+            // this will cause issues for non-rendered entities as the Transform will be used to overwrite Position
+            // for rendered entities it is fine because the FrameInterpolation takes precedence over this.
+            transform_to_position: false,
+            ..default()
+        });
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             replication_mode: AvianReplicationMode::Position,
             ..default()

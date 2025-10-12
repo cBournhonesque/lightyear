@@ -219,6 +219,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 .in_set(InputSet::BufferClientInputs),
         );
         app.add_systems(
+            // This should be fine because the user should use the ActionState value in FixedUpdate
             FixedPostUpdate,
             (
                 // we want:

@@ -173,7 +173,7 @@ async-compat = "0.2.3"
 # WASM things
 console_error_panic_hook = "0.1.7"
 web-time = "1.1.0"
-bevy_web_keepalive = "0.3.5"
+bevy_web_keepalive = { git = "https://github.com/Nul-led/bevy_web_keepalive.git", branch = "main" }
 getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
@@ -236,7 +236,7 @@ bevy_egui = { version = "0.37", default-features = false, features = [
   "render",
 ] }
 bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"] }
-egui_extras = "0.32"
+egui_extras = "0.33"
 
 [workspace.lints.rust]
 dead_code = "allow"

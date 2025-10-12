@@ -204,7 +204,6 @@ impl DeterministicPredicted {
         // TODO: avoid fetching DeterministicPredicted twice when we can convert DeferredWorld to UnsafeWorldCell (0.17.3)
         let deterministic_predicted = *world.get::<DeterministicPredicted>(context.entity).unwrap();
         let Some(prediction_manager_entity) = world.get_resource::<PredictionResource>().map(|r| r.link_entity) else {
-            error!("No PredictionManager entity found");
             return
         };
         let tick = world.get::<LocalTimeline>(prediction_manager_entity).unwrap().tick();

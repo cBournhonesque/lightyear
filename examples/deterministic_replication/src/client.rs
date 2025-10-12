@@ -38,7 +38,19 @@ fn handle_player_spawn(
     let peer_id = player_query.get(trigger.entity).unwrap().0;
     info!("Received player spawn for player {peer_id:?} at tick {tick:?}");
     let mut entity_mut = commands.entity(trigger.entity);
-    entity_mut.insert(player_bundle(peer_id));
+    entity_mut.insert((
+        player_bundle(peer_id),
+        // this indicates that the entity will only do rollbacks from input updates, and not state updates!
+        // It is REQUIRED to add this component to indicate which entities will be rollbacked
+        // in deterministic replication mode.
+        DeterministicPredicted {
+            // any rollback would try to reset this entity to the rollback tick. If the entity was spawned after the rollback tick,
+            // it would get despawned instantly. For entities that are spawned via a one-off event, we can mark them as
+            // `skip_despawn` which will temporarily disable this entity from rollbacks for a few ticks after being spawned.
+            skip_despawn: true,
+            ..default()
+        },
+    ));
     // keep track of when the entity was spawned
     if local_id.0 == peer_id {
         entity_mut.insert(InputMap::new([

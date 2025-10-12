@@ -64,9 +64,9 @@ impl Plugin for SharedPlugin {
         // app.add_systems(FixedPostUpdate, fixed_pre_prepare
         //     .after(PhysicsSet::First)
         //     .before(PhysicsSet::Prepare));
-        // app.add_systems(FixedPostUpdate, fixed_pre_physics
-        //     .after(PhysicsSet::Prepare)
-        //     .before(PhysicsSet::StepSimulation));
+        app.add_systems(FixedPostUpdate, fixed_pre_physics
+            .after(PhysicsSystems::Prepare)
+            .before(PhysicsSystems::StepSimulation));
         app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
     }
@@ -114,17 +114,6 @@ pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {
         ColorComponent(color),
         PhysicsBundle::player(),
         Name::from("Player"),
-        // this indicates that the entity will only do rollbacks from input updates, and not state updates!
-        // It is REQUIRED to add this component to indicate which entities will be rollbacked
-        // in deterministic replication mode.
-        DeterministicPredicted {
-            // any rollback would try to reset this entity to the rollback tick. If the entity was spawned after the rollback tick,
-            // it would get despawned instantly. For entities that are spawned via a one-off event, we can mark them as
-            // `skip_despawn` which will temporarily disable this entity from rollbacks for a few ticks after being spawned.
-            skip_despawn: true,
-            ..default()
-        },
-
     )
 }
 
@@ -240,28 +229,33 @@ pub(crate) fn fixed_pre_prepare(
 
 pub(crate) fn fixed_pre_physics(
     timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
-    remote_client_inputs: Query<
+    players: Query<
         (
             Entity,
             &Position,
-            &LinearVelocity,
-            &ActionState<PlayerActions>,
+            Option<&FrameInterpolate<Position>>,
+            Option<&VisualCorrection<Position>>,
+            Option<&ActionState<PlayerActions>>,
+            Option<&InputBuffer<LeafwingSnapshot<PlayerActions>>>,
         ),
-        With<Predicted>,
+        (Without<BallMarker>, With<PlayerId>),
     >,
 ) {
     let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
-    for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
-        let pressed = action_state.get_pressed();
+    for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
+        let pressed = action_state.map(|a| a.get_pressed());
+        let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
             ?rollback,
             ?tick,
             ?entity,
             ?position,
-            ?velocity,
+            ?interpolate,
+            ?correction,
             ?pressed,
-            "Client in FixedPostUpdate right before physics"
+            ?last_buffer_tick,
+            "Player right before Physics::StepSimulation"
         );
     }
 }
