@@ -159,10 +159,10 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
-aeronet_websocket = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
-aeronet_steam = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
-aeronet_io = { git = "https://github.com/aecsocket/aeronet.git", branch = "bevy-0.17.0-rc.1"}
+aeronet_webtransport = { version = "0.17"}
+aeronet_websocket = { version = "0.17"}
+aeronet_steam = { version = "0.17"}
+aeronet_io = { version = "0.17"}
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
@@ -173,7 +173,7 @@ async-compat = "0.2.3"
 # WASM things
 console_error_panic_hook = "0.1.7"
 web-time = "1.1.0"
-bevy_web_keepalive = { git = "https://github.com/Nul-led/bevy_web_keepalive.git", branch = "main" }
+bevy_web_keepalive = { version = "0.4" }
 getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
@@ -201,7 +201,6 @@ bevy_diagnostic = { version = "0.17", default-features = false }
 bevy_color = { version = "0.17", default-features = false }
 bevy_ecs = { version = "0.17", default-features = false }
 bevy_input = { version = "0.17", default-features = false }
-bevy_log = { version = "0.17", default-features = false }
 bevy_math = { version = "0.17", default-features = false }
 bevy_platform = { version = "0.17", default-features = false }
 bevy_ptr = { version = "0.17", default-features = false }
@@ -241,7 +240,6 @@ egui_extras = "0.32"
 [workspace.lints.rust]
 dead_code = "allow"
 unused_variables = "allow"
-# mismatched_lifetime_syntaxes = "allow"
 
 [workspace.lints.clippy]
 type_complexity = "allow"
