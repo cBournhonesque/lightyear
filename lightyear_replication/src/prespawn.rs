@@ -23,7 +23,6 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
 use lightyear_link::prelude::Server;
-use lightyear_utils::ready_buffer::ReadyBuffer;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "client")]
@@ -118,7 +117,7 @@ impl PreSpawnedPlugin {
             }
             // add a timer on the entity so that it gets despawned if the interpolation tick
             // reaches it without matching with any server entity
-            prespawned_receiver.prespawn_tick_to_hash.push(tick, hash);
+            prespawned_receiver.prespawn_tick_to_hash.push((tick, hash));
         }
     }
 
@@ -128,12 +127,17 @@ impl PreSpawnedPlugin {
         manager_query: Single<(&LocalTimeline, &mut PreSpawnedReceiver)>,
     ) {
         let (timeline, mut manager) = manager_query.into_inner();
+        // enable split borrows
+        let manager = &mut *manager;
         let tick = timeline.tick();
 
         // TODO: choose a past tick based on the replication frequency received.
         let past_tick = tick - 50;
         // remove all the prespawned entities that have not been matched with a server entity
-        for (_, hash) in manager.prespawn_tick_to_hash.drain_until(&past_tick) {
+        let split_idx = manager
+            .prespawn_tick_to_hash
+            .partition_point(|(t, _)| *t < past_tick);
+        for (_, hash) in manager.prespawn_tick_to_hash.drain(..split_idx) {
             manager
                 .prespawn_hash_to_entities
                 .remove(&hash)
@@ -240,7 +244,8 @@ pub struct PreSpawnedReceiver {
     #[doc(hidden)]
     // TODO(perf): prespawned entities are added in order or tick, so we can use a Vec!
     /// Store the spawn tick of the entity, as well as the corresponding hash
-    pub prespawn_tick_to_hash: ReadyBuffer<Tick, u64>,
+    /// Sorted in ascending order of Tick.
+    pub prespawn_tick_to_hash: Vec<(Tick, u64)>,
 }
 
 impl PreSpawnedReceiver {
@@ -278,7 +283,13 @@ impl PreSpawnedReceiver {
     /// Despawn all PreSpawned entities that were not matched and were spawned at a tick >= Tick.
     #[doc(hidden)]
     pub fn despawn_prespawned_after(&mut self, tick: Tick, commands: &mut Commands) {
-        for (_, hash) in self.prespawn_tick_to_hash.drain_after(&tick) {
+        // split_idx = first index where prespawn_tick >= tick
+        let split_idx = self
+            .prespawn_tick_to_hash
+            .partition_point(|(t, _)| *t < tick);
+        // self.prespawn_tick_to_hash still contains elements with prespawn_tick < tick, which we might
+        // still want to match
+        for (_, hash) in self.prespawn_tick_to_hash.drain(split_idx..) {
             if let Some(entities) = self.prespawn_hash_to_entities.remove(&hash) {
                 entities.into_iter().for_each(|entity| {
                     debug!(
@@ -298,12 +309,10 @@ impl PreSpawnedReceiver {
         trigger: On<SyncEvent<Input>>,
         mut manager: Single<&mut Self, With<Connected>>,
     ) {
-        let data: Vec<_> = manager.prespawn_tick_to_hash.drain().collect();
-        data.into_iter().for_each(|(tick, hash)| {
-            manager
-                .prespawn_tick_to_hash
-                .push(tick + trigger.tick_delta, hash);
-        });
+        manager
+            .prespawn_tick_to_hash
+            .iter_mut()
+            .for_each(|(tick, _)| *tick = *tick + trigger.tick_delta);
     }
 }
 

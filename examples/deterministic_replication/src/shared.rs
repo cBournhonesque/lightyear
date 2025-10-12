@@ -64,9 +64,12 @@ impl Plugin for SharedPlugin {
         // app.add_systems(FixedPostUpdate, fixed_pre_prepare
         //     .after(PhysicsSet::First)
         //     .before(PhysicsSet::Prepare));
-        app.add_systems(FixedPostUpdate, fixed_pre_physics
-            .after(PhysicsSystems::Prepare)
-            .before(PhysicsSystems::StepSimulation));
+        app.add_systems(
+            FixedPostUpdate,
+            fixed_pre_physics
+                .after(PhysicsSystems::Prepare)
+                .before(PhysicsSystems::StepSimulation),
+        );
         app.add_systems(FixedLast, fixed_last_log);
         // app.add_systems(Last, last_log);
     }

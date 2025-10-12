@@ -310,9 +310,7 @@ impl LightyearAvianPlugin {
     ) {
         if query.get(trigger.entity).is_ok() {
             // the Transform will be updated by the sync system
-            commands
-                .entity(trigger.entity)
-                .insert(Transform::default());
+            commands.entity(trigger.entity).insert(Transform::default());
         }
     }
 }

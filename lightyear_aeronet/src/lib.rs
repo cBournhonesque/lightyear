@@ -6,10 +6,10 @@ extern crate std;
 
 pub mod server;
 
-use alloc::format;
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSystems, Session, SessionEndpoint};
+use alloc::format;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;

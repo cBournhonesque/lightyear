@@ -4,9 +4,9 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 
-use alloc::vec::Vec;
 use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
+use alloc::vec::Vec;
 use bevy_ecs::entity::EntityHash;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
@@ -127,7 +127,6 @@ pub struct PredictionManager {
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
 }
-
 
 /// Store the most recent confirmed input across all remote clients.
 ///

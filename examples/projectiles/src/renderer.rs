@@ -187,7 +187,7 @@ fn add_player_visuals(
         ),
         // Same thing, for interpolation, make sure that both Position and Rotation
         // are present! Otherwise the Mesh will insert Transform::default()
-        (With<PlayerMarker>, With<Rotation>)
+        (With<PlayerMarker>, With<Rotation>),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -224,7 +224,6 @@ fn add_player_visuals(
         ));
     }
 }
-
 
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
