@@ -48,9 +48,10 @@ impl Plugin for ExampleClientPlugin {
             )
                 .run_if(in_state(AppState::Game)),
         );
+        app.add_systems(EguiPrimaryContextPass, lobby::lobby_ui);
         app.add_systems(
-            EguiPrimaryContextPass,
-            (lobby::lobby_ui, lobby::receive_start_game_message),
+            PreUpdate,
+            lobby::receive_start_game_message.after(MessageSet::Receive),
         );
         app.add_observer(on_disconnect);
     }
@@ -421,7 +422,9 @@ mod lobby {
             // the host of the game is another player
             if let Some(host) = host {
                 if host == local_id.0 {
-                    info!("We are the host of the game!");
+                    info!(
+                        "We are the host of the game! Unlinking existing client {local_client:?}"
+                    );
                     // First remove the previous link
                     commands.trigger(Unlink {
                         entity: local_client,

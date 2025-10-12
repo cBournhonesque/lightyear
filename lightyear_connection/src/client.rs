@@ -8,7 +8,8 @@ use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::LinkStart;
 use lightyear_link::prelude::{Server, Unlinked};
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 /// Errors related to the client connection
 #[derive(thiserror::Error, Debug)]
@@ -167,6 +168,7 @@ impl ConnectionPlugin {
     ) {
         if let Ok(unlinked) = query.get(trigger.entity) {
             trace!(
+                entity = ?trigger.entity,
                 "Adding Disconnected because the link got Unlinked (reason: {:?})",
                 unlinked.reason
             );
