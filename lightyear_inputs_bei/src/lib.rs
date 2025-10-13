@@ -15,7 +15,7 @@ mod plugin;
 mod setup;
 
 pub mod prelude {
-    pub use crate::input_message::SnapshotBuffer;
+    pub use crate::input_message::BEIBuffer;
     pub use crate::marker::InputMarker;
     pub use crate::plugin::InputPlugin;
     pub use crate::setup::InputRegistryExt;

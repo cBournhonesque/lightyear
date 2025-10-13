@@ -52,6 +52,6 @@ mod input_message;
 mod plugin;
 
 pub mod prelude {
-    pub use crate::input_message::{LeafwingSnapshot, SnapshotBuffer};
+    pub use crate::input_message::{LeafwingSnapshot, LeafwingBuffer};
     pub use crate::plugin::InputPlugin;
 }

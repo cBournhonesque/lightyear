@@ -1,8 +1,7 @@
 use crate::protocol::NativeInput as MyInput;
 use crate::stepper::{ClientServerStepper, TICK_DURATION};
 use bevy::prelude::*;
-use lightyear::input::native::prelude::InputMarker;
-use lightyear::input::prelude::InputBuffer;
+use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::input::server::InputRebroadcaster;
 use lightyear::prelude::NetworkTimeline;
 use lightyear::prelude::input::native::ActionState;
@@ -70,7 +69,7 @@ fn test_remote_client_replicated_input() {
         stepper
             .server_app
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
+            .get::<NativeBuffer<MyInput>>(server_entity)
             .unwrap()
             .get(client_tick)
             .unwrap(),
@@ -139,7 +138,7 @@ fn test_remote_client_predicted_input() {
         stepper
             .server_app
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
+            .get::<NativeBuffer<MyInput>>(server_entity)
             .unwrap()
             .get(client_tick)
             .unwrap(),
@@ -234,7 +233,7 @@ fn test_input_broadcasting_prediction() {
     assert!(
         stepper.client_apps[1]
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
+            .get::<NativeBuffer<MyInput>>(client1_predicted)
             .is_some()
     );
 
@@ -262,7 +261,7 @@ fn test_input_broadcasting_prediction() {
     // make sure that the client 1 receives them
     let buffer = stepper.client_apps[1]
         .world()
-        .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
+        .get::<NativeBuffer<MyInput>>(client1_predicted)
         .expect("input buffer should exist");
     info!(?buffer, "client 1 tick: {:?}", client1_tick);
     assert_eq!(buffer.last_remote_tick.unwrap(), client1_tick);
@@ -416,13 +415,13 @@ fn test_input_custom_rebroadcast() {
     assert!(
         stepper.client_apps[1]
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(client1_predicted)
+            .get::<NativeBuffer<MyInput>>(client1_predicted)
             .is_some()
     );
     assert!(
         stepper.client_apps[2]
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(client2_predicted)
+            .get::<NativeBuffer<MyInput>>(client2_predicted)
             .is_none()
     );
 }
@@ -482,7 +481,7 @@ fn test_input_custom_rebroadcast() {
 //         stepper
 //             .server_app
 //             .world()
-//             .get::<InputBuffer<ActionState<MyInput>>>(server_pre_predicted_entity)
+//             .get::<NativeBuffer<MyInput>>(server_pre_predicted_entity)
 //             .unwrap()
 //             .get(client_tick)
 //             .unwrap(),
@@ -626,7 +625,7 @@ fn test_input_custom_rebroadcast() {
 //         stepper
 //             .client_app
 //             .world()
-//             .get::<InputBuffer<ActionState<MyInput>>>(local_predicted)
+//             .get::<NativeBuffer<MyInput>>(local_predicted)
 //             .unwrap()
 //             .get(server_tick)
 //             .unwrap(),

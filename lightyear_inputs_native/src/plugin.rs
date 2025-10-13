@@ -32,7 +32,7 @@ impl<
 > Plugin for InputPlugin<A>
 {
     fn build(&self, app: &mut App) {
-        app.register_type::<InputBuffer<ActionState<A>>>();
+        app.register_type::<InputBuffer<ActionState<A>, A>>();
         app.register_type::<ActionState<A>>();
 
         // TODO: for simplicity, we currently register both client and server input plugins if both features are enabled

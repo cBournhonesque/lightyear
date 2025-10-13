@@ -157,7 +157,7 @@ fn receive_input_message<S: ActionStateSequence>(
         // rebroadcast to other clients (so that they can do prediction of the HostClient's entity)
         With<Connected>,
     >,
-    mut query: Query<Option<&mut InputBuffer<S::Snapshot>>>,
+    mut query: Query<Option<&mut InputBuffer<S::Snapshot, S::Action>>>,
     prespawned: Query<(Entity, &PreSpawned), With<<S::State as ActionStateQueryData>::Main>>,
     mut commands: Commands,
 ) -> Result {
@@ -251,7 +251,7 @@ fn receive_input_message<S: ActionStateSequence>(
                         data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
                     } else {
                         debug!("Adding InputBuffer and ActionState which are missing on the entity");
-                        let mut buffer = InputBuffer::<S::Snapshot>::default();
+                        let mut buffer = InputBuffer::<S::Snapshot, S::Action>::default();
                         data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
                         commands.entity(entity).insert((
                             buffer,
@@ -283,7 +283,7 @@ fn update_action_state<S: ActionStateSequence>(
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     server: Single<(Entity, &LocalTimeline, Has<HostServer>), With<Started>>,
-    mut action_state_query: Query<(Entity, StateMut<S>, &mut InputBuffer<S::Snapshot>)>,
+    mut action_state_query: Query<(Entity, StateMut<S>, &mut InputBuffer<S::Snapshot, S::Action>)>,
 ) {
     let (server, timeline, host_client) = server.into_inner();
     let tick = timeline.tick();

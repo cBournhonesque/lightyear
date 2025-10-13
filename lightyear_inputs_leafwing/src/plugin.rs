@@ -29,7 +29,7 @@ impl<A> Default for InputPlugin<A> {
 
 impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
-        app.register_type::<InputBuffer<ActionState<A>>>();
+        app.register_type::<InputBuffer<ActionState<A>, A>>();
         app.register_type::<ActionState<A>>();
 
         #[cfg(feature = "client")]
