@@ -19,7 +19,7 @@ use bevy_ecs::prelude::*;
 use bytes::{BufMut, BytesMut};
 use lightyear_core::time::Instant;
 use lightyear_link::{
-    Link, LinkPlugin, LinkReceiveSet, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked,
+    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, LinkStart, Linked, Linking, Unlink, Unlinked,
 };
 use tracing::{error, info, trace};
 
@@ -186,8 +186,8 @@ impl Plugin for UdpPlugin {
         app.add_observer(Self::unlink);
         app.add_systems(
             PreUpdate,
-            Self::receive.in_set(LinkReceiveSet::BufferToLink),
+            Self::receive.in_set(LinkReceiveSystems::BufferToLink),
         );
-        app.add_systems(PreUpdate, Self::send.in_set(LinkSet::Send));
+        app.add_systems(PreUpdate, Self::send.in_set(LinkSystems::Send));
     }
 }

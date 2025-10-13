@@ -59,14 +59,14 @@ pub mod prelude {
         DisableReplicateHierarchy, HierarchySendPlugin, ReplicateLike, ReplicateLikeChildren,
     };
     pub use crate::message::*;
-    pub use crate::plugin::ReplicationSet;
+    pub use crate::plugin::ReplicationSystems;
     pub use crate::prespawn::PreSpawned;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};
     pub use crate::registry::registry::{
         AppComponentExt, ComponentRegistration, ComponentRegistry, TransformLinearInterpolation,
     };
     pub use crate::send::components::*;
-    pub use crate::send::plugin::{ReplicationBufferSet, ReplicationSendPlugin};
+    pub use crate::send::plugin::{ReplicationBufferSystems, ReplicationSendPlugin};
     pub use crate::send::sender::{ReplicationSender, SendUpdatesMode};
     pub use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin};
     pub use crate::visibility::room::{Room, RoomEvent, RoomPlugin, RoomTarget};

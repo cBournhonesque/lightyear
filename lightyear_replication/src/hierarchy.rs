@@ -1,6 +1,6 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
 
-use crate::prelude::{Replicate, ReplicationBufferSet};
+use crate::prelude::{Replicate, ReplicationBufferSystems};
 use crate::registry::registry::AppComponentExt;
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
@@ -16,8 +16,10 @@ use serde::de::DeserializeOwned;
 use smallvec::SmallVec;
 use tracing::trace;
 
+#[deprecated(since = "0.25", note = "Use RelationshipSystems instead")]
+pub type RelationshipSet = RelationshipSystems;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RelationshipSet {
+pub enum RelationshipSystems {
     // PreUpdate
     Receive,
     // PostUpdate
@@ -99,7 +101,7 @@ impl<
             PostUpdate,
             Self::propagate_through_hierarchy
                 // update replication components before we actually run the Buffer systems
-                .in_set(ReplicationBufferSet::BeforeBuffer),
+                .in_set(ReplicationBufferSystems::BeforeBuffer),
         );
     }
 }

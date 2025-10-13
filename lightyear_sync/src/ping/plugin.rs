@@ -12,7 +12,7 @@ use lightyear_core::tick::TickDuration;
 use lightyear_core::time::Instant;
 use lightyear_core::time::TickDelta;
 use lightyear_link::Link;
-use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
@@ -20,8 +20,11 @@ use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
+#[deprecated(since = "0.25", note = "Use PingSystems instead")]
+pub type PingSet = PingSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum PingSet {
+pub enum PingSystems {
     /// Receive messages from the Link and buffer them into the ChannelReceivers
     Receive,
     /// Flush the messages buffered in the ChannelSenders to the Link
@@ -147,10 +150,10 @@ impl Plugin for PingPlugin {
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, PingManager>();
 
-        app.configure_sets(PreUpdate, (MessageSet::Receive, PingSet::Receive).chain());
-        app.configure_sets(PostUpdate, (PingSet::Send, MessageSet::Send).chain());
-        app.add_systems(PreUpdate, Self::receive.in_set(PingSet::Receive));
-        app.add_systems(PostUpdate, Self::send.in_set(PingSet::Send));
+        app.configure_sets(PreUpdate, (MessageSystems::Receive, PingSystems::Receive).chain());
+        app.configure_sets(PostUpdate, (PingSystems::Send, MessageSystems::Send).chain());
+        app.add_systems(PreUpdate, Self::receive.in_set(PingSystems::Receive));
+        app.add_systems(PostUpdate, Self::send.in_set(PingSystems::Send));
 
         app.add_observer(Self::handle_connect);
     }

@@ -20,7 +20,7 @@ use core::fmt::Debug;
 #[cfg(feature = "client")]
 use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
-use lightyear_inputs::client::InputSet;
+use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
 use lightyear_replication::prelude::AppComponentExt;
 use lightyear_replication::registry::replication::GetWriteFns;
@@ -104,7 +104,7 @@ impl<
                 (
                     // do not run Update during rollback as we already know all inputs
                     EnhancedInputSystems::Update.run_if(not(is_in_rollback)),
-                    InputSet::BufferClientInputs,
+                    InputSystems::BufferClientInputs,
                     // Apply is after BufferClientInputs so that events can re-trigger after we update the ActionState from Buffer during rollbacks
                     EnhancedInputSystems::Apply,
                 )
@@ -144,7 +144,7 @@ impl<
             // triggering BEI events
             app.configure_sets(
                 FixedPreUpdate,
-                lightyear_inputs::server::InputSet::UpdateActionState
+                lightyear_inputs::server::InputSystems::UpdateActionState
                     .before(EnhancedInputSystems::Apply),
             );
         }

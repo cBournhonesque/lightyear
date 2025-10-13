@@ -39,10 +39,13 @@ pub mod shared;
 
 pub mod host;
 
+#[deprecated(since = "0.25", note = "Use ConnectionSystems instead")]
+pub type ConnectionSet = ConnectionSystems;
+
 /// System sets for connection-related logic.
 /// These are used to order systems that handle receiving and sending packets.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ConnectionSet {
+pub enum ConnectionSystems {
     // PRE UPDATE
     /// Receive bytes from the Link, process them as Packets and buffer them into the Transport
     Receive,
@@ -54,7 +57,7 @@ pub enum ConnectionSet {
 }
 
 pub mod prelude {
-    pub use crate::ConnectionSet;
+    pub use crate::ConnectionSystems;
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
 

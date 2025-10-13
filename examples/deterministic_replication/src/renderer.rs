@@ -4,7 +4,7 @@ use avian2d::prelude::{Position, Rotation};
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
 use lightyear::prediction::rollback::DeterministicPredicted;
-use lightyear::prelude::{Client, Connected, EventSender, InterpolationSet, RollbackSet};
+use lightyear::prelude::{Client, Connected, EventSender, InterpolationSystems, RollbackSystems};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -17,8 +17,8 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(
             PostUpdate,
             draw_elements
-                .after(InterpolationSet::Interpolate)
-                .after(RollbackSet::VisualCorrection),
+                .after(InterpolationSystems::Interpolate)
+                .after(RollbackSystems::VisualCorrection),
         );
 
         // add visual interpolation for Position and Rotation

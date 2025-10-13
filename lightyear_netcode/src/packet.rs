@@ -147,6 +147,7 @@ impl Bytes for RequestPacket {
         let expire_timestamp = reader.read_u64()?;
         let mut nonce = [0; size_of::<XNonce>()];
         reader.read_exact(&mut nonce)?;
+        #[allow(deprecated)]
         let token_nonce = XNonce::from_slice(&nonce).to_owned();
         let mut token_data = [0; ConnectTokenPrivate::SIZE];
         reader.read_exact(&mut token_data)?;

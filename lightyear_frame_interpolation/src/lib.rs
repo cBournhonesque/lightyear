@@ -38,7 +38,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod prelude {
-    pub use crate::{FrameInterpolate, FrameInterpolationPlugin, FrameInterpolationSet};
+    pub use crate::{FrameInterpolate, FrameInterpolationPlugin, FrameInterpolationSystems};
 }
 
 // #[cfg(test)]
@@ -59,8 +59,11 @@ use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
-use lightyear_replication::prelude::ReplicationBufferSet;
+use lightyear_replication::prelude::ReplicationBufferSystems;
 use tracing::trace;
+
+#[deprecated(since = "0.25", note = "Use FrameInterpolationSystems instead")]
+pub type FrameInterpolationSet = FrameInterpolationSystems;
 
 /// System sets used by the `FrameInterpolationPlugin`.
 ///
@@ -69,7 +72,7 @@ use tracing::trace;
 /// - Updating the history of component values used for interpolation.
 /// - Performing the visual interpolation itself.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum FrameInterpolationSet {
+pub enum FrameInterpolationSystems {
     /// Restore the correct component values when we start the FixedMainLoop
     Restore,
     /// Update the previous/current component values used for visual interpolation
@@ -106,35 +109,35 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
         // SETS
         app.configure_sets(
             RunFixedMainLoop,
-            FrameInterpolationSet::Restore.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+            FrameInterpolationSystems::Restore.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
         // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste to do
         // it for each rollback frame
         // At the end of rollback, we have a system in lightyear_prediction that manually sets the FrameInterpolate component.
         app.configure_sets(
             FixedLast,
-            FrameInterpolationSet::Update.run_if(not(is_in_rollback)),
+            FrameInterpolationSystems::Update.run_if(not(is_in_rollback)),
         );
         app.configure_sets(
             PostUpdate,
-            FrameInterpolationSet::Interpolate
+            FrameInterpolationSystems::Interpolate
                 .before(bevy_transform::TransformSystems::Propagate)
                 // we don't want the visual interpolation value to be the one replicated!
-                .after(ReplicationBufferSet::Buffer),
+                .after(ReplicationBufferSystems::Buffer),
         );
 
         // SYSTEMS
         app.add_systems(
             RunFixedMainLoop,
-            restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSet::Restore),
+            restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSystems::Restore),
         );
         app.add_systems(
             FixedPostUpdate,
-            update_visual_interpolation_status::<C>.in_set(FrameInterpolationSet::Update),
+            update_visual_interpolation_status::<C>.in_set(FrameInterpolationSystems::Update),
         );
         app.add_systems(
             PostUpdate,
-            visual_interpolation::<C>.in_set(FrameInterpolationSet::Interpolate),
+            visual_interpolation::<C>.in_set(FrameInterpolationSystems::Interpolate),
         );
     }
 }

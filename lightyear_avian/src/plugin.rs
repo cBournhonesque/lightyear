@@ -30,10 +30,10 @@ use {
     },
 };
 
-use lightyear_frame_interpolation::FrameInterpolationSet;
+use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::prelude::InterpolationRegistry;
-use lightyear_prediction::plugin::PredictionSet;
-use lightyear_prediction::prelude::{PredictionAppRegistrationExt, RollbackSet};
+use lightyear_prediction::plugin::PredictionSystems;
+use lightyear_prediction::prelude::{PredictionAppRegistrationExt, RollbackSystems};
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
 /// Indicate which components you are replicating over the network
@@ -95,7 +95,7 @@ impl Plugin for LightyearAvianPlugin {
                         RunFixedMainLoop,
                         PhysicsSystems::Prepare
                             .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
-                            .before(FrameInterpolationSet::Restore),
+                            .before(FrameInterpolationSystems::Restore),
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
 
@@ -112,16 +112,16 @@ impl Plugin for LightyearAvianPlugin {
                     // update physics before we store the new Position in the history
                     (
                         PhysicsSystems::StepSimulation,
-                        (PredictionSet::UpdateHistory, FrameInterpolationSet::Update),
+                        (PredictionSystems::UpdateHistory, FrameInterpolationSystems::Update),
                     )
                         .chain(),
                 );
                 app.configure_sets(
                     PostUpdate,
                     (
-                        FrameInterpolationSet::Interpolate,
+                        FrameInterpolationSystems::Interpolate,
                         // We don't want the correction to be overwritten by FrameInterpolation
-                        RollbackSet::VisualCorrection,
+                        RollbackSystems::VisualCorrection,
                         // In case the user is running FrameInterpolation or Correction for Position/Rotation,
                         // we need to sync the result from FrameInterpolation/Correction to Transform
                         PhysicsSystems::Writeback,
@@ -135,11 +135,11 @@ impl Plugin for LightyearAvianPlugin {
                 app.add_systems(
                     PreUpdate,
                     correction::update_frame_interpolation_post_rollback
-                        .in_set(RollbackSet::EndRollback),
+                        .in_set(RollbackSystems::EndRollback),
                 );
                 app.add_systems(
                     PostUpdate,
-                    correction::add_visual_correction.in_set(RollbackSet::VisualCorrection),
+                    correction::add_visual_correction.in_set(RollbackSystems::VisualCorrection),
                 );
 
                 if !self.update_syncs_manually {
@@ -150,7 +150,7 @@ impl Plugin for LightyearAvianPlugin {
                         RunFixedMainLoop,
                         PhysicsSystems::Prepare
                             .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
-                            .after(FrameInterpolationSet::Restore),
+                            .after(FrameInterpolationSystems::Restore),
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
@@ -159,18 +159,18 @@ impl Plugin for LightyearAvianPlugin {
                     FixedPostUpdate,
                     (
                         // update physics before we store the new Position in the history
-                        (PhysicsSystems::StepSimulation, PredictionSet::UpdateHistory).chain(),
+                        (PhysicsSystems::StepSimulation, PredictionSystems::UpdateHistory).chain(),
                         // make sure that the Transform has been updated before updating FrameInterpolation<Transform>
-                        (PhysicsSystems::Writeback, FrameInterpolationSet::Update).chain(),
+                        (PhysicsSystems::Writeback, FrameInterpolationSystems::Update).chain(),
                     )
                         .chain(),
                 );
                 app.configure_sets(
                     PostUpdate,
                     (
-                        FrameInterpolationSet::Interpolate,
+                        FrameInterpolationSystems::Interpolate,
                         // We don't want the correction to be overwritten by FrameInterpolation
-                        RollbackSet::VisualCorrection,
+                        RollbackSystems::VisualCorrection,
                         TransformSystems::Propagate,
                     )
                         .chain(),
@@ -203,9 +203,9 @@ impl Plugin for LightyearAvianPlugin {
                         PhysicsSystems::Writeback,
                         (
                             // save the new Transform values in the history
-                            PredictionSet::UpdateHistory,
+                            PredictionSystems::UpdateHistory,
                             // save the values for visual interpolation
-                            FrameInterpolationSet::Update,
+                            FrameInterpolationSystems::Update,
                         ),
                     )
                         .chain(),
@@ -213,9 +213,9 @@ impl Plugin for LightyearAvianPlugin {
                 app.configure_sets(
                     PostUpdate,
                     (
-                        FrameInterpolationSet::Interpolate,
+                        FrameInterpolationSystems::Interpolate,
                         // We don't want the correction to be overwritten by FrameInterpolation
-                        RollbackSet::VisualCorrection,
+                        RollbackSystems::VisualCorrection,
                         TransformSystems::Propagate,
                     )
                         .chain(),

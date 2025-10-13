@@ -39,7 +39,7 @@
 //! There are several steps to use the `InputPlugin`:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
 //! - to buffer inputs for each tick. This is done by updating the `ActionState` component in a system.
-//!   That system must run in the [`InputSet::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
+//!   That system must run in the [`InputSystems::BufferClientInputs`] system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the [`InputBuffer`] component.
 
@@ -69,12 +69,12 @@ use lightyear_core::time::TickDelta;
 use lightyear_connection::client::Client;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::*;
-use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 #[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::PreSpawned;
-use lightyear_sync::plugin::SyncSet;
+use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::{Input, InputTimeline};
 use lightyear_transport::channel::ChannelKind;
@@ -82,8 +82,10 @@ use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
+#[deprecated(since = "0.25", note = "Use InputSystems instead")]
+pub type InputSet = InputSystems;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InputSet {
+pub enum InputSystems {
     // RUN-FIXED-MAIN-LOOP UPDATE
     /// Receive the InputMessage from other clients
     ReceiveInputMessages,
@@ -152,26 +154,26 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         //  Conveniently, this also ensures that we run this after MessageSet::Receive.
         app.configure_sets(
             PreUpdate,
-            InputSet::ReceiveInputMessages
+            InputSystems::ReceiveInputMessages
                 .before(RunFixedMainLoopSystems::FixedMainLoop)
                 .after(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
 
         app.configure_sets(
             FixedPreUpdate,
-            (InputSet::WriteClientInputs, InputSet::BufferClientInputs).chain(),
+            (InputSystems::WriteClientInputs, InputSystems::BufferClientInputs).chain(),
         );
-        app.configure_sets(FixedPostUpdate, InputSet::RestoreInputs);
+        app.configure_sets(FixedPostUpdate, InputSystems::RestoreInputs);
         app.configure_sets(
             PostUpdate,
             ((
-                InputSet::PrepareInputMessage,
-                SyncSet::Sync,
-                // run after SyncSet to make sure that the TickEvents are handled
-                // and that the interpolation_delay injected in the message are correct
-                InputSet::SendInputMessage,
-                InputSet::CleanUp,
-                MessageSet::Send,
+                 InputSystems::PrepareInputMessage,
+                 SyncSystems::Sync,
+                 // run after SyncSet to make sure that the TickEvents are handled
+                 // and that the interpolation_delay injected in the message are correct
+                 InputSystems::SendInputMessage,
+                 InputSystems::CleanUp,
+                 MessageSystems::Send,
             )
                 .chain(),),
         );
@@ -193,30 +195,30 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             //  `state` = `fixed_update_state` in the ActionState component.
             app.configure_sets(
                 PreUpdate,
-                InputSet::ReceiveInputMessages
-                    .after(MessageSet::Receive)
+                InputSystems::ReceiveInputMessages
+                    .after(MessageSystems::Receive)
                     // NOTE: there is no point in running this after ReplicationSet::Receive, because even if we spawned the entity
                     //  before the corresponding input entity, entity-mapping is applied in MessageSet::Receive and would fail
-                    .before(RollbackSet::Check),
+                    .before(RollbackSystems::Check),
             );
             app.add_systems(
                 PreUpdate,
-                receive_remote_player_input_messages::<S>.in_set(InputSet::ReceiveInputMessages),
+                receive_remote_player_input_messages::<S>.in_set(InputSystems::ReceiveInputMessages),
             );
             app.configure_sets(
                 PostUpdate,
-                InputSet::UpdateRemoteInputTicks.after(SyncSet::Sync),
+                InputSystems::UpdateRemoteInputTicks.after(SyncSystems::Sync),
             );
             app.add_systems(
                 PostUpdate,
-                update_last_confirmed_input::<S>.in_set(InputSet::UpdateRemoteInputTicks),
+                update_last_confirmed_input::<S>.in_set(InputSystems::UpdateRemoteInputTicks),
             );
         }
         app.add_systems(
             FixedPreUpdate,
             (buffer_action_state::<S>, get_action_state::<S>)
                 .chain()
-                .in_set(InputSet::BufferClientInputs),
+                .in_set(InputSystems::BufferClientInputs),
         );
         app.add_systems(
             // This should be fine because the user should use the ActionState value in FixedUpdate
@@ -226,16 +228,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
                 // - to write diffs for the delayed tick (in the next FixedUpdate run), so re-fetch the delayed action-state
                 //   this is required in case the FixedUpdate schedule runs multiple times in a frame,
                 // - next frame's input-map (in PreUpdate) to act on the delayed tick, so re-fetch the delayed action-state
-                get_delayed_action_state::<S>.in_set(InputSet::RestoreInputs),
+                get_delayed_action_state::<S>.in_set(InputSystems::RestoreInputs),
             ),
         );
         app.add_systems(
             PostUpdate,
             (
                 // TODO: instead, store directly in MessageSender, SyncSet::Sync before MessageSet::Send and register an observer to update the ticks from MessageSender directly!
-                prepare_input_message::<S>.in_set(InputSet::PrepareInputMessage),
-                clean_buffers::<S>.in_set(InputSet::CleanUp),
-                send_input_messages::<S>.in_set(InputSet::SendInputMessage),
+                prepare_input_message::<S>.in_set(InputSystems::PrepareInputMessage),
+                clean_buffers::<S>.in_set(InputSystems::CleanUp),
+                send_input_messages::<S>.in_set(InputSystems::SendInputMessage),
             ),
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers

@@ -12,7 +12,7 @@ use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
 use lightyear_prediction::predicted_history::PredictionHistory;
-use lightyear_prediction::prelude::RollbackSet;
+use lightyear_prediction::prelude::RollbackSystems;
 use lightyear_replication::prelude::{
     PreSpawned, PredictionTarget, Replicate, Replicated, ReplicationGroup,
 };
@@ -342,7 +342,7 @@ fn test_prespawn_local_despawn_match() {
         PreUpdate,
         panic_on_rollback
             .run_if(is_in_rollback)
-            .in_set(RollbackSet::Prepare),
+            .in_set(RollbackSystems::Prepare),
     );
 
     let client_tick = stepper.client_tick(0).0 as usize;

@@ -37,7 +37,7 @@ mod send_trigger;
 pub mod server;
 mod trigger;
 pub mod prelude {
-    pub use crate::plugin::MessageSet;
+    pub use crate::plugin::MessageSystems;
     pub use crate::receive::MessageReceiver;
     pub use crate::receive_event::RemoteEvent;
     pub use crate::registry::{AppMessageExt, MessageRegistry};

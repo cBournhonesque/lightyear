@@ -29,7 +29,7 @@ use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::TickDuration;
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::{PreSpawned, Room};
@@ -55,8 +55,11 @@ pub struct ServerInputConfig<S> {
     pub marker: core::marker::PhantomData<S>,
 }
 
+#[deprecated(since = "0.25", note = "Use InputSystems instead")]
+pub type InputSet = InputSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InputSet {
+pub enum InputSystems {
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
     /// Use the ActionDiff received from the client to update the `ActionState`
@@ -110,25 +113,25 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         //  - but host-server broadcasting their inputs only updates `state`
         app.configure_sets(
             PreUpdate,
-            (MessageSet::Receive, InputSet::ReceiveInputs).chain(),
+            (MessageSystems::Receive, InputSystems::ReceiveInputs).chain(),
         );
-        app.configure_sets(FixedPreUpdate, InputSet::UpdateActionState);
+        app.configure_sets(FixedPreUpdate, InputSystems::UpdateActionState);
 
         // for host server mode?
         #[cfg(feature = "client")]
         app.configure_sets(
             FixedPreUpdate,
-            InputSet::UpdateActionState.after(crate::client::InputSet::BufferClientInputs),
+            InputSystems::UpdateActionState.after(crate::client::InputSystems::BufferClientInputs),
         );
 
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            receive_input_message::<S>.in_set(InputSet::ReceiveInputs),
+            receive_input_message::<S>.in_set(InputSystems::ReceiveInputs),
         );
         app.add_systems(
             FixedPreUpdate,
-            update_action_state::<S>.in_set(InputSet::UpdateActionState),
+            update_action_state::<S>.in_set(InputSystems::UpdateActionState),
         );
     }
 }

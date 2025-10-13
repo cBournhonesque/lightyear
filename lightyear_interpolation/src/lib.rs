@@ -22,7 +22,7 @@ pub mod prelude {
     pub use crate::Interpolated;
     pub use crate::interpolate::interpolation_fraction;
     pub use crate::interpolation_history::ConfirmedHistory;
-    pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSet};
+    pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSystems};
     pub use crate::registry::{InterpolationRegistrationExt, InterpolationRegistry};
     pub use crate::timeline::InterpolationTimeline;
 }

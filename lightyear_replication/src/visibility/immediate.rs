@@ -23,7 +23,7 @@ visibility.lose_visibility(client);
 */
 
 use crate::prelude::ReplicateLikeChildren;
-use crate::send::plugin::ReplicationBufferSet;
+use crate::send::plugin::ReplicationBufferSystems;
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::entity::EntityHashMap;
@@ -176,8 +176,11 @@ impl NetworkVisibilityPlugin {
     }
 }
 
+#[deprecated(since = "0.25", note = "Use VisibilitySystems instead")]
+pub type VisibilitySet = VisibilitySystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum VisibilitySet {
+pub enum VisibilitySystems {
     /// Update the [`NetworkVisibility`] components
     UpdateVisibility,
 }
@@ -187,11 +190,11 @@ impl Plugin for NetworkVisibilityPlugin {
         // SYSTEMS
         app.configure_sets(
             PostUpdate,
-            VisibilitySet::UpdateVisibility.in_set(ReplicationBufferSet::AfterBuffer),
+            VisibilitySystems::UpdateVisibility.in_set(ReplicationBufferSystems::AfterBuffer),
         );
         app.add_systems(
             PostUpdate,
-            (Self::update_network_visibility.in_set(VisibilitySet::UpdateVisibility),),
+            (Self::update_network_visibility.in_set(VisibilitySystems::UpdateVisibility),),
         );
         app.add_observer(Self::handle_disconnect);
     }

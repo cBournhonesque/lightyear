@@ -170,14 +170,6 @@ tokio = { version = "1.45", features = [
 ], default-features = false }
 async-compat = "0.2.3"
 
-# WASM things
-console_error_panic_hook = "0.1.7"
-web-time = "1.1.0"
-bevy_web_keepalive = { version = "0.4" }
-getrandom = { version = "0.3", features = [
-  "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
-] }
-
 # dev deps
 mock_instant = "0.6"
 approx = "0.5.1"
@@ -219,8 +211,8 @@ leafwing-input-manager = { version = "0.18", default-features = false, features 
 ] }
 
 # physics
-avian2d = { git = "https://github.com/Jondolf/avian.git",  branch = "main", default-features = false }
-avian3d = { git = "https://github.com/Jondolf/avian.git", branch = "main", default-features = false }
+avian2d = { version = "0.4", default-features = false }
+avian3d = { version = "0.4", default-features = false }
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.34", default-features = false, features = [
@@ -229,13 +221,22 @@ bevy-inspector-egui = { version = "0.34", default-features = false, features = [
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.37", default-features = false, features = [
+bevy_egui = { version = "0.38", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
 bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"] }
-egui_extras = "0.32"
+egui_extras = "0.33"
+
+# WASM things
+console_error_panic_hook = "0.1.7"
+web-time = "1.1.0"
+bevy_web_keepalive = { version = "0.4" }
+getrandom = { version = "0.3", features = [
+  "wasm_js",  # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
+] }
+getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
 
 [workspace.lints.rust]
 dead_code = "allow"

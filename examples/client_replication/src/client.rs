@@ -1,7 +1,7 @@
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
-use lightyear::input::client::InputSet;
+use lightyear::input::client::InputSystems;
 use lightyear::prelude::*;
 
 use crate::protocol::*;

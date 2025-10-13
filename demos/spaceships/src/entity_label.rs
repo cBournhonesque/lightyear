@@ -3,7 +3,7 @@ use avian2d::prelude::*;
 ///
 /// Label will track parent position, ignoring rotation.
 use bevy::prelude::*;
-use lightyear_frame_interpolation::FrameInterpolationSet;
+use lightyear_frame_interpolation::FrameInterpolationSystems;
 
 pub struct EntityLabelPlugin;
 
@@ -13,7 +13,7 @@ impl Plugin for EntityLabelPlugin {
             PostUpdate,
             (label_added, label_changed, fix_entity_label_rotations)
                 .chain()
-                .after(FrameInterpolationSet::Interpolate)
+                .after(FrameInterpolationSystems::Interpolate)
                 .after(PhysicsSystems::Writeback)
                 .before(TransformSystems::Propagate),
         );

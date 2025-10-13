@@ -38,7 +38,7 @@ commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
 
 */
 
-use crate::send::plugin::ReplicationBufferSet;
+use crate::send::plugin::ReplicationBufferSystems;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
 use bevy_app::{App, Plugin, PostUpdate};
@@ -174,9 +174,12 @@ impl RoomPlugin {
     }
 }
 
+#[deprecated(since = "0.25", note = "Use RoomSystems instead")]
+pub type RoomSet = RoomSystems;
+
 /// System sets related to Rooms
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RoomSet {
+pub enum RoomSystems {
     /// Update the [`NetworkVisibility`] components based on room memberships
     ApplyRoomEvents,
 }
@@ -263,19 +266,19 @@ impl Plugin for RoomPlugin {
         // SETS
         app.configure_sets(
             PostUpdate,
-            RoomSet::ApplyRoomEvents.in_set(ReplicationBufferSet::BeforeBuffer),
+            RoomSystems::ApplyRoomEvents.in_set(ReplicationBufferSystems::BeforeBuffer),
         );
         // SYSTEMS
         app.add_systems(
             PostUpdate,
-            Self::apply_room_events.in_set(RoomSet::ApplyRoomEvents),
+            Self::apply_room_events.in_set(RoomSystems::ApplyRoomEvents),
         );
         // needed in tests to make sure that commands are applied correctly
         #[cfg(test)]
         app.configure_sets(
             PostUpdate,
-            RoomSet::ApplyRoomEvents
-                .before(crate::visibility::immediate::VisibilitySet::UpdateVisibility),
+            RoomSystems::ApplyRoomEvents
+                .before(crate::visibility::immediate::VisibilitySystems::UpdateVisibility),
         );
         app.add_observer(Self::handle_room_event);
         app.add_observer(Self::handle_disconnect);

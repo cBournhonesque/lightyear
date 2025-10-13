@@ -37,12 +37,12 @@ pub mod prelude {
 
     #[cfg(feature = "client")]
     pub mod client {
-        pub use crate::client::{ClientInputPlugin, InputSet};
+        pub use crate::client::{ClientInputPlugin, InputSystems};
     }
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::{
-            InputRebroadcaster, InputSet, ServerInputConfig, ServerInputPlugin,
+            InputRebroadcaster, InputSystems, ServerInputConfig, ServerInputPlugin,
         };
     }
 }

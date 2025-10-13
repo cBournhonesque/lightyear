@@ -19,7 +19,7 @@ use lightyear_transport::packet::message::MessageId;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, trace_span, warn};
 
-use crate::plugin::ReplicationSet;
+use crate::plugin::ReplicationSystems;
 use crate::prelude::{PreSpawned, ReplicationGroupId, ReplicationSender};
 use crate::prespawn::PreSpawnedReceiver;
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
@@ -32,7 +32,7 @@ use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted};
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
-use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
@@ -216,13 +216,13 @@ impl Plugin for ReplicationReceivePlugin {
         // SYSTEMS
         app.configure_sets(
             PreUpdate,
-            ReplicationSet::Receive.after(MessageSet::Receive),
+            ReplicationSystems::Receive.after(MessageSystems::Receive),
         );
         app.add_systems(
             PreUpdate,
             (Self::receive_messages, Self::apply_world)
                 .chain()
-                .in_set(ReplicationSet::Receive),
+                .in_set(ReplicationSystems::Receive),
         );
         app.add_observer(Self::handle_disconnection);
         app.add_observer(Self::receive_sender_metadata);

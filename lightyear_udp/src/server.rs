@@ -19,7 +19,7 @@ use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
 use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkPlugin, LinkSet, LinkStart, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkSystems, LinkStart, Linked, Linking, Unlink, Unlinked};
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
@@ -257,7 +257,7 @@ impl Plugin for ServerUdpPlugin {
         }
         app.add_observer(Self::link);
         app.add_observer(Self::unlink);
-        app.add_systems(PreUpdate, Self::receive.in_set(LinkSet::Receive));
-        app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
+        app.add_systems(PreUpdate, Self::receive.in_set(LinkSystems::Receive));
+        app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
     }
 }

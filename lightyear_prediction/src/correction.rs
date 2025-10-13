@@ -26,7 +26,7 @@ use crate::SyncComponent;
 use crate::manager::PredictionManager;
 use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
-use crate::rollback::RollbackSet;
+use crate::rollback::RollbackSystems;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -34,7 +34,7 @@ use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationSet};
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationSystems};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::delta::Diffable;
 use tracing::trace;
@@ -60,16 +60,16 @@ pub fn add_correction_systems<
     // to set the visual correction error.
     app.add_systems(
         PreUpdate,
-        update_frame_interpolation_post_rollback::<C, D>.in_set(RollbackSet::EndRollback),
+        update_frame_interpolation_post_rollback::<C, D>.in_set(RollbackSystems::EndRollback),
     );
     app.configure_sets(
         PostUpdate,
         // If FrameInterpolation runs after Correction, it would overwrite the applied correction.
-        RollbackSet::VisualCorrection.after(FrameInterpolationSet::Interpolate),
+        RollbackSystems::VisualCorrection.after(FrameInterpolationSystems::Interpolate),
     );
     app.add_systems(
         PostUpdate,
-        add_visual_correction::<C, D>.in_set(RollbackSet::VisualCorrection),
+        add_visual_correction::<C, D>.in_set(RollbackSystems::VisualCorrection),
     );
 }
 

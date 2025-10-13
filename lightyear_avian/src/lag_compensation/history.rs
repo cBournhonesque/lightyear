@@ -41,8 +41,12 @@ impl Default for LagCompensationConfig {
     }
 }
 
+
+#[deprecated(since = "0.25", note = "Use LagCompensationSystems instead")]
+pub type LagCompensationSet = LagCompensationSystems;
+
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
-pub enum LagCompensationSet {
+pub enum LagCompensationSystems {
     /// Update the broad phase collider history
     ///
     /// Any t needs to perform some lag-compensation query using the history
@@ -77,7 +81,7 @@ impl Plugin for LagCompensationPlugin {
         app.add_systems(
             PhysicsSchedule,
             (update_collision_layers, update_collider_history)
-                .in_set(LagCompensationSet::UpdateHistory),
+                .in_set(LagCompensationSystems::UpdateHistory),
         );
 
         app.configure_sets(
@@ -85,17 +89,17 @@ impl Plugin for LagCompensationPlugin {
             (
                 PhysicsStepSystems::Solver,
                 // the history must be updated before the SpatialQuery is updated
-                LagCompensationSet::UpdateHistory.ambiguous_with(PhysicsStepSystems::Sleeping),
+                LagCompensationSystems::UpdateHistory.ambiguous_with(PhysicsStepSystems::Sleeping),
                 PhysicsStepSystems::SpatialQuery,
                 // collisions must run after the SpatialQuery has been updated
                 // NOTE: we set it as ambiguous with Finalize, but maybe we should run before?
-                LagCompensationSet::Collisions.ambiguous_with(PhysicsStepSystems::Finalize),
+                LagCompensationSystems::Collisions.ambiguous_with(PhysicsStepSystems::Finalize),
             )
                 .chain(),
         );
         app.configure_sets(
             FixedPostUpdate,
-            LagCompensationSet::Collisions.after(PhysicsSystems::Prepare),
+            LagCompensationSystems::Collisions.after(PhysicsSystems::Prepare),
         );
     }
 }

@@ -2,7 +2,7 @@ use super::resource_history::{
     ResourceHistory, handle_tick_event_resource_history, update_resource_history,
     update_resource_history_on_prediction_manager_added,
 };
-use super::rollback::{RollbackPlugin, RollbackSet, prepare_rollback, prepare_rollback_resource};
+use super::rollback::{RollbackPlugin, RollbackSystems, prepare_rollback, prepare_rollback_resource};
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
@@ -22,16 +22,19 @@ use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
-use lightyear_replication::prelude::ReplicationSet;
+use lightyear_replication::prelude::ReplicationSystems;
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]
 pub struct PredictionPlugin;
 
+#[deprecated(since = "0.25", note = "Use PredictionSystems instead")]
+pub type PredictionSet = PredictionSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum PredictionSet {
+pub enum PredictionSystems {
     // PreUpdate Sets
-    /// System set encompassing the sets in [`RollbackSet`]
+    /// System set encompassing the sets in [`RollbackSystems`]
     Rollback,
 
     // FixedPostUpdate Sets
@@ -66,11 +69,11 @@ pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
     app.add_observer(add_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        prepare_rollback::<C>.in_set(RollbackSet::Prepare),
+        prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
-        update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
+        update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
     );
 }
 
@@ -93,11 +96,11 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
     app.add_observer(update_resource_history_on_prediction_manager_added::<R>);
     app.add_systems(
         PreUpdate,
-        prepare_rollback_resource::<R>.in_set(RollbackSet::Prepare),
+        prepare_rollback_resource::<R>.in_set(RollbackSystems::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
-        update_resource_history::<R>.in_set(PredictionSet::UpdateHistory),
+        update_resource_history::<R>.in_set(PredictionSystems::UpdateHistory),
     );
 }
 
@@ -151,14 +154,14 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
             // for SyncMode::Full, we need to check if we need to rollback.
             // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
             // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
-            prepare_rollback::<C>.in_set(RollbackSet::Prepare),
+            prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
         ),
     );
     app.add_systems(
         FixedPostUpdate,
         (
             // we need to run this during fixed update to know accurately the history for each tick
-            update_prediction_history::<C>.in_set(PredictionSet::UpdateHistory),
+            update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
         ),
     );
 }
@@ -188,12 +191,12 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                ReplicationSet::Receive,
-                PredictionSet::Rollback.in_set(PredictionSet::All),
+                ReplicationSystems::Receive,
+                PredictionSystems::Rollback.in_set(PredictionSystems::All),
             )
                 .chain(),
         );
-        app.configure_sets(PreUpdate, PredictionSet::All.run_if(should_run));
+        app.configure_sets(PreUpdate, PredictionSystems::All.run_if(should_run));
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)
@@ -203,18 +206,18 @@ impl Plugin for PredictionPlugin {
         app.configure_sets(
             FixedPostUpdate,
             (
-                PredictionSet::EntityDespawn,
+                PredictionSystems::EntityDespawn,
                 // for prespawned entities that could be spawned during FixedUpdate, we want to add the history
                 // right away to avoid rollbacks
-                PredictionSet::UpdateHistory,
+                PredictionSystems::UpdateHistory,
             )
-                .in_set(PredictionSet::All)
+                .in_set(PredictionSystems::All)
                 .chain(),
         );
-        app.configure_sets(FixedPostUpdate, PredictionSet::All.run_if(should_run));
+        app.configure_sets(FixedPostUpdate, PredictionSystems::All.run_if(should_run));
 
         // PostUpdate
-        app.configure_sets(PostUpdate, PredictionSet::All.run_if(should_run));
+        app.configure_sets(PostUpdate, PredictionSystems::All.run_if(should_run));
 
         // PLUGINS
         app.add_plugins((PredictionDiagnosticsPlugin::default(), RollbackPlugin));

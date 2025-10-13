@@ -5,7 +5,7 @@ use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
 use crate::manager::{LastConfirmedInput, PredictionManager, PredictionResource, RollbackMode};
-use crate::plugin::PredictionSet;
+use crate::plugin::PredictionSystems;
 use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
 use bevy_app::FixedMain;
@@ -24,7 +24,7 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
-use lightyear_frame_interpolation::FrameInterpolationSet;
+use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_replication::components::ConfirmedTick;
 use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
 use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
@@ -42,8 +42,11 @@ use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 #[derive(Debug, Hash, PartialEq, Eq, Clone, ScheduleLabel)]
 pub struct RollbackSchedule;
 
+#[deprecated(since = "0.25", note = "Use RollbackSystems instead")]
+pub type RollbackSet = RollbackSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RollbackSet {
+pub enum RollbackSystems {
     // PreUpdate
     /// Check if rollback is needed
     Check,
@@ -75,36 +78,36 @@ impl Plugin for RollbackPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                RollbackSet::Check,
-                RollbackSet::RemoveDisable.run_if(is_in_rollback),
-                RollbackSet::Prepare.run_if(is_in_rollback),
-                RollbackSet::Rollback.run_if(is_in_rollback),
-                RollbackSet::EndRollback.run_if(is_in_rollback),
+                RollbackSystems::Check,
+                RollbackSystems::RemoveDisable.run_if(is_in_rollback),
+                RollbackSystems::Prepare.run_if(is_in_rollback),
+                RollbackSystems::Rollback.run_if(is_in_rollback),
+                RollbackSystems::EndRollback.run_if(is_in_rollback),
             )
                 .chain()
-                .in_set(PredictionSet::Rollback),
+                .in_set(PredictionSystems::Rollback),
         );
         app.configure_sets(
             PostUpdate,
             // we add the correction error AFTER the interpolation was done
             // (which means it's also after we buffer the component for replication)
-            RollbackSet::VisualCorrection
-                .after(FrameInterpolationSet::Interpolate)
-                .in_set(PredictionSet::All),
+            RollbackSystems::VisualCorrection
+                .after(FrameInterpolationSystems::Interpolate)
+                .in_set(PredictionSystems::All),
         );
 
         // SYSTEMS
         app.add_systems(
             PreUpdate,
             (
-                reset_input_rollback_tracker.after(RollbackSet::Check),
-                remove_prediction_disable.in_set(RollbackSet::RemoveDisable),
-                run_rollback.in_set(RollbackSet::Rollback),
-                end_rollback.in_set(RollbackSet::EndRollback),
+                reset_input_rollback_tracker.after(RollbackSystems::Check),
+                remove_prediction_disable.in_set(RollbackSystems::RemoveDisable),
+                run_rollback.in_set(RollbackSystems::Rollback),
+                end_rollback.in_set(RollbackSystems::EndRollback),
                 #[cfg(feature = "metrics")]
                 no_rollback
-                    .after(RollbackSet::Check)
-                    .in_set(PredictionSet::All)
+                    .after(RollbackSystems::Check)
+                    .in_set(PredictionSystems::All)
                     .run_if(not(is_in_rollback)),
             ),
         );
@@ -161,7 +164,7 @@ impl Plugin for RollbackPlugin {
             .build_system(check_rollback)
             .with_name("RollbackPlugin::check_rollback");
 
-        app.add_systems(PreUpdate, check_rollback.in_set(RollbackSet::Check));
+        app.add_systems(PreUpdate, check_rollback.in_set(RollbackSystems::Check));
 
         app.insert_resource(component_registry);
         app.insert_resource(prediction_registry);

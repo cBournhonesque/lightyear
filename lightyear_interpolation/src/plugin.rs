@@ -13,11 +13,11 @@ use bevy_reflect::Reflect;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
-use lightyear_replication::prelude::ReplicationSet;
+use lightyear_replication::prelude::ReplicationSystems;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
-use lightyear_sync::plugin::SyncSet;
+use lightyear_sync::plugin::SyncSystems;
 use serde::{Deserialize, Serialize};
 
 /// Interpolation delay of the client at the time the message is sent
@@ -73,8 +73,11 @@ impl ToBytes for InterpolationDelay {
 #[derive(Default)]
 pub struct InterpolationPlugin;
 
+#[deprecated(since = "0.25", note = "Use InterpolationSystems instead")]
+pub type InterpolationSet = InterpolationSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum InterpolationSet {
+pub enum InterpolationSystems {
     // PreUpdate Sets,
     /// Sync components from the confirmed to the interpolated entity, and insert the ConfirmedHistory
     Sync,
@@ -103,7 +106,7 @@ pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut 
         Update,
         (apply_confirmed_update::<C>, update_confirmed_history::<C>)
             .chain()
-            .in_set(InterpolationSet::Prepare),
+            .in_set(InterpolationSystems::Prepare),
     );
 }
 
@@ -112,7 +115,7 @@ pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut 
 pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
     app.add_systems(
         Update,
-        interpolate::<C>.in_set(InterpolationSet::Interpolate),
+        interpolate::<C>.in_set(InterpolationSystems::Interpolate),
     );
 }
 
@@ -129,19 +132,19 @@ impl Plugin for InterpolationPlugin {
         // SETS
         app.configure_sets(
             PreUpdate,
-            InterpolationSet::Sync
-                .in_set(InterpolationSet::All)
+            InterpolationSystems::Sync
+                .in_set(InterpolationSystems::All)
                 .chain()
-                .after(ReplicationSet::Receive),
+                .after(ReplicationSystems::Receive),
         );
         app.configure_sets(
             Update,
             (
                 // PrepareInterpolation uses the sync values (which are used to compute interpolation)
-                InterpolationSet::Prepare.after(SyncSet::Sync),
-                InterpolationSet::Interpolate,
+                InterpolationSystems::Prepare.after(SyncSystems::Sync),
+                InterpolationSystems::Interpolate,
             )
-                .in_set(InterpolationSet::All)
+                .in_set(InterpolationSystems::All)
                 .chain(),
         );
     }

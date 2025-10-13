@@ -14,7 +14,7 @@ use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
 use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
-use lightyear::input::client::InputSet;
+use lightyear::input::client::InputSystems;
 use lightyear::input::native::prelude::{ActionState, InputMarker};
 pub use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -25,7 +25,7 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSet::WriteClientInputs),
+            buffer_input.in_set(InputSystems::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
         app.add_systems(Update, change_ball_color_on_authority);

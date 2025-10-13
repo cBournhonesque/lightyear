@@ -77,6 +77,7 @@ tracing.workspace = true
 console_error_panic_hook.workspace = true
 rand.workspace = true
 getrandom.workspace = true
+getrandom_02.workspace = true
 
 [lints]
 workspace = true
