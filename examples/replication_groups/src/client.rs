@@ -19,11 +19,11 @@ impl Plugin for ExampleClientPlugin {
         // );
         app.add_systems(
             PostUpdate,
-            interpolate.in_set(InterpolationSet::Interpolate),
+            interpolate.in_set(InterpolationSystems::Interpolate),
         );
         app.add_systems(
             FixedPreUpdate,
-            buffer_input.in_set(InputSet::WriteClientInputs),
+            buffer_input.in_set(InputSystems::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_observer(handle_predicted_spawn);

@@ -37,7 +37,7 @@ pub mod prelude {
     pub use crate::lag_compensation::{
         history::{
             AabbEnvelopeHolder, LagCompensationConfig, LagCompensationHistory,
-            LagCompensationPlugin, LagCompensationSet,
+            LagCompensationPlugin, LagCompensationSystems,
         },
         query::LagCompensationSpatialQuery,
     };

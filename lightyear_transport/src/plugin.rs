@@ -21,7 +21,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::Disconnected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_link::{Link, LinkPlugin, LinkSet, Linked};
+use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 #[cfg(feature = "metrics")]
@@ -29,8 +29,11 @@ use lightyear_utils::metrics::TimerGauge;
 #[allow(unused_imports)]
 use tracing::{error, info, trace, warn};
 
+#[deprecated(since = "0.25", note = "Use TransportSystems instead")]
+pub type TransportSet = TransportSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum TransportSet {
+pub enum TransportSystems {
     // PRE UPDATE
     /// Receive messages from the Link and buffer them into the ChannelReceivers
     Receive,
@@ -402,13 +405,13 @@ impl Plugin for TransportPlugin {
             warn!("TransportPlugin: ChannelRegistry not found, adding it");
             app.world_mut().init_resource::<ChannelRegistry>();
         }
-        app.configure_sets(PreUpdate, TransportSet::Receive.after(LinkSet::Receive));
-        app.configure_sets(PostUpdate, TransportSet::Send.before(LinkSet::Send));
+        app.configure_sets(PreUpdate, TransportSystems::Receive.after(LinkSystems::Receive));
+        app.configure_sets(PostUpdate, TransportSystems::Send.before(LinkSystems::Send));
         app.add_systems(
             PreUpdate,
-            Self::buffer_receive.in_set(TransportSet::Receive),
+            Self::buffer_receive.in_set(TransportSystems::Receive),
         );
-        app.add_systems(PostUpdate, Self::buffer_send.in_set(TransportSet::Send));
+        app.add_systems(PostUpdate, Self::buffer_send.in_set(TransportSystems::Send));
     }
 }
 

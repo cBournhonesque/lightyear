@@ -102,6 +102,7 @@ pub fn chacha_decrypt(
         &final_nonce.into(),
         associated_data.unwrap_or_default(),
         buf,
+        #[allow(deprecated)]
         Tag::from_slice(mac),
     );
     #[cfg(feature = "std")]
@@ -150,6 +151,7 @@ pub fn xchacha_decrypt(
         &nonce,
         associated_data.unwrap_or_default(),
         buf,
+        #[allow(deprecated)]
         Tag::from_slice(mac),
     );
     #[cfg(feature = "std")]

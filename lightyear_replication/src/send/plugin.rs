@@ -4,7 +4,7 @@ use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
 use crate::message::{
     ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
 };
-use crate::plugin::ReplicationSet;
+use crate::plugin::ReplicationSystems;
 use crate::prelude::{CachedReplicate, NetworkVisibility};
 use crate::prespawn;
 use crate::prespawn::PreSpawned;
@@ -26,11 +26,11 @@ use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::EventSender;
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
 use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::plugin::TransportSet;
+use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
@@ -242,15 +242,15 @@ impl Plugin for ReplicationSendPlugin {
             PostUpdate,
             (
                 // buffer the messages before we send them
-                (ReplicationSet::Send, MessageSet::Send).chain(),
+                (ReplicationSystems::Send, MessageSystems::Send).chain(),
                 (
-                    ReplicationBufferSet::BeforeBuffer,
-                    ReplicationBufferSet::Buffer,
-                    ReplicationBufferSet::AfterBuffer,
-                    ReplicationBufferSet::Flush,
+                    ReplicationBufferSystems::BeforeBuffer,
+                    ReplicationBufferSystems::Buffer,
+                    ReplicationBufferSystems::AfterBuffer,
+                    ReplicationBufferSystems::Flush,
                 )
                     .chain()
-                    .in_set(ReplicationSet::Send),
+                    .in_set(ReplicationSystems::Send),
             ),
         );
 
@@ -271,12 +271,12 @@ impl Plugin for ReplicationSendPlugin {
 
         app.add_systems(
             PostUpdate,
-            Self::handle_acks.in_set(ReplicationBufferSet::BeforeBuffer),
+            Self::handle_acks.in_set(ReplicationBufferSystems::BeforeBuffer),
         );
-        app.add_systems(PostUpdate, Self::update_priority.after(TransportSet::Send));
+        app.add_systems(PostUpdate, Self::update_priority.after(TransportSystems::Send));
         app.add_systems(
             PostUpdate,
-            Self::send_replication_messages.in_set(ReplicationBufferSet::Flush),
+            Self::send_replication_messages.in_set(ReplicationBufferSystems::Flush),
         );
 
         // app.add_systems(
@@ -446,16 +446,19 @@ impl Plugin for ReplicationSendPlugin {
         app.add_systems(
             PostUpdate,
             // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
-            replicate.in_set(ReplicationBufferSet::Buffer),
+            replicate.in_set(ReplicationBufferSystems::Buffer),
         );
 
         app.world_mut().insert_resource(component_registry);
     }
 }
 
+#[deprecated(since = "0.25", note = "Use ReplicationBufferSystems instead")]
+pub type ReplicationBufferSet = ReplicationBufferSystems;
+
 /// System sets to order systems that buffer updates that need to be replicated
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ReplicationBufferSet {
+pub enum ReplicationBufferSystems {
     BeforeBuffer,
     // Buffer any replication updates in the ReplicationSender
     Buffer,

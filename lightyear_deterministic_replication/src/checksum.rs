@@ -18,10 +18,10 @@ use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_inputs::InputChannel;
-use lightyear_inputs::client::InputSet;
+use lightyear_inputs::client::InputSystems;
 use lightyear_link::server::{LinkOf, Server};
 use lightyear_messages::MessageManager;
-use lightyear_messages::plugin::MessageSet;
+use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageSender};
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_prediction::manager::LastConfirmedInput;
@@ -130,8 +130,8 @@ impl Plugin for ChecksumSendPlugin {
             PostUpdate,
             ChecksumSendPlugin::compute_and_send_checksum
                 // the LastConfirmedInput must be updated before we compute the checksum
-                .after(InputSet::UpdateRemoteInputTicks)
-                .before(MessageSet::Send),
+                .after(InputSystems::UpdateRemoteInputTicks)
+                .before(MessageSystems::Send),
         );
     }
 }

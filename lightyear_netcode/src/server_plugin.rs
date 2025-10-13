@@ -13,8 +13,8 @@ use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkSet};
-use lightyear_transport::plugin::TransportSet;
+use lightyear_link::{Link, LinkSystems};
+use lightyear_transport::plugin::TransportSystems;
 use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
@@ -347,19 +347,19 @@ impl Plugin for NetcodeServerPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                LinkSet::Receive,
-                ConnectionSet::Receive,
-                TransportSet::Receive,
+                LinkSystems::Receive,
+                ConnectionSystems::Receive,
+                TransportSystems::Receive,
             )
                 .chain(),
         );
         app.configure_sets(
             PostUpdate,
-            (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain(),
+            (TransportSystems::Send, ConnectionSystems::Send, LinkSystems::Send).chain(),
         );
 
-        app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
-        app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));
+        app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSystems::Receive));
+        app.add_systems(PostUpdate, Self::send.in_set(ConnectionSystems::Send));
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);

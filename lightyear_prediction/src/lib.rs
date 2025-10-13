@@ -28,13 +28,13 @@ pub mod prelude {
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::diagnostics::PredictionMetrics;
     pub use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, RollbackPolicy};
-    pub use crate::plugin::{PredictionPlugin, PredictionSet};
+    pub use crate::plugin::{PredictionPlugin, PredictionSystems};
     pub use crate::predicted_history::PredictionHistory;
     pub use crate::registry::{
         PredictionAppRegistrationExt, PredictionRegistrationExt, PredictionRegistry,
     };
     pub use crate::rollback::{
-        DeterministicPredicted, DisableRollback, DisabledDuringRollback, RollbackSet,
+        DeterministicPredicted, DisableRollback, DisabledDuringRollback, RollbackSystems,
     };
 }
 

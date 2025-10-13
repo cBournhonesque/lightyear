@@ -37,8 +37,11 @@ type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlugin;
 
+#[deprecated(since = "0.25", note = "Use PreSpawnedSystems instead")]
+pub type PreSpawnedSet = PreSpawnedSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum PreSpawnedSet {
+pub enum PreSpawnedSystems {
     // PostUpdate Sets
     /// Add the necessary information to the PrePrediction component (before replication)
     /// Clean up the PreSpawned entities for which we couldn't find a mapped server entity
@@ -47,13 +50,13 @@ pub enum PreSpawnedSet {
 
 impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
-        app.configure_sets(PostUpdate, PreSpawnedSet::CleanUp);
+        app.configure_sets(PostUpdate, PreSpawnedSystems::CleanUp);
         app.add_observer(Self::register_prespawn_hashes);
         #[cfg(feature = "client")]
         app.add_observer(PreSpawnedReceiver::handle_tick_sync);
         app.add_systems(
             PostUpdate,
-            Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedSet::CleanUp),
+            Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedSystems::CleanUp),
         );
     }
 }

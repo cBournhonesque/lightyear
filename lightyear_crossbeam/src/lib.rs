@@ -19,7 +19,7 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
-use lightyear_link::{Link, LinkPlugin, LinkReceiveSet, LinkSet, LinkStart, Linked};
+use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkSystems, LinkStart, Linked};
 use tracing::{error, trace};
 
 /// Maximum transmission units; maximum size in bytes of a packet
@@ -125,8 +125,8 @@ impl Plugin for CrossbeamPlugin {
         app.add_observer(Self::link);
         app.add_systems(
             PreUpdate,
-            Self::receive.in_set(LinkReceiveSet::BufferToLink),
+            Self::receive.in_set(LinkReceiveSystems::BufferToLink),
         );
-        app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
+        app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
     }
 }

@@ -7,7 +7,7 @@ use bevy_enhanced_input::action::ActionMock;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
-use lightyear::input::client::InputSet;
+use lightyear::input::client::InputSystems;
 use lightyear::prediction::rollback::DisableRollback;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;

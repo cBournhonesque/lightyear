@@ -44,7 +44,7 @@
 //! There are several steps to use the `InputPlugin`:
 //! - (optional) read the inputs from an external signal (mouse click or keyboard press, for instance)
 //! - to buffer inputs for each tick. This is done by setting the input value in the [`ActionState`](action_state::ActionState) component.
-//!   That system must run in the [`WriteClientInputs`](lightyear_inputs::prelude::client::InputSet::WriteClientInputs) system set, in the `FixedPreUpdate` stage.
+//!   That system must run in the [`WriteClientInputs`](lightyear_inputs::prelude::client::InputSystems::WriteClientInputs) system set, in the `FixedPreUpdate` stage.
 //! - handle inputs in your game logic in systems that run in the `FixedUpdate` schedule. These systems
 //!   will read the inputs using the `ActionState` component
 //!

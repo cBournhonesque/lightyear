@@ -1,5 +1,5 @@
 use crate::ping::manager::PingManager;
-use crate::plugin::SyncSet;
+use crate::plugin::SyncSystems;
 use bevy_app::{App, Last, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -297,7 +297,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
         app.add_observer(Self::handle_host_client);
         app.add_observer(Self::handle_disconnect);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
-        app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSet::Sync));
+        app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSystems::Sync));
         if DRIVING {
             app.add_systems(Last, Self::update_virtual_time);
         }

@@ -488,6 +488,7 @@ impl Bytes for ConnectToken {
 
         let mut nonce = [0; size_of::<XNonce>()];
         reader.read_exact(&mut nonce)?;
+        #[allow(deprecated)]
         let nonce = XNonce::from_slice(&nonce).to_owned();
 
         let mut private_data = [0; ConnectTokenPrivate::SIZE];

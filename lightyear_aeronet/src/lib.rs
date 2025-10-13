@@ -15,7 +15,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use lightyear_link::{
-    Link, LinkPlugin, LinkReceiveSet, LinkSet, Linked, Linking, Unlink, Unlinked,
+    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, Linked, Linking, Unlink, Unlinked,
 };
 use tracing::trace;
 
@@ -200,12 +200,12 @@ impl Plugin for AeronetPlugin {
         app.add_observer(Self::on_disconnected);
         app.add_observer(Self::unlink);
 
-        app.configure_sets(PreUpdate, LinkSet::Receive.after(IoSystems::Poll));
-        app.configure_sets(PostUpdate, LinkSet::Send.before(IoSystems::Flush));
+        app.configure_sets(PreUpdate, LinkSystems::Receive.after(IoSystems::Poll));
+        app.configure_sets(PostUpdate, LinkSystems::Send.before(IoSystems::Flush));
         app.add_systems(
             PreUpdate,
-            Self::receive.in_set(LinkReceiveSet::BufferToLink),
+            Self::receive.in_set(LinkReceiveSystems::BufferToLink),
         );
-        app.add_systems(PostUpdate, Self::send.in_set(LinkSet::Send));
+        app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
     }
 }

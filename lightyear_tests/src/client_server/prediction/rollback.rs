@@ -28,8 +28,8 @@ fn setup() -> (ClientServerStepper, Entity) {
     stepper.client_app().add_systems(
         PreUpdate,
         trigger_rollback_system
-            .after(ReplicationSet::Receive)
-            .before(RollbackSet::Check),
+            .after(ReplicationSystems::Receive)
+            .before(RollbackSystems::Check),
     );
 
     // add predicted/confirmed entities
@@ -632,7 +632,7 @@ fn test_input_rollback_always_mode() {
     stepper.client_apps[0].add_systems(
         PreUpdate,
         check_rollback_start
-            .after(RollbackSet::Check)
+            .after(RollbackSystems::Check)
             .before(reset_input_rollback_tracker),
     );
 
@@ -730,7 +730,7 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
     stepper.client_apps[0].add_systems(
         PreUpdate,
         check_rollback_start
-            .after(RollbackSet::Check)
+            .after(RollbackSystems::Check)
             .before(reset_input_rollback_tracker),
     );
 
@@ -763,8 +763,8 @@ fn test_no_rollback_without_input_mismatches() {
     stepper.client_apps[0].add_systems(
         PreUpdate,
         check_rollback_start
-            .after(RollbackSet::Check)
-            .before(RollbackSet::Prepare),
+            .after(RollbackSystems::Check)
+            .before(RollbackSystems::Prepare),
     );
 
     // server broadcast input message to clients

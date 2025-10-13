@@ -7,7 +7,7 @@ use crate::{
 };
 use avian3d::{math::AsF32, prelude::*};
 use bevy::{color::palettes::css::MAGENTA, prelude::*};
-use lightyear::prediction::plugin::PredictionSet;
+use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -32,7 +32,7 @@ impl Plugin for ExampleRendererPlugin {
         // - we use ReplicateOnce and DisableRollback to stop replicating any packets for these bullets
         app.add_systems(
             PreUpdate,
-            add_projectile_cosmetics.before(RollbackSet::Check),
+            add_projectile_cosmetics.before(RollbackSystems::Check),
         );
 
         // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate

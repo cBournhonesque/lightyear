@@ -7,10 +7,13 @@ use bevy_ecs::{
     system::{ParamBuilder, Query, QueryParamBuilder, SystemParamBuilder},
 };
 use lightyear_connection::client::Disconnected;
-use lightyear_transport::plugin::{TransportPlugin, TransportSet};
+use lightyear_transport::plugin::{TransportPlugin, TransportSystems};
+
+#[deprecated(since = "0.25", note = "Use MessageSystems instead")]
+pub type MessageSet = MessageSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum MessageSet {
+pub enum MessageSystems {
     // PRE UPDATE
     /// Receive Bytes from the Transport, deserialize them into Messages
     /// and buffer those in the [`MessageReceiver<M>`](crate::receive::MessageReceiver)
@@ -141,10 +144,10 @@ impl Plugin for MessagePlugin {
             .build_system(Self::send_local)
             .with_name("MessagePlugin::send_local");
 
-        app.configure_sets(PreUpdate, MessageSet::Receive.after(TransportSet::Receive));
-        app.configure_sets(PostUpdate, MessageSet::Send.before(TransportSet::Send));
-        app.add_systems(PreUpdate, recv.in_set(MessageSet::Receive));
-        app.add_systems(PostUpdate, send.in_set(MessageSet::Send));
+        app.configure_sets(PreUpdate, MessageSystems::Receive.after(TransportSystems::Receive));
+        app.configure_sets(PostUpdate, MessageSystems::Send.before(TransportSystems::Send));
+        app.add_systems(PreUpdate, recv.in_set(MessageSystems::Receive));
+        app.add_systems(PostUpdate, send.in_set(MessageSystems::Send));
         // we need to send local messages after clear, otherwise they will be cleared immediately after sending
         app.add_systems(Last, (clear, send_local).chain());
 

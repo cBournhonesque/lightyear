@@ -53,7 +53,7 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
                 // see: https://github.com/cBournhonesque/lightyear/pull/820
                 app.configure_sets(
                     FixedPreUpdate,
-                    lightyear_inputs::client::InputSet::RestoreInputs
+                    lightyear_inputs::client::InputSystems::RestoreInputs
                         .before(InputManagerSystem::Tick),
                 );
             }

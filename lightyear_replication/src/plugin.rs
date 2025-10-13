@@ -13,8 +13,11 @@ use lightyear_messages::prelude::{AppMessageExt, AppTriggerExt};
 use lightyear_transport::channel::builder::ReliableSettings;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
+#[deprecated(since = "0.25", note = "Use ReplicationSystems instead")]
+pub type ReplicationSet = ReplicationSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum ReplicationSet {
+pub enum ReplicationSystems {
     // PRE UPDATE
     /// Receive replication messages and apply them to the World
     Receive,

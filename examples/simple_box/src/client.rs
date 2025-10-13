@@ -20,7 +20,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set
-            buffer_input.in_set(InputSet::WriteClientInputs),
+            buffer_input.in_set(InputSystems::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
 

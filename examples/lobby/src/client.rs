@@ -4,7 +4,7 @@ use crate::protocol::*;
 use crate::HOST_SERVER_PORT;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
-use lightyear::input::client::InputSet;
+use lightyear::input::client::InputSystems;
 use lightyear::netcode::client_plugin::NetcodeConfig;
 use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::server::Stop;
@@ -33,7 +33,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(
             FixedPreUpdate,
             game::buffer_input
-                .in_set(InputSet::WriteClientInputs)
+                .in_set(InputSystems::WriteClientInputs)
                 .run_if(in_state(AppState::Game)),
         );
         app.add_systems(
@@ -51,7 +51,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(EguiPrimaryContextPass, lobby::lobby_ui);
         app.add_systems(
             PreUpdate,
-            lobby::receive_start_game_message.after(MessageSet::Receive),
+            lobby::receive_start_game_message.after(MessageSystems::Receive),
         );
         app.add_observer(on_disconnect);
     }

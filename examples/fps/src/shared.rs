@@ -8,7 +8,7 @@ use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::prediction::plugin::PredictionSet;
+use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;

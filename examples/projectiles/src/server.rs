@@ -22,7 +22,7 @@ use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
-    LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
+    LagCompensationHistory, LagCompensationPlugin, LagCompensationSpatialQuery,
 };
 use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};

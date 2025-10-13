@@ -4,7 +4,7 @@ use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
-use lightyear::prelude::{Confirmed, InterpolationSet, RollbackSet};
+use lightyear::prelude::{Confirmed, InterpolationSystems, RollbackSystems};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
@@ -19,8 +19,8 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(
             PostUpdate,
             draw_elements
-                .after(InterpolationSet::Interpolate)
-                .after(RollbackSet::VisualCorrection),
+                .after(InterpolationSystems::Interpolate)
+                .after(RollbackSystems::VisualCorrection),
         );
 
         // add visual interpolation for Position and Rotation
@@ -34,8 +34,8 @@ impl Plugin for ExampleRendererPlugin {
             app.add_systems(
                 PostUpdate,
                 draw_confirmed_shadows
-                    .after(InterpolationSet::Interpolate)
-                    .after(RollbackSet::VisualCorrection),
+                    .after(InterpolationSystems::Interpolate)
+                    .after(RollbackSystems::VisualCorrection),
             );
         }
     }

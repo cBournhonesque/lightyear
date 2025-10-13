@@ -37,7 +37,7 @@ pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
-        Link, LinkSet, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlink, Unlinked,
+        Link, LinkSystems, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlink, Unlinked,
     };
 
     pub mod server {
@@ -180,9 +180,8 @@ pub struct LinkStats {
     pub jitter: Duration,
 }
 
-// TODO: add things here that are entirely dependent on the link
-//  - packet lost stats?
-//  - rtt/jitter estimate
+#[deprecated(since = "0.25", note = "Use LinkSystems instead")]
+pub type LinkSet = LinkSystems;
 
 /// System sets for `Link`-related operations.
 ///
@@ -191,7 +190,7 @@ pub struct LinkStats {
 /// - Applying link conditioning to received packets.
 /// - Sending data from the `Link` buffer to the IO layer.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum LinkSet {
+pub enum LinkSystems {
     // PRE UPDATE
     /// Receive bytes from the IO and buffer them into the Link
     Receive,
@@ -201,8 +200,11 @@ pub enum LinkSet {
     Send,
 }
 
+#[deprecated(since = "0.25", note = "Use LinkReceiveSystems instead")]
+pub type LinkReceiveSet = LinkReceiveSystems;
+
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum LinkReceiveSet {
+pub enum LinkReceiveSystems {
     /// Receive bytes from the IO and buffer them into the Link.
     /// (if LinkConditioner is present, the packets will be stored in the conditioner)
     BufferToLink,
@@ -323,18 +325,18 @@ impl Plugin for LinkPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             PreUpdate,
-            Self::apply_link_conditioner.in_set(LinkReceiveSet::ApplyConditioner),
+            Self::apply_link_conditioner.in_set(LinkReceiveSystems::ApplyConditioner),
         );
         app.configure_sets(
             PreUpdate,
             (
-                LinkReceiveSet::BufferToLink,
-                LinkReceiveSet::ApplyConditioner,
+                LinkReceiveSystems::BufferToLink,
+                LinkReceiveSystems::ApplyConditioner,
             )
-                .in_set(LinkSet::Receive)
+                .in_set(LinkSystems::Receive)
                 .chain(),
         );
-        app.configure_sets(PostUpdate, LinkSet::Send);
+        app.configure_sets(PostUpdate, LinkSystems::Send);
 
         app.add_observer(Self::unlink);
     }

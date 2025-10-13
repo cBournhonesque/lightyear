@@ -10,14 +10,14 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::{system::ParallelCommands, world::DeferredWorld};
 use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
-use lightyear_connection::ConnectionSet;
+use lightyear_connection::ConnectionSystems;
 use lightyear_connection::client::{
     Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
 };
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::{Link, LinkSet, Linked};
-use lightyear_transport::plugin::TransportSet;
+use lightyear_link::{Link, LinkSystems, Linked};
+use lightyear_transport::plugin::TransportSystems;
 use tracing::{debug, error, info};
 
 pub struct NetcodeClientPlugin;
@@ -225,19 +225,19 @@ impl Plugin for NetcodeClientPlugin {
         app.configure_sets(
             PreUpdate,
             (
-                LinkSet::Receive,
-                ConnectionSet::Receive,
-                TransportSet::Receive,
+                LinkSystems::Receive,
+                ConnectionSystems::Receive,
+                TransportSystems::Receive,
             )
                 .chain(),
         );
         app.configure_sets(
             PostUpdate,
-            (TransportSet::Send, ConnectionSet::Send, LinkSet::Send).chain(),
+            (TransportSystems::Send, ConnectionSystems::Send, LinkSystems::Send).chain(),
         );
 
-        app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSet::Receive));
-        app.add_systems(PostUpdate, Self::send.in_set(ConnectionSet::Send));
+        app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSystems::Receive));
+        app.add_systems(PostUpdate, Self::send.in_set(ConnectionSystems::Send));
         app.add_observer(Self::connect);
         app.add_observer(Self::disconnect);
     }
