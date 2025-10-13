@@ -11,7 +11,8 @@ use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
-    LagCompensationHistory, LagCompensationPlugin, LagCompensationSet, LagCompensationSpatialQuery,
+    LagCompensationHistory, LagCompensationPlugin, LagCompensationSpatialQuery,
+    LagCompensationSystems,
 };
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
@@ -30,7 +31,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(
             PhysicsSchedule,
             // lag compensation collisions must run after the SpatialQuery has been updated
-            compute_hit_lag_compensation.in_set(LagCompensationSet::Collisions),
+            compute_hit_lag_compensation.in_set(LagCompensationSystems::Collisions),
         );
         app.add_systems(
             FixedPostUpdate,

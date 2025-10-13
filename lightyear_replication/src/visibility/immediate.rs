@@ -176,7 +176,7 @@ impl NetworkVisibilityPlugin {
     }
 }
 
-#[deprecated(since = "0.25", note = "Use VisibilitySystems instead")]
+#[deprecated(note = "Use VisibilitySystems instead")]
 pub type VisibilitySet = VisibilitySystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

@@ -13,7 +13,7 @@ use lightyear_messages::prelude::{AppMessageExt, AppTriggerExt};
 use lightyear_transport::channel::builder::ReliableSettings;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 
-#[deprecated(since = "0.25", note = "Use ReplicationSystems instead")]
+#[deprecated(note = "Use ReplicationSystems instead")]
 pub type ReplicationSet = ReplicationSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

@@ -20,7 +20,7 @@ use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
-#[deprecated(since = "0.25", note = "Use PingSystems instead")]
+#[deprecated(note = "Use PingSystems instead")]
 pub type PingSet = PingSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -150,8 +150,14 @@ impl Plugin for PingPlugin {
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, PingManager>();
 
-        app.configure_sets(PreUpdate, (MessageSystems::Receive, PingSystems::Receive).chain());
-        app.configure_sets(PostUpdate, (PingSystems::Send, MessageSystems::Send).chain());
+        app.configure_sets(
+            PreUpdate,
+            (MessageSystems::Receive, PingSystems::Receive).chain(),
+        );
+        app.configure_sets(
+            PostUpdate,
+            (PingSystems::Send, MessageSystems::Send).chain(),
+        );
         app.add_systems(PreUpdate, Self::receive.in_set(PingSystems::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(PingSystems::Send));
 

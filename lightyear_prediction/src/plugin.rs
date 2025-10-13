@@ -2,7 +2,9 @@ use super::resource_history::{
     ResourceHistory, handle_tick_event_resource_history, update_resource_history,
     update_resource_history_on_prediction_manager_added,
 };
-use super::rollback::{RollbackPlugin, RollbackSystems, prepare_rollback, prepare_rollback_resource};
+use super::rollback::{
+    RollbackPlugin, RollbackSystems, prepare_rollback, prepare_rollback_resource,
+};
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
@@ -28,7 +30,7 @@ use lightyear_replication::prelude::ReplicationSystems;
 #[derive(Default)]
 pub struct PredictionPlugin;
 
-#[deprecated(since = "0.25", note = "Use PredictionSystems instead")]
+#[deprecated(note = "Use PredictionSystems instead")]
 pub type PredictionSet = PredictionSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

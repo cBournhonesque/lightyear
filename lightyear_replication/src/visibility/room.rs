@@ -174,7 +174,7 @@ impl RoomPlugin {
     }
 }
 
-#[deprecated(since = "0.25", note = "Use RoomSystems instead")]
+#[deprecated(note = "Use RoomSystems instead")]
 pub type RoomSet = RoomSystems;
 
 /// System sets related to Rooms

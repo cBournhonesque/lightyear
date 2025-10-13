@@ -42,7 +42,7 @@ use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
 #[derive(Debug, Hash, PartialEq, Eq, Clone, ScheduleLabel)]
 pub struct RollbackSchedule;
 
-#[deprecated(since = "0.25", note = "Use RollbackSystems instead")]
+#[deprecated(note = "Use RollbackSystems instead")]
 pub type RollbackSet = RollbackSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

@@ -37,7 +37,7 @@ type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>
 #[derive(Default)]
 pub(crate) struct PreSpawnedPlugin;
 
-#[deprecated(since = "0.25", note = "Use PreSpawnedSystems instead")]
+#[deprecated(note = "Use PreSpawnedSystems instead")]
 pub type PreSpawnedSet = PreSpawnedSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

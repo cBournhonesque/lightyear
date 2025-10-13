@@ -19,7 +19,7 @@ use bytes::{BufMut, BytesMut};
 use core::net::SocketAddr;
 use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkPlugin, LinkSystems, LinkStart, Linked, Linking, Unlink, Unlinked};
+use lightyear_link::{Link, LinkPlugin, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
 
 /// Maximum transmission units; maximum size in bytes of a UDP packet
 /// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>

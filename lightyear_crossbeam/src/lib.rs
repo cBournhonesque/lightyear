@@ -19,7 +19,7 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
-use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkSystems, LinkStart, Linked};
+use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked};
 use tracing::{error, trace};
 
 /// Maximum transmission units; maximum size in bytes of a packet

@@ -16,7 +16,7 @@ use serde::de::DeserializeOwned;
 use smallvec::SmallVec;
 use tracing::trace;
 
-#[deprecated(since = "0.25", note = "Use RelationshipSystems instead")]
+#[deprecated(note = "Use RelationshipSystems instead")]
 pub type RelationshipSet = RelationshipSystems;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum RelationshipSystems {

@@ -19,7 +19,7 @@ use bevy_ecs::prelude::*;
 use bytes::{BufMut, BytesMut};
 use lightyear_core::time::Instant;
 use lightyear_link::{
-    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, LinkStart, Linked, Linking, Unlink, Unlinked,
+    Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked,
 };
 use tracing::{error, info, trace};
 

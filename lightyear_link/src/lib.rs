@@ -37,7 +37,8 @@ pub mod prelude {
     pub use crate::conditioner::LinkConditionerConfig;
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
-        Link, LinkSystems, LinkStart, LinkStats, Linked, Linking, RecvLinkConditioner, Unlink, Unlinked,
+        Link, LinkStart, LinkStats, LinkSystems, Linked, Linking, RecvLinkConditioner, Unlink,
+        Unlinked,
     };
 
     pub mod server {
@@ -180,7 +181,7 @@ pub struct LinkStats {
     pub jitter: Duration,
 }
 
-#[deprecated(since = "0.25", note = "Use LinkSystems instead")]
+#[deprecated(note = "Use LinkSystems instead")]
 pub type LinkSet = LinkSystems;
 
 /// System sets for `Link`-related operations.
@@ -200,7 +201,7 @@ pub enum LinkSystems {
     Send,
 }
 
-#[deprecated(since = "0.25", note = "Use LinkReceiveSystems instead")]
+#[deprecated(note = "Use LinkReceiveSystems instead")]
 pub type LinkReceiveSet = LinkReceiveSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

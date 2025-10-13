@@ -39,7 +39,7 @@ pub mod shared;
 
 pub mod host;
 
-#[deprecated(since = "0.25", note = "Use ConnectionSystems instead")]
+#[deprecated(note = "Use ConnectionSystems instead")]
 pub type ConnectionSet = ConnectionSystems;
 
 /// System sets for connection-related logic.

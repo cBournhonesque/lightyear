@@ -233,7 +233,12 @@ impl Plugin for NetcodeClientPlugin {
         );
         app.configure_sets(
             PostUpdate,
-            (TransportSystems::Send, ConnectionSystems::Send, LinkSystems::Send).chain(),
+            (
+                TransportSystems::Send,
+                ConnectionSystems::Send,
+                LinkSystems::Send,
+            )
+                .chain(),
         );
 
         app.add_systems(PreUpdate, Self::receive.in_set(ConnectionSystems::Receive));

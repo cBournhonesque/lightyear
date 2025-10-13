@@ -9,7 +9,7 @@ use bevy_ecs::{
 use lightyear_connection::client::Disconnected;
 use lightyear_transport::plugin::{TransportPlugin, TransportSystems};
 
-#[deprecated(since = "0.25", note = "Use MessageSystems instead")]
+#[deprecated(note = "Use MessageSystems instead")]
 pub type MessageSet = MessageSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -144,8 +144,14 @@ impl Plugin for MessagePlugin {
             .build_system(Self::send_local)
             .with_name("MessagePlugin::send_local");
 
-        app.configure_sets(PreUpdate, MessageSystems::Receive.after(TransportSystems::Receive));
-        app.configure_sets(PostUpdate, MessageSystems::Send.before(TransportSystems::Send));
+        app.configure_sets(
+            PreUpdate,
+            MessageSystems::Receive.after(TransportSystems::Receive),
+        );
+        app.configure_sets(
+            PostUpdate,
+            MessageSystems::Send.before(TransportSystems::Send),
+        );
         app.add_systems(PreUpdate, recv.in_set(MessageSystems::Receive));
         app.add_systems(PostUpdate, send.in_set(MessageSystems::Send));
         // we need to send local messages after clear, otherwise they will be cleared immediately after sending

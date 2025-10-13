@@ -29,7 +29,7 @@ use lightyear_utils::metrics::TimerGauge;
 #[allow(unused_imports)]
 use tracing::{error, info, trace, warn};
 
-#[deprecated(since = "0.25", note = "Use TransportSystems instead")]
+#[deprecated(note = "Use TransportSystems instead")]
 pub type TransportSet = TransportSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -405,7 +405,10 @@ impl Plugin for TransportPlugin {
             warn!("TransportPlugin: ChannelRegistry not found, adding it");
             app.world_mut().init_resource::<ChannelRegistry>();
         }
-        app.configure_sets(PreUpdate, TransportSystems::Receive.after(LinkSystems::Receive));
+        app.configure_sets(
+            PreUpdate,
+            TransportSystems::Receive.after(LinkSystems::Receive),
+        );
         app.configure_sets(PostUpdate, TransportSystems::Send.before(LinkSystems::Send));
         app.add_systems(
             PreUpdate,

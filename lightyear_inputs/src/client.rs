@@ -82,7 +82,7 @@ use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
-#[deprecated(since = "0.25", note = "Use InputSystems instead")]
+#[deprecated(note = "Use InputSystems instead")]
 pub type InputSet = InputSystems;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
@@ -161,19 +161,23 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
         app.configure_sets(
             FixedPreUpdate,
-            (InputSystems::WriteClientInputs, InputSystems::BufferClientInputs).chain(),
+            (
+                InputSystems::WriteClientInputs,
+                InputSystems::BufferClientInputs,
+            )
+                .chain(),
         );
         app.configure_sets(FixedPostUpdate, InputSystems::RestoreInputs);
         app.configure_sets(
             PostUpdate,
             ((
-                 InputSystems::PrepareInputMessage,
-                 SyncSystems::Sync,
-                 // run after SyncSet to make sure that the TickEvents are handled
-                 // and that the interpolation_delay injected in the message are correct
-                 InputSystems::SendInputMessage,
-                 InputSystems::CleanUp,
-                 MessageSystems::Send,
+                InputSystems::PrepareInputMessage,
+                SyncSystems::Sync,
+                // run after SyncSet to make sure that the TickEvents are handled
+                // and that the interpolation_delay injected in the message are correct
+                InputSystems::SendInputMessage,
+                InputSystems::CleanUp,
+                MessageSystems::Send,
             )
                 .chain(),),
         );
@@ -203,7 +207,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             );
             app.add_systems(
                 PreUpdate,
-                receive_remote_player_input_messages::<S>.in_set(InputSystems::ReceiveInputMessages),
+                receive_remote_player_input_messages::<S>
+                    .in_set(InputSystems::ReceiveInputMessages),
             );
             app.configure_sets(
                 PostUpdate,

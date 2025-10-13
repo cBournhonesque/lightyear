@@ -2,7 +2,7 @@ use crate::ping::plugin::PingPlugin;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::schedule::SystemSet;
 
-#[deprecated(since = "0.25", note = "Use SyncSystems instead")]
+#[deprecated(note = "Use SyncSystems instead")]
 pub type SyncSet = SyncSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

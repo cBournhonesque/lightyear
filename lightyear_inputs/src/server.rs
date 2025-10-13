@@ -55,7 +55,7 @@ pub struct ServerInputConfig<S> {
     pub marker: core::marker::PhantomData<S>,
 }
 
-#[deprecated(since = "0.25", note = "Use InputSystems instead")]
+#[deprecated(note = "Use InputSystems instead")]
 pub type InputSet = InputSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

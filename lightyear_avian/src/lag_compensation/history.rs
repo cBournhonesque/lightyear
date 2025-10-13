@@ -41,8 +41,7 @@ impl Default for LagCompensationConfig {
     }
 }
 
-
-#[deprecated(since = "0.25", note = "Use LagCompensationSystems instead")]
+#[deprecated(note = "Use LagCompensationSystems instead")]
 pub type LagCompensationSet = LagCompensationSystems;
 
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]

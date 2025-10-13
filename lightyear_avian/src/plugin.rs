@@ -112,7 +112,10 @@ impl Plugin for LightyearAvianPlugin {
                     // update physics before we store the new Position in the history
                     (
                         PhysicsSystems::StepSimulation,
-                        (PredictionSystems::UpdateHistory, FrameInterpolationSystems::Update),
+                        (
+                            PredictionSystems::UpdateHistory,
+                            FrameInterpolationSystems::Update,
+                        ),
                     )
                         .chain(),
                 );
@@ -159,7 +162,11 @@ impl Plugin for LightyearAvianPlugin {
                     FixedPostUpdate,
                     (
                         // update physics before we store the new Position in the history
-                        (PhysicsSystems::StepSimulation, PredictionSystems::UpdateHistory).chain(),
+                        (
+                            PhysicsSystems::StepSimulation,
+                            PredictionSystems::UpdateHistory,
+                        )
+                            .chain(),
                         // make sure that the Transform has been updated before updating FrameInterpolation<Transform>
                         (PhysicsSystems::Writeback, FrameInterpolationSystems::Update).chain(),
                     )

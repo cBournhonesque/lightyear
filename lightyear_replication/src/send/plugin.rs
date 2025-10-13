@@ -273,7 +273,10 @@ impl Plugin for ReplicationSendPlugin {
             PostUpdate,
             Self::handle_acks.in_set(ReplicationBufferSystems::BeforeBuffer),
         );
-        app.add_systems(PostUpdate, Self::update_priority.after(TransportSystems::Send));
+        app.add_systems(
+            PostUpdate,
+            Self::update_priority.after(TransportSystems::Send),
+        );
         app.add_systems(
             PostUpdate,
             Self::send_replication_messages.in_set(ReplicationBufferSystems::Flush),
@@ -453,7 +456,7 @@ impl Plugin for ReplicationSendPlugin {
     }
 }
 
-#[deprecated(since = "0.25", note = "Use ReplicationBufferSystems instead")]
+#[deprecated(note = "Use ReplicationBufferSystems instead")]
 pub type ReplicationBufferSet = ReplicationBufferSystems;
 
 /// System sets to order systems that buffer updates that need to be replicated

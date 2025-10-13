@@ -62,7 +62,7 @@ use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::prelude::ReplicationBufferSystems;
 use tracing::trace;
 
-#[deprecated(since = "0.25", note = "Use FrameInterpolationSystems instead")]
+#[deprecated(note = "Use FrameInterpolationSystems instead")]
 pub type FrameInterpolationSet = FrameInterpolationSystems;
 
 /// System sets used by the `FrameInterpolationPlugin`.
