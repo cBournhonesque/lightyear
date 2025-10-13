@@ -5,9 +5,8 @@ use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_utils::prelude::DebugName;
 #[cfg(feature = "client")]
 use {
+    lightyear_connection::client::Client, lightyear_connection::host::HostClient,
     lightyear_replication::prelude::Replicate,
-    lightyear_connection::host::HostClient,
-    lightyear_connection::client::Client
 };
 
 use bevy_enhanced_input::prelude::*;

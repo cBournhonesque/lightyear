@@ -8,7 +8,7 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::host::HostClient;
 use lightyear::input::input_buffer::InputBuffer;
-use lightyear::input::leafwing::prelude::LeafwingSnapshot;
+use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
@@ -183,7 +183,7 @@ pub(crate) fn fixed_pre_log(
         (
             Entity,
             &ActionState<PlayerActions>,
-            &InputBuffer<ActionState<PlayerActions>>,
+            &LeafwingBuffer<PlayerActions>,
         ),
         (Without<InputMap<PlayerActions>>, With<Predicted>),
     >,
@@ -239,7 +239,7 @@ pub(crate) fn fixed_pre_physics(
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<LeafwingSnapshot<PlayerActions>>>,
+            Option<&LeafwingBuffer<PlayerActions>>,
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,
@@ -272,7 +272,7 @@ pub(crate) fn fixed_last_log(
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<LeafwingSnapshot<PlayerActions>>>,
+            Option<&LeafwingBuffer<PlayerActions>>,
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,
@@ -310,7 +310,7 @@ pub(crate) fn last_log(
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<LeafwingSnapshot<PlayerActions>>>,
+            Option<&LeafwingBuffer<PlayerActions>>,
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,

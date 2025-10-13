@@ -39,8 +39,7 @@ pub struct InputBuffer<S, M> {
     pub marker: core::marker::PhantomData<M>,
 }
 
-impl<S: Debug, M> Debug
-    for InputBuffer<S, M> {
+impl<S: Debug, M> Debug for InputBuffer<S, M> {
     #[inline]
     fn fmt(&self, f: &mut Formatter) -> ::core::fmt::Result {
         f.debug_struct("InputBuffer")
@@ -50,7 +49,6 @@ impl<S: Debug, M> Debug
             .finish()
     }
 }
-
 
 impl<T: Debug, M> core::fmt::Display for InputBuffer<T, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {

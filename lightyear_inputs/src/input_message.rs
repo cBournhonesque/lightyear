@@ -1,7 +1,7 @@
 // lightyear_inputs/src/input_message.rs
 #![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
-use crate::input_buffer::{InputBuffer, Compressed};
+use crate::input_buffer::{Compressed, InputBuffer};
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_app::App;
 use bevy_ecs::bundle::Bundle;
@@ -107,7 +107,6 @@ pub(crate) type StateMutItem<'w, 's, S: ActionStateSequence> =
 pub(crate) type StateMutItemInner<'w, S: ActionStateSequence> =
     <S::State as ActionStateQueryData>::MutItemInner<'w>;
 
-
 /// An ActionStateSequence represents a sequence of states that can be serialized and sent over the network.
 ///
 /// The sequence can be decoded back into a `Iterator<Item = InputData<Self::Snapshot>>`
@@ -142,7 +141,10 @@ pub trait ActionStateSequence:
     ///
     /// (we use this function instead of making ActionStateSequence implement `IntoIterator` because that would
     /// leak private types that are used in the IntoIter type)
-    fn get_snapshots_from_message(self, tick_duration: Duration) -> impl Iterator<Item = Compressed<Self::Snapshot>>;
+    fn get_snapshots_from_message(
+        self,
+        tick_duration: Duration,
+    ) -> impl Iterator<Item = Compressed<Self::Snapshot>>;
 
     /// Update the given input buffer with the data from this state sequence.
     ///

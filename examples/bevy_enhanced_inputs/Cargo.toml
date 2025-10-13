@@ -26,7 +26,6 @@ server = [
   "lightyear_examples_common/server"
 ]
 netcode = [
-  "lightyear_examples_common/debug",
   "lightyear_examples_common/netcode"
 ]
 udp = [

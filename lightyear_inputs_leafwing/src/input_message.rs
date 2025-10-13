@@ -10,13 +10,12 @@ use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{InputBuffer, Compressed};
+use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
 
 pub type LeafwingBuffer<A> = InputBuffer<LeafwingSnapshot<A>, A>;
 impl<A: LeafwingUserAction> InputSnapshot for LeafwingSnapshot<A> {
-
     fn decay_tick(&mut self, tick_duration: Duration) {
         self.tick(Instant::now(), Instant::now() + tick_duration);
     }
@@ -53,14 +52,17 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type State = ActionStateWrapper<A>;
     type Marker = InputMap<A>;
 
-
     fn len(&self) -> usize {
         self.diffs.len() + 1
     }
 
-    fn get_snapshots_from_message(self, tick_duration: Duration) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
-        let start_iter =
-            core::iter::once(Compressed::Input(LeafwingSnapshot(self.start_state.clone())));
+    fn get_snapshots_from_message(
+        self,
+        tick_duration: Duration,
+    ) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
+        let start_iter = core::iter::once(Compressed::Input(LeafwingSnapshot(
+            self.start_state.clone(),
+        )));
         let diffs_iter = self.diffs.into_iter().scan(
             self.start_state,
             move |state: &mut ActionState<A>, diffs_for_tick: Vec<ActionDiff<A>>| {

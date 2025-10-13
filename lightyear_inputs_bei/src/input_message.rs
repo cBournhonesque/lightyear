@@ -1,5 +1,5 @@
 use crate::marker::InputMarker;
-use alloc::{vec::Vec};
+use alloc::vec::Vec;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_ecs::query::QueryData;
 use bevy_enhanced_input::action::ActionTime;
@@ -7,7 +7,7 @@ use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue};
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{InputBuffer, Compressed};
+use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
 use lightyear_inputs::input_message::{ActionStateQueryData, ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
 
@@ -39,7 +39,7 @@ impl<C> Debug for BEIStateSequence<C> {
 impl<C> Clone for BEIStateSequence<C> {
     fn clone(&self) -> Self {
         Self {
-            start_state: self.start_state.clone(),
+            start_state: self.start_state,
             diffs: self.diffs.clone(),
             marker: core::marker::PhantomData,
         }
@@ -75,7 +75,6 @@ impl Default for ActionsSnapshot {
     }
 }
 
-
 /// For the diff we only need the State and Value because the events and time can be computed
 /// by calling `decay_ticks` from the previous ActionsMessage
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
@@ -83,7 +82,6 @@ struct ActionsDiff {
     state: ActionState,
     value: ActionValue,
 }
-
 
 impl InputSnapshot for ActionsSnapshot {
     fn decay_tick(&mut self, tick_duration: Duration) {
@@ -175,18 +173,18 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         self.diffs.len() + 1
     }
 
-    fn get_snapshots_from_message(self, tick_duration: Duration) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
-        let start_iter =
-            core::iter::once(Compressed::Input(self.start_state.clone()));
+    fn get_snapshots_from_message(
+        self,
+        tick_duration: Duration,
+    ) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
+        let start_iter = core::iter::once(Compressed::Input(self.start_state));
         let diffs_iter = self.diffs.into_iter().scan(
             self.start_state,
             move |state: &mut ActionsSnapshot, diff: Compressed<ActionsDiff>| {
                 let (new_state, new_value) = match diff {
-                    Compressed::Absent => {
-                        return Some(Compressed::Absent)
-                    }
+                    Compressed::Absent => return Some(Compressed::Absent),
                     Compressed::SameAsPrecedent => (state.state, state.value),
-                    Compressed::Input(diff) => (diff.state, diff.value)
+                    Compressed::Input(diff) => (diff.state, diff.value),
                 };
                 state.events = ActionEvents::new(state.state, new_state);
                 let delta_secs = tick_duration.as_secs_f32();
@@ -221,7 +219,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
         if start_tick > end_tick {
             return None;
         }
-        let start_state = input_buffer.get(start_tick).unwrap().clone();
+        let start_state = *input_buffer.get(start_tick).unwrap();
         let mut tick = start_tick + 1;
         let (mut cur_state, mut cur_value) = (start_state.state, start_state.value);
         while tick <= end_tick {
@@ -313,11 +311,17 @@ mod tests {
                     time: ActionTime::default(),
                 },
                 diffs: vec![
-                    Compressed::Input(ActionsDiff { state: ActionState::Fired, value: ActionValue::Bool(true)}),
+                    Compressed::Input(ActionsDiff {
+                        state: ActionState::Fired,
+                        value: ActionValue::Bool(true)
+                    }),
                     Compressed::SameAsPrecedent,
                     Compressed::SameAsPrecedent,
                     Compressed::SameAsPrecedent,
-                    Compressed::Input(ActionsDiff { state: ActionState::None, value: ActionValue::Bool(false)}),
+                    Compressed::Input(ActionsDiff {
+                        state: ActionState::None,
+                        value: ActionValue::Bool(false)
+                    }),
                     Compressed::Absent,
                     Compressed::Absent,
                     Compressed::Absent,
@@ -329,7 +333,7 @@ mod tests {
 
     #[test]
     fn test_build_from_input_buffer_empty() {
-        let input_buffer: BEIBuffer::<Context1> = InputBuffer::default();
+        let input_buffer: BEIBuffer<Context1> = InputBuffer::default();
         let sequence =
             BEIStateSequence::<Context1>::build_from_input_buffer(&input_buffer, 5, Tick(10));
         assert!(sequence.is_none());
@@ -356,10 +360,7 @@ mod tests {
         let state = ActionsSnapshot::default();
         let sequence = BEIStateSequence::<Context1> {
             start_state: state,
-            diffs: vec![
-                Compressed::SameAsPrecedent,
-                Compressed::Absent,
-            ],
+            diffs: vec![Compressed::SameAsPrecedent, Compressed::Absent],
             marker: Default::default(),
         };
         // This should extend the buffer to fit ticks 5..=7
@@ -377,10 +378,7 @@ mod tests {
         state.value = ActionValue::Bool(true);
         let sequence = BEIStateSequence::<Context1> {
             start_state: state,
-            diffs: vec![
-                Compressed::SameAsPrecedent,
-                Compressed::Absent,
-            ],
+            diffs: vec![Compressed::SameAsPrecedent, Compressed::Absent],
             marker: Default::default(),
         };
 
@@ -429,8 +427,6 @@ mod tests {
         state.events = ActionEvents::FIRED;
         assert_eq!(input_buffer.get(Tick(8)), Some(&state));
     }
-
-
 
     #[test]
     fn test_update_buffer_action_mismatch() {
@@ -523,9 +519,12 @@ mod tests {
         let sequence = BEIStateSequence::<Context1> {
             start_state: first_state,
             diffs: vec![
-                Compressed::SameAsPrecedent,     // tick 6 - should be skipped
-                Compressed::Input(ActionsDiff { state: second_state.state, value: second_state.value }), // tick 7 - should detect mismatch
-                Compressed::SameAsPrecedent,     // tick 8 - should be processed
+                Compressed::SameAsPrecedent, // tick 6 - should be skipped
+                Compressed::Input(ActionsDiff {
+                    state: second_state.state,
+                    value: second_state.value,
+                }), // tick 7 - should detect mismatch
+                Compressed::SameAsPrecedent, // tick 8 - should be processed
             ],
             marker: Default::default(),
         };

@@ -7,6 +7,7 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::correction::VisualCorrection;
 use lightyear::prelude::*;
 
@@ -121,7 +122,7 @@ pub(crate) fn fixed_pre_log(
         (
             Entity,
             &ActionState<PlayerActions>,
-            &InputBuffer<ActionState<PlayerActions>>,
+            &LeafwingBuffer<PlayerActions>,
         ),
         (Without<InputMap<PlayerActions>>, With<Predicted>),
     >,
@@ -177,7 +178,7 @@ pub(crate) fn fixed_last_log(
             &LinearVelocity,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<ActionState<PlayerActions>>>,
+            Option<&LeafwingBuffer<PlayerActions>>,
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,
@@ -214,7 +215,7 @@ pub(crate) fn last_log(
             &Position,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<ActionState<PlayerActions>>>,
+            Option<&LeafwingBuffer<PlayerActions>>,
         ),
         (Without<BallMarker>, With<PlayerId>),
     >,

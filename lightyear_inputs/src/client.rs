@@ -258,7 +258,11 @@ fn buffer_action_state<S: ActionStateSequence>(
     // 2. the HostServer client can have input delay
     sender: Single<(&InputTimeline, &LocalTimeline), Without<Rollback>>,
     mut action_state_query: Query<
-        (Entity, StateRef<S>, &mut InputBuffer<S::Snapshot, S::Action>),
+        (
+            Entity,
+            StateRef<S>,
+            &mut InputBuffer<S::Snapshot, S::Action>,
+        ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
@@ -417,7 +421,10 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     sender: Query<&LocalTimeline, (With<InputTimeline>, Without<HostClient>)>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot, S::Action>, Allow<PredictionDisable>>,
+    mut input_buffer_query: Query<
+        &mut InputBuffer<S::Snapshot, S::Action>,
+        Allow<PredictionDisable>,
+    >,
 ) {
     let Ok(local_timeline) = sender.single() else {
         return;
@@ -470,7 +477,11 @@ fn prepare_input_message<S: ActionStateSequence>(
     >,
     channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
-        (Entity, &InputBuffer<S::Snapshot, S::Action>, Option<&PreSpawned>),
+        (
+            Entity,
+            &InputBuffer<S::Snapshot, S::Action>,
+            Option<&PreSpawned>,
+        ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
@@ -827,7 +838,10 @@ fn send_input_messages<S: ActionStateSequence>(
 fn receive_tick_events<S: ActionStateSequence>(
     trigger: On<SyncEvent<Input>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    mut input_buffer_query: Query<&mut InputBuffer<S::Snapshot, S::Action>, Allow<PredictionDisable>>,
+    mut input_buffer_query: Query<
+        &mut InputBuffer<S::Snapshot, S::Action>,
+        Allow<PredictionDisable>,
+    >,
 ) {
     let delta = trigger.tick_delta;
     for mut input_buffer in input_buffer_query.iter_mut() {

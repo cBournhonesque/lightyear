@@ -283,7 +283,11 @@ fn update_action_state<S: ActionStateSequence>(
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     server: Single<(Entity, &LocalTimeline, Has<HostServer>), With<Started>>,
-    mut action_state_query: Query<(Entity, StateMut<S>, &mut InputBuffer<S::Snapshot, S::Action>)>,
+    mut action_state_query: Query<(
+        Entity,
+        StateMut<S>,
+        &mut InputBuffer<S::Snapshot, S::Action>,
+    )>,
 ) {
     let (server, timeline, host_client) = server.into_inner();
     let tick = timeline.tick();

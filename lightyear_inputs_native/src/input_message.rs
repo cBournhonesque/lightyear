@@ -6,7 +6,7 @@ use core::cmp::max;
 use core::fmt::Debug;
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{InputBuffer, Compressed};
+use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -26,8 +26,10 @@ impl<A: Debug + Default + PartialEq + Clone + Send + Sync + 'static> InputSnapsh
 
 impl<A> IntoIterator for NativeStateSequence<A> {
     type Item = Compressed<ActionState<A>>;
-    type IntoIter =
-        core::iter::Map<vec::IntoIter<Compressed<A>>, fn(Compressed<A>) -> Compressed<ActionState<A>>>;
+    type IntoIter = core::iter::Map<
+        vec::IntoIter<Compressed<A>>,
+        fn(Compressed<A>) -> Compressed<ActionState<A>>,
+    >;
 
     fn into_iter(self) -> Self::IntoIter {
         self.states.into_iter().map(|input| match input {
@@ -61,7 +63,10 @@ impl<
         self.states.len()
     }
 
-    fn get_snapshots_from_message(self, tick_duration: Duration) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
+    fn get_snapshots_from_message(
+        self,
+        tick_duration: Duration,
+    ) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
         self.states.into_iter().map(|input| match input {
             Compressed::Absent => Compressed::Absent,
             Compressed::SameAsPrecedent => Compressed::SameAsPrecedent,
