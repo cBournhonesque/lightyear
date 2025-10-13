@@ -416,7 +416,7 @@ pub(crate) fn replicate_entity_spawn(
     replicate: &Ref<Replicate>,
     #[cfg(feature = "prediction")] prediction_target: Option<&PredictionTarget>,
     #[cfg(feature = "interpolation")] interpolation_target: Option<&InterpolationTarget>,
-    mut prespawned: Option<&PreSpawned>,
+    #[allow(unused_mut)] mut prespawned: Option<&PreSpawned>,
     controlled_by: Option<&ControlledBy>,
     network_visibility: Option<&NetworkVisibility>,
     entity_map: &mut RemoteEntityMap,

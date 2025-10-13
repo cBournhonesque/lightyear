@@ -15,7 +15,7 @@ use core::time::Duration;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
-use lightyear::input::leafwing::prelude::LeafwingSnapshot;
+use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -127,7 +127,7 @@ fn update_player_label(
         Entity,
         &Player,
         &mut EntityLabel,
-        &InputBuffer<LeafwingSnapshot<PlayerActions>>,
+        &LeafwingBuffer<PlayerActions>,
         &Score,
     )>,
     timeline: Single<&LocalTimeline, Without<ClientOf>>,
@@ -189,7 +189,7 @@ fn draw_predicted_entities(
             &Collider,
             Has<PreSpawned>,
             Option<&ActionState<PlayerActions>>,
-            Option<&InputBuffer<ActionState<PlayerActions>>>,
+            Option<&LeafwingBuffer<PlayerActions>>,
         ),
         (
             // skip drawing bullet outlines, since we add a mesh + material to them

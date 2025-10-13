@@ -10,14 +10,12 @@ use leafwing_input_manager::Actionlike;
 use leafwing_input_manager::action_state::ActionState;
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
-use lightyear_inputs::input_buffer::{InputBuffer, InputData};
+use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
 use lightyear_inputs::input_message::{ActionStateSequence, InputSnapshot};
 use serde::{Deserialize, Serialize};
 
-pub type SnapshotBuffer<A> = InputBuffer<LeafwingSnapshot<A>>;
+pub type LeafwingBuffer<A> = InputBuffer<LeafwingSnapshot<A>, A>;
 impl<A: LeafwingUserAction> InputSnapshot for LeafwingSnapshot<A> {
-    type Action = A;
-
     fn decay_tick(&mut self, tick_duration: Duration) {
         self.tick(Instant::now(), Instant::now() + tick_duration);
     }
@@ -54,26 +52,21 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     type State = ActionStateWrapper<A>;
     type Marker = InputMap<A>;
 
-    fn is_empty(&self) -> bool {
-        self.diffs
-            .iter()
-            .all(|diffs_per_tick| diffs_per_tick.is_empty())
-    }
-
     fn len(&self) -> usize {
         self.diffs.len() + 1
     }
 
-    fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>> {
-        let start_iter =
-            core::iter::once(InputData::Input(LeafwingSnapshot(self.start_state.clone())));
+    fn get_snapshots_from_message(
+        self,
+        tick_duration: Duration,
+    ) -> impl Iterator<Item = Compressed<Self::Snapshot>> {
+        let start_iter = core::iter::once(Compressed::Input(LeafwingSnapshot(
+            self.start_state.clone(),
+        )));
         let diffs_iter = self.diffs.into_iter().scan(
             self.start_state,
-            |state: &mut ActionState<A>, diffs_for_tick: Vec<ActionDiff<A>>| {
-                // TODO: there's an issue; we use the diffs to set future ticks after the start value, but those values
-                //  have not been ticked correctly! As a workaround, we tick them manually so that JustPressed becomes Pressed,
-                //  but it will NOT work for timing-related features
-                state.tick(Instant::now(), Instant::now());
+            move |state: &mut ActionState<A>, diffs_for_tick: Vec<ActionDiff<A>>| {
+                state.tick(Instant::now() + tick_duration, Instant::now());
                 for diff in diffs_for_tick {
                     diff.apply(state);
                 }
@@ -81,7 +74,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
                 state.set_fixed_update_state_from_state();
 
                 // TODO: how can we check if the state is the same as before, to return InputData::SameAsPrecedent instead?
-                Some(InputData::Input(LeafwingSnapshot(state.clone())))
+                Some(Compressed::Input(LeafwingSnapshot(state.clone())))
             },
         );
         start_iter.chain(diffs_iter)
@@ -92,7 +85,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     /// If we don't have a starting `ActionState` from the `input_buffer`, we start from the first tick for which
     /// we have an `ActionState`.
     fn build_from_input_buffer<'w, 's>(
-        input_buffer: &InputBuffer<Self::Snapshot>,
+        input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
         num_ticks: u16,
         end_tick: Tick,
     ) -> Option<Self> {
@@ -199,7 +192,7 @@ mod tests {
 
     #[test]
     fn test_build_from_input_buffer_empty() {
-        let input_buffer: InputBuffer<_> = InputBuffer::default();
+        let input_buffer: InputBuffer<_, _> = InputBuffer::default();
         let sequence =
             LeafwingSequence::<Action>::build_from_input_buffer(&input_buffer, 5, Tick(10));
         assert!(sequence.is_none());

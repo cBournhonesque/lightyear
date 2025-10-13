@@ -4,11 +4,13 @@ use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_utils::prelude::DebugName;
 #[cfg(feature = "client")]
-use lightyear_replication::prelude::Replicate;
+use {
+    lightyear_connection::client::Client, lightyear_connection::host::HostClient,
+    lightyear_replication::prelude::Replicate,
+};
 
 use bevy_enhanced_input::prelude::*;
-use lightyear_connection::client::Client;
-use lightyear_connection::host::HostClient;
+#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_link::prelude::Server;
 use lightyear_replication::prelude::*;
 use lightyear_serde::SerializationError;

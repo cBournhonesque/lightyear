@@ -5,7 +5,7 @@ use bevy_ecs::query::QueryData;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::marker::PhantomData;
-use lightyear_inputs::input_buffer::InputData;
+use lightyear_inputs::input_buffer::Compressed;
 
 use lightyear_inputs::input_message::ActionStateQueryData;
 use serde::{Deserialize, Serialize};
@@ -53,9 +53,9 @@ impl<A: MapEntities> MapEntities for ActionState<A> {
     }
 }
 
-impl<A: Clone> From<&ActionState<A>> for InputData<A> {
+impl<A: Clone> From<&ActionState<A>> for Compressed<A> {
     fn from(value: &ActionState<A>) -> Self {
-        InputData::Input(value.0.clone())
+        Compressed::Input(value.0.clone())
     }
 }
 

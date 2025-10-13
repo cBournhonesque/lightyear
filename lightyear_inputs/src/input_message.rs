@@ -1,7 +1,7 @@
 // lightyear_inputs/src/input_message.rs
 #![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
-use crate::input_buffer::{InputBuffer, InputData};
+use crate::input_buffer::{Compressed, InputBuffer};
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_app::App;
 use bevy_ecs::bundle::Bundle;
@@ -48,9 +48,6 @@ pub struct PerTargetData<S> {
 }
 
 pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + Default + 'static {
-    /// The type of the Action that this snapshot represents.
-    type Action: Send + Sync + 'static;
-
     /// Predict the next snapshot after 1 tick.
     ///
     /// By default Snapshots do not decay, i.e. we predict that they stay the same and the user
@@ -121,7 +118,7 @@ pub trait ActionStateSequence:
 
     /// Snapshot of the State that will be stored in the InputBuffer.
     /// This should be enough to be able to reconstruct the State at a given tick.
-    type Snapshot: InputSnapshot<Action = Self::Action>;
+    type Snapshot: InputSnapshot;
 
     /// The component that is used by the user to get the list of active actions.
     type State: ActionStateQueryData;
@@ -130,22 +127,24 @@ pub trait ActionStateSequence:
     /// (as opposed to the ActionState of other players, for instance)
     type Marker: Component;
 
-    fn is_empty(&self) -> bool;
     fn len(&self) -> usize;
 
     /// Register the required components for this ActionStateSequence in the App.
     fn register_required_components(app: &mut App) {
         // TODO: cannot create cyclic required dependencies in bevy 0.17
         // app.register_required_components::<<Self::State as ActionStateQueryData>::Main, InputBuffer<Self::Snapshot>>();
-        app.register_required_components::<InputBuffer<Self::Snapshot>, <Self::State as ActionStateQueryData>::Main>();
-        app.register_required_components::<Self::Marker, InputBuffer<Self::Snapshot>>();
+        app.register_required_components::<InputBuffer<Self::Snapshot, Self::Action>, <Self::State as ActionStateQueryData>::Main>();
+        app.register_required_components::<Self::Marker, InputBuffer<Self::Snapshot, Self::Action>>();
     }
 
     /// Returns the sequence of snapshots from the ActionStateSequence.
     ///
     /// (we use this function instead of making ActionStateSequence implement `IntoIterator` because that would
     /// leak private types that are used in the IntoIter type)
-    fn get_snapshots_from_message(self) -> impl Iterator<Item = InputData<Self::Snapshot>>;
+    fn get_snapshots_from_message(
+        self,
+        tick_duration: Duration,
+    ) -> impl Iterator<Item = Compressed<Self::Snapshot>>;
 
     /// Update the given input buffer with the data from this state sequence.
     ///
@@ -153,7 +152,7 @@ pub trait ActionStateSequence:
     /// or None if there was no mismatch
     fn update_buffer(
         self,
-        input_buffer: &mut InputBuffer<Self::Snapshot>,
+        input_buffer: &mut InputBuffer<Self::Snapshot, Self::Action>,
         end_tick: Tick,
         tick_duration: Duration,
     ) -> Option<Tick> {
@@ -167,7 +166,7 @@ pub trait ActionStateSequence:
         let mut latest_received_input = None;
 
         // the first value is guaranteed to not be SameAsPrecedent
-        for (delta, input) in self.get_snapshots_from_message().enumerate() {
+        for (delta, input) in self.get_snapshots_from_message(tick_duration).enumerate() {
             let tick = start_tick + Tick(delta as u16);
 
             // if the tick is within the buffer, just fetch from it
@@ -188,8 +187,8 @@ pub trait ActionStateSequence:
                 input_buffer.set_raw(tick, input);
             } else {
                 match input {
-                    InputData::Absent => latest_received_input = None,
-                    InputData::Input(latest) => latest_received_input = Some(latest),
+                    Compressed::Absent => latest_received_input = None,
+                    Compressed::Input(latest) => latest_received_input = Some(latest),
                     _ => {}
                 }
                 // only try to detect mismatches after the last_remote_tick
@@ -201,7 +200,7 @@ pub trait ActionStateSequence:
                     } {
                         if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
                             input_buffer
-                                .set_raw(tick, InputData::from(latest_received_input.clone()));
+                                .set_raw(tick, Compressed::from(latest_received_input.clone()));
                         }
                         continue;
                     }
@@ -209,7 +208,7 @@ pub trait ActionStateSequence:
                     debug!(
                         "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
                     );
-                    input_buffer.set_raw(tick, InputData::from(latest_received_input.clone()));
+                    input_buffer.set_raw(tick, Compressed::from(latest_received_input.clone()));
                     // remove all existing inputs in the buffer that come after `tick`
                     input_buffer.clip_after(tick);
                     earliest_mismatch = Some(tick);
@@ -223,7 +222,7 @@ pub trait ActionStateSequence:
 
     /// Build the state sequence (which will be sent over the network) from the input buffer
     fn build_from_input_buffer(
-        input_buffer: &InputBuffer<Self::Snapshot>,
+        input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
         num_ticks: u16,
         end_tick: Tick,
     ) -> Option<Self>
@@ -306,10 +305,5 @@ impl<S: ActionStateSequence> InputMessage<S> {
             end_tick,
             inputs: vec![],
         }
-    }
-
-    /// Checks if the message contains any actual input data.
-    pub fn is_empty(&self) -> bool {
-        self.inputs.iter().all(|data| data.states.is_empty())
     }
 }

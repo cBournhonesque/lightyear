@@ -1,7 +1,6 @@
 use crate::protocol::NativeInput as MyInput;
 use crate::stepper::ClientServerStepper;
-use lightyear::input::native::prelude::InputMarker;
-use lightyear::input::prelude::InputBuffer;
+use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
@@ -65,7 +64,7 @@ fn test_remote_client_replicated_input() {
         stepper
             .server_app
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
+            .get::<NativeBuffer<MyInput>>(server_entity)
             .unwrap()
             .get(client_tick)
             .unwrap(),
@@ -135,7 +134,7 @@ fn test_remote_client_predicted_input() {
         stepper
             .server_app
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(server_entity)
+            .get::<NativeBuffer<MyInput>>(server_entity)
             .unwrap()
             .get(client_tick)
             .unwrap(),
@@ -213,7 +212,7 @@ fn test_host_client_inputers_replicated_to_remote_client() {
         stepper
             .client_app()
             .world()
-            .get::<InputBuffer<ActionState<MyInput>>>(client_entity)
+            .get::<NativeBuffer<MyInput>>(client_entity)
             .unwrap()
             .get(server_tick)
             .unwrap(),

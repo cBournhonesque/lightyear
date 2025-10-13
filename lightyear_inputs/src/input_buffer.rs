@@ -23,17 +23,34 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
-#[derive(Component, Debug, Reflect)]
-pub struct InputBuffer<T> {
+/// Buffer that stores a value (usually Inputs) for the last few ticks.
+///
+/// S is the type of the InputSnapshot.
+/// M is present in case the InputSnapshot does not have a generic.
+#[derive(Component, Reflect)]
+pub struct InputBuffer<S, M> {
     pub start_tick: Option<Tick>,
-    pub buffer: VecDeque<InputData<T>>,
+    pub buffer: VecDeque<Compressed<S>>,
     /// For remote inputs, keep track of the last tick we have received from the remote.
     /// (this is necessary because even without receiving a remote tick we keep updating the buffer with
     /// predicted inputs)
     pub last_remote_tick: Option<Tick>,
+    #[reflect(ignore)]
+    pub marker: core::marker::PhantomData<M>,
 }
 
-impl<T: Debug> core::fmt::Display for InputBuffer<T> {
+impl<S: Debug, M> Debug for InputBuffer<S, M> {
+    #[inline]
+    fn fmt(&self, f: &mut Formatter) -> ::core::fmt::Result {
+        f.debug_struct("InputBuffer")
+            .field("start_tick", &self.start_tick)
+            .field("buffer", &self.buffer)
+            .field("last_remote_tick", &self.last_remote_tick)
+            .finish()
+    }
+}
+
+impl<T: Debug, M> core::fmt::Display for InputBuffer<T, M> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         let ty = DebugName::type_name::<T>();
 
@@ -47,9 +64,9 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
             .enumerate()
             .map(|(i, item)| {
                 let str = match item {
-                    InputData::Absent => "Absent".to_string(),
-                    InputData::SameAsPrecedent => "SameAsPrecedent".to_string(),
-                    InputData::Input(data) => format!("{data:?}"),
+                    Compressed::Absent => "Absent".to_string(),
+                    Compressed::SameAsPrecedent => "SameAsPrecedent".to_string(),
+                    Compressed::Input(data) => format!("{data:?}"),
                 };
                 format!("{:?}: {}\n", tick + i as i16, str)
             })
@@ -61,32 +78,34 @@ impl<T: Debug> core::fmt::Display for InputBuffer<T> {
 
 /// We use this structure to efficiently compress the inputs that we send to the server
 #[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Reflect)]
-pub enum InputData<T> {
+pub enum Compressed<T> {
+    // TODO: maybe we don't need Absent? because if the Input is missing we just predict that it was the SameAsPrecedent (with some decay)
     Absent,
     SameAsPrecedent,
     Input(T),
 }
 
-impl<T> From<Option<T>> for InputData<T> {
+impl<T> From<Option<T>> for Compressed<T> {
     fn from(value: Option<T>) -> Self {
         match value {
-            Some(value) => InputData::Input(value),
-            _ => InputData::Absent,
+            Some(value) => Compressed::Input(value),
+            _ => Compressed::Absent,
         }
     }
 }
 
-impl<T> Default for InputBuffer<T> {
+impl<T, M> Default for InputBuffer<T, M> {
     fn default() -> Self {
         Self {
             buffer: VecDeque::new(),
             start_tick: None,
             last_remote_tick: None,
+            marker: Default::default(),
         }
     }
 }
 
-impl<T: Clone + PartialEq> InputBuffer<T> {
+impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
     /// Number of elements in the buffer
     pub fn len(&self) -> usize {
         self.buffer.len()
@@ -124,7 +143,7 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         if start_tick < current_start {
             let prepend_count = (current_start - start_tick) as usize;
             for _ in 0..prepend_count {
-                self.buffer.push_front(InputData::Absent);
+                self.buffer.push_front(Compressed::Absent);
             }
             self.start_tick = Some(start_tick);
             current_start = start_tick;
@@ -135,7 +154,7 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         if end_tick > current_end {
             let append_count = (end_tick - current_end) as usize;
             for _ in 0..append_count {
-                self.buffer.push_back(InputData::Absent);
+                self.buffer.push_back(Compressed::Absent);
             }
         }
     }
@@ -149,10 +168,10 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         if let Some(precedent) = self.get(tick - 1)
             && precedent == &value
         {
-            self.set_raw(tick, InputData::SameAsPrecedent);
+            self.set_raw(tick, Compressed::SameAsPrecedent);
             return;
         }
-        self.set_raw(tick, InputData::Input(value));
+        self.set_raw(tick, Compressed::Input(value));
     }
 
     // Note: we expect this to be set every tick?
@@ -161,10 +180,10 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
     ///
     /// This should be called every tick.
     pub fn set_empty(&mut self, tick: Tick) {
-        self.set_raw(tick, InputData::Absent);
+        self.set_raw(tick, Compressed::Absent);
     }
 
-    pub fn set_raw(&mut self, tick: Tick, value: InputData<T>) {
+    pub fn set_raw(&mut self, tick: Tick, value: Compressed<T>) {
         let Some(start_tick) = self.start_tick else {
             // initialize the buffer
             self.start_tick = Some(tick);
@@ -192,10 +211,10 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
             // fill the ticks between end_tick and tick with a copy of the current ActionState
             for _ in 0..(tick - end_tick - 1) {
                 trace!("fill ticks");
-                self.buffer.push_back(InputData::SameAsPrecedent);
+                self.buffer.push_back(Compressed::SameAsPrecedent);
             }
             // add a new value to the buffer, which we will override below
-            self.buffer.push_back(InputData::Absent);
+            self.buffer.push_back(Compressed::Absent);
         }
 
         // safety: we are guaranteed that the tick is in the buffer
@@ -218,12 +237,12 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         }
 
         // popped will represent the last value popped
-        let mut popped = InputData::Absent;
+        let mut popped = Compressed::Absent;
         for _ in 0..(tick + 1 - start_tick) {
             // front is the oldest value
             let data = self.buffer.pop_front().unwrap();
             match data {
-                InputData::Absent | InputData::Input(_) => {
+                Compressed::Absent | Compressed::Input(_) => {
                     popped = data;
                 }
                 _ => {}
@@ -232,26 +251,26 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         self.start_tick = Some(tick + 1);
 
         // if the next value after we popped was 'SameAsPrecedent', we need to override it with an actual value
-        if let Some(InputData::SameAsPrecedent) = self.buffer.front() {
+        if let Some(Compressed::SameAsPrecedent) = self.buffer.front() {
             *self.buffer.front_mut().unwrap() = popped.clone();
         }
 
         match popped {
-            InputData::Input(value) => Some(value),
+            Compressed::Input(value) => Some(value),
             _ => None,
         }
     }
 
     /// Get the raw `InputData` for the given tick, without resolving `SameAsPrecedent`
-    pub fn get_raw(&self, tick: Tick) -> &InputData<T> {
+    pub fn get_raw(&self, tick: Tick) -> &Compressed<T> {
         let Some(start_tick) = self.start_tick else {
-            return &InputData::Absent;
+            return &Compressed::Absent;
         };
         if self.buffer.is_empty() {
-            return &InputData::Absent;
+            return &Compressed::Absent;
         }
         if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
-            return &InputData::Absent;
+            return &Compressed::Absent;
         }
         self.buffer.get((tick - start_tick) as usize).unwrap()
     }
@@ -268,12 +287,12 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
         match data {
-            InputData::Absent => None,
-            InputData::SameAsPrecedent => {
+            Compressed::Absent => None,
+            Compressed::SameAsPrecedent => {
                 // get the data from the preceding tick
                 self.get(tick - 1)
             }
-            InputData::Input(data) => Some(data),
+            Compressed::Input(data) => Some(data),
         }
     }
 
@@ -293,12 +312,12 @@ impl<T: Clone + PartialEq> InputBuffer<T> {
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
         match data {
-            InputData::Absent => None,
-            InputData::SameAsPrecedent => {
+            Compressed::Absent => None,
+            Compressed::SameAsPrecedent => {
                 // get the data from the preceding tick
                 self.get(tick - 1)
             }
-            InputData::Input(data) => Some(data),
+            Compressed::Input(data) => Some(data),
         }
     }
 
@@ -336,7 +355,7 @@ mod tests {
 
     #[test]
     fn test_get_set_pop() {
-        let mut input_buffer = InputBuffer::default();
+        let mut input_buffer = InputBuffer::<i32, i32>::default();
 
         input_buffer.set(Tick(4), 0);
         input_buffer.set(Tick(6), 1);
@@ -346,11 +365,11 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(4)), Some(&0));
         // missing ticks are filled with SameAsPrecedent
         assert_eq!(input_buffer.get(Tick(5)), Some(&0));
-        assert_eq!(input_buffer.get_raw(Tick(5)), &InputData::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(5)), &Compressed::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(6)), Some(&1));
         // similar values are compressed
-        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::SameAsPrecedent);
-        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(7)), &Compressed::SameAsPrecedent);
+        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::SameAsPrecedent);
         // we get None if we try to get a value outside the buffer
         assert_eq!(input_buffer.get(Tick(9)), None);
 
@@ -363,82 +382,82 @@ mod tests {
         assert_eq!(input_buffer.pop(Tick(7)), Some(1));
         assert_eq!(input_buffer.start_tick, Some(Tick(8)));
         assert_eq!(input_buffer.get(Tick(8)), Some(&1));
-        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Input(1));
+        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Input(1));
         assert_eq!(input_buffer.buffer.len(), 1);
     }
 
     #[test]
     fn test_extend_to_range_empty() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.extend_to_range(Tick(5), Tick(7));
         assert_eq!(input_buffer.start_tick, Some(Tick(5)));
         assert_eq!(input_buffer.buffer.len(), 3);
-        assert_eq!(input_buffer.get_raw(Tick(5)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(6)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(5)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(6)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(7)), &Compressed::Absent);
     }
 
     #[test]
     fn test_extend_to_range_right() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(10), 42);
         input_buffer.extend_to_range(Tick(10), Tick(13));
         assert_eq!(input_buffer.start_tick, Some(Tick(10)));
         assert_eq!(input_buffer.buffer.len(), 4);
-        assert_eq!(input_buffer.get_raw(Tick(10)), &InputData::Input(42));
-        assert_eq!(input_buffer.get_raw(Tick(11)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(12)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(13)), &InputData::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(10)), &Compressed::Input(42));
+        assert_eq!(input_buffer.get_raw(Tick(11)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(12)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(13)), &Compressed::Absent);
     }
 
     #[test]
     fn test_extend_to_range_left() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(10), 42);
         input_buffer.extend_to_range(Tick(8), Tick(10));
         assert_eq!(input_buffer.start_tick, Some(Tick(8)));
         assert_eq!(input_buffer.buffer.len(), 3);
-        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(9)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(10)), &InputData::Input(42));
+        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(9)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(10)), &Compressed::Input(42));
     }
 
     #[test]
     fn test_extend_to_range_both_sides() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(5), 1);
         input_buffer.set(Tick(6), 2);
         input_buffer.extend_to_range(Tick(3), Tick(8));
         assert_eq!(input_buffer.start_tick, Some(Tick(3)));
         assert_eq!(input_buffer.buffer.len(), 6);
-        assert_eq!(input_buffer.get_raw(Tick(3)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(4)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(5)), &InputData::Input(1));
-        assert_eq!(input_buffer.get_raw(Tick(6)), &InputData::Input(2));
-        assert_eq!(input_buffer.get_raw(Tick(7)), &InputData::Absent);
-        assert_eq!(input_buffer.get_raw(Tick(8)), &InputData::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(3)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(4)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(5)), &Compressed::Input(1));
+        assert_eq!(input_buffer.get_raw(Tick(6)), &Compressed::Input(2));
+        assert_eq!(input_buffer.get_raw(Tick(7)), &Compressed::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Absent);
     }
 
     #[test]
     fn test_set_empty_and_get_raw() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set_empty(Tick(3));
-        assert_eq!(input_buffer.get_raw(Tick(3)), &InputData::Absent);
+        assert_eq!(input_buffer.get_raw(Tick(3)), &Compressed::Absent);
         assert_eq!(input_buffer.get(Tick(3)), None);
     }
 
     #[test]
     fn test_set_raw_and_get() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
-        input_buffer.set_raw(Tick(2), InputData::Input(7));
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
+        input_buffer.set_raw(Tick(2), Compressed::Input(7));
         assert_eq!(input_buffer.get(Tick(2)), Some(&7));
-        input_buffer.set_raw(Tick(3), InputData::SameAsPrecedent);
+        input_buffer.set_raw(Tick(3), Compressed::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(3)), Some(&7));
     }
 
     #[test]
     fn test_get_last_and_get_last_with_tick() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         assert_eq!(input_buffer.get_last(), None);
         assert_eq!(input_buffer.get_last_with_tick(), None);
 
@@ -450,7 +469,7 @@ mod tests {
 
     #[test]
     fn test_end_tick() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         assert_eq!(input_buffer.end_tick(), None);
         input_buffer.set(Tick(5), 1);
         assert_eq!(input_buffer.end_tick(), Some(Tick(5)));
@@ -460,7 +479,7 @@ mod tests {
 
     #[test]
     fn test_pop_with_absent() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(1), 1);
         input_buffer.set(Tick(2), 2);
         input_buffer.set_empty(Tick(3));
@@ -475,7 +494,7 @@ mod tests {
 
     #[test]
     fn test_pop_out_of_range() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(10), 5);
         // Pop before start_tick
         assert_eq!(input_buffer.pop(Tick(5)), None);
@@ -487,7 +506,7 @@ mod tests {
 
     #[test]
     fn test_pop_same_absent_in_gap() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(9), 5);
         input_buffer.set(Tick(10), 5);
         input_buffer.set_empty(Tick(11));
@@ -501,7 +520,7 @@ mod tests {
 
     #[test]
     fn test_len() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         assert_eq!(input_buffer.len(), 0);
         input_buffer.set(Tick(1), 1);
         assert_eq!(input_buffer.len(), 1);
@@ -511,7 +530,7 @@ mod tests {
 
     #[test]
     fn test_clip_after() {
-        let mut input_buffer: InputBuffer<i32> = InputBuffer::default();
+        let mut input_buffer: InputBuffer<i32, i32> = InputBuffer::default();
         input_buffer.set(Tick(1), 1);
         input_buffer.set(Tick(2), 2);
         input_buffer.set(Tick(3), 2);

@@ -7,7 +7,7 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use lightyear::input::bei;
 use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIStateSequence};
-use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::bei::prelude::BEIBuffer;
 use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;
 use lightyear_connection::client::Client;
@@ -84,13 +84,13 @@ fn test_actions_on_client_entity() {
         .server_app
         .world()
         .entity(server_action)
-        .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+        .get::<BEIBuffer<BEIContext>>()
         .unwrap()
         .get(client_tick)
         .cloned()
-        .unwrap_or(ActionsSnapshot::<BEIContext>::default());
+        .unwrap_or(ActionsSnapshot::default());
     let mut actions = ActionData::base_value();
-    BEIStateSequence::from_snapshot(ActionData::as_mut(&mut actions), &snapshot);
+    BEIStateSequence::<BEIContext>::from_snapshot(ActionData::as_mut(&mut actions), &snapshot);
     // check that we received the snapshot on the server
     assert_eq!(actions.0, ActionState::Fired);
 }
@@ -158,7 +158,7 @@ fn test_buffer_inputs_with_delay() {
             .client_app()
             .world()
             .entity(client_action)
-            .contains::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .contains::<BEIBuffer<BEIContext>>()
     );
     assert!(
         stepper
@@ -209,13 +209,13 @@ fn test_buffer_inputs_with_delay() {
         let world = app.world_mut();
         let snapshot = world
             .entity(client_action)
-            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .get::<BEIBuffer<BEIContext>>()
             .unwrap()
             .get(tick)
             .cloned()
-            .unwrap_or(ActionsSnapshot::<BEIContext>::default());
+            .unwrap_or(ActionsSnapshot::default());
         let mut actions = ActionData::base_value();
-        BEIStateSequence::from_snapshot(ActionData::as_mut(&mut actions), &snapshot);
+        BEIStateSequence::<BEIContext>::from_snapshot(ActionData::as_mut(&mut actions), &snapshot);
         actions.0
     };
 
@@ -553,7 +553,7 @@ fn test_input_broadcasting_prediction() {
         stepper.client_apps[1]
             .world()
             .entity(action1)
-            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .get::<BEIBuffer<BEIContext>>()
             .is_some()
     );
 
@@ -565,34 +565,34 @@ fn test_input_broadcasting_prediction() {
         stepper.client_apps[1]
             .world()
             .entity(action1)
-            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .get::<BEIBuffer<BEIContext>>()
             .unwrap()
             .get(client1_tick + 1)
             .unwrap(),
-        &ActionsSnapshot::<BEIContext>::new(
-            ActionState::Fired,
-            ActionValue::Bool(true),
-            ActionTime::default(),
-            ActionEvents::STARTED | ActionEvents::FIRED
-        )
+        &ActionsSnapshot {
+            state: ActionState::Fired,
+            value: ActionValue::Bool(true),
+            time: ActionTime::default(),
+            events: ActionEvents::STARTED | ActionEvents::FIRED
+        }
     );
     assert_eq!(
         stepper.client_apps[1]
             .world()
             .entity(action1)
-            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .get::<BEIBuffer<BEIContext>>()
             .unwrap()
             .get(client1_tick + 2)
             .unwrap(),
-        &ActionsSnapshot::<BEIContext>::new(
-            ActionState::Fired,
-            ActionValue::Bool(true),
-            ActionTime {
+        &ActionsSnapshot {
+            state: ActionState::Fired,
+            value: ActionValue::Bool(true),
+            time: ActionTime {
                 elapsed_secs: 0.01,
                 fired_secs: 0.01
             },
-            ActionEvents::FIRED
-        )
+            events: ActionEvents::FIRED
+        }
     );
     // check that a rollback was triggered on client 1
     assert_eq!(
@@ -611,19 +611,19 @@ fn test_input_broadcasting_prediction() {
         stepper.client_apps[1]
             .world()
             .entity(action1)
-            .get::<InputBuffer<ActionsSnapshot<BEIContext>>>()
+            .get::<BEIBuffer<BEIContext>>()
             .unwrap()
             .get(client1_tick + 3)
             .unwrap(),
-        &ActionsSnapshot::<BEIContext>::new(
-            ActionState::Fired,
-            ActionValue::Bool(true),
-            ActionTime {
+        &ActionsSnapshot {
+            state: ActionState::Fired,
+            value: ActionValue::Bool(true),
+            time: ActionTime {
                 elapsed_secs: 0.02,
                 fired_secs: 0.02
             },
-            ActionEvents::FIRED
-        )
+            events: ActionEvents::FIRED
+        }
     );
     // check that this time there was no new rollback since we predicted the correct input value
     assert_eq!(

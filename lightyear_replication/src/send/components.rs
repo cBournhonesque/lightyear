@@ -24,9 +24,8 @@ use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-use tracing::warn;
 #[allow(unused_imports)]
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, info, trace, warn};
 
 /// Replication group shared by all predicted entities
 pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
@@ -289,7 +288,6 @@ impl ToBytes for ReplicationGroupId {
     }
 }
 
-#[cfg(feature = "prediction")]
 pub type PredictionTarget = ReplicationTarget<lightyear_core::prediction::Predicted>;
 
 #[cfg(feature = "prediction")]
@@ -300,7 +298,6 @@ impl PredictionTarget {
     }
 }
 
-#[cfg(feature = "interpolation")]
 pub type InterpolationTarget = ReplicationTarget<lightyear_core::interpolation::Interpolated>;
 
 /// Insert this component to specify which remote peers will start predicting the entity

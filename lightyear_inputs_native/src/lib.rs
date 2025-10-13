@@ -65,6 +65,6 @@ pub mod plugin;
 
 pub mod prelude {
     pub use crate::action_state::{ActionState, InputMarker};
-    pub use crate::input_message::SnapshotBuffer;
+    pub use crate::input_message::NativeBuffer;
     pub use crate::plugin::InputPlugin;
 }
