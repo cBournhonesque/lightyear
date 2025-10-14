@@ -1,4 +1,5 @@
 use alloc::{vec, vec::Vec};
+use bevy_platform::hash::FixedHasher;
 use core::time::Duration;
 use indexmap::{IndexMap, IndexSet};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -102,10 +103,10 @@ pub struct PacketHeaderManager {
     // keep track of the packets (of type Data) we send out and that have not been acked yet,
     // so we can resend them when dropped
     // sent_packets_not_acked: HashSet<PacketId>,
-    sent_packets_not_acked: IndexMap<PacketId, Duration>,
+    sent_packets_not_acked: IndexMap<PacketId, Duration, FixedHasher>,
     stats_manager: PacketStatsManager,
     pub(crate) lost_packets: Vec<PacketId>,
-    pub(crate) newly_acked_packets: IndexSet<PacketId>,
+    pub(crate) newly_acked_packets: IndexSet<PacketId, FixedHasher>,
 
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)

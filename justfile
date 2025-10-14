@@ -447,7 +447,7 @@ release_dryrun:
     @just remove_avian_symlinks
 
 release_no_changelog:
-    @just add_avian_symlinks
+    # @just add_avian_symlinks
     cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute -b keep -d auto --no-bump-on-demand
     @just remove_avian_symlinks
 

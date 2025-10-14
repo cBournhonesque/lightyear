@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_frame_interpolation"
-version = "0.24.2"
+version = "0.25.3"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true

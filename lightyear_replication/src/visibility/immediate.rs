@@ -15,7 +15,7 @@ until you change the setting again.
 # use bevy_ecs::entity::Entity;
 # use lightyear_replication::prelude::NetworkVisibility;
 
-# let mut client = Entity::from_bits(0x100000000);
+# let mut client = Entity::from_bits(1);
 let mut visibility = NetworkVisibility::default();
 visibility.gain_visibility(client);
 visibility.lose_visibility(client);

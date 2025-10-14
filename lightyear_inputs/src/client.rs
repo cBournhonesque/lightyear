@@ -71,7 +71,6 @@ use lightyear_connection::client::Client;
 use lightyear_interpolation::prelude::*;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
-#[cfg(feature = "prediction")]
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSystems;

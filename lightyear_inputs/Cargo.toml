@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_inputs"
-version = "0.24.2"
+version = "0.25.3"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -26,7 +26,7 @@ server = [
   "lightyear_transport/server",
 ]
 metrics = ["dep:metrics", "std"]
-prediction = ["dep:lightyear_prediction"]
+prediction = []
 interpolation = ["dep:lightyear_interpolation"]
 
 
@@ -38,7 +38,7 @@ lightyear_link = { workspace = true, optional = true }
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
 lightyear_replication.workspace = true
-lightyear_prediction = { workspace = true, optional = true }
+lightyear_prediction = { workspace = true }
 lightyear_interpolation = { workspace = true, optional = true }
 
 # utils
