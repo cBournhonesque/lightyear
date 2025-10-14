@@ -107,7 +107,6 @@ In this example, the green enemy on the left is interpolated on the client and h
 
 The example uses lightyear's room system to implement different replication strategies. Each replication mode corresponds to a different room, and players can switch between rooms to experience different networking behaviors.
 
-https://github.com/user-attachments/assets/17bc985d-f700-439d-ba48-4c69fbfd7885
 
 
 
