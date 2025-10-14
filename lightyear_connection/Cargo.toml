@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_connection"
-version = "0.25.0"
+version = "0.25.1"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
