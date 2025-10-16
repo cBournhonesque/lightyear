@@ -88,6 +88,7 @@ impl SteamServerPlugin {
         mut commands: Commands,
     ) {
         if query.get(trigger.entity).is_ok() {
+            trace!("Set Steam server to Started");
             commands.entity(trigger.entity).insert(Started);
         }
     }

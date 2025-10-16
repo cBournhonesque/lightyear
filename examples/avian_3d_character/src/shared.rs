@@ -9,7 +9,7 @@ use avian3d::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian3d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::input_buffer::InputBuffer;
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolate;
 
@@ -192,7 +192,7 @@ pub(crate) fn fixed_last_log(
             &Position,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<CharacterAction>>,
-            Option<&InputBuffer<ActionState<CharacterAction>>>,
+            Option<&LeafwingBuffer<CharacterAction>>,
         ),
         With<CharacterMarker>,
     >,
