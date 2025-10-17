@@ -183,7 +183,7 @@ impl<C: Component> Default for FrameInterpolate<C> {
 }
 
 #[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
-pub struct SkipFrameInterpolation<C: Component>(core::marker::PhantomData<C>);
+pub struct SkipFrameInterpolation<C: Component>(pub core::marker::PhantomData<C>);
 
 
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
