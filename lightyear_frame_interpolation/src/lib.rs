@@ -183,7 +183,7 @@ impl<C: Component> Default for FrameInterpolate<C> {
 }
 
 #[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
-pub struct SkipFrameInterpolation<C: Component>(pub core::marker::PhantomData<C>);
+pub struct SkipFrameInterpolation;
 
 
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
@@ -191,7 +191,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
     time: Res<Time<Fixed>>,
     registry: Res<InterpolationRegistry>,
     timeline: Single<&LocalTimeline, With<Client>>,
-    mut query: Query<(&mut C, &mut FrameInterpolate<C>, Option<&SkipFrameInterpolation<C>>)>,
+    mut query: Query<(&mut C, &mut FrameInterpolate<C>, Option<&SkipFrameInterpolation>)>,
 ) {
     let kind = DebugName::type_name::<C>();
     let tick = timeline.now.tick;
