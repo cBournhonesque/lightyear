@@ -52,8 +52,10 @@ use bevy_app::prelude::*;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::common_conditions::not;
+use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
+use serde::{Deserialize, Serialize};
 use core::fmt::Debug;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
@@ -180,7 +182,7 @@ impl<C: Component> Default for FrameInterpolate<C> {
     }
 }
 
-#[derive(Component, PartialEq, Debug)]
+#[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
 pub struct SkipFrameInterpolation<C: Component>(core::marker::PhantomData<C>);
 
 
