@@ -104,6 +104,10 @@ impl<C> Default for FrameInterpolationPlugin<C> {
     }
 }
 
+
+
+
+
 impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
         // SETS
@@ -176,19 +180,31 @@ impl<C: Component> Default for FrameInterpolate<C> {
     }
 }
 
+#[derive(Component, PartialEq, Debug)]
+pub struct SkipFrameInterpolation<C: Component>(core::marker::PhantomData<C>);
+
+
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
 pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
     time: Res<Time<Fixed>>,
     registry: Res<InterpolationRegistry>,
     timeline: Single<&LocalTimeline, With<Client>>,
-    mut query: Query<(&mut C, &FrameInterpolate<C>)>,
+    mut query: Query<(&mut C, &mut FrameInterpolate<C>, Option<&SkipFrameInterpolation<C>>)>,
 ) {
     let kind = DebugName::type_name::<C>();
     let tick = timeline.now.tick;
     // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
     //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
     let overstep = time.overstep_fraction();
-    for (mut component, interpolate_status) in query.iter_mut() {
+    for (mut component, mut interpolate_status, skip_interpolation) in query.iter_mut() {
+
+        
+        if skip_interpolation.is_some() && interpolate_status.current_value.is_some() {
+            *component = interpolate_status.current_value.clone().unwrap();
+            interpolate_status.previous_value = interpolate_status.current_value.clone();
+            continue;
+        }
+
         let Some(previous_value) = &interpolate_status.previous_value else {
             trace!(?kind, "No previous value, skipping visual interpolation");
             continue;
@@ -197,6 +213,8 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
             trace!(?kind, "No current value, skipping visual interpolation");
             continue;
         };
+
+
         let interpolated =
             registry.interpolate(previous_value.clone(), current_value.clone(), overstep);
         trace!(
