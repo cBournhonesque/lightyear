@@ -1,3 +1,28 @@
+/*!
+Helpers to network avian components.
+
+Some subtle footguns with avian replication:
+- for Predicted entities, your `Position` is replicated as `Confirmed<Position>`. This triggers an immediate rollback on the client which inserts the correct `Position`.
+- for `Interpolated` entities, it is possible that only one of `Position` or `Rotation` gets added (and not both at the same time). This can happen if Rotation doesn't get updated frequently for your
+entity, since we insert the real component only after receiving two remote updates. This can cause issues because the `sync_pos_to_transform` system from avian only does the sync from
+`Position/Rotation` -> `Transform` when BOTH are present on the same time. So you might be stuck with a `Transform::default()` for a short-while, until both Position/Rotation are present on the entity. For that reason it's best to add rendering components on `Interpolated` entities only when BOTH Position and Rotation are present.
+- Inserting `RigidBody` on an entity automatically inserts Position/Rotation/Transform on it. For that reason you do NOT want to add `RigidBody` on interpolated
+entities because it's going to display the entity at `Transform::default()` until the first interpolation updates are received. (And also because you don't want any avian systems to run for
+`Interpolated` entities)
+- Do not forget to disable some of the avian plugins!
+```rust,ignore
+PhysicsPlugins::default()
+    .build()
+    // disable the position<>transform sync plugins as it is handled by lightyear_avian
+    .disable::<PhysicsTransformPlugin>()
+    // FrameInterpolation handles interpolating Position and Rotation
+    .disable::<PhysicsInterpolationPlugin>()
+    // disable island plugins as it can mess with rollbacks. Only if you're doing deterministic replication.
+    // For state replication it should be fine to keep them.
+    // .disable::<IslandPlugin>()
+    // .disable::<IslandSleepingPlugin>(),
+```
+!*/
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
@@ -46,6 +71,8 @@ pub enum AvianReplicationMode {
     Position,
     /// Replicate the Position component.
     /// Prediction is done on Position, but Correction and FrameInterpolation apply on Transform.
+    ///
+    /// I believe that this currently does NOT handle TransformPropagation to children correctly.
     ///
     /// This is because:
     /// - Position/Rotation are smaller to serialize and store
