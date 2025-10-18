@@ -19,6 +19,13 @@ pub struct ControlledByRemote(Vec<Entity>);
 // TODO: ideally the user can specify a PeerId as sender, and we would find the corresponding entity.
 //  we have a map from PeerId to the corresponding entity?
 
+/// Sender-side component that associates the entity with a [`ReplicationSender`] 'controlling' the entity
+///
+/// The receiver will add a [`Controlled`] marker component upon receiving the entity.
+///
+/// When the link is disconnected, the sender will optionally (based on the [`Lifetime`] value)
+/// despawn the entity. If you want to persist an entity on the receiver side even after the link is disconnected,
+/// see [`Persistent`](super::components::Persistent)
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect)]
 #[relationship(relationship_target = ControlledByRemote)]
 #[reflect(Component)]
@@ -26,7 +33,7 @@ pub struct ControlledBy {
     /// Which peer controls this entity? This should be an entity with a `ReplicationSender` component
     #[relationship]
     pub owner: Entity,
-    /// What happens to the entity if the controlling client disconnects?
+    /// What happens to the entity on the sender-side if the controlling client disconnects?
     pub lifetime: Lifetime,
 }
 

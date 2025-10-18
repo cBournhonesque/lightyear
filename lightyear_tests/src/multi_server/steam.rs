@@ -4,14 +4,14 @@
 use crate::stepper::{ClientServerStepper, SERVER_PORT, STEAM_APP_ID};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use lightyear::prelude::server::{ListenTarget, SteamServerIo};
+use lightyear::prelude::*;
 use lightyear::prelude::{SessionConfig, SteamAppExt};
+use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_crossbeam::CrossbeamIo;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
 use tracing::info;
-use lightyear::prelude::*;
-use lightyear_connection::client_of::SkipNetcode;
-use lightyear_crossbeam::CrossbeamIo;
 
 struct StepperPointer(*mut ClientServerStepper);
 
@@ -72,4 +72,5 @@ fn test_steam_server_with_netcode_server() {
         .entity_mapper
         .get_local(server_entity)
         .unwrap();
+    info!("Received entities");
 }

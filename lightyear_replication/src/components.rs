@@ -55,7 +55,8 @@ pub struct Replicated {
     pub receiver: Entity,
 }
 
-/// Marker component that can be added to avoid despawning entities on [`crate::receive::ReplicationReceiver`] disconnect.
+/// Marker component that can be added on the receiver side
+/// to avoid despawning entities on [`crate::receive::ReplicationReceiver`] disconnect.
 ///
 /// - If the component is added to a [`Replicated`] entity,
 ///   it won't be despawned on [`crate::receive::ReplicationReceiver`] disconnect.
