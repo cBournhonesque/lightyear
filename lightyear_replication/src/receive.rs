@@ -20,7 +20,7 @@ use lightyear_transport::packet::message::MessageId;
 use tracing::{debug, error, info, trace, trace_span, warn};
 
 use crate::plugin::ReplicationSystems;
-use crate::prelude::{PreSpawned, ReplicationGroupId, ReplicationSender};
+use crate::prelude::{Persistent, PreSpawned, ReplicationGroupId, ReplicationSender};
 use crate::prespawn::PreSpawnedReceiver;
 use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use crate::send::sender::ReplicationStatus;
@@ -52,10 +52,17 @@ impl ReplicationReceivePlugin {
     /// - Reset the ReplicationReceiver to its original state
     fn handle_disconnection(
         trigger: On<Add, Disconnected>,
-        mut receiver_query: Query<&mut ReplicationReceiver>,
-        replicated_query: Query<(Entity, &Replicated)>,
+        mut receiver_query: Query<(&mut ReplicationReceiver, Has<Persistent>)>,
+        replicated_query: Query<(Entity, &Replicated), Without<Persistent>>,
         mut commands: Commands,
     ) {
+        if let Ok((mut receiver, is_persistent)) = receiver_query.get_mut(trigger.entity) {
+            *receiver = ReplicationReceiver::default();
+            if is_persistent {
+                return;
+            }
+        };
+
         // TODO: this should also happen if the ReplicationReceiver is despawned?
         // despawn any entities that were spawned from replication
         replicated_query.iter().for_each(|(entity, replicated)| {
@@ -66,9 +73,6 @@ impl ReplicationReceivePlugin {
                 commands.despawn();
             }
         });
-        if let Ok(mut receiver) = receiver_query.get_mut(trigger.entity) {
-            *receiver = ReplicationReceiver::default();
-        }
     }
 
     // Update the mapping between our local Receiver entity and the remove Sender entity upon receiving the SenderMetadata
