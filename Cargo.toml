@@ -68,8 +68,12 @@ debug = false
 
 [workspace.dependencies]
 lightyear_aeronet = { path = "./lightyear_aeronet", version = "0.25.3", default-features = false }
-lightyear_avian2d = { path = "./lightyear_avian2d", version = "0.25.3", default-features = false, features = ["2d"] }
-lightyear_avian3d = { path = "./lightyear_avian3d", version = "0.25.3", default-features = false, features = ["3d"] }
+lightyear_avian2d = { path = "./lightyear_avian2d", version = "0.25.3", default-features = false, features = [
+  "2d",
+] }
+lightyear_avian3d = { path = "./lightyear_avian3d", version = "0.25.3", default-features = false, features = [
+  "3d",
+] }
 lightyear_netcode = { path = "./lightyear_netcode", version = "0.25.3", default-features = false }
 lightyear_connection = { path = "./lightyear_connection", version = "0.25.3", default-features = false }
 lightyear_core = { path = "./lightyear_core", version = "0.25.3", default-features = false }
@@ -152,17 +156,17 @@ tracing-subscriber = { version = "0.3.17", features = [
 document-features = "0.2.11"
 
 # server
-crossbeam-channel = { version = "0.5.13", features = [] }
+crossbeam-channel = { version = "0.5.15", features = [] }
 
 # metrics
 metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = { version = "0.17"}
-aeronet_websocket = { version = "0.17"}
-aeronet_steam = { version = "0.17"}
-aeronet_io = { version = "0.17"}
+aeronet_webtransport = { version = "0.17" }
+aeronet_websocket = { version = "0.17" }
+aeronet_steam = { version = "0.17" }
+aeronet_io = { version = "0.17" }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
@@ -185,7 +189,7 @@ bevy = { version = "0.17", default-features = false, features = [
   "bevy_color",
   "multi_threaded",
   "sysinfo_plugin",
-  "zstd_rust"
+  "zstd_rust",
 ] }
 bevy_app = { version = "0.17", default-features = false }
 bevy_derive = { version = "0.17", default-features = false }
@@ -201,7 +205,9 @@ bevy_text = { version = "0.17", default-features = false }
 bevy_time = { version = "0.17", default-features = false }
 bevy_transform = { version = "0.17", default-features = false }
 bevy_ui = { version = "0.17", default-features = false }
-bevy_utils = { version = "0.17", default-features = false, features = ["debug"] }
+bevy_utils = { version = "0.17", default-features = false, features = [
+  "debug",
+] }
 tracy-client = { version = "=0.18.0" }
 
 # input
@@ -234,7 +240,7 @@ console_error_panic_hook = "0.1.7"
 web-time = "1.1.0"
 bevy_web_keepalive = { version = "0.4" }
 getrandom = { version = "0.3", features = [
-  "wasm_js",  # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
+  "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
 getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
 

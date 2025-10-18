@@ -20,11 +20,13 @@ lightyear_interpolation.workspace = true
 
 # utils
 tracing.workspace = true
+serde.workspace = true
 
 # bevy
 bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_time.workspace = true
+bevy_reflect.workspace = true
 bevy_transform = { workspace = true, features = ["bevy-support"] }
 bevy_utils.workspace = true
 
