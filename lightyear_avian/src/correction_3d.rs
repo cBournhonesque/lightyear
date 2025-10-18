@@ -14,7 +14,7 @@ use bevy_math::{Curve, Isometry3d, Vec3};
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_transform::prelude::Transform;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
-use lightyear_frame_interpolation::FrameInterpolate;
+use lightyear_frame_interpolation::{FrameInterpolate, SkipFrameInterpolation};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::{PreviousVisual, VisualCorrection};
 use lightyear_prediction::manager::PredictionManager;
@@ -56,6 +56,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         &PreviousVisual<Rotation>,
         &PredictionHistory<Rotation>,
         &mut FrameInterpolate<Transform>,
+        Option<&SkipFrameInterpolation>,
     )>,
     mut commands: Commands,
 ) {
@@ -71,8 +72,21 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         previous_visual_rotation,
         rotation_history,
         mut interpolate,
+        skip,
     ) in query.iter_mut()
     {
+        if skip.is_some() {
+            let current_transform = to_transform(position, rotation);
+
+            interpolate.current_value = Some(current_transform);
+            interpolate.previous_value = Some(current_transform);
+
+            commands
+                .entity(entity)
+                .remove::<(PreviousVisual<Position>, PreviousVisual<Rotation>, SkipFrameInterpolation)>();
+            continue;
+        }
+
         // - the previous visual value is PreviousVisual
         // - the new corrected visual value that we would have displayed with the Rollback
         // is the interpolation between the last 2 states of the PredictionHistory
