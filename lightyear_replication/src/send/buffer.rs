@@ -31,6 +31,7 @@ use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
+use tracing::warn;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
@@ -108,11 +109,11 @@ pub(crate) fn replicate(
                 let (&entity, status) = sender.replicated_entities.get_index(i).unwrap();
                 if !status.authority {
                     trace!("Skipping entity {entity:?} because we don't have authority");
-                    return;
+                    continue;
                 }
                 let Ok(root_entity_ref) = entity_query.get(entity) else {
-                    trace!("Replicated Entity {:?} not found in entity_query", entity);
-                    return;
+                    warn!("Replicated Entity {:?} not found in entity_query", entity);
+                    continue;
                 };
                 let _root_span = trace_span!("root", ?entity).entered();
                 replicate_entity(
@@ -516,16 +517,18 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     //  in which case we don't want to replicate the despawn.
     //  i.e. if a user wants to despawn an entity without replicating the despawn
     //  I guess we can provide a command that first removes Replicating, and then despawns the entity.
-    entity_query: Query<
-        (&ReplicationGroup, &Replicate, Option<&NetworkVisibility>),
-        With<Replicating>,
-    >,
+    entity_query: Query<(
+        &ReplicationGroup,
+        &Replicate,
+        Option<&NetworkVisibility>,
+        Has<Replicating>,
+    )>,
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
     let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
-    let Ok((group, replicate, network_visibility)) = entity_query.get(root) else {
+    let Ok((group, replicate, network_visibility, is_replicating)) = entity_query.get(root) else {
         return;
     };
     debug!(?entity, ?replicate, "Buffering entity despawn");
@@ -538,6 +541,12 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     query
         .par_iter_many_unique_mut(replicate.senders.as_slice())
         .for_each(|(sender_entity, mut sender, manager)| {
+            if !is_replicating {
+                // We need to remove the entity from the list to avoid iterating over it in the replicate system.
+                sender.replicated_entities.swap_remove(&entity);
+                return;
+            }
+
             if network_visibility.is_some_and(|v| !v.is_visible(sender_entity)) {
                 trace!(
                     ?entity,
