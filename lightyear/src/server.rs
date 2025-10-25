@@ -77,6 +77,8 @@ impl PluginGroup for ServerPlugins {
         // CONNECTION
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::server_plugin::NetcodeServerPlugin);
+        #[cfg(feature = "raw_connection")]
+        let builder = builder.add(lightyear_raw_connection::server::RawConnectionPlugin);
         builder
     }
 }

@@ -46,7 +46,7 @@ use bevy_ecs::entity::{EntityHashMap, EntityHashSet, EntityIndexMap};
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
-use lightyear_connection::prelude::Disconnected;
+use lightyear_connection::prelude::client::Disconnected;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 

@@ -17,7 +17,6 @@ extern crate alloc;
 extern crate std;
 
 mod conditioner;
-mod id;
 pub mod server;
 
 use alloc::{collections::vec_deque::Drain, string::String};

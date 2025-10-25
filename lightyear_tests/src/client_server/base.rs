@@ -84,6 +84,23 @@ fn test_setup_client_server() {
     assert!(stepper.client_of(0).contains::<RemoteId>());
 }
 
+/// Check that the client/server setup is correct when the connection type is Raw instead of Netcode
+#[test]
+fn test_setup_raw_client_server() {
+    let stepper = ClientServerStepper::single_raw();
+    assert!(stepper.client(0).contains::<Transport>());
+    assert!(stepper.client(0).contains::<Connected>());
+    assert!(stepper.client(0).contains::<PeerAddr>());
+    assert!(stepper.client(0).contains::<LocalId>());
+    assert!(stepper.client(0).contains::<RemoteId>());
+
+    assert!(stepper.client_of(0).contains::<Transport>());
+    assert!(stepper.client_of(0).contains::<Connected>());
+    assert!(stepper.client_of(0).contains::<PeerAddr>());
+    assert!(stepper.client_of(0).contains::<LocalId>());
+    assert!(stepper.client_of(0).contains::<RemoteId>());
+}
+
 #[test]
 fn test_sender_metadata() {
     let stepper = ClientServerStepper::single();

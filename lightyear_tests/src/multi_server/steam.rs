@@ -3,6 +3,7 @@
 
 use crate::stepper::{ClientServerStepper, SERVER_PORT, STEAM_APP_ID};
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
+use lightyear::prelude::client::*;
 use lightyear::prelude::server::{ListenTarget, SteamServerIo};
 use lightyear::prelude::*;
 use lightyear::prelude::{SessionConfig, SteamAppExt};
@@ -31,7 +32,7 @@ fn add_steam_server_io(stepper: &mut ClientServerStepper) {
 // only run this manually since it requires Steam to be started
 #[ignore]
 fn test_steam_server_with_netcode_server() {
-    let mut stepper = ClientServerStepper::default_no_init();
+    let mut stepper = ClientServerStepper::default_no_init(false);
     // start the server first and make sure the SteamServer is Started
     info!("Starting server app");
     add_steam_server_io(&mut stepper);

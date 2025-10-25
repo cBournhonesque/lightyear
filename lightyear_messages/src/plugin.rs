@@ -53,7 +53,7 @@ impl Plugin for MessagePlugin {
         app.add_observer(Self::handle_disconnection);
 
         #[cfg(feature = "client")]
-        app.register_required_components::<lightyear_connection::prelude::Client, MessageManager>();
+        app.register_required_components::<lightyear_connection::client::Client, MessageManager>();
 
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, MessageManager>();

@@ -315,7 +315,7 @@ fn panic_on_rollback() {
 /// on the PreSpawned entity should match the client history when it was spawned.
 #[test]
 fn test_prespawn_local_despawn_match() {
-    let mut stepper = ClientServerStepper::default_no_init();
+    let mut stepper = ClientServerStepper::default_no_init(false);
     let tick_duration = stepper.tick_duration;
     stepper.new_client();
     // add a conditioner to make sure that the client is ahead of the server, and make sure there is a resync

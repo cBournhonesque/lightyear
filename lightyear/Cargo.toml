@@ -54,6 +54,7 @@ client = [
   "lightyear_inputs_native?/client",
   "lightyear_messages/client",
   "lightyear_netcode?/client",
+  "lightyear_raw_connection?/client",
   "lightyear_replication?/client",
   "lightyear_steam?/client",
   "lightyear_sync/client",
@@ -71,6 +72,7 @@ server = [
   "lightyear_messages/server",
   "lightyear_netcode?/server",
   "lightyear_prediction?/server",
+  "lightyear_raw_connection?/server",
   "lightyear_replication?/server",
   "lightyear_steam?/server",
   "lightyear_sync/server",
@@ -108,6 +110,8 @@ interpolation = [
   "lightyear_inputs?/interpolation",
   "lightyear_replication/interpolation",
 ]
+
+## UTILS
 trace = [
   "lightyear_netcode?/trace",
   "lightyear_replication?/trace",
@@ -127,11 +131,8 @@ metrics = [
   "lightyear_udp?/metrics",
   "dep:lightyear_ui",
 ]
-## Enables netcode to provide persistent IDs to clients
-##
-## Note: currently, this must always be enabled when not using Steam
-netcode = ["dep:lightyear_netcode"]
 
+## INPUTS
 ## Add support for handling inputs where you can define your own input structs
 input_native = ["dep:lightyear_inputs", "dep:lightyear_inputs_native"]
 ## Add support for handling inputs using the leafwing-input-manager crate
@@ -174,6 +175,10 @@ websocket_self_signed = ["lightyear_websocket/self-signed"]
 # CONNECTION LAYERS
 ## Enables Steam as a connection layer
 steam = ["dep:lightyear_steam", "std"]
+## Enables netcode to provide persistent IDs to clients
+netcode = ["dep:lightyear_netcode"]
+## Enables using the IO directly as a connection layer
+raw_connection = ["dep:lightyear_raw_connection"]
 
 [dependencies]
 # local crates
@@ -199,6 +204,7 @@ lightyear_inputs_bei = { workspace = true, optional = true }
 lightyear_inputs_leafwing = { workspace = true, optional = true }
 lightyear_inputs_native = { workspace = true, optional = true }
 lightyear_crossbeam = { workspace = true, optional = true }
+lightyear_raw_connection = { workspace = true, optional = true }
 lightyear_webtransport = { workspace = true, optional = true }
 lightyear_websocket = { workspace = true, optional = true }
 lightyear_steam = { workspace = true, optional = true }

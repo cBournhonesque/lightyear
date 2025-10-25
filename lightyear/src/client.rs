@@ -54,6 +54,8 @@ impl PluginGroup for ClientPlugins {
         // CONNECTION
         #[cfg(feature = "netcode")]
         let builder = builder.add(lightyear_netcode::client_plugin::NetcodeClientPlugin);
+        #[cfg(feature = "raw_connection")]
+        let builder = builder.add(lightyear_raw_connection::client::RawConnectionPlugin);
 
         #[cfg(target_family = "wasm")]
         let builder = builder.add(crate::web::WebPlugin);
