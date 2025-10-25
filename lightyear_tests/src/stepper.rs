@@ -14,6 +14,8 @@ use lightyear::prelude::{client::*, server::*, *};
 #[cfg(feature = "test_utils")]
 use lightyear_core::test::TestHelper;
 use lightyear_netcode::client_plugin::NetcodeConfig;
+use lightyear_raw_connection::client::RawClient;
+use lightyear_raw_connection::server::RawServer;
 use lightyear_replication::delta::DeltaManager;
 
 pub(crate) const SERVER_PORT: u16 = 56789;
@@ -28,7 +30,7 @@ pub(crate) const TICK_DURATION: Duration = Duration::from_millis(10);
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
 ///
-/// Connected via crossbeam channels, and using Netcode for connection
+/// Connected via crossbeam channels, and using Netcode for connection if `raw_server` is false
 /// We create two separate apps to make it easy to order the client and server updates.
 pub struct ClientServerStepper {
     pub client_apps: Vec<App>,
@@ -40,6 +42,7 @@ pub struct ClientServerStepper {
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
+    pub raw_server: bool,
 }
 
 impl ClientServerStepper {
@@ -48,7 +51,7 @@ impl ClientServerStepper {
     }
 
     pub fn with_clients(n: usize) -> Self {
-        let mut stepper = Self::default_no_init();
+        let mut stepper = Self::default_no_init(false);
         for _ in 0..n {
             stepper.new_client();
         }
@@ -57,16 +60,29 @@ impl ClientServerStepper {
     }
 
     pub fn host_server() -> Self {
-        let mut stepper = Self::default_no_init();
+        let mut stepper = Self::default_no_init(false);
         stepper.new_host_client();
         stepper.new_client();
+        stepper.init();
+        stepper
+    }
+
+    pub fn single_raw() -> Self {
+        Self::with_clients_raw(1)
+    }
+
+    pub fn with_clients_raw(n: usize) -> Self {
+        let mut stepper = Self::default_no_init(true);
+        for _ in 0..n {
+            stepper.new_client();
+        }
         stepper.init();
         stepper
     }
 }
 
 impl ClientServerStepper {
-    pub fn new(tick_duration: Duration, frame_duration: Duration) -> Self {
+    pub fn new(tick_duration: Duration, frame_duration: Duration, raw_server: bool) -> Self {
         let mut server_app = App::new();
         // NOTE: we add LogPlugin so that tracing works
         server_app.add_plugins((
@@ -78,13 +94,15 @@ impl ClientServerStepper {
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin);
-        let server_entity = server_app
-            .world_mut()
-            .spawn((
-                NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig::default()),
-                DeltaManager::default(),
-            ))
-            .id();
+        let mut server = server_app.world_mut().spawn((DeltaManager::default(),));
+        if raw_server {
+            server.insert(RawServer);
+        } else {
+            server.insert(NetcodeServer::new(
+                lightyear_netcode::server_plugin::NetcodeConfig::default(),
+            ));
+        }
+        let server_entity = server.id();
         Self {
             client_apps: vec![],
             server_app,
@@ -95,6 +113,7 @@ impl ClientServerStepper {
             frame_duration,
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
+            raw_server,
         }
     }
 
@@ -145,25 +164,25 @@ impl ClientServerStepper {
             private_key: Default::default(),
             client_id: client_id as u64,
         };
-        self.client_entities.push(
-            client_app
-                .world_mut()
-                .spawn((
-                    Client::default(),
-                    // Send pings every frame, so that the Acks are sent every frame
-                    PingManager::new(PingConfig {
-                        ping_interval: Duration::default(),
-                    }),
-                    ReplicationSender::default(),
-                    ReplicationReceiver::default(),
-                    NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
-                    crossbeam_client,
-                    #[cfg(feature = "test_utils")]
-                    TestHelper::default(),
-                    PredictionManager::default(),
-                ))
-                .id(),
-        );
+        let mut client = client_app.world_mut().spawn((
+            Client::default(),
+            // Send pings every frame, so that the Acks are sent every frame
+            PingManager::new(PingConfig {
+                ping_interval: Duration::default(),
+            }),
+            ReplicationSender::default(),
+            ReplicationReceiver::default(),
+            crossbeam_client,
+            #[cfg(feature = "test_utils")]
+            TestHelper::default(),
+            PredictionManager::default(),
+        ));
+        if self.raw_server {
+            client.insert(RawClient);
+        } else {
+            client.insert(NetcodeClient::new(auth, NetcodeConfig::default()).unwrap());
+        };
+        self.client_entities.push(client.id());
         self.client_of_entities.push(
             self.server_app
                 .world_mut()
@@ -263,10 +282,10 @@ impl ClientServerStepper {
         self.frame_step(1);
     }
 
-    pub(crate) fn default_no_init() -> Self {
+    pub(crate) fn default_no_init(raw_server: bool) -> Self {
         let frame_duration = TICK_DURATION;
         let tick_duration = TICK_DURATION;
-        Self::new(tick_duration, frame_duration)
+        Self::new(tick_duration, frame_duration, raw_server)
     }
 
     pub fn client_app(&mut self) -> &mut App {

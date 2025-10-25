@@ -1,0 +1,41 @@
+[package]
+name = "lightyear_raw_connection"
+version = "0.25.3"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Connection layer that directly uses the underlying IO"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = []
+client = ["lightyear_connection/client"]
+server = ["lightyear_connection/server"]
+
+[dependencies]
+# local crates
+lightyear_core.workspace = true
+lightyear_connection.workspace = true
+lightyear_link.workspace = true
+lightyear_serde.workspace = true
+
+# bevy
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
+
+# utils
+aeronet_io.workspace = true
+bytes.workspace = true
+serde.workspace = true
+smallvec.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

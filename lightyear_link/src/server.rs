@@ -48,6 +48,7 @@ impl Server {
                     reason: unlinked.reason.clone(),
                 });
                 if let Ok(mut c) = commands.get_entity(*link_of) {
+                    trace!("d");
                     // cannot simply insert Unlinked because then we wouldn't close aeronet sessions...
                     c.try_despawn();
                 }
@@ -57,7 +58,7 @@ impl Server {
 }
 
 // We add our own relationship hooks instead of deriving relationship
-//  because we don't want to despawn Server if there are no more LinkOfs.
+// because we don't want to despawn Server if there are no more LinkOfs.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Reflect)]
 #[component(on_insert = LinkOf::on_insert_hook)]
 #[component(on_replace = LinkOf::on_replace)]

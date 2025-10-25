@@ -73,17 +73,17 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         skip,
     ) in query.iter_mut()
     {
-
-
         if skip.is_some() {
             let current_transform = to_transform(position, rotation);
 
             interpolate.current_value = Some(current_transform);
             interpolate.previous_value = Some(current_transform);
 
-            commands
-                .entity(entity)
-                .remove::<(PreviousVisual<Position>, PreviousVisual<Rotation>, SkipFrameInterpolation)>();
+            commands.entity(entity).remove::<(
+                PreviousVisual<Position>,
+                PreviousVisual<Rotation>,
+                SkipFrameInterpolation,
+            )>();
             continue;
         }
         // - the previous visual value is PreviousVisual

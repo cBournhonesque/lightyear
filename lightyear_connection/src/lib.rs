@@ -61,12 +61,17 @@ pub mod prelude {
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
 
+    // we also export these types at the top level for easier access
     pub use crate::client::{
         Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected,
     };
 
     #[cfg(feature = "client")]
-    pub mod client {}
+    pub mod client {
+        pub use crate::client::{
+            Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected,
+        };
+    }
 
     #[cfg(feature = "server")]
     pub mod server {

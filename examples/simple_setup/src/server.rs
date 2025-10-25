@@ -8,6 +8,7 @@
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
 use crate::shared::*;
 use bevy::prelude::*;
+use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 
@@ -40,7 +41,7 @@ fn handle_new_client(trigger: On<Add, Connected>, mut commands: Commands) {
 fn startup(mut commands: Commands) -> Result {
     let server = commands
         .spawn((
-            NetcodeServer::new(NetcodeConfig::default()),
+            NetcodeServer::new(server::NetcodeConfig::default()),
             LocalAddr(SERVER_ADDR),
             ServerUdpIo::default(),
         ))

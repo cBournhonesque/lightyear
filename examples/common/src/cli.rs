@@ -24,6 +24,8 @@ use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSett
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEAM_APP_ID};
 use lightyear::link::RecvLinkConditioner;
+#[cfg(feature = "client")]
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 #[cfg(feature = "gui")]
 use {

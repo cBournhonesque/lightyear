@@ -2,13 +2,20 @@
 Helpers to network avian components.
 
 Some subtle footguns with avian replication:
-- for Predicted entities, your `Position` is replicated as `Confirmed<Position>`. This triggers an immediate rollback on the client which inserts the correct `Position`.
-- for `Interpolated` entities, it is possible that only one of `Position` or `Rotation` gets added (and not both at the same time). This can happen if Rotation doesn't get updated frequently for your
-entity, since we insert the real component only after receiving two remote updates. This can cause issues because the `sync_pos_to_transform` system from avian only does the sync from
-`Position/Rotation` -> `Transform` when BOTH are present on the same time. So you might be stuck with a `Transform::default()` for a short-while, until both Position/Rotation are present on the entity. For that reason it's best to add rendering components on `Interpolated` entities only when BOTH Position and Rotation are present.
-- Inserting `RigidBody` on an entity automatically inserts Position/Rotation/Transform on it. For that reason you do NOT want to add `RigidBody` on interpolated
-entities because it's going to display the entity at `Transform::default()` until the first interpolation updates are received. (And also because you don't want any avian systems to run for
-`Interpolated` entities)
+- for Predicted entities, your `Position` is replicated as `Confirmed<Position>`. This triggers an immediate
+  rollback on the client which inserts the correct `Position`.
+- for `Interpolated` entities, it is possible that only one of `Position` or `Rotation` gets added
+  (and not both at the same time). This can happen if Rotation doesn't get updated frequently for your
+  entity, since we insert the real component only after receiving two remote updates. This can cause
+  issues because the `sync_pos_to_transform` system from avian only does the sync from
+  `Position/Rotation` -> `Transform` when BOTH are present on the same time. So you might be stuck with
+  a `Transform::default()` for a short-while, until both Position/Rotation are present on the
+  entity. For that reason it's best to add rendering components on `Interpolated` entities only when
+  BOTH Position and Rotation are present.
+- Inserting `RigidBody` on an entity automatically inserts Position/Rotation/Transform on it. For that reason
+  you do NOT want to add `RigidBody` on interpolated entities because it's going to display the entity at
+  `Transform::default()` until the first interpolation updates are received. (And also because you don't
+  want any avian systems to run for `Interpolated` entities)
 - Do not forget to disable some of the avian plugins!
 ```rust,ignore
 PhysicsPlugins::default()

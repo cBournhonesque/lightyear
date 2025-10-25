@@ -391,10 +391,13 @@ pub mod prelude {
     pub mod client {
         pub use crate::client::ClientPlugins;
 
+        pub use lightyear_connection::prelude::client::*;
         pub use lightyear_sync::prelude::client::*;
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::client::*;
+        #[cfg(feature = "raw_connection")]
+        pub use lightyear_raw_connection::prelude::client::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::client::*;
         #[cfg(feature = "websocket")]
@@ -419,6 +422,8 @@ pub mod prelude {
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::server::*;
+        #[cfg(feature = "raw_connection")]
+        pub use lightyear_raw_connection::prelude::server::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::server::*;
         #[cfg(feature = "websocket")]

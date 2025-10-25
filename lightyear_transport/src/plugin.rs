@@ -18,7 +18,7 @@ use bevy_utils::default;
 use bytes::Bytes;
 use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
-use lightyear_connection::prelude::Disconnected;
+use lightyear_connection::prelude::client::Disconnected;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};

@@ -55,13 +55,13 @@ use bevy_ecs::schedule::common_conditions::not;
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
-use serde::{Deserialize, Serialize};
 use core::fmt::Debug;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::prelude::ReplicationBufferSystems;
+use serde::{Deserialize, Serialize};
 use tracing::trace;
 
 #[deprecated(note = "Use FrameInterpolationSystems instead")]
@@ -105,10 +105,6 @@ impl<C> Default for FrameInterpolationPlugin<C> {
         }
     }
 }
-
-
-
-
 
 impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpolationPlugin<C> {
     fn build(&self, app: &mut App) {
@@ -192,13 +188,16 @@ impl<C: Component> Default for FrameInterpolate<C> {
 #[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
 pub struct SkipFrameInterpolation;
 
-
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
 pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
     time: Res<Time<Fixed>>,
     registry: Res<InterpolationRegistry>,
     timeline: Single<&LocalTimeline, With<Client>>,
-    mut query: Query<(&mut C, &mut FrameInterpolate<C>, Option<&SkipFrameInterpolation>)>,
+    mut query: Query<(
+        &mut C,
+        &mut FrameInterpolate<C>,
+        Option<&SkipFrameInterpolation>,
+    )>,
 ) {
     let kind = DebugName::type_name::<C>();
     let tick = timeline.now.tick;
@@ -206,8 +205,6 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
     //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
     let overstep = time.overstep_fraction();
     for (mut component, mut interpolate_status, skip_interpolation) in query.iter_mut() {
-
-        
         if skip_interpolation.is_some() && interpolate_status.current_value.is_some() {
             *component = interpolate_status.current_value.clone().unwrap();
             interpolate_status.previous_value = interpolate_status.current_value.clone();
@@ -222,7 +219,6 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
             trace!(?kind, "No current value, skipping visual interpolation");
             continue;
         };
-
 
         let interpolated =
             registry.interpolate(previous_value.clone(), current_value.clone(), overstep);

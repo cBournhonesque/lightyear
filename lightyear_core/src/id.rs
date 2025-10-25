@@ -1,5 +1,6 @@
 //! Module to handle the various possible ClientIds
 use core::fmt::{Display, Formatter};
+use core::net::SocketAddr;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -36,9 +37,10 @@ impl Display for RemoteId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
 pub enum PeerId {
     Entity(u64),
-    // #[reflect(ignore)]
-    // // #[reflect(default = "LOCALHOST")]
-    // IP(SocketAddr),
+    /// A raw connection where the IO Link is used to associate a long-term id.
+    /// The id is the SocketAddr of the link.
+    #[reflect(ignore)]
+    Raw(SocketAddr),
     /// A client id that is unique between netcode connections
     Netcode(u64),
     /// The client id of a steam user
@@ -53,13 +55,13 @@ impl ToBytes for PeerId {
     fn bytes_len(&self) -> usize {
         match self {
             PeerId::Entity(_) => 1 + 8,
-            // PeerId::IP(socket_addr) => {
-            //     // 1 byte for variant + address bytes + 2 bytes for port
-            //     match socket_addr {
-            //         SocketAddr::V4(_) => 1 + 4 + 2,
-            //         SocketAddr::V6(_) => 1 + 16 + 2,
-            //     }
-            // },
+            PeerId::Raw(socket_addr) => {
+                // 1 byte for variant + address bytes + 2 bytes for port
+                match socket_addr {
+                    SocketAddr::V4(_) => 1 + 4 + 2,
+                    SocketAddr::V6(_) => 1 + 16 + 2,
+                }
+            }
             PeerId::Netcode(_) => 1 + 8,
             PeerId::Steam(_) => 1 + 8,
             PeerId::Local(_) => 1 + 8,
@@ -73,28 +75,28 @@ impl ToBytes for PeerId {
                 buffer.write_u8(0)?;
                 buffer.write_u64(*id)?;
             }
-            // PeerId::IP(socket) => {
-            //     match socket {
-            //         SocketAddr::V4(v4) => {
-            //             buffer.write_u8(1)?;
-            //             // Write IPv4 bytes
-            //             for byte in v4.ip().octets().iter() {
-            //                 buffer.write_u8(*byte)?;
-            //             }
-            //             // Write port
-            //             buffer.write_u16(v4.port())?;
-            //         }
-            //         SocketAddr::V6(v6) => {
-            //             buffer.write_u8(2)?;
-            //             // Write IPv6 bytes
-            //             for segment in v6.ip().segments().iter() {
-            //                 buffer.write_u16(*segment)?;
-            //             }
-            //             // Write port
-            //             buffer.write_u16(v6.port())?;
-            //         }
-            //     }
-            // },
+            PeerId::Raw(socket) => {
+                match socket {
+                    SocketAddr::V4(v4) => {
+                        buffer.write_u8(1)?;
+                        // Write IPv4 bytes
+                        for byte in v4.ip().octets().iter() {
+                            buffer.write_u8(*byte)?;
+                        }
+                        // Write port
+                        buffer.write_u16(v4.port())?;
+                    }
+                    SocketAddr::V6(v6) => {
+                        buffer.write_u8(2)?;
+                        // Write IPv6 bytes
+                        for segment in v6.ip().segments().iter() {
+                            buffer.write_u16(*segment)?;
+                        }
+                        // Write port
+                        buffer.write_u16(v6.port())?;
+                    }
+                }
+            }
             PeerId::Netcode(id) => {
                 buffer.write_u8(3)?;
                 buffer.write_u64(*id)?;
@@ -120,32 +122,32 @@ impl ToBytes for PeerId {
     {
         match buffer.read_u8()? {
             0 => Ok(PeerId::Entity(buffer.read_u64()?)),
-            // 1 => {
-            //     // Read IPv4 address
-            //     let a = buffer.read_u8()?;
-            //     let b = buffer.read_u8()?;
-            //     let c = buffer.read_u8()?;
-            //     let d = buffer.read_u8()?;
-            //     let port = buffer.read_u16()?;
-            //     let addr = SocketAddr::new(
-            //         std::net::IpAddr::V4(std::net::Ipv4Addr::new(a, b, c, d)),
-            //         port
-            //     );
-            //     Ok(PeerId::IP(addr))
-            // },
-            // 2 => {
-            //     // Read IPv6 address
-            //     let mut segments = [0u16; 8];
-            //     for i in 0..8 {
-            //         segments[i] = buffer.read_u16()?;
-            //     }
-            //     let port = buffer.read_u16()?;
-            //     let addr = SocketAddr::new(
-            //         std::net::IpAddr::V6(std::net::Ipv6Addr::from(segments)),
-            //         port
-            //     );
-            //     Ok(PeerId::IP(addr))
-            // },
+            1 => {
+                // Read IPv4 address
+                let a = buffer.read_u8()?;
+                let b = buffer.read_u8()?;
+                let c = buffer.read_u8()?;
+                let d = buffer.read_u8()?;
+                let port = buffer.read_u16()?;
+                let addr = SocketAddr::new(
+                    core::net::IpAddr::V4(core::net::Ipv4Addr::new(a, b, c, d)),
+                    port,
+                );
+                Ok(PeerId::Raw(addr))
+            }
+            2 => {
+                // Read IPv6 address
+                let mut segments = [0u16; 8];
+                for segment in &mut segments {
+                    *segment = buffer.read_u16()?;
+                }
+                let port = buffer.read_u16()?;
+                let addr = SocketAddr::new(
+                    core::net::IpAddr::V6(core::net::Ipv6Addr::from(segments)),
+                    port,
+                );
+                Ok(PeerId::Raw(addr))
+            }
             3 => Ok(PeerId::Netcode(buffer.read_u64()?)),
             4 => Ok(PeerId::Steam(buffer.read_u64()?)),
             5 => Ok(PeerId::Local(buffer.read_u64()?)),
@@ -161,32 +163,32 @@ impl PeerId {
     pub fn to_bits(&self) -> u64 {
         match self {
             PeerId::Entity(x) => *x,
-            // PeerId::IP(socket) => {
-            //     // Create a simple hash for the IP address
-            //     // Just for differentiation - not meant to be a secure hash
-            //     match socket {
-            //         SocketAddr::V4(v4) => {
-            //             let octets = v4.ip().octets();
-            //             let mut result: u64 = 0x0200; // Prefix for IPv4
-            //             result |= (octets[0] as u64) << 24;
-            //             result |= (octets[1] as u64) << 16;
-            //             result |= (octets[2] as u64) << 8;
-            //             result |= octets[3] as u64;
-            //             result |= (v4.port() as u64) << 32;
-            //             result
-            //         },
-            //         SocketAddr::V6(v6) => {
-            //             // Simple hash for IPv6 - fold the segments
-            //             let segments = v6.ip().segments();
-            //             let mut hash: u64 = 0x0600; // Prefix for IPv6
-            //             for (i, &segment) in segments.iter().enumerate() {
-            //                 hash ^= (segment as u64) << ((i % 4) * 16);
-            //             }
-            //             hash ^= (v6.port() as u64) << 48;
-            //             hash
-            //         }
-            //     }
-            // },
+            PeerId::Raw(socket) => {
+                // Create a simple hash for the IP address
+                // Just for differentiation - not meant to be a secure hash
+                match socket {
+                    SocketAddr::V4(v4) => {
+                        let octets = v4.ip().octets();
+                        let mut result: u64 = 0x0200; // Prefix for IPv4
+                        result |= (octets[0] as u64) << 24;
+                        result |= (octets[1] as u64) << 16;
+                        result |= (octets[2] as u64) << 8;
+                        result |= octets[3] as u64;
+                        result |= (v4.port() as u64) << 32;
+                        result
+                    }
+                    SocketAddr::V6(v6) => {
+                        // Simple hash for IPv6 - fold the segments
+                        let segments = v6.ip().segments();
+                        let mut hash: u64 = 0x0600; // Prefix for IPv6
+                        for (i, &segment) in segments.iter().enumerate() {
+                            hash ^= (segment as u64) << ((i % 4) * 16);
+                        }
+                        hash ^= (v6.port() as u64) << 48;
+                        hash
+                    }
+                }
+            }
             PeerId::Netcode(x) => *x,
             PeerId::Steam(x) => *x,
             PeerId::Local(x) => *x,

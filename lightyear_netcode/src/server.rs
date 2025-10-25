@@ -18,7 +18,7 @@ use super::{
     token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
 };
 use crate::token::TOKEN_EXPIRE_SEC;
-use lightyear_connection::prelude::Connecting;
+use lightyear_connection::prelude::client::Connecting;
 use lightyear_connection::shared::{
     ConnectionRequestHandler, DefaultConnectionRequestHandler, DeniedReason,
 };

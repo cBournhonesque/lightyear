@@ -81,9 +81,11 @@ pub(crate) fn update_frame_interpolation_post_rollback(
             interpolate.current_value = Some(current_transform);
             interpolate.previous_value = Some(current_transform);
 
-            commands
-                .entity(entity)
-                .remove::<(PreviousVisual<Position>, PreviousVisual<Rotation>, SkipFrameInterpolation)>();
+            commands.entity(entity).remove::<(
+                PreviousVisual<Position>,
+                PreviousVisual<Rotation>,
+                SkipFrameInterpolation,
+            )>();
             continue;
         }
 

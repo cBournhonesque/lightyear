@@ -9,6 +9,7 @@ use lightyear::connection::client_of::ClientOf;
 use lightyear::input::input_buffer::InputBuffer;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::correction::VisualCorrection;
+use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
