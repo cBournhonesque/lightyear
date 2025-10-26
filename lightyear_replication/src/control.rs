@@ -3,7 +3,6 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Disconnected;
 use serde::{Deserialize, Serialize};
-use crate::send::sender::ReplicationSender;
 use tracing::trace;
 
 /// Marker component on the receiver side to indicate that the entity is under the

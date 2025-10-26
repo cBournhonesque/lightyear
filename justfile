@@ -10,6 +10,9 @@ taplo:
 typos:
     typos -w
 
+doc:
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going --all-features
+
 clippy: lightyear lightyear_aeronet lightyear_avian lightyear_connection lightyear_core \
     lightyear_crossbeam lightyear_frame_interpolation lightyear_inputs lightyear_interpolation \
     lightyear_link lightyear_messages lightyear_netcode lightyear_prediction lightyear_replication \
