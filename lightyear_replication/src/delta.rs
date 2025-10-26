@@ -241,7 +241,7 @@ mod tests {
         let entity = Entity::from_bits(1);
         let kind = ComponentKind::of::<Comp1>();
         let registry = app.world().resource::<ComponentRegistry>();
-        let mut delta_manager = DeltaManager::default();
+        let delta_manager = DeltaManager::default();
 
         let tick_0 = Tick(0);
         let tick_1 = Tick(1);
