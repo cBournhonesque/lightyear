@@ -3,6 +3,7 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Disconnected;
 use serde::{Deserialize, Serialize};
+use crate::send::sender::ReplicationSender;
 use tracing::trace;
 
 /// Marker component on the receiver side to indicate that the entity is under the
@@ -19,7 +20,7 @@ pub struct ControlledByRemote(Vec<Entity>);
 // TODO: ideally the user can specify a PeerId as sender, and we would find the corresponding entity.
 //  we have a map from PeerId to the corresponding entity?
 
-/// Sender-side component that associates the entity with a [`ReplicationSender`] 'controlling' the entity
+/// Sender-side component that associates the entity with a [`ReplicationSender`](crate::send::sender::ReplicationSender) 'controlling' the entity
 ///
 /// The receiver will add a [`Controlled`] marker component upon receiving the entity.
 ///
@@ -30,7 +31,7 @@ pub struct ControlledByRemote(Vec<Entity>);
 #[relationship(relationship_target = ControlledByRemote)]
 #[reflect(Component)]
 pub struct ControlledBy {
-    /// Which peer controls this entity? This should be an entity with a `ReplicationSender` component
+    /// Which peer controls this entity? This should be an entity with a [`ReplicationSender`](crate::send::sender::ReplicationSender) component
     #[relationship]
     pub owner: Entity,
     /// What happens to the entity on the sender-side if the controlling client disconnects?
