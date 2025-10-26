@@ -1,6 +1,6 @@
 use aeronet_io::connection::PeerAddr;
 use alloc::string::ToString;
-use bevy_app::{App, Plugin};
+use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::entity::UniqueEntitySlice;
 use bevy_ecs::prelude::*;
 use core::fmt::Debug;
@@ -12,6 +12,7 @@ use lightyear_connection::client::Disconnecting;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::server::Stopping;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
+use lightyear_transport::plugin::TransportSystems;
 #[allow(unused_imports)]
 use tracing::{error, trace};
 
@@ -97,6 +98,20 @@ impl RawConnectionPlugin {
 
 impl Plugin for RawConnectionPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<lightyear_connection::client::ConnectionPlugin>() {
+            app.add_plugins(lightyear_connection::client::ConnectionPlugin);
+        }
+        if !app.is_plugin_added::<lightyear_connection::server::ConnectionPlugin>() {
+            app.add_plugins(lightyear_connection::server::ConnectionPlugin);
+        }
+        app.configure_sets(
+            PreUpdate,
+            (LinkSystems::Receive, TransportSystems::Receive).chain(),
+        );
+        app.configure_sets(
+            PostUpdate,
+            (TransportSystems::Send, LinkSystems::Send).chain(),
+        );
         app.add_observer(Self::on_server_linked);
         app.add_observer(Self::on_link_of_linked);
         app.add_observer(Self::on_stop);

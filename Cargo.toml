@@ -149,7 +149,7 @@ test-log = { version = "0.2.17", default-features = false, features = [
   "color",
 ] }
 tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.17", features = [
+tracing-subscriber = { version = "0.3.20", features = [
   "registry",
   "env-filter",
 ] }
@@ -223,7 +223,7 @@ avian2d = { version = "0.4", default-features = false }
 avian3d = { version = "0.4", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.34", default-features = false, features = [
+bevy-inspector-egui = { version = "0.35", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",

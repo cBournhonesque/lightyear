@@ -18,20 +18,14 @@ server = ["lightyear_connection/server"]
 lightyear_core.workspace = true
 lightyear_connection.workspace = true
 lightyear_link.workspace = true
-lightyear_serde.workspace = true
+lightyear_transport.workspace = true
 
 # bevy
 bevy_app.workspace = true
 bevy_ecs.workspace = true
-bevy_platform.workspace = true
-bevy_reflect.workspace = true
 
 # utils
 aeronet_io.workspace = true
-bytes.workspace = true
-serde.workspace = true
-smallvec.workspace = true
-thiserror.workspace = true
 tracing.workspace = true
 
 [lints]

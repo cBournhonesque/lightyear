@@ -343,7 +343,6 @@ impl Plugin for NetcodeServerPlugin {
         if !app.is_plugin_added::<lightyear_connection::server::ConnectionPlugin>() {
             app.add_plugins(lightyear_connection::server::ConnectionPlugin);
         }
-        // TODO: should these be shared? or do we use Markers like in lightyear to distinguish between client and server?
         app.configure_sets(
             PreUpdate,
             (
