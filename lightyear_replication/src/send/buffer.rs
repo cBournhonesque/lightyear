@@ -541,12 +541,10 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     query
         .par_iter_many_unique_mut(replicate.senders.as_slice())
         .for_each(|(sender_entity, mut sender, manager)| {
+            sender.replicated_entities.swap_remove(&entity);
             if !is_replicating {
-                // We need to remove the entity from the list to avoid iterating over it in the replicate system.
-                sender.replicated_entities.swap_remove(&entity);
                 return;
             }
-
             if network_visibility.is_some_and(|v| !v.is_visible(sender_entity)) {
                 trace!(
                     ?entity,
@@ -559,7 +557,6 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
             let entity = manager.entity_mapper.to_remote(entity);
             // TODO: should we just buffer the despawn instead of sending it immediately, by adding the entity
             //  to sender.entities_to_despawn?
-            sender.replicated_entities.swap_remove(&entity);
             sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
             trace!("preparing despawn to sender");
         });
