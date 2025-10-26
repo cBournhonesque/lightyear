@@ -5,6 +5,8 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{NetworkVisibility, Replicate, ReplicationGroup};
 use test_log::test;
+#[allow(unused_imports)]
+use tracing::info;
 
 #[test]
 fn test_spawn_gain_visibility() {
@@ -168,3 +170,24 @@ fn test_despawn_with_visibility() {
 /// that are not present in the NetworkVisibility?
 #[test]
 fn test_despawn_add_network_visibility() {}
+
+/// Test that there is no logspam when we despawn an entity with NetworkVisibility
+/// but that is not visible to a client
+#[test]
+fn test_despawn_non_visible_logspam() {
+    let mut stepper: ClientServerStepper = ClientServerStepper::single();
+    let server_entity_0 = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            NetworkVisibility::default(),
+            ReplicationGroup::new_id(1),
+        ))
+        .id();
+
+    stepper.frame_step(1);
+    info!("Server despawning entity that is not visible to the client");
+    stepper.server_app.world_mut().despawn(server_entity_0);
+    stepper.frame_step(10);
+}
