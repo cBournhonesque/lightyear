@@ -343,7 +343,7 @@ impl LightyearAvianPlugin {
         );
     }
 
-    /// Add Transform only when Position/Rotation are both present.
+    /// Add Transform only when Position/Rotation are both present and Transform is not.
     fn position_rotation_to_transform(
         trigger: On<Add, (Position, Rotation)>,
         query: Query<(), (With<Position>, With<Rotation>)>,
@@ -351,7 +351,9 @@ impl LightyearAvianPlugin {
     ) {
         if query.get(trigger.entity).is_ok() {
             // the Transform will be updated by the sync system
-            commands.entity(trigger.entity).insert(Transform::default());
+            commands
+                .entity(trigger.entity)
+                .insert_if_new(Transform::default());
         }
     }
 }
