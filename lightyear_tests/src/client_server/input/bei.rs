@@ -1,6 +1,6 @@
 use crate::client_server::prediction::trigger_state_rollback;
 use crate::protocol::{BEIAction1, BEIContext};
-use crate::stepper::{ClientServerStepper, TICK_DURATION};
+use crate::stepper::*;
 use bevy::app::{App, FixedPostUpdate};
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
@@ -26,7 +26,7 @@ use tracing::info;
 /// Check that we can insert actions on the client entity
 #[test]
 fn test_actions_on_client_entity() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     // we spawn an action entity on the client
     let client_entity = stepper.client(0).id();
     let client_action = stepper
@@ -98,7 +98,7 @@ fn test_actions_on_client_entity() {
 /// Check that ActionStates are stored correctly in the InputBuffer
 #[test]
 fn test_buffer_inputs_with_delay() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper.client_mut(0).insert(InputTimeline(Timeline::from(
         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
     )));
@@ -258,7 +258,7 @@ fn test_buffer_inputs_with_delay() {
 /// information
 #[test]
 fn test_client_rollback() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
         .server_app
@@ -368,7 +368,7 @@ struct Counter(usize);
 /// Check that Actions<C> is restored correctly after a rollback, and observers are re-triggerd
 #[test]
 fn test_client_rollback_bei_events() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     stepper.client_apps[0].init_resource::<Counter>();
     stepper.client_apps[0].add_observer(
@@ -469,7 +469,7 @@ fn test_client_rollback_bei_events() {
 /// - or at least at tick 35 use the newly received input value for prediction!
 #[test]
 fn test_input_broadcasting_prediction() {
-    let mut stepper = ClientServerStepper::with_clients(2);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
     let server_recv_delay: i16 = 2;
 
     // client 0 has some latency to send inputs to the server

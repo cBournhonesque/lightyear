@@ -1,5 +1,5 @@
 use crate::protocol::{CompA, CompMap};
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_messages::MessageManager;
@@ -8,7 +8,7 @@ use test_log::test;
 
 #[test]
 fn test_give_authority() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let sender = stepper.client_of(0).id();
     let server_entity = stepper
@@ -85,7 +85,7 @@ fn test_give_authority() {
 /// Relevant issue: https://github.com/cBournhonesque/lightyear/issues/644
 #[test]
 fn test_transfer_authority_despawn() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let sender = stepper.client(0).id();
     let client_entity = stepper
@@ -153,7 +153,7 @@ fn test_transfer_authority_despawn() {
 /// (both for the Entity in Updates and for the content of the components in the Update)
 #[test]
 fn test_transfer_authority_map_entities() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let sender = stepper.client(0).id();
     let client_entity = stepper
@@ -213,7 +213,7 @@ fn test_transfer_authority_map_entities() {
 // /// (both for the Entity in Updates and for the content of the components in the Update)
 // #[test]
 // fn test_transfer_authority_client_to_client() {
-//      let mut stepper = ClientServerStepper::with_clients(2);
+//      let mut stepper =  ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 //
 //     let client_sender_0 = stepper.client(0).id();
 //     // send an entity from client 0 to server

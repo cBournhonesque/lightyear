@@ -1,5 +1,5 @@
 // use crate::protocol::*;
-// use crate::stepper::ClientServerStepper;
+// use crate::stepper::*;
 // use lightyear::prelude::*;
 // use lightyear_sync::prelude::*;
 // use lightyear_sync::prelude::client::*;
@@ -10,7 +10,7 @@
 // /// Test that the input timeline is synced to the remote timeline
 // #[test_log::test]
 // fn test_input_timeline_sync_normal() {
-//     let mut stepper = ClientServerStepper::single();
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 //
 //     // Let a few frames pass to establish ping measurements
 //     for _ in 0..10 {
@@ -42,7 +42,7 @@
 // /// Test that speed adjustments are made when timelines start to drift
 // #[test_log::test]
 // fn test_timeline_speed_adjustment() {
-//     let mut stepper = ClientServerStepper::single();
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 //
 //     // Let a few frames pass to establish ping measurements
 //     for _ in 0..10 {
@@ -73,7 +73,7 @@
 // /// Test that a resync event is triggered when timelines are too far apart
 // #[test_log::test]
 // fn test_resync_event() {
-//     let mut stepper = ClientServerStepper::single();
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 //
 //     // Let a few frames pass to establish ping measurements
 //     for _ in 0..10 {
@@ -118,7 +118,7 @@
 // #[cfg(feature = "interpolation")]
 // #[test_log::test]
 // fn test_interpolation_timeline_sync() {
-//     let mut stepper = ClientServerStepper::single();
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 //
 //     // Let a few frames pass to establish ping measurements
 //     for _ in 0..10 {
@@ -149,7 +149,7 @@
 // /// Test that the virtual time is updated based on the driving timeline
 // #[test_log::test]
 // fn test_virtual_time_update() {
-//     let mut stepper = ClientServerStepper::single();
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 //
 //     // Let a few frames pass to establish ping measurements
 //     for _ in 0..10 {
@@ -178,7 +178,7 @@
 // /// Test that the input delay is correctly computed based on RTT
 // #[test_log::test]
 // fn test_input_delay_calculation() {
-//     let mut stepper = ClientServerStepper::single();
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 //
 //     // Let a few frames pass to establish ping measurements
 //     for _ in 0..10 {

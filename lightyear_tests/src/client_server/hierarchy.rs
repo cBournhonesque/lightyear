@@ -1,6 +1,6 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{DisableReplicateHierarchy, Replicate, ReplicateLike};
@@ -14,7 +14,7 @@ use test_log::test;
 /// and the ChildOf component should be present on the replicated entity
 #[test]
 fn test_spawn_with_child() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -58,7 +58,7 @@ fn test_spawn_with_child() {
 fn test_despawn_with_child() {}
 
 fn setup_hierarchy() -> (ClientServerStepper, Entity, Entity, Entity) {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     let grandparent = stepper.server_app.world_mut().spawn_empty().id();
     let parent = stepper
         .server_app

@@ -1,5 +1,5 @@
 use crate::protocol::{CompFull, CompSimple};
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::prelude::Component;
 use lightyear::prelude::*;
 
@@ -10,7 +10,7 @@ struct TestComponent(usize);
 /// The rollback re-adds the predicted entity.
 #[test]
 fn test_despawned_predicted_rollback() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
         .server_app

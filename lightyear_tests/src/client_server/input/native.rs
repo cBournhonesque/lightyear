@@ -1,5 +1,5 @@
 use crate::protocol::NativeInput as MyInput;
-use crate::stepper::{ClientServerStepper, TICK_DURATION};
+use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::input::server::InputRebroadcaster;
@@ -20,7 +20,7 @@ use tracing::info;
 /// Test a remote client's replicated entity sending inputs to the server
 #[test]
 fn test_remote_client_replicated_input() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     stepper
         .client_app()
@@ -92,7 +92,7 @@ fn test_remote_client_replicated_input() {
 /// Test a remote client's predicted entity sending inputs to the server
 #[test]
 fn test_remote_client_predicted_input() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // SETUP
     let server_entity = stepper
@@ -168,7 +168,7 @@ fn test_remote_client_predicted_input() {
 /// - or at least at tick 35 use the newly received input value for prediction!
 #[test]
 fn test_input_broadcasting_prediction() {
-    let mut stepper = ClientServerStepper::with_clients(2);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
     let server_recv_delay: i16 = 2;
 
     // client 0 has some latency to send inputs to the server
@@ -325,7 +325,7 @@ fn test_input_broadcasting_prediction() {
 /// Test the server can rebroadcast inputs to custom targets
 #[test]
 fn test_input_custom_rebroadcast() {
-    let mut stepper = ClientServerStepper::with_clients(3);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(3));
     let server_recv_delay: i16 = 2;
 
     // client 0 has some latency to send inputs to the server

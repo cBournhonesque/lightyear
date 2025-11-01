@@ -1,5 +1,5 @@
 use crate::protocol::StringMessage;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear_connection::server::Started;
@@ -10,7 +10,7 @@ use test_log::test;
 /// - the various components we expect are present
 #[test]
 fn test_setup_client_server() {
-    let stepper = ClientServerStepper::single();
+    let stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // Check that the various components we expect are present
     assert!(stepper.client(0).contains::<PingManager>());
@@ -87,7 +87,10 @@ fn test_setup_client_server() {
 /// Check that the client/server setup is correct when the connection type is Raw instead of Netcode
 #[test]
 fn test_setup_raw_client_server() {
-    let stepper = ClientServerStepper::single_raw();
+    let stepper = ClientServerStepper::from_config(StepperConfig::from_link_types(
+        vec![ClientType::Raw],
+        ServerType::Raw,
+    ));
     assert!(stepper.client(0).contains::<Transport>());
     assert!(stepper.client(0).contains::<Connected>());
     assert!(stepper.client(0).contains::<PeerAddr>());
@@ -103,7 +106,7 @@ fn test_setup_raw_client_server() {
 
 #[test]
 fn test_sender_metadata() {
-    let stepper = ClientServerStepper::single();
+    let stepper = ClientServerStepper::from_config(StepperConfig::single());
     let client = stepper.client(0).id();
     let client_of = stepper.client_of(0).id();
 

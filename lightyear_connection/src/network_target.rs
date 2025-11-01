@@ -66,9 +66,10 @@ impl NetworkTarget {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Reflect)]
+#[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
 /// Target indicated which clients should receive some message
 pub enum Target<T> {
+    #[default]
     /// Message sent to no client
     None,
     /// Message sent to all clients except one
@@ -82,12 +83,6 @@ pub enum Target<T> {
     Only(Vec<T>),
     /// Message sent to only this one client
     Single(T),
-}
-
-impl<T> Default for Target<T> {
-    fn default() -> Self {
-        Self::None
-    }
 }
 
 impl ToBytes for Target<PeerId> {

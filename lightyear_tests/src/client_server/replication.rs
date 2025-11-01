@@ -1,7 +1,7 @@
 //! Check various replication scenarios between 2 peers only
 
 use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::prelude::{Name, default};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
@@ -16,7 +16,7 @@ use tracing::info;
 
 #[test]
 fn test_spawn() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -36,7 +36,7 @@ fn test_spawn() {
 
 #[test]
 fn test_spawn_from_replicate_change() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -75,7 +75,7 @@ fn test_spawn_from_replicate_change() {
 /// - the existing entities are replicated to the new client
 #[test]
 fn test_spawn_new_connection() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
         .server_app
@@ -92,7 +92,7 @@ fn test_spawn_new_connection() {
         .unwrap();
 
     // second client connects
-    stepper.new_client();
+    stepper.new_client(ClientType::Netcode);
     stepper.init();
 
     // make sure the entity is also replicated to the newly connected client
@@ -107,7 +107,7 @@ fn test_spawn_new_connection() {
 
 #[test]
 fn test_entity_despawn() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -139,7 +139,7 @@ fn test_entity_despawn() {
 
 #[test]
 fn test_despawn_from_replicate_change() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -175,7 +175,7 @@ fn test_despawn_from_replicate_change() {
 
 #[test]
 fn test_component_insert() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -210,7 +210,7 @@ fn test_component_insert() {
 
 #[test]
 fn test_component_update() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -257,7 +257,7 @@ fn test_component_update() {
 /// Test that replicating updates works even if the update happens after tick wrapping
 #[test]
 fn test_component_update_after_tick_wrap() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     // remove InputTimeline otherwise it will try to resync
     stepper.client_mut(0).remove::<InputTimeline>();
 
@@ -324,7 +324,7 @@ fn test_component_update_after_tick_wrap() {
 
 #[test]
 fn test_component_remove() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -368,7 +368,7 @@ fn test_component_remove() {
 /// Check that if we remove a non-replicated component, the replicate component does not get removed
 #[test]
 fn test_component_remove_non_replicated() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -412,7 +412,7 @@ fn test_component_remove_non_replicated() {
 /// Test that a component removal is not replicated if the component is marked as disabled
 #[test]
 fn test_component_remove_disabled() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -467,7 +467,7 @@ fn test_component_remove_disabled() {
 
 #[test]
 fn test_component_disabled() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -495,7 +495,7 @@ fn test_component_disabled() {
 
 #[test]
 fn test_component_replicate_once() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -544,7 +544,7 @@ fn test_component_replicate_once() {
 /// PerSenderOverride = replicate_once
 #[test]
 fn test_component_replicate_once_overrides() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -633,7 +633,7 @@ fn test_component_replicate_once_overrides() {
 /// PerSenderOverride = disabled
 #[test]
 fn test_component_disabled_overrides() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     info!("start");
     let client_entity = stepper
@@ -721,7 +721,7 @@ fn test_component_disabled_overrides() {
 
 #[test]
 fn test_owned_by() {
-    let mut stepper = ClientServerStepper::with_clients(2);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
     let client_of_1 = stepper.client_of(1).id();
     let server_entity = stepper
@@ -766,7 +766,7 @@ fn test_owned_by() {
 /// https://github.com/cBournhonesque/lightyear/issues/1025
 #[test]
 fn test_reinsert_replicate() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_sender = stepper.client(0).id();
     let client_entity = stepper

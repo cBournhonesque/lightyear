@@ -1,5 +1,5 @@
 use crate::protocol::LeafwingInput1;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::input::ButtonInput;
 use bevy::prelude::KeyCode;
 use leafwing_input_manager::action_state::ActionState;
@@ -17,7 +17,7 @@ use tracing::info;
 /// when the host-client has an input delay configured
 #[test]
 fn test_buffer_inputs_with_delay() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     stepper
         .host_client_mut()

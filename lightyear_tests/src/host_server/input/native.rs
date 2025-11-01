@@ -1,5 +1,5 @@
 use crate::protocol::NativeInput as MyInput;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
@@ -15,7 +15,7 @@ use tracing::info;
 /// /// (we run this test to ensure that things still work in the HostServer case)
 #[test]
 fn test_remote_client_replicated_input() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     stepper
         .client_app()
@@ -89,7 +89,7 @@ fn test_remote_client_replicated_input() {
 /// (we run this test to ensure that things still work in the HostServer case)
 #[test]
 fn test_remote_client_predicted_input() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     // SETUP
     let server_entity = stepper
@@ -158,7 +158,7 @@ fn test_remote_client_predicted_input() {
 /// i.e. chost-client inputs are broadcasted to other clients for prediction
 #[test]
 fn test_host_client_inputers_replicated_to_remote_client() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     stepper
         .server_app

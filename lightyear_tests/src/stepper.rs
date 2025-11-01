@@ -10,6 +10,7 @@ use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
+use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::prelude::{client::*, server::*, *};
 #[cfg(feature = "test_utils")]
 use lightyear_core::test::TestHelper;
@@ -18,13 +19,13 @@ use lightyear_raw_connection::client::RawClient;
 use lightyear_raw_connection::server::RawServer;
 use lightyear_replication::delta::DeltaManager;
 
-pub(crate) const SERVER_PORT: u16 = 56789;
-pub(crate) const SERVER_ADDR: SocketAddr =
+pub const SERVER_PORT: u16 = 56789;
+pub const SERVER_ADDR: SocketAddr =
     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::LOCALHOST, SERVER_PORT));
 
-pub(crate) const STEAM_APP_ID: u32 = 480; // Steamworks App ID for Spacewar, used for testing
+pub const STEAM_APP_ID: u32 = 480; // Steamworks App ID for Spacewar, used for testing
 
-pub(crate) const TICK_DURATION: Duration = Duration::from_millis(10);
+pub const TICK_DURATION: Duration = Duration::from_millis(10);
 
 /// Stepper with:
 /// - n client in one 'client' App
@@ -42,47 +43,102 @@ pub struct ClientServerStepper {
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
-    pub raw_server: bool,
 }
 
-impl ClientServerStepper {
+/// Type of client to add
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientType {
+    Host,
+    Raw,
+    Netcode,
+    Steam,
+}
+
+/// Type of server to use
+pub enum ServerType {
+    Raw,
+    Netcode,
+    Steam,
+}
+
+/// Configuration for ClientServerStepper
+pub struct StepperConfig {
+    pub frame_duration: Duration,
+    pub tick_duration: Duration,
+    pub clients: Vec<ClientType>,
+    pub server: ServerType,
+    pub init: bool,
+    pub avian_mode: AvianReplicationMode,
+}
+
+impl StepperConfig {
+    /// Basic scenario: one netcode client.
     pub fn single() -> Self {
-        Self::with_clients(1)
-    }
-
-    pub fn with_clients(n: usize) -> Self {
-        let mut stepper = Self::default_no_init(false);
-        for _ in 0..n {
-            stepper.new_client();
+        Self {
+            frame_duration: TICK_DURATION,
+            tick_duration: TICK_DURATION,
+            clients: vec![ClientType::Netcode],
+            server: ServerType::Netcode,
+            init: true,
+            avian_mode: AvianReplicationMode::default(),
         }
-        stepper.init();
-        stepper
     }
 
+    /// Host server scenario: one host client and one netcode client.
     pub fn host_server() -> Self {
-        let mut stepper = Self::default_no_init(false);
-        stepper.new_host_client();
-        stepper.new_client();
-        stepper.init();
-        stepper
-    }
-
-    pub fn single_raw() -> Self {
-        Self::with_clients_raw(1)
-    }
-
-    pub fn with_clients_raw(n: usize) -> Self {
-        let mut stepper = Self::default_no_init(true);
-        for _ in 0..n {
-            stepper.new_client();
+        Self {
+            frame_duration: TICK_DURATION,
+            tick_duration: TICK_DURATION,
+            clients: vec![ClientType::Host, ClientType::Netcode],
+            server: ServerType::Netcode,
+            init: true,
+            avian_mode: AvianReplicationMode::default(),
         }
-        stepper.init();
+    }
+
+    pub fn with_netcode_clients(n: usize) -> Self {
+        Self {
+            frame_duration: TICK_DURATION,
+            tick_duration: TICK_DURATION,
+            clients: vec![ClientType::Netcode; n],
+            server: ServerType::Netcode,
+            init: true,
+            avian_mode: AvianReplicationMode::default(),
+        }
+    }
+
+    pub fn from_link_types(clients: Vec<ClientType>, server: ServerType) -> Self {
+        Self {
+            frame_duration: TICK_DURATION,
+            tick_duration: TICK_DURATION,
+            clients,
+            server,
+            init: true,
+            avian_mode: AvianReplicationMode::default(),
+        }
+    }
+}
+
+impl ClientServerStepper {
+    pub fn from_config(config: StepperConfig) -> Self {
+        let mut stepper =
+            Self::new_server(config.tick_duration, config.frame_duration, config.server);
+        for client_type in config.clients {
+            stepper.new_client(client_type);
+        }
+        if config.init {
+            stepper.init();
+        }
         stepper
     }
 }
 
 impl ClientServerStepper {
-    pub fn new(tick_duration: Duration, frame_duration: Duration, raw_server: bool) -> Self {
+    pub fn new_server(
+        tick_duration: Duration,
+        frame_duration: Duration,
+        server_type: ServerType,
+    ) -> Self {
         let mut server_app = App::new();
         // NOTE: we add LogPlugin so that tracing works
         server_app.add_plugins((
@@ -91,16 +147,32 @@ impl ClientServerStepper {
             InputPlugin,
             LogPlugin::default(),
         ));
+        if matches!(server_type, ServerType::Steam) {
+            // the steam resources need to be added before the ServerPlugins
+            server_app.add_steam_resources(STEAM_APP_ID);
+        }
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin);
         let mut server = server_app.world_mut().spawn((DeltaManager::default(),));
-        if raw_server {
-            server.insert(RawServer);
-        } else {
-            server.insert(NetcodeServer::new(
-                lightyear_netcode::server_plugin::NetcodeConfig::default(),
-            ));
+
+        match server_type {
+            ServerType::Raw => {
+                server.insert(RawServer);
+            }
+            ServerType::Netcode => {
+                server.insert(NetcodeServer::new(
+                    lightyear_netcode::server_plugin::NetcodeConfig::default(),
+                ));
+            }
+            ServerType::Steam => {
+                let server_addr =
+                    SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, SERVER_PORT));
+                server.insert(SteamServerIo {
+                    target: ListenTarget::Addr(server_addr),
+                    config: SessionConfig::default(),
+                });
+            }
         }
         let server_entity = server.id();
         Self {
@@ -113,34 +185,10 @@ impl ClientServerStepper {
             frame_duration,
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
-            raw_server,
         }
     }
 
-    /// Add a new host-client: we will add the client on the server app
-    pub(crate) fn new_host_client(&mut self) {
-        // the server app will contain both client and server plugins
-        self.server_app.add_plugins(client::ClientPlugins {
-            tick_duration: self.tick_duration,
-        });
-        self.host_client_entity = Some(
-            self.server_app
-                .world_mut()
-                .spawn((
-                    // Client + LinkOf = HostServer
-                    Client::default(),
-                    LinkOf {
-                        server: self.server_entity,
-                    },
-                    // TODO: maybe don't add Link either?
-                    Link::new(None),
-                    Linked,
-                ))
-                .id(),
-        );
-    }
-
-    pub(crate) fn new_client(&mut self) -> usize {
+    pub fn new_client(&mut self, client_type: ClientType) -> usize {
         let mut client_app = App::new();
         client_app.add_plugins((
             MinimalPlugins,
@@ -148,6 +196,10 @@ impl ClientServerStepper {
             InputPlugin,
             LogPlugin::default(),
         ));
+        if client_type == ClientType::Steam {
+            // the steam resources need to be added before the ClientPlugins
+            client_app.add_steam_resources(STEAM_APP_ID);
+        }
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
         });
@@ -164,6 +216,30 @@ impl ClientServerStepper {
             private_key: Default::default(),
             client_id: client_id as u64,
         };
+
+        if client_type == ClientType::Host {
+            // for host client we don't need auth
+            // the server app will contain both client and server plugins
+            self.server_app.add_plugins(client::ClientPlugins {
+                tick_duration: self.tick_duration,
+            });
+            self.host_client_entity = Some(
+                self.server_app
+                    .world_mut()
+                    .spawn((
+                        // Client + LinkOf = HostServer
+                        Client::default(),
+                        LinkOf {
+                            server: self.server_entity,
+                        },
+                        // TODO: maybe don't add Link either?
+                        Link::new(None),
+                        Linked,
+                    ))
+                    .id(),
+            );
+            return 0;
+        }
         let mut client = client_app.world_mut().spawn((
             Client::default(),
             // Send pings every frame, so that the Acks are sent every frame
@@ -177,11 +253,21 @@ impl ClientServerStepper {
             TestHelper::default(),
             PredictionManager::default(),
         ));
-        if self.raw_server {
-            client.insert(RawClient);
-        } else {
-            client.insert(NetcodeClient::new(auth, NetcodeConfig::default()).unwrap());
-        };
+        match client_type {
+            ClientType::Host => unreachable!(),
+            ClientType::Raw => {
+                client.insert(RawClient);
+            }
+            ClientType::Netcode => {
+                client.insert(NetcodeClient::new(auth, NetcodeConfig::default()).unwrap());
+            }
+            ClientType::Steam => {
+                client.insert(SteamClientIo {
+                    target: ConnectTarget::Addr(SERVER_ADDR),
+                    config: Default::default(),
+                });
+            }
+        }
         self.client_entities.push(client.id());
         self.client_of_entities.push(
             self.server_app
@@ -215,53 +301,8 @@ impl ClientServerStepper {
         client_id
     }
 
-    pub(crate) fn new_steam_client(&mut self) -> usize {
-        let mut client_app = App::new();
-        client_app.add_plugins((
-            MinimalPlugins,
-            StatesPlugin,
-            InputPlugin,
-            LogPlugin::default(),
-        ));
-
-        // the steam resources need to be added before the ClientPlugins
-        client_app.add_steam_resources(STEAM_APP_ID);
-
-        client_app.add_plugins(client::ClientPlugins {
-            tick_duration: self.tick_duration,
-        });
-        // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
-        client_app.add_plugins(ProtocolPlugin);
-        client_app.finish();
-        client_app.cleanup();
-        let client_id = self.client_entities.len();
-        self.client_entities.push(
-            client_app
-                .world_mut()
-                .spawn((
-                    Client::default(),
-                    // Send pings every frame, so that the Acks are sent every frame
-                    PingManager::new(PingConfig {
-                        ping_interval: Duration::default(),
-                    }),
-                    ReplicationSender::default(),
-                    ReplicationReceiver::default(),
-                    SteamClientIo {
-                        target: ConnectTarget::Addr(SERVER_ADDR),
-                        config: Default::default(),
-                    },
-                    #[cfg(feature = "test_utils")]
-                    TestHelper::default(),
-                    PredictionManager::default(),
-                ))
-                .id(),
-        );
-        self.client_apps.push(client_app);
-        client_id
-    }
-
     /// Disconnect the last client
-    pub(crate) fn disconnect_client(&mut self) {
+    pub fn disconnect_client(&mut self) {
         let client_entity = self.client_entities.pop().unwrap();
         let server_entity = self.client_of_entities.pop().unwrap();
         let mut client_app = self.client_apps.pop().unwrap();
@@ -282,10 +323,10 @@ impl ClientServerStepper {
         self.frame_step(1);
     }
 
-    pub(crate) fn default_no_init(raw_server: bool) -> Self {
+    pub fn default_no_init(server_type: ServerType) -> Self {
         let frame_duration = TICK_DURATION;
         let tick_duration = TICK_DURATION;
-        Self::new(tick_duration, frame_duration, raw_server)
+        Self::new_server(tick_duration, frame_duration, server_type)
     }
 
     pub fn client_app(&mut self) -> &mut App {
@@ -293,7 +334,7 @@ impl ClientServerStepper {
         &mut self.client_apps[0]
     }
 
-    pub(crate) fn client_tick(&self, id: usize) -> Tick {
+    pub fn client_tick(&self, id: usize) -> Tick {
         self.client_apps[id]
             .world()
             .entity(self.client_entities[id])
@@ -301,7 +342,7 @@ impl ClientServerStepper {
             .unwrap()
             .tick()
     }
-    pub(crate) fn server_tick(&self) -> Tick {
+    pub fn server_tick(&self) -> Tick {
         self.server_app
             .world()
             .entity(self.server_entity)
@@ -352,7 +393,7 @@ impl ClientServerStepper {
             .entity_mut(self.client_of_entities[id])
     }
 
-    pub(crate) fn init(&mut self) {
+    pub fn init(&mut self) {
         if matches!(
             self.server_app.plugins_state(),
             PluginsState::Ready | PluginsState::Adding
@@ -396,7 +437,7 @@ impl ClientServerStepper {
     }
 
     /// Frame step until all clients are connected
-    pub(crate) fn wait_for_connection(&mut self) {
+    pub fn wait_for_connection(&mut self) {
         for _ in 0..50 {
             if (0..self.client_entities.len())
                 .all(|client_id| self.client(client_id).contains::<Connected>())
@@ -409,7 +450,7 @@ impl ClientServerStepper {
     }
 
     // Advance the world until the client is synced
-    pub(crate) fn wait_for_sync(&mut self) {
+    pub fn wait_for_sync(&mut self) {
         for _ in 0..50 {
             if (0..self.client_entities.len()).all(|client_id| {
                 self.client(client_id).contains::<IsSynced<InputTimeline>>()
@@ -437,7 +478,7 @@ impl ClientServerStepper {
         std::thread::sleep(duration);
     }
 
-    pub(crate) fn flush(&mut self) {
+    pub fn flush(&mut self) {
         self.client_apps.iter_mut().for_each(|client_app| {
             client_app.world_mut().flush();
         });
@@ -488,7 +529,7 @@ impl ClientServerStepper {
         }
     }
 
-    pub(crate) fn tick_step(&mut self, n: usize) {
+    pub fn tick_step(&mut self, n: usize) {
         for _ in 0..n {
             self.advance_time(self.tick_duration);
             self.client_apps.iter_mut().for_each(|client_app| {

@@ -9,7 +9,7 @@ use test_log::test;
 
 #[test]
 fn test_history_added_when_prespawned_added() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     let predicted = stepper.client_app().world_mut().spawn(CompFull(1.0)).id();
     assert!(
         stepper
@@ -41,7 +41,7 @@ fn test_history_added_when_prespawned_added() {
 /// 4. Removing the predicted component during rollback
 #[test]
 fn test_update_history() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     fn check_history_consecutive_ticks(stepper: &ClientServerStepper, entity: Entity) {
         let history = stepper.client_apps[0]

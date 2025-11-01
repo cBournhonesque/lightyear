@@ -7,7 +7,6 @@ rust-version.workspace = true
 license.workspace = true
 description = "Setup for integration tests for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
-publish = false
 
 [features]
 default = ["std", "test_utils"]
@@ -36,6 +35,7 @@ lightyear = { workspace = true, features = [
     "client",
     "server",
     "crossbeam",
+    "avian2d",
     "metrics",
     "netcode",
     "input_native",
@@ -73,7 +73,6 @@ leafwing-input-manager.workspace = true
 bevy_enhanced_input.workspace = true
 
 # utils
-cfg-if.workspace = true
 tracing.workspace = true
 
 # serde
@@ -88,7 +87,6 @@ mock_instant.workspace = true
 
 [dev-dependencies]
 test-log.workspace = true
-approx.workspace = true
 mock_instant.workspace = true
 
 [lints]

@@ -1,6 +1,6 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{NetworkVisibility, Replicate, ReplicationGroup};
@@ -10,7 +10,7 @@ use tracing::info;
 
 #[test]
 fn test_spawn_gain_visibility() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -49,7 +49,7 @@ fn test_spawn_gain_visibility() {
 
 #[test]
 fn test_despawn_lose_visibility() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let mut visibility = NetworkVisibility::default();
     visibility.gain_visibility(stepper.client_entities[0]);
@@ -91,7 +91,8 @@ fn test_despawn_lose_visibility() {
 /// is only sent to clients that have visibility on it.
 #[test]
 fn test_despawn_with_visibility() {
-    let mut stepper: ClientServerStepper = ClientServerStepper::with_clients(2);
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
     let mut visibility_0 = NetworkVisibility::default();
     visibility_0.gain_visibility(stepper.client_of_entities[0]);
@@ -175,7 +176,8 @@ fn test_despawn_add_network_visibility() {}
 /// but that is not visible to a client
 #[test]
 fn test_despawn_non_visible_logspam() {
-    let mut stepper: ClientServerStepper = ClientServerStepper::single();
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::single());
     let server_entity_0 = stepper
         .server_app
         .world_mut()

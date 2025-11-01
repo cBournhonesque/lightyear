@@ -1,7 +1,7 @@
 //! More advanced replication tests
 
 use crate::protocol::{CompA, CompS, CompSimple};
-use crate::stepper::{ClientServerStepper, TICK_DURATION};
+use crate::stepper::*;
 use bevy::prelude::{Timer, TimerMode};
 use lightyear::prelude::*;
 use lightyear_replication::message::UpdatesChannel;
@@ -12,7 +12,7 @@ use tracing::info;
 /// - we keep sending replication packets until we receive an Ack
 #[test]
 fn test_since_last_ack() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_entity = stepper
         .client_app()
@@ -116,7 +116,7 @@ fn test_since_last_ack() {
 /// Check that we don't get the log: "Received an update message-id ack but we don't know the corresponding group id"
 #[test]
 fn test_acks_multi_packet() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let str = "a".to_string();
     let client_entity = stepper
@@ -155,7 +155,7 @@ fn test_acks_multi_packet() {
 /// We could not replicate entity 2 to client 1 because CachedReplicate for entity 2 could be updated before sender 1's replicate system runs.
 #[test]
 fn test_replicate_new_connection() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     let server_sender = stepper.client_of(0).id();
     info!("ClientOf 0 is entity {:?}", server_sender);
 
@@ -186,7 +186,7 @@ fn test_replicate_new_connection() {
         .unwrap();
 
     // new client connects
-    stepper.new_client();
+    stepper.new_client(ClientType::Netcode);
     stepper.init();
 
     info!("Spawning entity 2 on server");

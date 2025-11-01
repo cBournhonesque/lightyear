@@ -1,5 +1,5 @@
 use crate::protocol::{CompFull, CompMap, CompSimple};
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::app::PreUpdate;
 use bevy::prelude::{Entity, IntoScheduleConfigs, With};
 use bevy::utils::default;
@@ -23,7 +23,7 @@ use tracing::info;
 
 #[test]
 fn test_compute_hash() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // check default compute hash, with multiple entities sharing the same tick
     let entity_1 = stepper
@@ -76,7 +76,7 @@ fn test_compute_hash() {
 /// This errors only if the server entities were part of the same replication group
 #[test]
 fn test_multiple_prespawn() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_tick = stepper.client_tick(0).0 as usize;
     let server_tick = stepper.server_tick().0 as usize;
@@ -155,7 +155,7 @@ fn test_multiple_prespawn() {
 /// Server's should take over authority over the entity
 #[test]
 fn test_prespawn_success() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_prespawn = stepper
         .client_app()
@@ -201,7 +201,7 @@ fn test_prespawn_success() {
 /// If the Confirmed entity is despawned, the Predicted entity should be despawned
 #[test]
 fn test_prespawn_client_missing() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // spawn extra entities to check that EntityMapping works correctly with pre-spawning
     let server_entity = stepper
@@ -263,7 +263,7 @@ fn test_prespawn_client_missing() {
 /// The entity should be kept around in case of a match, and then cleanup via the cleanup system.
 #[test]
 fn test_prespawn_local_despawn_no_match() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_prespawn = stepper
         .client_app()
@@ -315,9 +315,10 @@ fn panic_on_rollback() {
 /// on the PreSpawned entity should match the client history when it was spawned.
 #[test]
 fn test_prespawn_local_despawn_match() {
-    let mut stepper = ClientServerStepper::default_no_init(false);
+    let mut config = StepperConfig::single();
+    config.init = false;
+    let mut stepper = ClientServerStepper::from_config(config);
     let tick_duration = stepper.tick_duration;
-    stepper.new_client();
     // add a conditioner to make sure that the client is ahead of the server, and make sure there is a resync
     stepper
         .client_mut(0)

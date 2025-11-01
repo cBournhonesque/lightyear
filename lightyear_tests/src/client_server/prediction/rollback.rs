@@ -2,7 +2,7 @@ use crate::client_server::prediction::{
     RollbackInfo, trigger_rollback_check, trigger_rollback_system, trigger_state_rollback,
 };
 use crate::protocol::{CompFull, CompNotNetworked, NativeInput};
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::prelude::*;
@@ -23,7 +23,7 @@ use lightyear_replication::prelude::*;
 use test_log::test;
 
 fn setup() -> (ClientServerStepper, Entity) {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper.client_app().add_message::<RollbackInfo>();
     stepper.client_app().add_systems(
         PreUpdate,
@@ -518,7 +518,7 @@ fn test_rollback_time_resource() {
 fn setup_stepper_for_input_rollback(
     mode: RollbackMode,
 ) -> (ClientServerStepper, Entity, Entity, Entity, Entity) {
-    let mut stepper = ClientServerStepper::with_clients(3);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(3));
 
     let mut client_mut = stepper.client_mut(0);
     let mut prediction_manager = client_mut.get_mut::<PredictionManager>().unwrap();

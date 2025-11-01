@@ -1,5 +1,5 @@
 use crate::protocol::{CompDelta, CompFull};
-use crate::stepper::{ClientServerStepper, TICK_DURATION};
+use crate::stepper::*;
 use bevy::prelude::default;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_link::Link;
@@ -14,7 +14,7 @@ use tracing::info;
 
 #[test]
 fn test_component_insert() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
         .server_app
@@ -59,7 +59,7 @@ fn test_component_insert() {
 
 #[test]
 fn test_component_update() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
         .server_app
@@ -225,7 +225,7 @@ fn test_component_update() {
 /// We can emulate this by adding some delay on the server receiving client packets via the link conditioner.
 #[test]
 fn test_client_use_component_history() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     let kind = ComponentKind::of::<CompDelta>();
     let server_recv_delay: i16 = 2;
 
@@ -360,7 +360,7 @@ fn test_client_use_component_history() {
 /// and we would fail because we cannot compute a diff from tick 2
 #[test]
 fn test_update_requires_per_component_entity_ack_ticks() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity_1 = stepper
         .server_app

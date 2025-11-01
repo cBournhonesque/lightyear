@@ -3,7 +3,7 @@ use crate::client_server::prediction::{
     RollbackInfo, trigger_rollback_check, trigger_rollback_system,
 };
 use crate::protocol::CompCorr;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use approx::assert_relative_eq;
 use bevy::prelude::*;
 use core::time::Duration;

@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::ecs::entity::UniqueEntityArray;
 use bevy::prelude::*;
 use core::fmt::Debug;
@@ -31,7 +31,7 @@ fn count_messages_observer<M: Message + Debug>(
 
 #[test]
 fn test_send_messages() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
     let host_client = stepper.host_client_entity.unwrap();
     let client_of_0 = stepper.client_of_entities[0];
     stepper.server_app.init_resource::<Buffer<StringMessage>>();
@@ -98,7 +98,7 @@ fn test_send_messages() {
 /// Use ServerMultiMessageSender to send a message from the server to clients, including host-client
 #[test]
 fn test_send_message_server_to_host_client() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
     let host_client = stepper.host_client_entity.unwrap();
     let client_of_0 = stepper.client_of_entities[0];
     stepper.server_app.init_resource::<Buffer<StringMessage>>();
@@ -174,7 +174,7 @@ fn count_triggers_observer<M: Event + Debug + Clone>(
 
 #[test]
 fn test_send_triggers() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
     stepper
         .server_app
         .add_observer(count_triggers_observer::<StringTrigger>);

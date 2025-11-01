@@ -1,7 +1,7 @@
 //! Tests using the Steam networking layer with Lightyear.
 #![allow(unused_imports)]
 
-use crate::stepper::{ClientServerStepper, SERVER_PORT, STEAM_APP_ID};
+use crate::stepper::*;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use lightyear::prelude::client::*;
 use lightyear::prelude::server::{ListenTarget, SteamServerIo};
@@ -32,7 +32,11 @@ fn add_steam_server_io(stepper: &mut ClientServerStepper) {
 // only run this manually since it requires Steam to be started
 #[ignore]
 fn test_steam_server_with_netcode_server() {
-    let mut stepper = ClientServerStepper::default_no_init(false);
+    // the server will have both SteamServerIo and NetcodeServerIo
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::from_link_types(
+        vec![ClientType::Steam, ClientType::Netcode],
+        ServerType::Netcode,
+    ));
     // start the server first and make sure the SteamServer is Started
     info!("Starting server app");
     add_steam_server_io(&mut stepper);
@@ -41,10 +45,6 @@ fn test_steam_server_with_netcode_server() {
     stepper.frame_step(10);
 
     info!("Server app started, now adding a steam client");
-    // then add a steam client (client 0)
-    stepper.new_steam_client();
-    // add a non-steam client (client 1)
-    stepper.new_client();
     assert!(stepper.client_of(0).get::<CrossbeamIo>().is_some());
     stepper.init();
 

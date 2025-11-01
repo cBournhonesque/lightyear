@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use criterion::{Criterion, criterion_group, criterion_main};
 use lightyear_tests::protocol::CompFull;
-use lightyear_tests::stepper::ClientServerStepper;
+use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
 
 criterion_group!(
     name = replication_benches;
@@ -38,7 +38,7 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = ClientServerStepper::single();
+                        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
                         let entities =
                             vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
@@ -74,7 +74,7 @@ fn send_float_update_one_client(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = ClientServerStepper::single();
+                        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
                         let entities =
                             vec![(CompFull(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
@@ -121,7 +121,7 @@ fn receive_float_insert(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = ClientServerStepper::single();
+                        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
                         let entities =
                             vec![(CompFull(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
@@ -155,7 +155,7 @@ fn receive_float_update(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = ClientServerStepper::single();
+                        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
                         let entities =
                             vec![(CompFull(1.0), Replicate::to_clients(NetworkTarget::All)); *n];
                         stepper.server_app.world_mut().spawn_batch(entities);
@@ -201,7 +201,9 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                 bencher.iter_custom(|iter| {
                     let mut elapsed = Duration::ZERO;
                     for _ in 0..iter {
-                        let mut stepper = ClientServerStepper::with_clients(*n);
+                        let mut stepper = ClientServerStepper::from_config(
+                            StepperConfig::with_netcode_clients(*n),
+                        );
                         let entities =
                             vec![(CompFull(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
                         stepper.server_app.world_mut().spawn_batch(entities);

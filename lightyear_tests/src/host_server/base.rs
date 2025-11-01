@@ -1,5 +1,5 @@
 use crate::protocol::StringMessage;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use lightyear::prelude::InterpolationTimeline;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::{HostClient, HostServer};
@@ -19,7 +19,7 @@ use test_log::test;
 /// - the various components we expect are present
 #[test]
 fn test_setup_host_server() {
-    let mut stepper = ClientServerStepper::host_server();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
     stepper.frame_step(1);
 
     // Check that the various components we expect are present

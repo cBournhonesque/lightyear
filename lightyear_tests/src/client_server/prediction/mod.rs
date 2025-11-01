@@ -1,4 +1,4 @@
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear_core::prelude::{Rollback, Tick};
 use lightyear_prediction::prelude::*;

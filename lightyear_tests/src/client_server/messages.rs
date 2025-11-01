@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::ecs::entity::UniqueEntityArray;
 use bevy::prelude::*;
 use core::fmt::Debug;
@@ -31,7 +31,7 @@ fn count_messages_observer<M: Message + Debug>(
 
 #[test]
 fn test_send_messages() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper.server_app.init_resource::<Buffer<StringMessage>>();
     stepper
         .server_app
@@ -102,7 +102,7 @@ fn count_triggers_observer<M: Event + Debug + Clone>(
 
 #[test]
 fn test_send_triggers() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper
         .server_app
         .add_observer(count_triggers_observer::<StringTrigger>);
@@ -156,7 +156,7 @@ fn count_entity_triggers_observer<M: EntityEvent + Debug + Clone>(
 
 #[test]
 fn test_send_triggers_map_entities() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     let client_entity = stepper
         .client_app()
         .world_mut()
@@ -204,7 +204,7 @@ fn test_send_triggers_map_entities() {
 /// Test sending a message to multiple clients
 #[test]
 fn test_send_multi_messages() {
-    let mut stepper = ClientServerStepper::with_clients(2);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
     stepper.client_apps[0].init_resource::<Buffer<StringMessage>>();
     stepper.client_apps[0].add_systems(Update, count_messages_observer::<StringMessage>);
@@ -251,7 +251,7 @@ fn test_send_multi_messages() {
 /// Test sending a message to multiple clients with NetworkTarget
 #[test]
 fn test_send_multi_messages_with_target() {
-    let mut stepper = ClientServerStepper::with_clients(2);
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
     stepper.client_apps[0].init_resource::<Buffer<StringMessage>>();
     stepper.client_apps[0].add_systems(Update, count_messages_observer::<StringMessage>);

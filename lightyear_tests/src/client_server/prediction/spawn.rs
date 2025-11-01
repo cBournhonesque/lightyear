@@ -1,4 +1,4 @@
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::ecs::hierarchy::ChildOf;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
@@ -26,7 +26,7 @@ use tracing::info;
 ///   -> spawn-prediction (for parent) -> sync components -> update hierarchy"
 #[test]
 fn test_spawn_predicted_with_hierarchy() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_child = stepper.server_app.world_mut().spawn_empty().id();
     let server_parent = stepper

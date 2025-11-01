@@ -1,13 +1,13 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::stepper::ClientServerStepper;
+use crate::stepper::*;
 use bevy::prelude::{Entity, With};
 use lightyear_connection::client_of::ClientOf;
 use test_log::test;
 
 #[test]
 fn test_disconnection() {
-    let mut stepper = ClientServerStepper::single();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     stepper.disconnect_client();
 
