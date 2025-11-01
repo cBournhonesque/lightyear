@@ -12,6 +12,8 @@ The LocalId and RemoteId come from the Link's SocketAddr.
 
 extern crate alloc;
 extern crate core;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "client")]
 pub mod client;
