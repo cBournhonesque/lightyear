@@ -9,6 +9,10 @@ description = "Connection layer that directly uses the underlying IO"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
+std = [
+    "lightyear_link/std",
+    "lightyear_transport/std",
+]
 default = []
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]

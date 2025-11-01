@@ -58,7 +58,8 @@ impl TransportPlugin {
     /// in the appropriate channel receiver
     fn buffer_receive(
         time: Res<Time<Real>>,
-        par_commands: ParallelCommands,
+        #[cfg(feature = "std")] par_commands: ParallelCommands,
+        #[cfg(not(feature = "std"))] mut commands: Commands,
         #[cfg(feature = "metrics")] channel_registry: Res<ChannelRegistry>,
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
@@ -134,9 +135,12 @@ impl TransportPlugin {
                         let tick = header.tick;
 
                         // TODO: maybe switch to event buffer instead of triggers?
+                        #[cfg(feature = "std")]
                         par_commands.command_scope(|mut commands| {
                             commands.trigger(PacketReceived { entity, remote_tick: tick });
                         });
+                        #[cfg(not(feature = "std"))]
+                        commands.trigger(PacketReceived { entity, remote_tick: tick });
 
                         // Update the packet acks
                         transport
