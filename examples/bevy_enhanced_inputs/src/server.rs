@@ -69,8 +69,11 @@ pub(crate) fn handle_connected(
             PlayerColor(color),
             // we replicate the Player entity to all clients that are connected to this server
             Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            // NOTE: here we predict the movements of all players!
+            PredictionTarget::to_clients(NetworkTarget::All),
+            // NOTE: Uncomment this if you want to use interpolation for non-controlled entities
+            // PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            // InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
                 owner: trigger.entity,
                 lifetime: Default::default(),

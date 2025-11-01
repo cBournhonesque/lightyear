@@ -21,7 +21,7 @@ use tracing::{debug, info};
 #[cfg(feature = "server")]
 use {
     lightyear_connection::host::HostServer, lightyear_inputs::server::ServerInputConfig,
-    lightyear_replication::prelude::ReplicateLike,
+    lightyear_messages::MessageManager, lightyear_replication::prelude::ReplicateLike,
 };
 // TODO: ideally we would have an entity-mapped that is PreSpawn aware. If you include an entity
 //   that is PreSpawned, then in the entity-mapper we use a Query<Entity, With<PreSpawned>> to check the hash
@@ -87,7 +87,8 @@ impl InputRegistryPlugin {
     pub(crate) fn on_action_of_replicated<C: Component>(
         trigger: On<Add, ActionOf<C>>,
         query: Query<&ActionOf<C>, With<Replicated>>,
-        _: Single<(), (With<Server>, Without<HostServer>)>,
+        mut host: Query<&mut MessageManager, With<HostClient>>,
+        _: Single<(), With<Server>>,
         config: Res<ServerInputConfig<C>>,
         mut commands: Commands,
     ) {
@@ -98,7 +99,7 @@ impl InputRegistryPlugin {
 
             // If rebroadcast_inputs is enabled, set up replication to other clients
             if config.rebroadcast_inputs {
-                debug!(action_entity = ?entity, "On server, insert ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.get(), DebugName::type_name::<C>());
+                debug!(action_entity = ?entity, "On server, rebroadcast by inserting ReplicateLike({:?}) for action entity ActionOf<{:?}>", wrapper.get(), DebugName::type_name::<C>());
 
                 // TODO: don't rebroadcast to the original client
                 commands.entity(entity).insert((
@@ -109,11 +110,20 @@ impl InputRegistryPlugin {
                     PredictionTarget::manual(alloc::vec![]),
                     InterpolationTarget::manual(alloc::vec![]),
                 ));
+
+                // This is subtle. The client-of receives the entity, and will try to rebroadcast input messages
+                // to other clients. But the host-server client won't apply entity-mapping correctly for that
+                // action entity because it doesn't receive replication messages, so its entity map is empty!
+                // A long-term solution might be to have the HostClient contain EVERY replicated entity in its
+                // entity-map, but for now let's just add the action entity
+                if let Ok(mut message_manager) = host.single_mut() {
+                    message_manager.entity_mapper.insert(entity, entity);
+                }
             }
         }
     }
 
-    /// When the client receives a rebroadcast Action entity with [`ReplicateLike`],
+    /// When the client receives a rebroadcast Action entity with [`Replicated`],
     ///
     /// Attach ExternallyMocked to it to signify that the ActionState should only be updated
     /// from rebroadcasted input messages. (in particular, BEI doesn't tick the time for those actions)

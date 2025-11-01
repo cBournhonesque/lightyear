@@ -556,8 +556,9 @@ fn prepare_input_message<S: ActionStateSequence>(
     debug!(
         ?tick,
         ?num_tick,
+        ?is_host_client,
         "sending input message for {:?}: {}",
-        DebugName::type_name::<S::Action>(),
+        DebugName::type_name::<S::Action>().shortname(),
         message
     );
     message_buffer.0.push(message);

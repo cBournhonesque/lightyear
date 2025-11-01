@@ -259,6 +259,9 @@ pub struct InputMessage<S> {
     pub end_tick: Tick,
     // Map from target entity to the input data for that entity
     pub inputs: Vec<PerTargetData<S>>,
+    /// If true, indicates that this message is already a rebroadcast. The input comes from a different client,
+    /// so we should not rebarodcast it again.
+    pub rebroadcast: bool,
 }
 
 impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
@@ -274,7 +277,8 @@ impl<S: ActionStateSequence + MapEntities> MapEntities for InputMessage<S> {
 
 impl<S: ActionStateSequence + Debug> core::fmt::Display for InputMessage<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
-        let ty = DebugName::type_name::<S::Action>();
+        let debug_name = DebugName::type_name::<S::Action>();
+        let ty = debug_name.shortname();
 
         if self.inputs.is_empty() {
             return write!(f, "EmptyInputMessage<{ty:?}>");
@@ -303,6 +307,7 @@ impl<S: ActionStateSequence> InputMessage<S> {
             #[cfg(feature = "interpolation")]
             interpolation_delay: None,
             end_tick,
+            rebroadcast: false,
             inputs: vec![],
         }
     }
