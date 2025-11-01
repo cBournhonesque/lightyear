@@ -180,11 +180,6 @@ pub(crate) fn handle_connected(
     // Track the number of characters to pick colors and starting positions.
     let num_characters = character_query.iter().count();
 
-    // Default prediction/interpolation: predict owner, interpolate others
-    let prediction_target = PredictionTarget::to_clients(NetworkTarget::Single(client_id));
-    let interpolation_target =
-        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id));
-
     // Pick color and position for player.
     let available_colors = [
         css::LIMEGREEN,

@@ -170,11 +170,11 @@ fn receive_input_message<S: ActionStateSequence>(
         //  should we just read instead?
         let server_entity = link_of.server;
         let tick = timeline.tick();
-        receiver.receive().try_for_each(|message| {
+        receiver.receive().try_for_each(|mut message| {
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
-                error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", DebugName::type_name::<S::Action>());
+                error!("Received input message from HostClient for action {:?} even though rebroadcasting is disabled. Ignoring the message.", DebugName::type_name::<S::Action>().shortname());
                 return Ok(())
             }
             // NOTE: This can cause issues because the clients expect a steady stream of messages.
@@ -182,7 +182,7 @@ fn receive_input_message<S: ActionStateSequence>(
             // if message.is_empty() {
             //     return Ok(())
             // }
-            trace!(?tick, ?client_id, action = ?DebugName::type_name::<S::Action>(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(?tick, ?client_id, action = ?DebugName::type_name::<S::Action>().shortname(), ?message.end_tick, ?message.inputs, "received input message");
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
@@ -194,33 +194,36 @@ fn receive_input_message<S: ActionStateSequence>(
 
             #[cfg(feature = "prediction")]
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
-                debug!("Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
-
-                match rebroadcaster {
-                    None => {
-                        sender.send::<_, InputChannel>(
-                            &message,
-                            server,
-                            &NetworkTarget::AllExceptSingle(client_id.0)
-                        )?;
-                    }
-                    Some(InputRebroadcaster::Room(room)) => {
-                        if let Ok(room) = rooms.get(*room) {
-                            sender.send_to_entities::<_, InputChannel>(
+                // only rebroadcast if the message is not already a rebroadcast
+                if !message.rebroadcast {
+                    debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
+                    message.rebroadcast = true;
+                    match rebroadcaster {
+                        None => {
+                            sender.send::<_, InputChannel>(
                                 &message,
                                 server,
-                                room.clients.iter().filter(|e| **e != client_entity).copied()
+                                &NetworkTarget::AllExceptSingle(client_id.0)
                             )?;
                         }
-                    },
-                    Some(InputRebroadcaster::Target(target)) => {
-                        sender.send::<_, InputChannel>(
-                            &message,
-                            server,
-                            target
-                        )?;
+                        Some(InputRebroadcaster::Room(room)) => {
+                            if let Ok(room) = rooms.get(*room) {
+                                sender.send_to_entities::<_, InputChannel>(
+                                    &message,
+                                    server,
+                                    room.clients.iter().filter(|e| **e != client_entity).copied()
+                                )?;
+                            }
+                        },
+                        Some(InputRebroadcaster::Target(target)) => {
+                            sender.send::<_, InputChannel>(
+                                &message,
+                                server,
+                                target
+                            )?;
+                        }
+                        Some(InputRebroadcaster::Marker(_)) => unreachable!()
                     }
-                    Some(InputRebroadcaster::Marker(_)) => unreachable!()
                 }
             }
 
@@ -241,7 +244,7 @@ fn receive_input_message<S: ActionStateSequence>(
                             .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()
                     }
                 }) else {
-                    debug!(?data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                    debug!(?data.states, ?data.target, end_tick = ?message.end_tick, "received input message for unrecognized entity");
                     continue
                 };
                 if let Ok(buffer) = query.get_mut(entity) {
