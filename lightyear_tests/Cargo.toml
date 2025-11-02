@@ -36,6 +36,7 @@ lightyear = { workspace = true, features = [
     "server",
     "crossbeam",
     "avian2d",
+    "frame_interpolation",
     "metrics",
     "netcode",
     "input_native",
@@ -68,6 +69,13 @@ lightyear_prediction = { workspace = true }
 lightyear_link.workspace = true
 lightyear_aeronet.workspace = true
 
+avian2d = { workspace = true, features = [
+    "2d",
+    "f32",
+    "parry-f32",
+    "serialize",
+] }
+
 # inputs
 leafwing-input-manager.workspace = true
 bevy_enhanced_input.workspace = true
@@ -88,6 +96,7 @@ mock_instant.workspace = true
 [dev-dependencies]
 test-log.workspace = true
 mock_instant.workspace = true
+approx.workspace = true
 
 [lints]
 workspace = true

@@ -43,6 +43,7 @@ pub struct ClientServerStepper {
     pub frame_duration: Duration,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
+    pub avian_mode: AvianReplicationMode,
 }
 
 /// Type of client to add
@@ -121,8 +122,12 @@ impl StepperConfig {
 
 impl ClientServerStepper {
     pub fn from_config(config: StepperConfig) -> Self {
-        let mut stepper =
-            Self::new_server(config.tick_duration, config.frame_duration, config.server);
+        let mut stepper = Self::new_server(
+            config.tick_duration,
+            config.frame_duration,
+            config.server,
+            config.avian_mode,
+        );
         for client_type in config.clients {
             stepper.new_client(client_type);
         }
@@ -138,6 +143,7 @@ impl ClientServerStepper {
         tick_duration: Duration,
         frame_duration: Duration,
         server_type: ServerType,
+        avian_mode: AvianReplicationMode,
     ) -> Self {
         let mut server_app = App::new();
         // NOTE: we add LogPlugin so that tracing works
@@ -153,7 +159,7 @@ impl ClientServerStepper {
         }
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
         // ProtocolPlugin needs to be added AFTER InputPlugin
-        server_app.add_plugins(ProtocolPlugin);
+        server_app.add_plugins(ProtocolPlugin { avian_mode });
         let mut server = server_app.world_mut().spawn((DeltaManager::default(),));
 
         match server_type {
@@ -185,6 +191,7 @@ impl ClientServerStepper {
             frame_duration,
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
+            avian_mode,
         }
     }
 
@@ -196,6 +203,7 @@ impl ClientServerStepper {
             InputPlugin,
             LogPlugin::default(),
         ));
+
         if client_type == ClientType::Steam {
             // the steam resources need to be added before the ClientPlugins
             client_app.add_steam_resources(STEAM_APP_ID);
@@ -204,7 +212,9 @@ impl ClientServerStepper {
             tick_duration: self.tick_duration,
         });
         // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
-        client_app.add_plugins(ProtocolPlugin);
+        client_app.add_plugins(ProtocolPlugin {
+            avian_mode: self.avian_mode,
+        });
         client_app.finish();
         client_app.cleanup();
         let client_id = self.client_entities.len();
@@ -326,7 +336,12 @@ impl ClientServerStepper {
     pub fn default_no_init(server_type: ServerType) -> Self {
         let frame_duration = TICK_DURATION;
         let tick_duration = TICK_DURATION;
-        Self::new_server(tick_duration, frame_duration, server_type)
+        Self::new_server(
+            tick_duration,
+            frame_duration,
+            server_type,
+            AvianReplicationMode::default(),
+        )
     }
 
     pub fn client_app(&mut self) -> &mut App {
@@ -445,7 +460,7 @@ impl ClientServerStepper {
                 info!("Clients are all connected");
                 break;
             }
-            self.frame_step(1);
+            self.tick_step(1);
         }
     }
 
@@ -461,7 +476,7 @@ impl ClientServerStepper {
                 info!("Clients are all synced");
                 break;
             }
-            self.frame_step(1);
+            self.tick_step(1);
         }
     }
 
@@ -532,10 +547,21 @@ impl ClientServerStepper {
     pub fn tick_step(&mut self, n: usize) {
         for _ in 0..n {
             self.advance_time(self.tick_duration);
-            self.client_apps.iter_mut().for_each(|client_app| {
-                client_app.update();
-            });
-            self.server_app.update();
+            // we want to log the next frame's tick before the frame starts
+            let client_tick = if self.client_entities.is_empty() {
+                None
+            } else {
+                Some(self.client_tick(0) + 1)
+            };
+            let server_tick = self.server_tick() + 1;
+            info!(?client_tick, ?server_tick, "Tick step");
+            self.client_apps
+                .iter_mut()
+                .enumerate()
+                .for_each(|(i, client_app)| {
+                    error_span!("client", ?i).in_scope(|| client_app.update());
+                });
+            error_span!("server").in_scope(|| self.server_app.update());
         }
     }
 }
