@@ -33,10 +33,14 @@ PhysicsPlugins::default()
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
+use bevy_transform::components::GlobalTransform;
 use bevy_transform::systems::{
     mark_dirty_trees, propagate_parent_transforms, sync_simple_transforms,
 };
 use bevy_transform::{TransformSystems, components::Transform};
+#[allow(unused_imports)]
+use tracing::info;
+use tracing::trace;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use {
     crate::correction_2d as correction,
@@ -45,6 +49,7 @@ use {
             constraint_graph::ConstraintGraph,
             islands::{BodyIslandNode, PhysicsIslands},
         },
+        math::*,
         physics_transform::*,
         prelude::*,
     },
@@ -57,6 +62,7 @@ use {
             constraint_graph::ConstraintGraph,
             islands::{BodyIslandNode, PhysicsIslands},
         },
+        math::*,
         physics_transform::*,
         prelude::*,
     },
@@ -114,8 +120,6 @@ impl Plugin for LightyearAvianPlugin {
         app.init_resource::<PhysicsTransformConfig>();
         match self.replication_mode {
             AvianReplicationMode::Position => {
-                // I think Transform to Position is updating Position to 0.0 ?
-
                 if !self.update_syncs_manually {
                     // TODO: causes issues if no FrameInterpolation is enabled, because we don't override the transform->position with the correct Position
                     //  (for example in case a rollback updates Position, that change will be overriden by the transform->position)
@@ -328,32 +332,120 @@ impl LightyearAvianPlugin {
             //  we only want to add Transform if both are added at the same time
             // app.try_register_required_components::<Position, Transform>().ok();
             // app.try_register_required_components::<Rotation, Transform>().ok();
-            app.add_observer(Self::position_rotation_to_transform);
         }
         let schedule = schedule.intern();
+
+        // TODO: do we need to add this in PreUpdate to avoid 1-frame delays?
+        // app.add_systems(PreUpdate, Self::position_rotation_to_transform
+        //     .after(ReplicationSystems::Receive));
+
         app.configure_sets(
             schedule,
             PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
         );
         app.add_systems(
             schedule,
-            position_to_transform
+            (position_to_transform, Self::add_transform)
                 .in_set(PhysicsTransformSystems::PositionToTransform)
                 .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
         );
     }
 
     /// Add Transform only when Position/Rotation are both present and Transform is not.
-    fn position_rotation_to_transform(
-        trigger: On<Add, (Position, Rotation)>,
-        query: Query<(), (With<Position>, With<Rotation>)>,
+    /// This is necessary because the PositionToTransform systems require `Transform`
+    ///
+    /// - We cannot run this as an observer because the `ChildOf` component might be inserted
+    ///   after Position/Rotation.
+    /// - We cannot add Transform::default because if the entity is spawned in PreUpdate,
+    ///   the TransformToPosition will overwrite the correct Position/Rotation.
+    /// - We cannot just add GlobalTransform because the PositionToTransform systems requires the
+    ///   `Transform` component to be present
+    /// - Therefore we try to compute the correct `Transform`
+    fn add_transform(
+        query: Query<(Entity, Ref<Position>, Ref<Rotation>, Option<&ChildOf>), Without<Transform>>,
+        parents: Query<(
+            Option<&GlobalTransform>,
+            Option<&Position>,
+            Option<&Rotation>,
+        )>,
         mut commands: Commands,
     ) {
-        if query.get(trigger.entity).is_ok() {
-            // the Transform will be updated by the sync system
-            commands
-                .entity(trigger.entity)
-                .insert_if_new(Transform::default());
-        }
+        query.iter().for_each(|(entity, pos, rot, parent)| {
+            if !(pos.is_added() || rot.is_added()) {
+                return;
+            }
+            let mut transform = Transform::default();
+            #[cfg(feature = "2d")]
+            if let Some(&ChildOf(parent)) = parent {
+                if let Ok((parent_global_transform, parent_pos, parent_rot)) = parents.get(parent) {
+                    // Compute the global transform of the parent using its Position and Rotation
+                    let parent_transform = parent_global_transform
+                        .unwrap_or(&GlobalTransform::IDENTITY)
+                        .compute_transform();
+                    let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| {
+                        pos.f32().extend(parent_transform.translation.z)
+                    });
+                    let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| {
+                        Quaternion::from(*rot).f32()
+                    });
+                    let parent_scale = parent_transform.scale;
+                    let parent_transform = Transform::from_translation(parent_pos)
+                        .with_rotation(parent_rot)
+                        .with_scale(parent_scale);
+
+                    // The new local transform of the child body,
+                    // computed from the its global transform and its parents global transform
+                    let new_transform = GlobalTransform::from(
+                        Transform::from_translation(
+                            pos.f32().extend(parent_transform.translation.z),
+                        )
+                        .with_rotation(Quaternion::from(*rot).f32()),
+                    )
+                    .reparented_to(&GlobalTransform::from(parent_transform));
+
+                    transform.translation = new_transform.translation;
+                    transform.rotation = new_transform.rotation;
+                }
+            } else {
+                transform.translation = pos.f32().extend(transform.translation.z);
+                transform.rotation = Quaternion::from(*rot).f32();
+            }
+
+            #[cfg(feature = "3d")]
+            if let Some(&ChildOf(parent)) = parent {
+                if let Ok((parent_global_transform, parent_pos, parent_rot)) = parents.get(parent) {
+                    // Compute the global transform of the parent using its Position and Rotation
+                    let parent_transform = parent_global_transform
+                        .unwrap_or(&GlobalTransform::IDENTITY)
+                        .compute_transform();
+                    let parent_pos =
+                        parent_pos.map_or(parent_transform.translation, |pos| pos.f32());
+                    let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| rot.f32());
+                    let parent_scale = parent_transform.scale;
+                    let parent_transform = Transform::from_translation(parent_pos)
+                        .with_rotation(parent_rot)
+                        .with_scale(parent_scale);
+
+                    // The new local transform of the child body,
+                    // computed from the its global transform and its parents global transform
+                    let new_transform = GlobalTransform::from(
+                        Transform::from_translation(pos.f32()).with_rotation(rot.f32()),
+                    )
+                    .reparented_to(&GlobalTransform::from(parent_transform));
+
+                    transform.translation = new_transform.translation;
+                    transform.rotation = new_transform.rotation;
+                }
+            } else {
+                transform.translation = pos.f32();
+                transform.rotation = rot.f32();
+            }
+
+            trace!(
+                ?transform,
+                "Adding transform because Position/Rotation were added for {entity:?}"
+            );
+            commands.entity(entity).insert(transform);
+        });
     }
 }

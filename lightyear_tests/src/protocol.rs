@@ -1,9 +1,12 @@
 #[cfg(not(feature = "std"))]
 use alloc::string::String;
+use avian2d::prelude::*;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::InputAction;
 use leafwing_input_manager::Actionlike;
+use lightyear::avian2d::plugin::AvianReplicationMode;
+use lightyear::frame_interpolation::FrameInterpolationPlugin;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
@@ -140,7 +143,9 @@ pub struct BEIContext;
 pub struct BEIAction1;
 
 // Protocol
-pub(crate) struct ProtocolPlugin;
+pub struct ProtocolPlugin {
+    pub avian_mode: AvianReplicationMode,
+}
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
@@ -214,5 +219,51 @@ impl Plugin for ProtocolPlugin {
             ..default()
         }));
         app.register_input_action::<BEIAction1>();
+
+        app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
+            replication_mode: self.avian_mode,
+            ..default()
+        });
+        app.add_plugins(
+            PhysicsPlugins::default()
+                .build()
+                // disable the position<>transform sync plugins as it is handled by lightyear_avian
+                .disable::<PhysicsTransformPlugin>()
+                .disable::<PhysicsInterpolationPlugin>(),
+        );
+        app.register_component::<FixedJoint>()
+            .add_component_map_entities();
+
+        match self.avian_mode {
+            AvianReplicationMode::Position => {
+                app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+                app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+            }
+            AvianReplicationMode::PositionButInterpolateTransform
+            | AvianReplicationMode::Transform => {
+                app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
+            }
+        }
+
+        match self.avian_mode {
+            AvianReplicationMode::Position
+            | AvianReplicationMode::PositionButInterpolateTransform => {
+                app.register_component::<Position>()
+                    .add_prediction()
+                    .add_linear_correction_fn()
+                    .add_linear_interpolation();
+
+                app.register_component::<Rotation>()
+                    .add_prediction()
+                    .add_linear_correction_fn()
+                    .add_linear_interpolation();
+            }
+            AvianReplicationMode::Transform => {
+                app.register_component::<Transform>()
+                    .add_prediction()
+                    .add_linear_correction_fn::<Isometry2d>()
+                    .add_interpolation_with(TransformLinearInterpolation::lerp);
+            }
+        }
     }
 }
