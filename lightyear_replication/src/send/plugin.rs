@@ -307,14 +307,11 @@ impl Plugin for ReplicationSendPlugin {
 
         let replicate = (
             QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
+                // Or<(With<ReplicateLike>, With<Replicate>)>
                 builder.or(|b| {
                     b.with::<ReplicateLikeChildren>();
                     b.with::<ReplicateLike>();
-                    b.and(|b| {
-                        b.with::<Replicating>();
-                        b.with::<Replicate>();
-                    });
+                    b.with::<Replicate>();
                 });
                 builder.optional(|b| {
                     b.data::<(

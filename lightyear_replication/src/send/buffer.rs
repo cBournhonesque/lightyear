@@ -38,7 +38,7 @@ use tracing::{debug, error, info, info_span, trace, trace_span, warn};
 
 pub(crate) fn replicate(
     // query &C + various replication components
-    entity_query: Query<FilteredEntityRef>,
+    entity_query: Query<(FilteredEntityRef, Has<Replicate>, Has<Replicating>)>,
     mut manager_query: Query<
         (
             Entity,
@@ -110,10 +110,14 @@ pub(crate) fn replicate(
                     trace!("Skipping entity {entity:?} because we don't have authority");
                     continue;
                 }
-                let Ok(root_entity_ref) = entity_query.get(entity) else {
-                    debug!("Replicated Entity {:?} not found in entity_query", entity);
+                let Ok((root_entity_ref, has_replicate, has_replicating)) = entity_query.get(entity) else {
+                    warn!("Replicated Entity {:?} not found in entity_query", entity);
                     continue;
                 };
+                if has_replicate && !has_replicating  {
+                    trace!("Entity {entity:?} replication is paused (doesn't have the Replicating component)");
+                    continue;
+                }
                 let _root_span = trace_span!("root", ?entity).entered();
                 replicate_entity(
                     entity,
@@ -130,7 +134,7 @@ pub(crate) fn replicate(
                 if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
                     for child in children.collection() {
                         let _child_span = trace_span!("child", ?child).entered();
-                        let child_entity_ref = entity_query.get(*child).unwrap();
+                        let (child_entity_ref, _, _) = entity_query.get(*child).unwrap();
                         replicate_entity(
                             *child,
                             tick,
