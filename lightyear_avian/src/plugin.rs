@@ -123,19 +123,19 @@ impl Plugin for LightyearAvianPlugin {
                 if !self.update_syncs_manually {
                     // TODO: causes issues if no FrameInterpolation is enabled, because we don't override the transform->position with the correct Position
                     //  (for example in case a rollback updates Position, that change will be overriden by the transform->position)
-                    LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
+                    // LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
 
                     // In case we do the TransformToPosition sync in RunFixedMainLoop, do it BEFORE
                     // restoring the correct Position in FrameInterpolation::Restore, since we want Position to take priority.
                     //
                     // TransformToPosition might be useful for child entities that need Transform->Position propagated.
-                    app.configure_sets(
-                        RunFixedMainLoop,
-                        PhysicsSystems::Prepare
-                            .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
-                            .before(FrameInterpolationSystems::Restore),
-                    );
-                    LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
+                    // app.configure_sets(
+                    //     RunFixedMainLoop,
+                    //     PhysicsSystems::Prepare
+                    //         .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
+                    //         .before(FrameInterpolationSystems::Restore),
+                    // );
+                    // LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
 
                     // TODO: it seems like if we apply TransformToPosition in FixedPostUpdate, we need
                     //  to also run PositionToTransform in FixedPostUpdate; how come?
@@ -288,6 +288,16 @@ impl Plugin for LightyearAvianPlugin {
 impl LightyearAvianPlugin {
     fn sync_transform_to_position(app: &mut App, schedule: impl ScheduleLabel) {
         let schedule = schedule.intern();
+        // also add the system ordering for FixedPostUpdate (for ColliderTransformPlugin)
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                PhysicsTransformSystems::Propagate,
+                PhysicsTransformSystems::TransformToPosition,
+            )
+                .chain()
+                .in_set(PhysicsSystems::Prepare),
+        );
         // Manually propagate Transform to GlobalTransform before running physics
         app.configure_sets(
             schedule,
@@ -339,6 +349,10 @@ impl LightyearAvianPlugin {
         // app.add_systems(PreUpdate, Self::position_rotation_to_transform
         //     .after(ReplicationSystems::Receive));
 
+        app.configure_sets(
+            FixedPostUpdate,
+            PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
+        );
         app.configure_sets(
             schedule,
             PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
