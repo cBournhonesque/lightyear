@@ -152,13 +152,11 @@ impl NetworkVisibilityPlugin {
                 if !sender.send_timer.is_finished() {
                     return;
                 }
-                info!(?sender_entity, "Updating visibility");
                 sender
                     .replicated_entities
                     .iter()
                     .for_each(|(root_entity, _)| {
                         if let Ok(mut vis) = query.get_mut(*root_entity) {
-                            info!(?root_entity, "update");
                             vis.update_visibility(sender_entity);
                         }
                         if let Ok(children) = root_query.get(*root_entity) {
