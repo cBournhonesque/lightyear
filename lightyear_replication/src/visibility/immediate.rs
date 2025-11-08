@@ -31,6 +31,8 @@ use bevy_ecs::prelude::*;
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Disconnected;
+#[allow(unused_imports)]
+use tracing::info;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]
