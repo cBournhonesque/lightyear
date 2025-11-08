@@ -31,6 +31,8 @@ use bevy_ecs::prelude::*;
 use bevy_platform::collections::hash_map::Entry;
 use bevy_reflect::Reflect;
 use lightyear_connection::client::Disconnected;
+#[allow(unused_imports)]
+use tracing::info;
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 #[derive(Debug, PartialEq, Clone, Copy, Reflect)]
@@ -150,11 +152,13 @@ impl NetworkVisibilityPlugin {
                 if !sender.send_timer.is_finished() {
                     return;
                 }
+                info!(?sender_entity, "Updating visibility");
                 sender
                     .replicated_entities
                     .iter()
                     .for_each(|(root_entity, _)| {
                         if let Ok(mut vis) = query.get_mut(*root_entity) {
+                            info!(?root_entity, "update");
                             vis.update_visibility(sender_entity);
                         }
                         if let Ok(children) = root_query.get(*root_entity) {
