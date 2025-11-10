@@ -426,7 +426,7 @@ pub mod prelude {
         pub use lightyear_raw_connection::prelude::server::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::server::*;
-        #[cfg(feature = "websocket")]
+        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
         pub use lightyear_websocket::prelude::server::*;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use lightyear_webtransport::prelude::server::*;
