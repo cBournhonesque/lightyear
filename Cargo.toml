@@ -234,7 +234,7 @@ bevy_egui = { version = "0.38", default-features = false, features = [
   "default_fonts",
   "render",
 ] }
-bevy_metrics_dashboard = { version = "0.7", features = ["bevy_egui"] }
+bevy_metrics_dashboard = { version = "0.8", features = ["bevy_egui"] }
 egui_extras = "0.33"
 
 # WASM things
