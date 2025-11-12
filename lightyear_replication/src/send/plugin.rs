@@ -418,7 +418,13 @@ impl Plugin for ReplicationSendPlugin {
                     });
                 });
                 builder.optional(|b| {
-                    b.data::<(&ReplicateLike, &Replicate, &ReplicationGroup)>();
+                    b.data::<(
+                        &ReplicateLike,
+                        &Replicate,
+                        &Replicating,
+                        &NetworkVisibility,
+                        &ReplicationGroup,
+                    )>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
                         .component_metadata_map
