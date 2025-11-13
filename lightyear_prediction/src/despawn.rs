@@ -52,7 +52,7 @@ impl Command for PredictionDespawnCommand {
                 // if this is a predicted entity, do not despawn the entity immediately but instead
                 // add a PredictionDisable component to it to mark it as disabled until the confirmed
                 // entity catches up to it
-                info!(?self.entity, "inserting prediction disable marker");
+                debug!(?self.entity, "inserting prediction disable marker");
                 entity.insert(PredictionDisable);
             } else {
                 error!("This command should only be called for predicted entities!");
