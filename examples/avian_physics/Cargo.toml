@@ -1,6 +1,6 @@
 [package]
 name = "avian_physics"
-version = "0.0.0"
+version = "0.25.5"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 publish = false

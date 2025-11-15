@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_netcode"
-version = "0.25.3"
+version = "0.25.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
