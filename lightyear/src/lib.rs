@@ -337,6 +337,7 @@ pub mod prelude {
     pub use lightyear_replication::prelude::*;
     pub use lightyear_sync::prelude::*;
     pub use lightyear_transport::prelude::*;
+    pub use lightyear_serde::prelude::*;
 
     #[cfg(all(not(target_family = "wasm"), feature = "udp"))]
     pub use lightyear_udp::prelude::*;

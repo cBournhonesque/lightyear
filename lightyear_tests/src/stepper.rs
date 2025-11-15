@@ -489,7 +489,7 @@ impl ClientServerStepper {
             .insert_resource(TimeUpdateStrategy::ManualInstant(self.current_time));
         #[cfg(feature = "test_utils")]
         mock_instant::global::MockClock::advance(duration);
-        #[cfg(not(feature = "test_utils"))]
+        #[cfg(all(not(feature = "test_utils"), feature = "std"))]
         std::thread::sleep(duration);
     }
 

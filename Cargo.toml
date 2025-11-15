@@ -213,8 +213,8 @@ bevy_utils = { version = "0.17", default-features = false, features = [
 tracy-client = { version = "=0.18.0" }
 
 # input
-bevy_enhanced_input = { version = "0.19", features = ["serialize"] }
-leafwing-input-manager = { version = "0.18", default-features = false, features = [
+bevy_enhanced_input = { version = "0.20", features = ["serialize"] }
+leafwing-input-manager = { version = "0.19", default-features = false, features = [
   "keyboard",
 ] }
 
