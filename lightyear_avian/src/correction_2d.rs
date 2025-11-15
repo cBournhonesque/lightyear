@@ -24,14 +24,6 @@ use lightyear_replication::delta::Diffable;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
-#[allow(dead_code)]
-pub struct Correction2DPlugin;
-
-impl Plugin for Correction2DPlugin {
-    fn build(&self, _app: &mut App) {
-        todo!()
-    }
-}
 
 /// We want to support replicating/predicting Position/Rotation but applying FrameInterpolation on Transform.
 /// The benefits are:
