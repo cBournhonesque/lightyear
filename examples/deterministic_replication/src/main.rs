@@ -56,12 +56,7 @@ fn main() {
     #[cfg(feature = "gui")]
     {
         app.add_plugins(renderer::ExampleRendererPlugin);
-        // app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
-        //     .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
-        // app.world_mut()
-        //     .spawn(bevy_metrics_dashboard::DashboardWindow::new(
-        //         "Metrics Dashboard",
-        //     ));
+
     }
 
     app.run();
