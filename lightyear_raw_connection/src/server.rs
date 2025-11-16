@@ -85,7 +85,7 @@ impl RawConnectionPlugin {
                             lightyear_connection::server::ConnectionError::InvalidConnectionType,
                         );
                     };
-                    // insert Disconnecting, so that the `Diconnected` component is added on the LinkOf
+                    // insert Disconnecting, so that the `Disconnected` component is added on the LinkOf
                     // before the entity gets despawned
                     commands.entity(entity).insert(Disconnecting);
                     Ok(())

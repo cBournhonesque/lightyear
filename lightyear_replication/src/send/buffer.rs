@@ -646,7 +646,7 @@ fn replicate_component_update(
             {
                 trace!(
                     ?entity,
-                    componnet = ?component_kind,
+                    component = ?component_kind,
                     change_tick = ?component_ticks.changed,
                     ?send_tick,
                     current_tick = ?sender.this_run,

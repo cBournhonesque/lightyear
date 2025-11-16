@@ -33,7 +33,7 @@ pub fn modify_digest_on_wasm(client_settings: &mut ClientSettings) -> Option<Str
                 Some(new_digest)
             }
             // This could be unreachable if only WebTransport feature is enabled.
-            // hence we supress this warning with the allow directive above.
+            // hence we suppress this warning with the allow directive above.
             _ => None,
         }
     } else {

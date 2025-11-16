@@ -122,7 +122,7 @@ impl Plugin for LightyearAvianPlugin {
             AvianReplicationMode::Position => {
                 if !self.update_syncs_manually {
                     // TODO: causes issues if no FrameInterpolation is enabled, because we don't override the transform->position with the correct Position
-                    //  (for example in case a rollback updates Position, that change will be overriden by the transform->position)
+                    //  (for example in case a rollback updates Position, that change will be overridden by the transform->position)
                     LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
 
                     // In case we do the TransformToPosition sync in RunFixedMainLoop, do it BEFORE

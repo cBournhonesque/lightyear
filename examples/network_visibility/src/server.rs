@@ -48,7 +48,7 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
         ));
 }
 
-/// If the new client connnects to the server, we want to spawn a new player entity for it.
+/// If the new client connects to the server, we want to spawn a new player entity for it.
 ///
 /// We have to react specifically on `Connected` because there is no guarantee that the connection request we
 /// received was valid. The server could reject the connection attempt for many reasons (server is full, packet is invalid,

@@ -14,7 +14,7 @@ pub struct ClientOf;
 /// In which we case we want to skip netcode for the links that come from steam, since they
 /// already have a RemoteId.
 ///
-// TODO: maybe we could also apply netcode for steam links? the RemoteId::Steam would be overriden
+// TODO: maybe we could also apply netcode for steam links? the RemoteId::Steam would be overridden
 //  with a RemoteId::Netcode identifier, and the SteamId could simply be some extra metadata component?
 #[derive(Component, Default)]
 pub struct SkipNetcode;
