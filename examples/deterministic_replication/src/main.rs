@@ -56,7 +56,6 @@ fn main() {
     #[cfg(feature = "gui")]
     {
         app.add_plugins(renderer::ExampleRendererPlugin);
-
     }
 
     app.run();

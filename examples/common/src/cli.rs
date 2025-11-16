@@ -321,11 +321,6 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     // Otherwise when testing the movement can look choppy for unfocused windows
     app.insert_resource(WinitSettings::continuous());
 
-    #[cfg(feature = "visualizer")]
-    {
-
-    }
-
     #[cfg(feature = "debug")]
     app.add_plugins(DebugUIPlugin);
 
