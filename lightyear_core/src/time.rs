@@ -917,7 +917,7 @@ mod tests {
     }
 
     #[test]
-    fn test_tickdelta_substraction() {
+    fn test_tickdelta_subtraction() {
         let delta = TickDelta::from(10i16);
         let sub = delta - TickDelta::from(20i16);
         assert_relative_eq!(sub.to_f32(), -10.0);

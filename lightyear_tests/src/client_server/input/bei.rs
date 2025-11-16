@@ -365,7 +365,7 @@ fn test_client_rollback() {
 #[derive(Resource, Default)]
 struct Counter(usize);
 
-/// Check that Actions<C> is restored correctly after a rollback, and observers are re-triggerd
+/// Check that Actions<C> is restored correctly after a rollback, and observers are re-triggered
 #[test]
 fn test_client_rollback_bei_events() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());

@@ -167,7 +167,7 @@ If it's behind, it pops from the buffer so spawn projectiles.
 
 - C2 can suddenly receive a TON of remote input messages in one tick. Maybe because we were out of sync? Right after that I notice there is a SyncEvent.
   - and for an extended period of time, no remote inputs are sent.
-  - the server is on tick 800, and is broadcasting remote inputs for tick ~806, but suddently we are sending 60 messages in one frame for ticks 800-860,
+  - the server is on tick 800, and is broadcasting remote inputs for tick ~806, but suddenly we are sending 60 messages in one frame for ticks 800-860,
     which shouldn't be possible? And then for the next few ticks we are not sending any remote inputs. Then afterwards the clients are too ahead of the server,
     they send inuts for tick +30 instead of +6.
   - aeronet say we receive 56 packets!
@@ -291,7 +291,7 @@ STATUS:
 - Priority:
   - runs ok in client/server
   - host-server not tested
-- ReplicationGorups:
+- ReplicationGroups:
   - runs ok in client/server
   - host-server not tested
 - ClientReplication
@@ -539,7 +539,7 @@ SEND FLOW
 - Create a separate crate with Client/Server/Shared
 - create features [client] and [server] for the client/server part
 - provide a unique SyncPlugin in shared, that also calls the client/server part depending on the feature
-- the lightyear_client and lightyear_server will call the appropirate feature
+- the lightyear_client and lightyear_server will call the appropriate feature
 
 - STRETCH: maybe we could just do Sync between a Master and a Follower?
 

@@ -343,6 +343,6 @@ fn update_action_state<S: ActionStateSequence>(
         // we keep the current value in the InputBuffer so that if future messages are lost, we can still
         // fallback on the last known value
         input_buffer.pop(tick - history_depth);
-        // info!("Buffer lenght: {}", input_buffer.len());
+        // info!("Buffer length: {}", input_buffer.len());
     }
 }
