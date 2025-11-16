@@ -66,8 +66,13 @@ impl TransportPlugin {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("transport/recv");
 
+
+        #[cfg(feature = "std")]
+        let query = query.par_iter_mut();
+        #[cfg(not(feature = "std"))]
+        let query = query.iter_mut();
+
         query
-            .par_iter_mut()
             .for_each(|(entity, mut link, mut transport)| {
                 // enable split borrows
                 let transport = &mut *transport;
