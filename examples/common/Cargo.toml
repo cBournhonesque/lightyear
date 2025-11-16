@@ -18,7 +18,6 @@ server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
 udp = ["lightyear/udp"]
 steam = ["lightyear/steam"]
-visualizer = ["gui", "lightyear/metrics", "dep:bevy_metrics_dashboard"]
 debug = ["gui", "lightyear/metrics"]
 
 # this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
@@ -69,7 +68,6 @@ clap.workspace = true
 serde.workspace = true
 bevy = { workspace = true, features = ["bevy_state", "bevy_log", "reflect_auto_register"] }
 bevy-inspector-egui = { workspace = true, optional = true }
-bevy_metrics_dashboard = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
 tracing.workspace = true
 

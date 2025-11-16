@@ -55,12 +55,6 @@ fn main() {
         app.add_plugins(renderer::ExampleRendererPlugin {
             show_confirmed: false,
         });
-        // app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default())
-        //     .add_plugins(bevy_metrics_dashboard::DashboardPlugin);
-        // app.world_mut()
-        //     .spawn(bevy_metrics_dashboard::DashboardWindow::new(
-        //         "Metrics Dashboard",
-        //     ));
     }
 
     // run the app
