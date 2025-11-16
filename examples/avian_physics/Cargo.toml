@@ -12,7 +12,6 @@ gui = ["lightyear_examples_common/gui"]
 server = ["lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
 udp = ["lightyear_examples_common/udp", ]
-visualizer = ["lightyear_examples_common/visualizer"]
 
 [dependencies]
 lightyear = { workspace = true, features = [
