@@ -1,6 +1,6 @@
 # Simple setup 
 
-This minmal example shows how to create a bevy app with the lightyear client and server plugins.
+This minimal example shows how to create a bevy app with the lightyear client and server plugins.
 
 
 ## Running an example

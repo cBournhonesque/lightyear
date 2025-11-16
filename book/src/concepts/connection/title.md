@@ -23,7 +23,7 @@ Multiple implementations are provided:
 
 This implementation is based on the [netcode.io](https://github.com/networkprotocol/netcode/blob/master/STANDARD.md) standard created
 by Glenn Fiedler (of GafferOnGames fame). It describes a protocol to establish a secure connection between two peers, provided
-that there is an unoredered unreliable transport layer to exchange packets.
+that there is an unordered unreliable transport layer to exchange packets.
 
 For my purpose I am using [this](https://github.com/benny-n/netcode) Rust implementation of the standard.
 
@@ -41,7 +41,7 @@ establish secure connection.
 You can use `Authentication::Manual` for those cases.
 
 Currently `lightyear` does not provide any functionality to let a game server send a `ConnectToken` securely to a client.
-You will have to handle this logic youself.
+You will have to handle this logic yourself.
 
 
 ## Steam
