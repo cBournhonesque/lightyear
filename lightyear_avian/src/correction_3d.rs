@@ -22,8 +22,6 @@ use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_replication::delta::Diffable;
 use tracing::trace;
 
-
-
 /// We want to support replicating/predicting Position/Rotation but applying FrameInterpolation on Transform.
 /// The benefits are:
 /// - Position/Rotation are smaller, which is better for prediction/serialization
