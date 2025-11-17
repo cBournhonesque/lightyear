@@ -10,23 +10,23 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 std = [
-    "bevy_ecs/std",
-    "lightyear_inputs/std",
-    "lightyear_messages/std",
-    "lightyear_prediction/std",
+  "bevy_ecs/std",
+  "lightyear_inputs/std",
+  "lightyear_messages/std",
+  "lightyear_prediction/std",
 ]
 default = ["std"]
 
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_core.workspace = true
-lightyear_inputs = {workspace = true, features = ["client"] }
+lightyear_inputs = { workspace = true, features = ["client"] }
 lightyear_link.workspace = true
 lightyear_messages.workspace = true
-lightyear_connection = {workspace = true, features = ["server"] }
+lightyear_connection = { workspace = true, features = ["server"] }
 lightyear_sync.workspace = true
 lightyear_prediction = { workspace = true, features = ["deterministic"] }
-lightyear_replication = { workspace = true, features = ["deterministic"]}
+lightyear_replication = { workspace = true, features = ["deterministic"] }
 
 # utils
 seahash.workspace = true

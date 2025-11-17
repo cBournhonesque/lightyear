@@ -10,9 +10,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = []
-test_utils = [
-    "lightyear_core/test_utils"
-]
+test_utils = ["lightyear_core/test_utils"]
 
 [dependencies]
 lightyear_core.workspace = true

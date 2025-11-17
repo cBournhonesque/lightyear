@@ -13,22 +13,11 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = [
-  "gui",
-  "lightyear_examples_common/client"
-]
-gui = [
-  "lightyear_examples_common/gui"
-]
-server = [
-  "lightyear_examples_common/server"
-]
-netcode = [
-  "lightyear_examples_common/netcode"
-]
-udp = [
-  "lightyear_examples_common/udp",
-]
+client = ["gui", "lightyear_examples_common/client"]
+gui = ["lightyear_examples_common/gui"]
+server = ["lightyear_examples_common/server"]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp"]
 
 [[bin]]
 name = "distributed_authority"
@@ -39,7 +28,7 @@ lightyear = { "workspace" = true, features = [
   "interpolation",
   "prediction",
   "replication",
-  "input_native"
+  "input_native",
 ] }
 lightyear_examples_common.workspace = true
 

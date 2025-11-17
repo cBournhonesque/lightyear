@@ -8,7 +8,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-lightyear = { workspace = true, features = ["replication"]}
+lightyear = { workspace = true, features = ["replication"] }
 bevy.workspace = true
 serde.workspace = true
 

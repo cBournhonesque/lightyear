@@ -11,42 +11,42 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std", "test_utils"]
 std = [
-    "bevy/std",
-    "bytes/std",
-    "serde/std",
-    "lightyear/std",
-    "lightyear_messages/std",
-    "lightyear_netcode/std",
-    "lightyear_serde/std",
-    "lightyear_sync/std",
-    "lightyear_transport/std",
+  "bevy/std",
+  "bytes/std",
+  "serde/std",
+  "lightyear/std",
+  "lightyear_messages/std",
+  "lightyear_netcode/std",
+  "lightyear_serde/std",
+  "lightyear_sync/std",
+  "lightyear_transport/std",
 ]
 test_utils = [
-    "lightyear_core/test_utils",
-    "lightyear_transport/test_utils",
-    "lightyear_replication/test_utils",
-    "lightyear_crossbeam/test_utils",
-    "lightyear_aeronet/test_utils",
+  "lightyear_core/test_utils",
+  "lightyear_transport/test_utils",
+  "lightyear_replication/test_utils",
+  "lightyear_crossbeam/test_utils",
+  "lightyear_aeronet/test_utils",
 ]
 
 
 [dependencies]
 lightyear = { workspace = true, features = [
-    "client",
-    "server",
-    "crossbeam",
-    "avian2d",
-    "frame_interpolation",
-    "metrics",
-    "netcode",
-    "input_native",
-    "input_bei",
-    "leafwing",
-    "interpolation",
-    "prediction",
-    "raw_connection",
-    "replication",
-    "steam",
+  "client",
+  "server",
+  "crossbeam",
+  "avian2d",
+  "frame_interpolation",
+  "metrics",
+  "netcode",
+  "input_native",
+  "input_bei",
+  "leafwing",
+  "interpolation",
+  "prediction",
+  "raw_connection",
+  "replication",
+  "steam",
 ] }
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
@@ -54,14 +54,8 @@ lightyear_transport = { workspace = true, features = ["client", "server"] }
 lightyear_core.workspace = true
 lightyear_netcode = { workspace = true, features = ["client", "server"] }
 lightyear_messages = { workspace = true, features = ["client", "server"] }
-lightyear_raw_connection = { workspace = true, features = [
-    "client",
-    "server",
-] }
-lightyear_replication = { workspace = true, features = [
-    "client",
-    "server",
-] }
+lightyear_raw_connection = { workspace = true, features = ["client", "server"] }
+lightyear_replication = { workspace = true, features = ["client", "server"] }
 lightyear_crossbeam.workspace = true
 lightyear_connection = { workspace = true, features = ["client", "server"] }
 lightyear_sync = { workspace = true, features = ["client", "server"] }
@@ -70,10 +64,10 @@ lightyear_link.workspace = true
 lightyear_aeronet.workspace = true
 
 avian2d = { workspace = true, features = [
-    "2d",
-    "f32",
-    "parry-f32",
-    "serialize",
+  "2d",
+  "f32",
+  "parry-f32",
+  "serialize",
 ] }
 
 # inputs

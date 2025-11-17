@@ -8,25 +8,11 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = [
-  "lightyear/client",
-  "lightyear_examples_common/client"
-]
-gui = [
-  "lightyear_examples_common/gui"
-]
-server = [
-  "lightyear/server",
-  "lightyear_examples_common/server"
-]
-netcode = [
-  "lightyear_examples_common/netcode"
-]
-udp = [
-  "lightyear_examples_common/udp",
-  "lightyear/std",
-  "lightyear/udp",
-]
+client = ["lightyear/client", "lightyear_examples_common/client"]
+gui = ["lightyear_examples_common/gui"]
+server = ["lightyear/server", "lightyear_examples_common/server"]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
 [dependencies]
 avian2d = { workspace = true, features = [

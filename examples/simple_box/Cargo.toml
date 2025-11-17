@@ -14,15 +14,11 @@ publish = false
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
 client = ["gui", "lightyear_examples_common/client"]
-gui = [
-  "lightyear_examples_common/gui"
-]
+gui = ["lightyear_examples_common/gui"]
 server = ["lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
 udp = ["lightyear_examples_common/udp"]
-steam = [
-  "lightyear_examples_common/steam"
-]
+steam = ["lightyear_examples_common/steam"]
 
 
 [dependencies]
@@ -31,7 +27,7 @@ lightyear = { "workspace" = true, features = [
   "prediction",
   "replication",
   "input_native",
-]}
+] }
 lightyear_examples_common.workspace = true
 serde.workspace = true
 bevy.workspace = true

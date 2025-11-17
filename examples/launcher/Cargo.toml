@@ -7,19 +7,27 @@ publish = false
 
 [dependencies]
 bevy = { workspace = true, default-features = false, features = [
-    "bevy_asset",
-    "bevy_winit",
-    "bevy_render",
-    "bevy_core_pipeline",
-    "bevy_pbr",
-    "x11",
-    "wayland",
+  "bevy_asset",
+  "bevy_winit",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_pbr",
+  "x11",
+  "wayland",
 ] }
 bevy_egui = { workspace = true }
 lightyear = { path = "../../lightyear", features = [
-    "client", "server", "prediction", "interpolation", "input_native"
+  "client",
+  "server",
+  "prediction",
+  "interpolation",
+  "input_native",
 ] }
-lightyear_examples_common = { path = "../common", features = ["client", "server", "gui"] } # Added common
+lightyear_examples_common = { path = "../common", features = [
+  "client",
+  "server",
+  "gui",
+] } # Added common
 
 # utils
 rand.workspace = true
