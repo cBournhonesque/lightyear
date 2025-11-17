@@ -22,6 +22,10 @@ use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_transport::channel::Channel;
 use tracing::error;
 
+/// System parameter for sending messages to multiple clients at once.
+///
+/// Only the server can have multiple active clients at once, so this wrapper exists only on the
+/// server side.
 #[derive(SystemParam)]
 pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
     sender: MultiMessageSender<'w, 's, F>,
@@ -29,6 +33,7 @@ pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
 }
 
 impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
+    /// Sends a simple message to the following [NetworkTarget]s
     pub fn send<M: Message, C: Channel>(
         &mut self,
         message: &M,
@@ -37,7 +42,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
     ) -> Result {
         self.send_with_priority::<M, C>(message, server, target, 1.0)
     }
-
+    /// Add a priority to field to give it more value to what packet to send in
     pub fn send_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
@@ -93,6 +98,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         Ok(())
     }
 
+    /// Pass a iter of [ClientOf] entities, to send that message to those specific clients
     pub fn send_to_entities<M: Message, C: Channel>(
         &mut self,
         message: &M,
@@ -102,7 +108,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         self.send_to_entities_with_priority::<M, C>(message, server, target, 1.0)
     }
 
-    /// Send to an iterator of ClientOf entities
+    /// Pass a iter of [ClientOf] entities, to send that message to those specific clients, with a given prio.
     pub fn send_to_entities_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
