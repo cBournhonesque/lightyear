@@ -36,8 +36,8 @@ pub mod writer;
 
 /// Commonly used items from the `lightyear_serde` crate.
 pub mod prelude {
-    pub use crate::entity_map::{RemoteEntityMap,SendEntityMap,ReceiveEntityMap};
     pub use crate::SerializationError;
+    pub use crate::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
 }
 
 use crate::writer::WriteInteger;
