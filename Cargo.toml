@@ -113,6 +113,7 @@ chrono = "0.4.38"
 cfg-if = "1.0"
 dashmap = "6.1.0"
 enum_dispatch = "0.3"
+fixed = { version = "1.29", features = ["serde"] }
 governor = "0.10"
 hashbrown = { version = "0.16", default-features = false }
 indexmap = { version = "2.9.0", default-features = false }

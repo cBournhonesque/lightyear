@@ -91,9 +91,8 @@ mod tests {
     use super::*;
     use bevy_time::{TimePlugin, TimeUpdateStrategy};
     use core::time::Duration;
-    use lightyear_core::prelude::Tick;
     use lightyear_core::tick::TickDuration;
-    use lightyear_core::time::{Instant, Overstep, TickInstant};
+    use lightyear_core::time::{Instant, TickInstant};
     use test_log::test;
 
     #[test]
@@ -113,18 +112,12 @@ mod tests {
         let e = app.world_mut().spawn(RemoteTimeline::default()).id();
         assert_eq!(
             app.world().get::<RemoteTimeline>(e).unwrap().now,
-            TickInstant {
-                tick: Tick(0),
-                overstep: Overstep::new(0.0),
-            }
+            TickInstant::zero()
         );
         app.update();
         assert_eq!(
             app.world().get::<RemoteTimeline>(e).unwrap().now,
-            TickInstant {
-                tick: Tick(1),
-                overstep: Overstep::new(0.0),
-            }
+            TickInstant::lit("1.0")
         );
     }
 }
