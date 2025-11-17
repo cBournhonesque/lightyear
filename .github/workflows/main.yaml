@@ -38,23 +38,6 @@ jobs:
           wayland: true
           xkb: true
 
-      - name: Format
-        run: |
-          cargo fmt --all --check
-
-      - name: Clippy lightyear
-        run: cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
-
-  format:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - name: Clone repo
-        uses: actions/checkout@v5
-
-      - name: Cache crates
-        uses: Swatinem/rust-cache@v2
-
       - name: Install Taplo
         run: cargo install --locked taplo-cli
 
@@ -62,6 +45,9 @@ jobs:
         run: |
           cargo fmt --all --check
           taplo fmt --check
+
+      - name: Clippy lightyear
+        run: cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
 
   docs:
     name: Doc
