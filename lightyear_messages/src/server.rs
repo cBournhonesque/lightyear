@@ -42,7 +42,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
     ) -> Result {
         self.send_with_priority::<M, C>(message, server, target, 1.0)
     }
-    /// Add a priority to field to give it more value to what packet to send in
+    /// Add a priority that will put your message on top of others
     pub fn send_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
@@ -108,7 +108,7 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         self.send_to_entities_with_priority::<M, C>(message, server, target, 1.0)
     }
 
-    /// Pass a iter of [ClientOf] entities, to send that message to those specific clients, with a given prio.
+    /// Pass a iter of [ClientOf] entities, to send that message to those specific clients, with a given prio to when that message will arrive
     pub fn send_to_entities_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
