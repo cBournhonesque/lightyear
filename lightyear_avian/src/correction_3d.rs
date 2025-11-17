@@ -7,7 +7,6 @@
 /// At the end of a rollback, we will convert Position/Rotation to Transform so that we can do FrameInterpolation and Correction in Transform space.
 use avian3d::math::AsF32;
 use avian3d::prelude::*;
-use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_math::curve::{EaseFunction, EasingCurve};
 use bevy_math::{Curve, Isometry3d, Vec3};
