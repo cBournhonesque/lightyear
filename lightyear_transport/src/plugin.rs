@@ -66,7 +66,6 @@ impl TransportPlugin {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("transport/recv");
 
-
         #[cfg(feature = "std")]
         let query = query.par_iter_mut();
         #[cfg(not(feature = "std"))]

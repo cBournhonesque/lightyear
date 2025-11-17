@@ -187,7 +187,6 @@ bevy = { version = "0.17", default-features = false, features = [
   "bevy_log",
   "serialize",
   "bevy_asset",
-  "bevy_state",
   "bevy_color",
   "multi_threaded",
   "sysinfo_plugin",
