@@ -370,7 +370,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 ReplicationMode::SingleClient => {
                     use lightyear_connection::client::Client;
                     use lightyear_connection::host::HostClient;
-                    use tracing::{debug, debug};
+                    use tracing::{debug};
                     let Ok(sender_entity) = world
                         .query_filtered::<Entity, (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                         .single_mut(world)
