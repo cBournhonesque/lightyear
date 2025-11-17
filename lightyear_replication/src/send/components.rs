@@ -25,7 +25,7 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
-use tracing::{debug, error, info, trace, warn};
+use tracing::{debug, error, info, trace};
 
 /// Replication group shared by all predicted entities
 pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
@@ -370,12 +370,12 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 ReplicationMode::SingleClient => {
                     use lightyear_connection::client::Client;
                     use lightyear_connection::host::HostClient;
-                    use tracing::{debug, warn};
+                    use tracing::{debug, debug};
                     let Ok(sender_entity) = world
                         .query_filtered::<Entity, (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                         .single_mut(world)
                     else {
-                        warn!("No Client found in the world");
+                        debug!("No Client found in the world");
                         return;
                     };
                     debug!(
@@ -393,7 +393,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                         .query_filtered::<&Server, With<Server>>()
                         .single(server_world)
                     else {
-                        warn!("No Server found in the world");
+                        debug!("Replicated before server actually existed, dont worry this case scenario is handled!");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
@@ -438,11 +438,11 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let entity_ref = unsafe { unsafe_world.world() }.entity(*server);
                     if !entity_ref.contains::<Server>() {
-                        warn!("No Server found in the world");
+                        debug!("Replicated before server actually existed, dont worry this case scenario is handled!");
                         return;
                     }
                     let Some(server) = entity_ref.get::<Server>() else {
-                        warn!("No Server found in the world");
+                        debug!("Replicated before server actually existed, dont worry this case scenario is handled!");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
@@ -456,7 +456,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                                 .query_filtered::<(), (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                                 .get_mut(world, client)
                             else {
-                                warn!("No Client found in the world");
+                                debug!("No Client found in the world");
                                 return;
                             };
                             replicate.senders.insert(client);
@@ -684,7 +684,7 @@ impl Replicate {
                         >()
                         .single_mut(world)
                     else {
-                        warn!("No Client found in the world");
+                        debug!("No Client found in the world");
                         return;
                     };
                     debug!(
@@ -711,7 +711,7 @@ impl Replicate {
                         .query_filtered::<&Server, With<Started>>()
                         .single(world)
                     else {
-                        warn!("No Server found in the world");
+                        debug!("Replicated before server actually existed, dont worry this case scenario is handled!");
                         return;
                     };
                     // SAFETY: we will use this to access the PeerMetadata, which does not alias with the ReplicationSenders
