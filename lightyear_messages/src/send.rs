@@ -25,6 +25,7 @@ use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::Transport;
+#[allow(unused_imports)]
 use tracing::{error, info, trace};
 
 pub type Priority = f32;

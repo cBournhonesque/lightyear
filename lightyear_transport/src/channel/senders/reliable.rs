@@ -10,6 +10,7 @@ use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, S
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::LinkStats;
+#[allow(unused_imports)]
 use tracing::{info, trace};
 
 #[derive(Debug)]
@@ -160,7 +161,10 @@ impl ChannelSend for ReliableSender {
                 // send if the message has never been sent
                 None => true,
                 // or if we sent it a while back but didn't get an ack
-                Some(last_sent) => self.current_time - *last_sent > resend_delay,
+                Some(last_sent) => {
+                    resend_delay != Duration::default()
+                        && self.current_time - *last_sent > resend_delay
+                }
             }
         };
 
@@ -180,7 +184,7 @@ impl ChannelSend for ReliableSender {
             match &mut unacked_message_with_priority.unacked_message {
                 UnackedMessage::Single { bytes, last_sent } => {
                     if should_send(last_sent) {
-                        info!("Should send message {:?}", message_id);
+                        trace!(?last_sent, ?self.current_time, "Should send message {:?}", message_id);
                         let message_info = MessageAck {
                             message_id: *message_id,
                             fragment_id: None,
@@ -253,7 +257,7 @@ impl ChannelSend for ReliableSender {
 
     fn receive_ack(&mut self, message_ack: &MessageAck) {
         if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
-            info!(
+            trace!(
                 "Received message ack for message id: {:?}",
                 message_ack.message_id
             );

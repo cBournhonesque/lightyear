@@ -72,6 +72,8 @@ pub struct Transport {
     // - if the message is fragmented, we need to ack num_fragment packets to actually receive the ack. Any nack results in a nack
     /// Map to keep track of which messages have been sent in which packets, so that
     /// reliable senders can stop trying to send a message that has already been received
+    ///
+    /// Every packet is either acked or nacked, so this shouldn't grow indefinitely
     pub(crate) packet_to_message_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
     /// For fragmented messages, we only ack if we acked the packets of all fragments.
     /// This counter keeps track of the number of packet acks remaining before we can ack the message.
