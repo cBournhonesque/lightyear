@@ -86,6 +86,7 @@ fn test_despawn_lose_visibility() {
             .get_local(client_entity)
             .is_none()
     );
+    stepper.frame_step(10);
 }
 
 /// https://github.com/cBournhonesque/lightyear/issues/637

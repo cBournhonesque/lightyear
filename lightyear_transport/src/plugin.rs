@@ -27,7 +27,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;
 #[allow(unused_imports)]
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 #[deprecated(note = "Use TransportSystems instead")]
 pub type TransportSet = TransportSystems;
@@ -353,14 +353,12 @@ impl TransportPlugin {
                             }
                             transport.packet_to_message_map
                                 .entry(packet.packet_id)
-                                // we could have some old data from wrapped PacketIds, so we start by clearing
-                                .and_modify(|v| v.clear())
                                 .or_default()
                                 .push((*channel_kind, MessageAck {
                                     message_id: metadata.message,
                                     fragment_id: metadata.fragment_index,
                                 }));
-
+                            trace!(?transport.packet_to_message_map, "packet to message");
                         }
                         Ok::<(), PacketError>(())
                     }).inspect_err(|e| error!("Error updating packet to message ack: {e:?}")).ok();
