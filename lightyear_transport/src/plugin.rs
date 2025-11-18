@@ -228,13 +228,14 @@ impl TransportPlugin {
                                     .get_mut(&channel_kind)
                                     .ok_or(PacketError::ChannelNotFound)?;
 
+                                sender_metadata.sender.receive_ack(&message_ack);
+
                                 if message_ack.fragment_id.is_none() {
                                     trace!(
                                         "Acked message in packet: channel={:?},message_ack={:?}",
                                         sender_metadata.name, message_ack
                                     );
                                     sender_metadata.message_acks.push(message_ack.message_id);
-                                    sender_metadata.sender.receive_ack(&message_ack);
                                 } else if let Entry::Occupied(mut entry) = transport.fragment_acks.entry(message_ack.message_id) {
                                         let num_fragments = entry.get_mut();
                                         *num_fragments -= 1;
@@ -245,7 +246,6 @@ impl TransportPlugin {
                                                 sender_metadata.name, message_ack
                                             );
                                             sender_metadata.message_acks.push(message_ack.message_id);
-                                            sender_metadata.sender.receive_ack(&message_ack);
                                         }
                                     }
                             }
