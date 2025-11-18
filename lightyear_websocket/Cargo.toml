@@ -1,7 +1,10 @@
 [package]
 name = "lightyear_websocket"
 version = "0.25.5"
-authors = ["cbournhonesque <charlesbour@gmail.com", "aecsocket <aecsocket@tutanota.com>"]
+authors = [
+  "cbournhonesque <charlesbour@gmail.com",
+  "aecsocket <aecsocket@tutanota.com>",
+]
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true

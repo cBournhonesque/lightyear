@@ -10,16 +10,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = []
-std = [
-    "bevy_ecs/std",
-    "bevy_platform/std",
-    "bevy_reflect/std"
-]
+std = ["bevy_ecs/std", "bevy_platform/std", "bevy_reflect/std"]
 metrics = ["dep:metrics", "std"]
 
 [dependencies]
 # utils
-metrics = { workspace = true, optional = true}
+metrics = { workspace = true, optional = true }
 hashbrown.workspace = true
 paste.workspace = true
 seahash.workspace = true

@@ -22,22 +22,19 @@ lightyear = { "workspace" = true, features = [
   "udp",
   "std",
 ] }
-lightyear_examples_common = {"workspace" = true, features = [
+lightyear_examples_common = { "workspace" = true, features = [
   "client",
   "server",
   "gui",
   "netcode",
-  "udp"
-]}
+  "udp",
+] }
 
 async-compat.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 rand.workspace = true
-tokio = {"workspace" = true, features = [
-  "net",
-  "io-util",
-]}
+tokio = { "workspace" = true, features = ["net", "io-util"] }
 
 [lints]
 workspace = true

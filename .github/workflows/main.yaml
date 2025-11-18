@@ -1,4 +1,5 @@
 name: Main
+
 on:
   push:
     branches:
@@ -12,39 +13,47 @@ on:
       - ".gitignore"
       - ".github/dependabot.yml"
       - "**.md"
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only
   RUSTDOCFLAGS: --deny warnings
+
 jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-all-crates: true
           shared-key: lints
+
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-deps
         with:
           wayland: true
           xkb: true
+
+      - name: Install Taplo
+        run: cargo install --locked taplo-cli
+
       - name: Format
         run: |
           cargo fmt --all --check
+          taplo fmt --check
+
       - name: Clippy lightyear
-        # exclude avian_3d_character to only use lightyear_avian/2d features
         run: cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
 
   docs:
     name: Doc
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
@@ -53,14 +62,16 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           cache-all-crates: true
           shared-key: lints
+
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-deps
         with:
           wayland: true
           xkb: true
+
       - name: Rustdoc
         env:
-          # needs to be in sync with [package.metadata.docs.rs]
+          # Must match [package.metadata.docs.rs]
           RUSTFLAGS: --cfg docsrs_dep -A mismatched_lifetime_syntaxes
           RUSTDOCFLAGS: --cfg=docsrs
         run: cargo +nightly doc --all-features --workspace --document-private-items --no-deps --keep-going
@@ -70,7 +81,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -117,7 +128,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Clone repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Download code coverage results
         uses: actions/download-artifact@v6

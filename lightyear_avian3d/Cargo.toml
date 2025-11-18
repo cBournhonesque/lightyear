@@ -20,10 +20,7 @@ bench = false
 
 [features]
 default = ["std", "3d"]
-3d = [
-    "avian3d/3d",
-    "avian3d/parry-f32",
-]
+3d = ["avian3d/3d", "avian3d/parry-f32"]
 std = ["lightyear_prediction/std"]
 deterministic = ["dep:seahash"]
 lag_compensation = []

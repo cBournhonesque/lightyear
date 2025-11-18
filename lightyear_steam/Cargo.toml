@@ -12,20 +12,20 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = []
 client = [
-    "aeronet_io",
-    "aeronet_steam/client",
-    "lightyear_aeronet",
-    "lightyear_core",
-    "lightyear_link",
-    "lightyear_connection/client"
+  "aeronet_io",
+  "aeronet_steam/client",
+  "lightyear_aeronet",
+  "lightyear_core",
+  "lightyear_link",
+  "lightyear_connection/client",
 ]
 server = [
-    "aeronet_io",
-    "aeronet_steam/server",
-    "lightyear_aeronet",
-    "lightyear_core",
-    "lightyear_link",
-    "lightyear_connection/server",
+  "aeronet_io",
+  "aeronet_steam/server",
+  "lightyear_aeronet",
+  "lightyear_core",
+  "lightyear_link",
+  "lightyear_connection/server",
 ]
 
 [dependencies]
