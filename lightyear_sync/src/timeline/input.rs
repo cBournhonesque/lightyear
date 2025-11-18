@@ -205,7 +205,7 @@ impl InputDelayConfig {
         let effective_rtt = link_stats.rtt + jitter_margin;
         assert!(
             self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
-            "The minimum amount of input_delay should be lower than the maximum_input_delay_before_prediction"
+            "The minimum amount of input_delay should be less than or equal to the maximum_input_delay_before_prediction"
         );
         let mut rtt_ticks =
             (effective_rtt.as_nanos() as f32 / tick_interval.as_nanos() as f32).ceil() as u16;
