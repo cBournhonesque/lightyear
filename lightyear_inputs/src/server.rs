@@ -210,7 +210,6 @@ fn receive_input_message<S: ActionStateSequence>(
                             if let Ok(room) = rooms.get(*room) {
                                 sender.send_to_entities::<_, InputChannel>(
                                     &message,
-                                    server,
                                     room.clients.iter().filter(|e| **e != client_entity).copied()
                                 )?;
                             }
