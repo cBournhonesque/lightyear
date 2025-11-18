@@ -10,7 +10,7 @@ use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, S
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::LinkStats;
-use tracing::trace;
+use tracing::{info, trace};
 
 #[derive(Debug)]
 pub struct FragmentAck {
@@ -180,7 +180,7 @@ impl ChannelSend for ReliableSender {
             match &mut unacked_message_with_priority.unacked_message {
                 UnackedMessage::Single { bytes, last_sent } => {
                     if should_send(last_sent) {
-                        trace!("Should send message {:?}", message_id);
+                        info!("Should send message {:?}", message_id);
                         let message_info = MessageAck {
                             message_id: *message_id,
                             fragment_id: None,
@@ -253,7 +253,7 @@ impl ChannelSend for ReliableSender {
 
     fn receive_ack(&mut self, message_ack: &MessageAck) {
         if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
-            trace!(
+            info!(
                 "Received message ack for message id: {:?}",
                 message_ack.message_id
             );
