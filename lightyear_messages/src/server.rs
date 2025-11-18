@@ -5,7 +5,7 @@ use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
-use bevy_ecs::entity::Entity;
+use bevy_ecs::entity::{Entity, EntitySet};
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     error::Result,
@@ -22,6 +22,11 @@ use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_transport::channel::Channel;
 use tracing::error;
 
+/// SystemParam to help send a message to the different [`ClientOf`] connected to a [`Server`].
+///
+/// Wrapper around a [`MultiMessageSender`] to allow sending messages to clients
+/// by referring to them using their [`PeerId`](lightyear_core::prelude::PeerId)
+/// instead of their Entity.
 #[derive(SystemParam)]
 pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
     sender: MultiMessageSender<'w, 's, F>,
@@ -29,6 +34,8 @@ pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
 }
 
 impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
+
+    /// Send a message to the [`ClientOf`]s matching the [`NetworkTarget`] for the provided [`Server`]
     pub fn send<M: Message, C: Channel>(
         &mut self,
         message: &M,
@@ -38,6 +45,9 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         self.send_with_priority::<M, C>(message, server, target, 1.0)
     }
 
+    /// Send a message to the [`ClientOf`]s matching the [`NetworkTarget`] for the provided [`Server`]
+    ///
+    /// Specifies a priority which is used if bandwidth limiting is used.
     pub fn send_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
@@ -93,61 +103,25 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         Ok(())
     }
 
+    /// Send a message to a set of  [`ClientOf`]s entities associated with the provided [`Server`]
     pub fn send_to_entities<M: Message, C: Channel>(
         &mut self,
         message: &M,
-        server: &Server,
-        target: impl Iterator<Item = Entity>,
+        target: impl EntitySet,
     ) -> Result {
-        self.send_to_entities_with_priority::<M, C>(message, server, target, 1.0)
+        self.send_to_entities_with_priority::<M, C>(message, target, 1.0)
     }
 
-    /// Send to an iterator of ClientOf entities
+    /// Send a message to a set of  [`ClientOf`]s entities associated with the provided [`Server`]
+    ///
+    /// Specifies a priority which is used if bandwidth limiting is used.
     pub fn send_to_entities_with_priority<M: Message, C: Channel>(
         &mut self,
         message: &M,
-        server: &Server,
-        target: impl Iterator<Item = Entity>,
+        target: impl EntitySet,
         priority: Priority,
     ) -> Result {
-        // if the message is not map-entities, we can serialize it once and clone the bytes
-        if !self.sender.registry.is_map_entities::<M>()? {
-            // TODO: serialize once for all senders. Figure out how to get a shared writer. Maybe on Server? Or as a global resource?
-            //   or as Local?
-            self.sender.registry.serialize::<M>(
-                message,
-                &mut self.sender.writer,
-                &mut SendEntityMap::default(),
-            )?;
-            let bytes = self.sender.writer.split();
-            target.for_each(|sender| {
-                if let Ok((_, transport)) = self.sender.query.get(sender) {
-                    transport
-                        .send_with_priority::<C>(bytes.clone(), priority)
-                        .inspect_err(|e| error!("Failed to send message: {e}"))
-                        .ok();
-                }
-            });
-        } else {
-            target.for_each(|sender| {
-                if let Ok((_, transport)) = self.sender.query.get(sender) {
-                    self.sender
-                        .registry
-                        .serialize::<M>(
-                            message,
-                            &mut self.sender.writer,
-                            &mut SendEntityMap::default(),
-                        )
-                        .unwrap();
-                    let bytes = self.sender.writer.split();
-                    transport
-                        .send_with_priority::<C>(bytes.clone(), priority)
-                        .inspect_err(|e| error!("Failed to send message: {e}"))
-                        .ok();
-                }
-            });
-        }
-        Ok(())
+        self.sender.send_with_priority::<M, C>(message, target, priority)
     }
 }
 
