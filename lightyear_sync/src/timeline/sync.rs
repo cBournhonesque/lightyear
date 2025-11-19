@@ -3,14 +3,14 @@ use crate::plugin::SyncSystems;
 use bevy_app::{App, Last, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_time::{Time, Virtual};
+use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::time::Duration;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
-use lightyear_core::time::{TickDelta, TickInstant};
+use lightyear_core::time::{Overstep, TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
@@ -215,6 +215,24 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         commands.entity(trigger.entity).remove::<IsSynced<Synced>>();
     }
 
+    /// Synchronize the driving timeline's phase with the local simulation phase
+    /// derived from [`LocalTimeline`] and [`Time<Fixed>`].
+    ///
+    /// This runs once per frame before [`sync_timelines`] for driving timelines.
+    pub(crate) fn sync_from_local_timeline(
+        fixed_time: Res<Time<Fixed>>,
+        mut query: Query<(&LocalTimeline, &mut Synced)>,
+    ) {
+        let overstep = fixed_time.overstep_fraction();
+        query.iter_mut().for_each(|(local_timeline, mut synced)| {
+            // Desired phase: LocalTimeline.tick + Time<Fixed> overstep.
+            synced.set_now(TickInstant {
+                tick: local_timeline.tick(),
+                overstep: Overstep::from_f32(overstep),
+            });
+        });
+    }
+
     pub(crate) fn update_virtual_time(
         mut virtual_time: ResMut<Time<Virtual>>,
         query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>, Without<HostClient>)>,
@@ -299,6 +317,12 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
         app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSystems::Sync));
         if DRIVING {
+            app.add_systems(
+                PostUpdate,
+                Self::sync_from_local_timeline
+                    .in_set(SyncSystems::Sync)
+                    .before(Self::sync_timelines),
+            );
             app.add_systems(Last, Self::update_virtual_time);
         }
     }

@@ -48,6 +48,8 @@ pub trait NetworkTimeline: Component<Mutability = Mutable> {
 
     fn overstep(&self) -> Overstep;
 
+    fn set_now(&mut self, now: TickInstant);
+
     fn apply_delta(&mut self, delta: TickDelta);
 
     fn apply_duration(&mut self, duration: Duration, tick_duration: Duration) {
@@ -73,6 +75,10 @@ impl<C: TimelineContext, T: Component<Mutability = Mutable> + DerefMut<Target = 
 
     fn overstep(&self) -> Overstep {
         self.now().overstep
+    }
+
+    fn set_now(&mut self, now: TickInstant) {
+        self.now = now;
     }
 
     fn apply_delta(&mut self, delta: TickDelta) {
