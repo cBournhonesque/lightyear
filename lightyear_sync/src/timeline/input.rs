@@ -4,14 +4,12 @@ use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, Sync
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_time::Time;
 use bevy_utils::default;
 use core::time::Duration;
-use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
-use lightyear_link::{Link, LinkStats, Linked};
+use lightyear_link::{Link, LinkStats};
 use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
@@ -246,23 +244,6 @@ impl InputDelayConfig {
 pub struct InputTimeline(pub Timeline<Input>);
 
 impl TimelineContext for Input {}
-
-impl InputTimeline {
-    /// The [`InputTimeline`] is the driving timeline (it is used to update [`Time<Virtual>`] and [`LocalTimeline`](lightyear_core::prelude::LocalTimeline))
-    /// so we simply apply delta as the relative_speed is already applied
-    pub(crate) fn advance_timeline(
-        time: Res<Time>,
-        tick_duration: Res<TickDuration>,
-        // make sure to not update the timelines during Rollback
-        mut query: Query<&mut InputTimeline, (With<Linked>, Without<Rollback>)>,
-    ) {
-        let delta = time.delta();
-        query.iter_mut().for_each(|mut t| {
-            // the main timeline has already been used to update the game's speed, so we don't want to apply the relative_speed again!
-            t.apply_duration(delta, tick_duration.0);
-        })
-    }
-}
 
 impl SyncedTimeline for InputTimeline {
     /// We want the Predicted timeline to be:
