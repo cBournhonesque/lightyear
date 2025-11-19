@@ -192,6 +192,7 @@ const NAMES: [&str; 35] = [
     "Mr. T",
 ];
 
+/// Sleep the thread by `duration` every `interval_ticks` to see how the timeline sync logic handles timeline mismatches
 #[derive(Resource)]
 struct ServerStallStress {
     duration: Duration,

@@ -5,7 +5,7 @@ use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
-use bevy_ecs::entity::{Entity, EntitySet};
+use bevy_ecs::entity::EntitySet;
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     error::Result,
@@ -34,7 +34,6 @@ pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
 }
 
 impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
-
     /// Send a message to the [`ClientOf`]s matching the [`NetworkTarget`] for the provided [`Server`]
     pub fn send<M: Message, C: Channel>(
         &mut self,
@@ -121,7 +120,8 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         target: impl EntitySet,
         priority: Priority,
     ) -> Result {
-        self.sender.send_with_priority::<M, C>(message, target, priority)
+        self.sender
+            .send_with_priority::<M, C>(message, target, priority)
     }
 }
 

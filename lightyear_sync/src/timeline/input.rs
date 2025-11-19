@@ -238,7 +238,7 @@ impl InputDelayConfig {
 /// any speed adjustments applied to this timeline will also be applied to the `Time<Virtual>` timeline.
 /// (and will therefore affect how fast the FixedUpdate loop runs, and how ticks are incremented)
 ///
-/// This timeline is updated in PreUpdate; it CANNOT be used to get accurate `tick` in PreUpdate;
+/// This timeline is updated in PostUpdate; it CANNOT be used to get accurate `tick` in PreUpdate or Update;
 /// use `LocalTimeline` instead.
 #[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
 pub struct InputTimeline(pub Timeline<Input>);
