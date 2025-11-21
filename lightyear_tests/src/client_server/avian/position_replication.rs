@@ -7,7 +7,7 @@ use core::time::Duration;
 use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{Replicate, ReplicationGroup};
+use lightyear_replication::prelude::*;
 use test_log::test;
 
 /// The order is:
@@ -18,19 +18,23 @@ use test_log::test;
 /// One thing to watch out for is that if FrameInterpolation is not enabled, the Position/Rotation
 /// in FixedUpdate is not correct, since it gets updated via TransformToPosition.
 /// FrameInterpolation restores the correct value of Position/Rotation before FixedUpdate.
+///
+/// if child colliders have a RigidBody, they are an independent RigidBody from the parent.
 #[test]
-fn test_replicate_position() {
+fn test_replicate_position_child_rigidbody() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
+    // NOTE: for RigidBodies, we only use Position/Rotation
     let server_parent = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            RigidBody::Dynamic,
+            RigidBody::Kinematic,
             Position::from_xy(1.0, 1.0),
             Rotation::default(),
             ReplicationGroup::new_id(3),
+            Collider::circle(1.0),
         ))
         .id();
     let server_child = stepper
@@ -38,7 +42,7 @@ fn test_replicate_position() {
         .world_mut()
         .spawn((
             ChildOf(server_parent),
-            RigidBody::Dynamic,
+            RigidBody::Kinematic,
             Position::from_xy(3.0, 3.0),
             Rotation::default(),
             ReplicationGroup::new_id(3),
@@ -143,11 +147,30 @@ fn test_replicate_position() {
     );
 }
 
+/// Child colliders are child entities that have no RigidBody but have a collider.
+/// They are 'part' of the parent's collider.
+///
+/// Their relative position must be indicated using Transform and NOT using Position/Rotation!
 #[test]
-fn test_replicate_position_movement() {
+fn test_replicate_position_child_collider() {
     let mut config = StepperConfig::single();
     config.frame_duration = Duration::from_millis(5);
     let mut stepper = ClientServerStepper::from_config(config);
+
+    // add colliders on the client to make sure that collider hierarchy systems work
+    stepper.client_app().add_observer(
+        |trigger: On<Add, Replicated>, q: Query<(), With<ChildOf>>, mut commands: Commands| {
+            if let Ok(()) = q.get(trigger.entity) {
+                commands
+                    .entity(trigger.entity)
+                    .insert(Collider::circle(1.0));
+            } else {
+                commands
+                    .entity(trigger.entity)
+                    .insert((Collider::circle(1.0), RigidBody::Kinematic));
+            }
+        },
+    );
 
     let server_parent = stepper
         .server_app
@@ -156,6 +179,9 @@ fn test_replicate_position_movement() {
             Replicate::to_clients(NetworkTarget::All),
             RigidBody::Kinematic,
             Position::from_xy(1.0, 1.0),
+            // NOTE: Transform NEEDS to be present here, otherwise it's not added
+            // on the parent before the child is spawned, and the child's Transform
+            // becomes incorrect
             Transform::from_xyz(1.0, 1.0, 0.0),
             LinearVelocity(Vector::new(100.0, 0.0)),
             // FrameInterpolate::<Position>::default(),
@@ -168,15 +194,13 @@ fn test_replicate_position_movement() {
         .world_mut()
         .spawn((
             ChildOf(server_parent),
+            // For child Colliders, we HAVE to use Transform to indicate the relative
+            // positioning w.r.t the parent.
             Transform::from_xyz(2.0, 2.0, 0.0),
             // FrameInterpolate::<Position>::default(),
             Collider::circle(1.0),
         ))
         .id();
-    stepper
-        .server_app
-        .world_mut()
-        .spawn(FixedJoint::new(server_parent, server_child));
     info!(?server_parent, ?server_child, "Spawning entities on server");
 
     stepper.frame_step_server_first(1);
