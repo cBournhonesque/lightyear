@@ -143,7 +143,6 @@ fn test_replicate_position() {
     );
 }
 
-#[ignore]
 #[test]
 fn test_replicate_position_movement() {
     let mut config = StepperConfig::single();
@@ -155,10 +154,12 @@ fn test_replicate_position_movement() {
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            RigidBody::Dynamic,
+            RigidBody::Kinematic,
             Position::from_xy(1.0, 1.0),
+            Transform::from_xyz(1.0, 1.0, 0.0),
             LinearVelocity(Vector::new(100.0, 0.0)),
-            FrameInterpolate::<Position>::default(),
+            // FrameInterpolate::<Position>::default(),
+            Collider::circle(1.0),
             Rotation::default(),
         ))
         .id();
@@ -167,10 +168,9 @@ fn test_replicate_position_movement() {
         .world_mut()
         .spawn((
             ChildOf(server_parent),
-            RigidBody::Dynamic,
-            Position::from_xy(3.0, 3.0),
-            FrameInterpolate::<Position>::default(),
-            Rotation::default(),
+            Transform::from_xyz(2.0, 2.0, 0.0),
+            // FrameInterpolate::<Position>::default(),
+            Collider::circle(1.0),
         ))
         .id();
     stepper
@@ -256,7 +256,7 @@ fn test_replicate_position_movement() {
         3.0
     );
 
-    stepper.frame_step_server_first(2);
+    stepper.frame_step_server_first(1);
     // This time we ran FixedUpdate once
     let frame_interp = stepper
         .server_app
@@ -305,5 +305,88 @@ fn test_replicate_position_movement() {
             .translation
             .x,
         2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<GlobalTransform>(server_parent)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<GlobalTransform>(server_child)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        4.0
+    );
+
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Position>(client_parent)
+            .unwrap()
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Position>(client_child)
+            .unwrap()
+            .x,
+        4.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Transform>(client_parent)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Transform>(client_child)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<GlobalTransform>(client_parent)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<GlobalTransform>(client_child)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        4.0
     );
 }

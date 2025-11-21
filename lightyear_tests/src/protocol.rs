@@ -229,10 +229,9 @@ impl Plugin for ProtocolPlugin {
                 .build()
                 // disable the position<>transform sync plugins as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
+                .disable::<IslandSleepingPlugin>()
                 .disable::<PhysicsInterpolationPlugin>(),
         );
-        app.register_component::<FixedJoint>()
-            .add_component_map_entities();
 
         match self.avian_mode {
             AvianReplicationMode::Position => {

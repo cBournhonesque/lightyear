@@ -149,6 +149,7 @@ impl ClientServerStepper {
         // NOTE: we add LogPlugin so that tracing works
         server_app.add_plugins((
             MinimalPlugins,
+            TransformPlugin,
             StatesPlugin,
             InputPlugin,
             LogPlugin::default(),
@@ -199,6 +200,7 @@ impl ClientServerStepper {
         let mut client_app = App::new();
         client_app.add_plugins((
             MinimalPlugins,
+            TransformPlugin,
             StatesPlugin,
             InputPlugin,
             LogPlugin::default(),

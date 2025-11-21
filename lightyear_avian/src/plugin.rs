@@ -144,6 +144,13 @@ impl Plugin for LightyearAvianPlugin {
                     // LightyearAvianPlugin::sync_transform_to_position(app, FixedPostUpdate);
                     // LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
+                // We need to manually update the Position of child colliders after physics run
+                // since avian doesn't do it
+                app.add_systems(
+                    RunFixedMainLoop,
+                    LightyearAvianPlugin::update_child_collider_position
+                        .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
+                );
 
                 app.configure_sets(
                     FixedPostUpdate,
@@ -195,6 +202,14 @@ impl Plugin for LightyearAvianPlugin {
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
+                // We need to manually update the Position of child colliders after physics run
+                // since avian doesn't do it.
+                // Runs after physics because the Parent's Position must be updated.
+                app.add_systems(
+                    RunFixedMainLoop,
+                    LightyearAvianPlugin::update_child_collider_position
+                        .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
+                );
 
                 app.configure_sets(
                     FixedPostUpdate,
@@ -288,6 +303,16 @@ impl Plugin for LightyearAvianPlugin {
 impl LightyearAvianPlugin {
     fn sync_transform_to_position(app: &mut App, schedule: impl ScheduleLabel) {
         let schedule = schedule.intern();
+        // also add the system ordering for FixedPostUpdate (for ColliderTransformPlugin)
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                PhysicsTransformSystems::Propagate,
+                PhysicsTransformSystems::TransformToPosition,
+            )
+                .chain()
+                .in_set(PhysicsSystems::Prepare),
+        );
         // Manually propagate Transform to GlobalTransform before running physics
         app.configure_sets(
             schedule,
@@ -339,6 +364,10 @@ impl LightyearAvianPlugin {
         // app.add_systems(PreUpdate, Self::position_rotation_to_transform
         //     .after(ReplicationSystems::Receive));
 
+        app.configure_sets(
+            FixedPostUpdate,
+            PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
+        );
         app.configure_sets(
             schedule,
             PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
@@ -447,5 +476,42 @@ impl LightyearAvianPlugin {
             );
             commands.entity(entity).insert(transform);
         });
+    }
+
+    /// Update the child's Position based on the paren't Position and the child's Transform.
+    ///
+    /// In avian, this is done in PhysicsSystems::First, so we need to manually run it
+    /// after PhysicsSystems run to have an accurate Position of child entities
+    /// for replication
+    #[allow(clippy::type_complexity)]
+    pub fn update_child_collider_position(
+        mut collider_query: Query<
+            (
+                &ColliderTransform,
+                &mut Position,
+                &mut Rotation,
+                &ColliderOf,
+            ),
+            Without<RigidBody>,
+        >,
+        rb_query: Query<(&Position, &Rotation), (With<RigidBody>, With<Children>)>,
+    ) {
+        for (collider_transform, mut position, mut rotation, collider_of) in &mut collider_query {
+            let Ok((rb_pos, rb_rot)) = rb_query.get(collider_of.body) else {
+                continue;
+            };
+
+            position.0 = rb_pos.0 + rb_rot * collider_transform.translation;
+            #[cfg(feature = "2d")]
+            {
+                *rotation = *rb_rot * collider_transform.rotation;
+            }
+            #[cfg(feature = "3d")]
+            {
+                *rotation = (rb_rot.0 * collider_transform.rotation.0)
+                    .normalize()
+                    .into();
+            }
+        }
     }
 }
