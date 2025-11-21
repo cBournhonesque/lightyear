@@ -16,7 +16,7 @@ use bevy_ecs::component::Component;
 
 mod archetypes;
 mod checksum;
-/// Messages exchanged betwen client and server
+/// Messages exchanged between client and server
 pub mod messages;
 mod plugin;
 

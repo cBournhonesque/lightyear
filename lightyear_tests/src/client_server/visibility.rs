@@ -1,9 +1,11 @@
 //! Check various replication scenarios between 2 peers only
 
+use crate::protocol::*;
 use crate::stepper::*;
+use bevy::prelude::*;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{NetworkVisibility, Replicate, ReplicationGroup};
+use lightyear_replication::prelude::*;
 use test_log::test;
 #[allow(unused_imports)]
 use tracing::info;
@@ -84,6 +86,7 @@ fn test_despawn_lose_visibility() {
             .get_local(client_entity)
             .is_none()
     );
+    stepper.frame_step(10);
 }
 
 /// https://github.com/cBournhonesque/lightyear/issues/637
@@ -178,18 +181,41 @@ fn test_despawn_add_network_visibility() {}
 fn test_despawn_non_visible_logspam() {
     let mut stepper: ClientServerStepper =
         ClientServerStepper::from_config(StepperConfig::single());
-    let server_entity_0 = stepper
+    let server_parent = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            CompFull(1.0),
+            NetworkVisibility::default(),
+            ReplicationGroup::new_id(1),
+        ))
+        .id();
+    let server_child = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             NetworkVisibility::default(),
             ReplicationGroup::new_id(1),
+            ChildOf(server_parent),
         ))
         .id();
 
     stepper.frame_step(1);
-    info!("Server despawning entity that is not visible to the client");
-    stepper.server_app.world_mut().despawn(server_entity_0);
+    info!("Server despawning parent that is not visible to the client");
+    stepper.server_app.world_mut().despawn(server_parent);
     stepper.frame_step(10);
+
+    // check that we didn't send any replication messages
+    // because the entity was not visible to the client
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<ReplicationSender>()
+            .unwrap()
+            .group_channels
+            .get(&ReplicationGroupId(1))
+            .is_none()
+    );
 }

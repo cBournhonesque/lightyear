@@ -1,6 +1,6 @@
 [package]
 name = "avian_physics"
-version = "0.0.0"
+version = "0.25.5"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 publish = false
@@ -11,8 +11,7 @@ client = ["lightyear_examples_common/client", "gui"]
 gui = ["lightyear_examples_common/gui"]
 server = ["lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
-udp = ["lightyear_examples_common/udp", ]
-visualizer = ["lightyear_examples_common/visualizer"]
+udp = ["lightyear_examples_common/udp"]
 
 [dependencies]
 lightyear = { workspace = true, features = [

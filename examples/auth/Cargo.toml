@@ -1,6 +1,6 @@
 [package]
 name = "auth"
-version = "0.1.0"
+version = "0.25.5"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 description = "Examples for the lightyearServer-client networking library for the Bevy game engine"
@@ -22,22 +22,19 @@ lightyear = { "workspace" = true, features = [
   "udp",
   "std",
 ] }
-lightyear_examples_common = {"workspace" = true, features = [
+lightyear_examples_common = { "workspace" = true, features = [
   "client",
   "server",
   "gui",
   "netcode",
-  "udp"
-]}
+  "udp",
+] }
 
 async-compat.workspace = true
 anyhow.workspace = true
 bevy.workspace = true
 rand.workspace = true
-tokio = {"workspace" = true, features = [
-  "net",
-  "io-util",
-]}
+tokio = { "workspace" = true, features = ["net", "io-util"] }
 
 [lints]
 workspace = true

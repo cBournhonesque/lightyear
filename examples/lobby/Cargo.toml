@@ -1,6 +1,6 @@
 [package]
 name = "lobby"
-version = "0.1.0"
+version = "0.25.5"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 description = "Examples for the lightyearServer-client networking library for the Bevy game engine"
@@ -21,21 +21,10 @@ client = [
   "lightyear/server",
   "lightyear_examples_common/server",
 ]
-gui = [
-  "lightyear_examples_common/gui"
-]
-server = [
-  "lightyear/server",
-  "lightyear_examples_common/server"
-]
-netcode = [
-  "lightyear_examples_common/netcode"
-]
-udp = [
-  "lightyear_examples_common/udp",
-  "lightyear/std",
-  "lightyear/udp",
-]
+gui = ["lightyear_examples_common/gui"]
+server = ["lightyear/server", "lightyear_examples_common/server"]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
 [dependencies]
 lightyear = { workspace = true, features = [

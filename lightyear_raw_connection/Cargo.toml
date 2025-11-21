@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_raw_connection"
-version = "0.25.3"
+version = "0.25.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,7 @@ description = "Connection layer that directly uses the underlying IO"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
+std = ["lightyear_link/std", "lightyear_transport/std"]
 default = []
 client = ["lightyear_connection/client"]
 server = ["lightyear_connection/server"]

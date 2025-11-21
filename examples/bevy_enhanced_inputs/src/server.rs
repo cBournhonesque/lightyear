@@ -41,7 +41,7 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
     ));
 }
 
-/// If the new client connnects to the server, we want to spawn a new player entity for it.
+/// If the new client connects to the server, we want to spawn a new player entity for it.
 ///
 /// We have to react specifically on `Connected` because there is no guarantee that the connection request we
 /// received was valid. The server could reject the connection attempt for many reasons (server is full, packet is invalid,
@@ -69,8 +69,11 @@ pub(crate) fn handle_connected(
             PlayerColor(color),
             // we replicate the Player entity to all clients that are connected to this server
             Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            // NOTE: here we predict the movements of all players!
+            PredictionTarget::to_clients(NetworkTarget::All),
+            // NOTE: Uncomment this if you want to use interpolation for non-controlled entities
+            // PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            // InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
                 owner: trigger.entity,
                 lifetime: Default::default(),

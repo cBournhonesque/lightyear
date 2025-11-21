@@ -78,7 +78,7 @@ impl EntityMapper for ReceiveEntityMap {
         } else {
             // if we don't find the entity, return Entity::PLACEHOLDER as an error
             self.0.get(&entity).copied().unwrap_or_else(|| {
-                warn!("Failed to map entity {entity:?}");
+                debug!("Receive: Failed to map entity {entity:?}");
                 Entity::PLACEHOLDER
             })
         }

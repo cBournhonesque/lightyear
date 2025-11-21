@@ -27,7 +27,7 @@ use lightyear_serde::{SerializationError, ToBytes};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;
 #[allow(unused_imports)]
-use tracing::{error, info, trace, warn};
+use tracing::{debug, error, info, trace, warn};
 
 #[deprecated(note = "Use TransportSystems instead")]
 pub type TransportSet = TransportSystems;
@@ -58,15 +58,20 @@ impl TransportPlugin {
     /// in the appropriate channel receiver
     fn buffer_receive(
         time: Res<Time<Real>>,
-        par_commands: ParallelCommands,
+        #[cfg(feature = "std")] par_commands: ParallelCommands,
+        #[cfg(not(feature = "std"))] mut commands: Commands,
         #[cfg(feature = "metrics")] channel_registry: Res<ChannelRegistry>,
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("transport/recv");
 
+        #[cfg(feature = "std")]
+        let query = query.par_iter_mut();
+        #[cfg(not(feature = "std"))]
+        let query = query.iter_mut();
+
         query
-            .par_iter_mut()
             .for_each(|(entity, mut link, mut transport)| {
                 // enable split borrows
                 let transport = &mut *transport;
@@ -134,9 +139,12 @@ impl TransportPlugin {
                         let tick = header.tick;
 
                         // TODO: maybe switch to event buffer instead of triggers?
+                        #[cfg(feature = "std")]
                         par_commands.command_scope(|mut commands| {
                             commands.trigger(PacketReceived { entity, remote_tick: tick });
                         });
+                        #[cfg(not(feature = "std"))]
+                        commands.trigger(PacketReceived { entity, remote_tick: tick });
 
                         // Update the packet acks
                         transport
@@ -220,13 +228,14 @@ impl TransportPlugin {
                                     .get_mut(&channel_kind)
                                     .ok_or(PacketError::ChannelNotFound)?;
 
+                                sender_metadata.sender.receive_ack(&message_ack);
+
                                 if message_ack.fragment_id.is_none() {
                                     trace!(
                                         "Acked message in packet: channel={:?},message_ack={:?}",
                                         sender_metadata.name, message_ack
                                     );
                                     sender_metadata.message_acks.push(message_ack.message_id);
-                                    sender_metadata.sender.receive_ack(&message_ack);
                                 } else if let Entry::Occupied(mut entry) = transport.fragment_acks.entry(message_ack.message_id) {
                                         let num_fragments = entry.get_mut();
                                         *num_fragments -= 1;
@@ -237,7 +246,6 @@ impl TransportPlugin {
                                                 sender_metadata.name, message_ack
                                             );
                                             sender_metadata.message_acks.push(message_ack.message_id);
-                                            sender_metadata.sender.receive_ack(&message_ack);
                                         }
                                     }
                             }
@@ -345,14 +353,12 @@ impl TransportPlugin {
                             }
                             transport.packet_to_message_map
                                 .entry(packet.packet_id)
-                                // we could have some old data from wrapped PacketIds, so we start by clearing
-                                .and_modify(|v| v.clear())
                                 .or_default()
                                 .push((*channel_kind, MessageAck {
                                     message_id: metadata.message,
                                     fragment_id: metadata.fragment_index,
                                 }));
-
+                            trace!(?transport.packet_to_message_map, "packet to message");
                         }
                         Ok::<(), PacketError>(())
                     }).inspect_err(|e| error!("Error updating packet to message ack: {e:?}")).ok();

@@ -11,7 +11,7 @@ use core::iter::FilterMap;
 use tracing::{debug, info};
 
 /// Stores a past value in the history buffer
-// We use this enum instead of Option<R> in case we need to distniguish between more states in the future
+// We use this enum instead of Option<R> in case we need to distinguish between more states in the future
 #[derive(Debug, PartialEq, Clone, Default, Reflect)]
 pub enum HistoryState<R> {
     // we add a Default implementation simply so that Reflection works

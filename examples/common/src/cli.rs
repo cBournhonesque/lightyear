@@ -321,15 +321,6 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     // Otherwise when testing the movement can look choppy for unfocused windows
     app.insert_resource(WinitSettings::continuous());
 
-    #[cfg(feature = "visualizer")]
-    {
-        // app.add_plugins(bevy_metrics_dashboard::RegistryPlugin::default());
-        // app.add_plugins(bevy_metrics_dashboard::DashboardPlugin);
-        // app.add_systems(Startup, |mut commands: Commands| {
-        //     commands.spawn(bevy_metrics_dashboard::DashboardWindow::new("Metrics"));
-        // });
-    }
-
     #[cfg(feature = "debug")]
     app.add_plugins(DebugUIPlugin);
 

@@ -47,7 +47,7 @@ fn add_ball_physics(
     }
 }
 
-/// Simliar blueprint scenario as balls, except sometimes clients prespawn bullets ahead of server
+/// Similar blueprint scenario as balls, except sometimes clients prespawn bullets ahead of server
 /// replication, which means they will already have the physics components.
 /// So, we filter the query using `Without<Collider>`.
 fn add_bullet_physics(

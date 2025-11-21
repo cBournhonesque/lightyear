@@ -646,7 +646,7 @@ fn replicate_component_update(
             {
                 trace!(
                     ?entity,
-                    componnet = ?component_kind,
+                    component = ?component_kind,
                     change_tick = ?component_ticks.changed,
                     ?send_tick,
                     current_tick = ?sender.this_run,
@@ -693,7 +693,6 @@ fn replicate_component_update(
 // - check if the entity is in the sender's replication components
 
 /// Send component remove message when a component gets removed
-// TODO: use a common observer for all removed components
 // TODO: you could have a case where you remove a component C, and then afterwards
 //   modify the replication target, but we still send messages to the old components.
 //   Maybe we should just add the components to a buffer?
@@ -717,9 +716,22 @@ pub(crate) fn buffer_component_removed(
     let Some(replicate) = entity_ref.get::<Replicate>() else {
         return;
     };
+
+    // Note: this is not needed because the SystemParamBuilder already makes sure that the entity
+    //  must have both Replicate and Replicating
+    // if !entity_ref.contains::<Replicating>() {
+    //     return;
+    // }
+
     manager_query
         .par_iter_many_unique_mut(replicate.senders.as_slice())
         .for_each(|(sender_entity, mut sender, manager)| {
+            if entity_ref
+                .get::<NetworkVisibility>()
+                .is_some_and(|v| !v.is_visible(sender_entity))
+            {
+                return;
+            }
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             for component_id in trigger.trigger().components {

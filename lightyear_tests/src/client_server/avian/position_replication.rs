@@ -173,6 +173,10 @@ fn test_replicate_position_movement() {
             Collider::circle(1.0),
         ))
         .id();
+    stepper
+        .server_app
+        .world_mut()
+        .spawn(FixedJoint::new(server_parent, server_child));
     info!(?server_parent, ?server_child, "Spawning entities on server");
 
     stepper.frame_step_server_first(1);

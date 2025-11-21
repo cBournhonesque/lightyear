@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.25.3"
+version = "0.25.5"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -90,9 +90,7 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables replicating entities between two peers
-replication = [
-  "dep:lightyear_replication",
-]
+replication = ["dep:lightyear_replication"]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
@@ -101,9 +99,7 @@ prediction = [
   "lightyear_inputs?/prediction",
 ]
 ## Enables re-exports of lightyear_frame_interpolation
-frame_interpolation = [
-  "dep:lightyear_frame_interpolation",
-]
+frame_interpolation = ["dep:lightyear_frame_interpolation"]
 ## Enables interpolation handling, to smooth entity updates received from the remote peer
 interpolation = [
   "dep:lightyear_interpolation",
@@ -144,15 +140,9 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
 ##       enable essential features (like f32 or f64).
 ## Use avian2d
-avian2d = [
-  "dep:lightyear_avian2d",
-  "lightyear_replication?/avian2d"
-]
+avian2d = ["dep:lightyear_avian2d", "lightyear_replication?/avian2d"]
 ## Use avian3d
-avian3d = [
-  "dep:lightyear_avian3d",
-  "lightyear_replication?/avian3d"
-]
+avian3d = ["dep:lightyear_avian3d", "lightyear_replication?/avian3d"]
 
 # IO LAYERS
 ## Enables UDP as an IO layer
@@ -194,7 +184,7 @@ lightyear_netcode = { workspace = true, optional = true }
 lightyear_interpolation = { workspace = true, optional = true }
 lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
-lightyear_replication = {workspace = true, optional = true}
+lightyear_replication = { workspace = true, optional = true }
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true
 lightyear_serde.workspace = true

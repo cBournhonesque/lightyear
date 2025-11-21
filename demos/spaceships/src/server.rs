@@ -1,4 +1,6 @@
 use core::f32::consts::TAU;
+use std::env;
+use std::thread;
 
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
@@ -37,6 +39,12 @@ impl Plugin for ExampleServerPlugin {
                 .run_if(on_message::<BulletHitMessage>)
                 .after(shared::process_collisions),
         );
+
+        let stall_config = ServerStallStress::from_env();
+        if stall_config.enabled() {
+            app.insert_resource(stall_config);
+            app.add_systems(FixedUpdate, server_stall_system.before(handle_hit_event));
+        }
     }
 }
 
@@ -183,6 +191,69 @@ const NAMES: [&str; 35] = [
     "Bruce Banner",
     "Mr. T",
 ];
+
+/// Sleep the thread by `duration` every `interval_ticks` to see how the timeline sync logic handles timeline mismatches
+#[derive(Resource)]
+struct ServerStallStress {
+    duration: Duration,
+    interval_ticks: u32,
+    last_stall_tick: Option<Tick>,
+}
+
+impl Default for ServerStallStress {
+    fn default() -> Self {
+        Self {
+            duration: Duration::ZERO,
+            interval_ticks: 0,
+            last_stall_tick: None,
+        }
+    }
+}
+
+impl ServerStallStress {
+    fn from_env() -> Self {
+        let mut cfg = Self::default();
+        if let Some(ms) = env::var("SPACESHIPS_SERVER_STALL_MS")
+            .ok()
+            .and_then(|v| v.parse::<u64>().ok())
+        {
+            cfg.duration = Duration::from_millis(ms);
+        }
+        if let Some(interval) = env::var("SPACESHIPS_SERVER_STALL_INTERVAL_TICKS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+        {
+            cfg.interval_ticks = interval.max(1);
+        }
+        cfg
+    }
+
+    fn enabled(&self) -> bool {
+        self.duration > Duration::ZERO && self.interval_ticks > 0
+    }
+}
+
+fn server_stall_system(
+    mut stall: ResMut<ServerStallStress>,
+    local_timeline: Single<&LocalTimeline, With<Server>>,
+) {
+    if !stall.enabled() {
+        return;
+    }
+    let tick = local_timeline.tick();
+    if let Some(last) = stall.last_stall_tick {
+        let delta = tick.0.wrapping_sub(last.0);
+        if delta < stall.interval_ticks as u16 {
+            return;
+        }
+    }
+    info!(
+        "Server stall stress: sleeping {:?} at tick {}",
+        stall.duration, tick.0
+    );
+    thread::sleep(stall.duration);
+    stall.last_stall_tick = Some(tick);
+}
 
 /// Server will manipulate scores when a bullet collides with a player.
 /// the `Score` component is a simple replication. Score is fully server-authoritative.

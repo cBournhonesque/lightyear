@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_aeronet"
-version = "0.25.3"
+version = "0.25.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,9 +11,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = ["lightyear_link/std"]
-test_utils = [
-    "lightyear_core/test_utils"
-]
+test_utils = ["lightyear_core/test_utils"]
 
 [dependencies]
 lightyear_core.workspace = true

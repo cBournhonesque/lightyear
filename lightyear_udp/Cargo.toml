@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_udp"
-version = "0.25.3"
+version = "0.25.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -19,7 +19,7 @@ lightyear_link.workspace = true
 
 aeronet_io.workspace = true
 
-metrics = {workspace = true, optional = true}
+metrics = { workspace = true, optional = true }
 tracing.workspace = true
 
 # bevy

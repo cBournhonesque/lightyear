@@ -7,7 +7,6 @@
 /// At the end of a rollback, we will convert Position/Rotation to Transform so that we can do FrameInterpolation and Correction in Transform space.
 use avian2d::math::{AsF32, Quaternion};
 use avian2d::prelude::*;
-use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_math::curve::{EaseFunction, EasingCurve};
 use bevy_math::{Curve, Isometry2d, Vec3};
@@ -23,15 +22,6 @@ use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_replication::delta::Diffable;
 #[allow(unused_imports)]
 use tracing::{info, trace};
-
-#[allow(dead_code)]
-pub struct Correction2DPlugin;
-
-impl Plugin for Correction2DPlugin {
-    fn build(&self, _app: &mut App) {
-        todo!()
-    }
-}
 
 /// We want to support replicating/predicting Position/Rotation but applying FrameInterpolation on Transform.
 /// The benefits are:

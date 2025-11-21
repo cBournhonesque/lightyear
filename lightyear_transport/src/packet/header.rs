@@ -3,7 +3,8 @@ use bevy_platform::hash::FixedHasher;
 use core::time::Duration;
 use indexmap::{IndexMap, IndexSet};
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 use crate::packet::packet::PacketId;
 use crate::packet::packet_type::PacketType;
@@ -147,19 +148,17 @@ impl PacketHeaderManager {
             .max(Duration::from_millis(MIN_NACK_MILLIS));
         // clear sent packets that haven't received any ack for a while
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
-            if real.saturating_sub(*time_sent) > nack_duration {
-                trace!("sent packet got lost");
+            // protection against keep old packets for too long (which would cause bugs on wraparound)
+            if real.saturating_sub(*time_sent) > nack_duration
+                || (self.next_packet_id - *packet_id > i16::MAX / 3)
+            {
+                trace!(?packet_id, "sent packet got lost");
                 self.lost_packets.push(*packet_id);
                 self.stats_manager.sent_packet_lost();
                 return false;
             }
             true
         });
-    }
-
-    /// Increment the packet id of the next packet to be sent
-    pub fn increment_next_packet_id(&mut self) {
-        self.next_packet_id = PacketId(self.next_packet_id.wrapping_add(1));
     }
 
     /// Process the header of a received packet (update ack metadata)
@@ -226,10 +225,11 @@ impl PacketHeaderManager {
         };
         // we build the header only when we actually send the packet, so computing the stats here is valid
         self.stats_manager.sent_packet();
+        trace!(?self.next_packet_id, "Sent packet");
         // keep track of when we sent the packet (so that if we don't get an ack after a certain amount of time we can consider it lost)
         self.sent_packets_not_acked
             .insert(self.next_packet_id, real);
-        self.increment_next_packet_id();
+        self.next_packet_id += 1;
         outgoing_header
     }
 }

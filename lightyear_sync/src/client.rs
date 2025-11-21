@@ -76,7 +76,6 @@ impl Plugin for ClientPlugin {
         // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
         app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
-        app.add_systems(PreUpdate, InputTimeline::advance_timeline);
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());

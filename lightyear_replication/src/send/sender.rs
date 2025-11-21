@@ -30,7 +30,8 @@ use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
-use tracing::{debug, error, trace};
+#[allow(unused_imports)]
+use tracing::{debug, error, info, trace};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 type EntityHashSet<K> = HashSet<K, EntityHash>;

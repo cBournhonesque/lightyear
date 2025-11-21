@@ -756,7 +756,7 @@ mod full_entity {
                 lifetime: 0.0,
                 max_lifetime: HITSCAN_LIFETIME,
             },
-            // we add BulletMarker to idenfity who the shooter is
+            // we add BulletMarker to identify who the shooter is
             BulletMarker { shooter },
             *color,
             *id,

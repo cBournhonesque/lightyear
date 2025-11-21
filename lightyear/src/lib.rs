@@ -335,6 +335,7 @@ pub mod prelude {
     pub use lightyear_messages::prelude::*;
     #[cfg(feature = "replication")]
     pub use lightyear_replication::prelude::*;
+    pub use lightyear_serde::prelude::*;
     pub use lightyear_sync::prelude::*;
     pub use lightyear_transport::prelude::*;
 
@@ -426,7 +427,7 @@ pub mod prelude {
         pub use lightyear_raw_connection::prelude::server::*;
         #[cfg(feature = "steam")]
         pub use lightyear_steam::prelude::server::*;
-        #[cfg(feature = "websocket")]
+        #[cfg(all(feature = "websocket", not(target_family = "wasm")))]
         pub use lightyear_websocket::prelude::server::*;
         #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
         pub use lightyear_webtransport::prelude::server::*;
