@@ -123,19 +123,19 @@ impl Plugin for LightyearAvianPlugin {
                 if !self.update_syncs_manually {
                     // TODO: causes issues if no FrameInterpolation is enabled, because we don't override the transform->position with the correct Position
                     //  (for example in case a rollback updates Position, that change will be overriden by the transform->position)
-                    // LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
+                    LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
 
                     // In case we do the TransformToPosition sync in RunFixedMainLoop, do it BEFORE
                     // restoring the correct Position in FrameInterpolation::Restore, since we want Position to take priority.
                     //
                     // TransformToPosition might be useful for child entities that need Transform->Position propagated.
-                    // app.configure_sets(
-                    //     RunFixedMainLoop,
-                    //     PhysicsSystems::Prepare
-                    //         .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
-                    //         .before(FrameInterpolationSystems::Restore),
-                    // );
-                    // LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
+                    app.configure_sets(
+                        RunFixedMainLoop,
+                        PhysicsSystems::Prepare
+                            .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
+                            .before(FrameInterpolationSystems::Restore),
+                    );
+                    LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
 
                     // TODO: it seems like if we apply TransformToPosition in FixedPostUpdate, we need
                     //  to also run PositionToTransform in FixedPostUpdate; how come?
@@ -144,6 +144,13 @@ impl Plugin for LightyearAvianPlugin {
                     // LightyearAvianPlugin::sync_transform_to_position(app, FixedPostUpdate);
                     // LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
+                // We need to manually update the Position of child colliders after physics run
+                // since avian doesn't do it
+                app.add_systems(
+                    RunFixedMainLoop,
+                    LightyearAvianPlugin::update_child_collider_position
+                        .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
+                );
 
                 app.configure_sets(
                     FixedPostUpdate,
@@ -195,6 +202,14 @@ impl Plugin for LightyearAvianPlugin {
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
+                // We need to manually update the Position of child colliders after physics run
+                // since avian doesn't do it.
+                // Runs after physics because the Parent's Position must be updated.
+                app.add_systems(
+                    RunFixedMainLoop,
+                    LightyearAvianPlugin::update_child_collider_position
+                        .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
+                );
 
                 app.configure_sets(
                     FixedPostUpdate,
@@ -461,5 +476,42 @@ impl LightyearAvianPlugin {
             );
             commands.entity(entity).insert(transform);
         });
+    }
+
+    /// Update the child's Position based on the paren't Position and the child's Transform.
+    ///
+    /// In avian, this is done in PhysicsSystems::First, so we need to manually run it
+    /// after PhysicsSystems run to have an accurate Position of child entities
+    /// for replication
+    #[allow(clippy::type_complexity)]
+    pub fn update_child_collider_position(
+        mut collider_query: Query<
+            (
+                &ColliderTransform,
+                &mut Position,
+                &mut Rotation,
+                &ColliderOf,
+            ),
+            Without<RigidBody>,
+        >,
+        rb_query: Query<(&Position, &Rotation), (With<RigidBody>, With<Children>)>,
+    ) {
+        for (collider_transform, mut position, mut rotation, collider_of) in &mut collider_query {
+            let Ok((rb_pos, rb_rot)) = rb_query.get(collider_of.body) else {
+                continue;
+            };
+
+            position.0 = rb_pos.0 + rb_rot * collider_transform.translation;
+            #[cfg(feature = "2d")]
+            {
+                *rotation = *rb_rot * collider_transform.rotation;
+            }
+            #[cfg(feature = "3d")]
+            {
+                *rotation = (rb_rot.0 * collider_transform.rotation.0)
+                    .normalize()
+                    .into();
+            }
+        }
     }
 }
