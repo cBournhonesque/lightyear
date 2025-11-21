@@ -1,11 +1,14 @@
 use crate::stepper::{ClientServerStepper, StepperConfig};
 use approx::assert_relative_eq;
+use avian2d::math::Vector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use core::time::Duration;
 use lightyear::avian2d::plugin::AvianReplicationMode;
+use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{Replicate, ReplicationGroup};
+use lightyear_replication::prelude::*;
 use test_log::test;
 
 /// The order is:
@@ -17,17 +20,24 @@ use test_log::test;
 /// in FixedUpdate is not correct, since it gets updated via TransformToPosition.
 /// FrameInterpolation restores the correct value of Position/Rotation before FixedUpdate.
 #[test]
-fn test_replicate_position() {
+fn test_replicate_transform_rigid_body() {
     let mut config = StepperConfig::single();
     config.avian_mode = AvianReplicationMode::Transform;
     let mut stepper = ClientServerStepper::from_config(config);
+
+    // add RigidBody on the client since it's not replicated
+    stepper
+        .client_app()
+        .add_observer(|trigger: On<Add, Replicated>, mut commands: Commands| {
+            commands.entity(trigger.entity).insert(RigidBody::Kinematic);
+        });
 
     let server_parent = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            RigidBody::Dynamic,
+            RigidBody::Kinematic,
             Transform::from_xyz(1.0, 0.0, 0.0),
             ReplicationGroup::new_id(3),
         ))
@@ -37,7 +47,7 @@ fn test_replicate_position() {
         .world_mut()
         .spawn((
             ChildOf(server_parent),
-            RigidBody::Dynamic,
+            RigidBody::Kinematic,
             Transform::from_xyz(2.0, 0.0, 0.0),
             ReplicationGroup::new_id(3),
         ))
@@ -47,6 +57,166 @@ fn test_replicate_position() {
     stepper.frame_step_server_first(1);
 
     // On server
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Position>(server_parent)
+            .unwrap()
+            .x,
+        1.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Position>(server_child)
+            .unwrap()
+            .x,
+        3.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Transform>(server_parent)
+            .unwrap()
+            .translation
+            .x,
+        1.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Transform>(server_child)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+
+    let client_parent = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_parent)
+        .unwrap();
+    let client_child = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_child)
+        .unwrap();
+    info!(?client_parent, ?client_child, "Received entities on client");
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Position>(client_parent)
+            .unwrap()
+            .x,
+        1.0
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Position>(client_child)
+            .unwrap()
+            .x,
+        3.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Transform>(client_parent)
+            .unwrap()
+            .translation
+            .x,
+        1.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Transform>(client_child)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+}
+
+#[test]
+fn test_replicate_transform_child_collider() {
+    let mut config = StepperConfig::single();
+    config.avian_mode = AvianReplicationMode::Transform;
+    config.frame_duration = Duration::from_millis(5);
+    let mut stepper = ClientServerStepper::from_config(config);
+
+    // add colliders on the client to make sure that collider hierarchy systems work
+    stepper.client_app().add_observer(
+        |trigger: On<Add, Replicated>, q: Query<(), With<ChildOf>>, mut commands: Commands| {
+            if let Ok(()) = q.get(trigger.entity) {
+                commands
+                    .entity(trigger.entity)
+                    .insert(Collider::circle(1.0));
+            } else {
+                commands
+                    .entity(trigger.entity)
+                    .insert((Collider::circle(1.0), RigidBody::Kinematic));
+            }
+        },
+    );
+
+    let server_parent = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            RigidBody::Kinematic,
+            Transform::from_xyz(1.0, 0.0, 0.0),
+            LinearVelocity(Vector::new(100.0, 0.0)),
+            Collider::circle(1.0),
+        ))
+        .id();
+    let server_child = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ChildOf(server_parent),
+            Transform::from_xyz(2.0, 0.0, 0.0),
+            Collider::circle(1.0),
+        ))
+        .id();
+    info!(?server_parent, ?server_child, "Spawning entities on server");
+
+    stepper.frame_step_server_first(1);
+
+    // On server, we didn't have time to run FixedUpdate yet
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Position>(server_parent)
+            .unwrap()
+            .x,
+        1.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Position>(server_child)
+            .unwrap()
+            .x,
+        3.0
+    );
+    // Transform has been updated via Position->Transform in PostUpdate
     assert_relative_eq!(
         stepper
             .server_app
@@ -93,6 +263,82 @@ fn test_replicate_position() {
             .x,
         1.0
     );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Transform>(client_child)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+
+    stepper.frame_step_server_first(1);
+    // This time we ran FixedUpdate once
+    let frame_interp = stepper
+        .server_app
+        .world()
+        .get::<FrameInterpolate<Position>>(server_parent);
+    info!(?frame_interp, "parent");
+    let frame_interp = stepper
+        .server_app
+        .world()
+        .get::<FrameInterpolate<Position>>(server_child);
+    info!(?frame_interp, "child");
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Transform>(server_parent)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<Transform>(server_child)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<GlobalTransform>(server_parent)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<GlobalTransform>(server_child)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        4.0
+    );
+
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Transform>(client_parent)
+            .unwrap()
+            .translation
+            .x,
+        2.0
+    );
     assert_relative_eq!(
         stepper
             .client_app()
@@ -102,5 +348,27 @@ fn test_replicate_position() {
             .translation
             .x,
         2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<GlobalTransform>(client_parent)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        2.0
+    );
+    assert_relative_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<GlobalTransform>(client_child)
+            .unwrap()
+            .compute_transform()
+            .translation
+            .x,
+        4.0
     );
 }

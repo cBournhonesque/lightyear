@@ -232,6 +232,7 @@ impl Plugin for ProtocolPlugin {
                 .disable::<IslandSleepingPlugin>()
                 .disable::<PhysicsInterpolationPlugin>(),
         );
+        // app.register_component::<Collider>();
 
         match self.avian_mode {
             AvianReplicationMode::Position => {

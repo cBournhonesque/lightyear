@@ -251,6 +251,15 @@ impl Plugin for LightyearAvianPlugin {
                     // but the user operates on Transform
                     LightyearAvianPlugin::sync_transform_to_position(app, FixedPostUpdate);
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
+                    // make sure the child collider's position is updated before running
+                    // PositionToTransform (otherwise the child's Position would not be correct
+                    // when running PositionToTransform)
+                    app.add_systems(
+                        FixedPostUpdate,
+                        LightyearAvianPlugin::update_child_collider_position
+                            .in_set(PhysicsTransformSystems::PositionToTransform)
+                            .before(position_to_transform),
+                    );
                 }
                 app.configure_sets(
                     FixedPostUpdate,
@@ -372,6 +381,7 @@ impl LightyearAvianPlugin {
             schedule,
             PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
         );
+        // app.add_observer(Self::add_transform);
         app.add_systems(
             schedule,
             (position_to_transform, Self::add_transform)
@@ -379,6 +389,98 @@ impl LightyearAvianPlugin {
                 .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
         );
     }
+
+    // /// Add Transform only when Position/Rotation are both present and Transform is not.
+    // /// This is necessary because the PositionToTransform systems require `Transform`.
+    // ///
+    // /// Note, this is will only work is `ChildOf` is inserted at the same time or before
+    // /// `Position/Rotation`.
+    // fn add_transform(
+    //     trigger: On<Add, (Position, Rotation)>,
+    //     query: Query<(&Position, &Rotation, Option<&ChildOf>), Without<Transform>>,
+    //     parents: Query<(
+    //         Option<&GlobalTransform>,
+    //         Option<&Position>,
+    //         Option<&Rotation>,
+    //     )>,
+    //     mut commands: Commands,
+    // ) {
+    //     let entity = trigger.entity;
+    //     if let Ok((pos, rot, parent)) = query.get(entity) {
+    //         let mut transform = Transform::default();
+    //         #[cfg(feature = "2d")]
+    //         if let Some(&ChildOf(parent)) = parent {
+    //             if let Ok((parent_global_transform, parent_pos, parent_rot)) = parents.get(parent) {
+    //                 // Compute the global transform of the parent using its Position and Rotation
+    //                 let parent_transform = parent_global_transform
+    //                     .unwrap_or(&GlobalTransform::IDENTITY)
+    //                     .compute_transform();
+    //                 let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| {
+    //                     pos.f32().extend(parent_transform.translation.z)
+    //                 });
+    //                 let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| {
+    //                     Quaternion::from(*rot).f32()
+    //                 });
+    //                 let parent_scale = parent_transform.scale;
+    //                 let parent_transform = Transform::from_translation(parent_pos)
+    //                     .with_rotation(parent_rot)
+    //                     .with_scale(parent_scale);
+    //
+    //                 // The new local transform of the child body,
+    //                 // computed from the its global transform and its parents global transform
+    //                 let new_transform = GlobalTransform::from(
+    //                     Transform::from_translation(
+    //                         pos.f32().extend(parent_transform.translation.z),
+    //                     )
+    //                     .with_rotation(Quaternion::from(*rot).f32()),
+    //                 )
+    //                 .reparented_to(&GlobalTransform::from(parent_transform));
+    //
+    //                 transform.translation = new_transform.translation;
+    //                 transform.rotation = new_transform.rotation;
+    //             }
+    //         } else {
+    //             transform.translation = pos.f32().extend(transform.translation.z);
+    //             transform.rotation = Quaternion::from(*rot).f32();
+    //         }
+    //
+    //         #[cfg(feature = "3d")]
+    //         if let Some(&ChildOf(parent)) = parent {
+    //             if let Ok((parent_global_transform, parent_pos, parent_rot)) = parents.get(parent) {
+    //                 // Compute the global transform of the parent using its Position and Rotation
+    //                 let parent_transform = parent_global_transform
+    //                     .unwrap_or(&GlobalTransform::IDENTITY)
+    //                     .compute_transform();
+    //                 let parent_pos =
+    //                     parent_pos.map_or(parent_transform.translation, |pos| pos.f32());
+    //                 let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| rot.f32());
+    //                 let parent_scale = parent_transform.scale;
+    //                 let parent_transform = Transform::from_translation(parent_pos)
+    //                     .with_rotation(parent_rot)
+    //                     .with_scale(parent_scale);
+    //
+    //                 // The new local transform of the child body,
+    //                 // computed from the its global transform and its parents global transform
+    //                 let new_transform = GlobalTransform::from(
+    //                     Transform::from_translation(pos.f32()).with_rotation(rot.f32()),
+    //                 )
+    //                 .reparented_to(&GlobalTransform::from(parent_transform));
+    //
+    //                 transform.translation = new_transform.translation;
+    //                 transform.rotation = new_transform.rotation;
+    //             }
+    //         } else {
+    //             transform.translation = pos.f32();
+    //             transform.rotation = rot.f32();
+    //         }
+    //
+    //         trace!(
+    //             ?transform,
+    //             "Adding transform because Position/Rotation were added for {entity:?}"
+    //         );
+    //         commands.entity(entity).insert(transform);
+    //     };
+    // }
 
     /// Add Transform only when Position/Rotation are both present and Transform is not.
     /// This is necessary because the PositionToTransform systems require `Transform`
