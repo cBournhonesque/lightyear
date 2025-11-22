@@ -44,7 +44,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
         / tick_duration.as_secs_f32())
     .ceil() as i16;
 
-    let current_interpolate_tick = timeline.now().tick;
+    let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
         // the ConfirmedHistory contains an ordered list (from oldest to most recent) of Confirmed component updates to interpolate between
         // The component must always be interpolating between the oldest and the second oldest values in the history.
@@ -124,7 +124,7 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     mut query: Query<(&mut C, &ConfirmedHistory<C>)>,
 ) {
     let interpolation_tick = timeline.tick();
-    let interpolation_overstep = timeline.overstep().value();
+    let interpolation_overstep = timeline.overstep().to_f32();
     for (mut component, history) in query.iter_mut() {
         if let Some(interpolated) = history.interpolate(
             interpolation_tick,

@@ -34,12 +34,12 @@ impl InterpolationDelay {
     /// Get the tick and the overstep of the interpolation time by removing the delay
     /// from the current tick
     pub fn tick_and_overstep(&self, tick: Tick) -> (Tick, f32) {
-        if self.delay.overstep.value() == 0.0 {
-            (tick - self.delay.tick_diff, 0.0)
+        if self.delay.overstep().value().is_zero() {
+            (tick - self.delay.tick_diff(), 0.0)
         } else {
             (
-                tick - self.delay.tick_diff - 1,
-                1.0 - self.delay.overstep.value(),
+                tick - self.delay.tick_diff() - 1,
+                1.0 - self.delay.overstep().to_f32(),
             )
         }
     }
@@ -153,23 +153,16 @@ impl Plugin for InterpolationPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_core::time::Overstep;
 
     #[test]
     fn test_interpolation_delay() {
         let delay = InterpolationDelay {
-            delay: PositiveTickDelta {
-                tick_diff: 2,
-                overstep: Default::default(),
-            },
+            delay: PositiveTickDelta::lit("2"),
         };
         assert_eq!(delay.tick_and_overstep(Tick(3)), (Tick(1), 0.0));
 
         let delay = InterpolationDelay {
-            delay: PositiveTickDelta {
-                tick_diff: 2,
-                overstep: Overstep::new(0.4),
-            },
+            delay: PositiveTickDelta::lit("2.4"),
         };
         assert_eq!(delay.tick_and_overstep(Tick(3)), (Tick(0), 0.6));
     }

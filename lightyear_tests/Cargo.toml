@@ -37,7 +37,7 @@ lightyear = { workspace = true, features = [
   "crossbeam",
   "avian2d",
   "frame_interpolation",
-    "metrics",
+  "metrics",
   "netcode",
   "input_native",
   "input_bei",

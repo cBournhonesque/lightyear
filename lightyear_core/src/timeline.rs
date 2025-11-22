@@ -70,11 +70,11 @@ impl<C: TimelineContext, T: Component<Mutability = Mutable> + DerefMut<Target = 
     }
 
     fn tick(&self) -> Tick {
-        self.now().tick
+        self.now().tick()
     }
 
     fn overstep(&self) -> Overstep {
-        self.now().overstep
+        self.now().overstep()
     }
 
     fn set_now(&mut self, now: TickInstant) {

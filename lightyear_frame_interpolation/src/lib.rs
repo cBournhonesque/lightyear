@@ -200,7 +200,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
     )>,
 ) {
     let kind = DebugName::type_name::<C>();
-    let tick = timeline.now.tick;
+    let tick = timeline.now.tick();
     // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
     //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
     let overstep = time.overstep_fraction();
