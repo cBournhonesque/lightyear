@@ -178,7 +178,7 @@ pub(crate) fn interpolate(
     )>,
 ) {
     let interpolation_tick = timeline.tick();
-    let interpolation_overstep = timeline.overstep().value();
+    let interpolation_overstep = timeline.overstep().to_f32();
     'outer: for (tail_entity, parent, tail_length, mut tail, tail_history) in tail_query.iter_mut()
     {
         let Ok((mut parent_position, parent_history)) = parent_query.get_mut(parent.0) else {

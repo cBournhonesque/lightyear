@@ -226,10 +226,10 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         let overstep = fixed_time.overstep_fraction();
         query.iter_mut().for_each(|(local_timeline, mut synced)| {
             // Desired phase: LocalTimeline.tick + Time<Fixed> overstep.
-            synced.set_now(TickInstant {
-                tick: local_timeline.tick(),
-                overstep: Overstep::from_f32(overstep),
-            });
+            synced.set_now(TickInstant::from_tick_and_overstep(
+                local_timeline.tick(),
+                Overstep::from_f32(overstep),
+            ));
         });
     }
 
