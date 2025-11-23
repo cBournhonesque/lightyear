@@ -27,12 +27,6 @@ pub enum RelationshipSystems {
 }
 
 /// When the `DisableReplicateHierarchy` marker component is added to an entity, we will stop replicating their children.
-///
-/// If the component is added on an entity with `Replicate`, it's children will be replicated using
-/// the same replication settings as the Parent.
-/// This is achieved via the marker component `ReplicateLikeParent` added on each child.
-/// You can remove the `ReplicateLikeParent` component to disable this on a child entity. You can then
-/// add the replication components on the child to replicate it independently from the parents.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct DisableReplicateHierarchy;
@@ -40,7 +34,8 @@ pub struct DisableReplicateHierarchy;
 /// Marker component that indicates that this entity should be replicated similarly to the entity
 /// contained in the component.
 ///
-/// This will be inserted automatically on all children of an entity that has `Replicate`
+/// This will be inserted automatically on all children of an entity that has `Replicate`,
+/// unless the parent has a [`DisableReplicateHierarchy`] component.
 #[derive(Component, Clone, MapEntities, Copy, Reflect, PartialEq, Debug)]
 #[relationship(relationship_target=ReplicateLikeChildren)]
 #[reflect(Component, MapEntities, PartialEq, Debug)]
@@ -49,6 +44,7 @@ pub struct ReplicateLike {
     pub root: Entity,
 }
 
+/// Relationship target component associated with [`ReplicateLike`]
 #[derive(Component, Debug, Reflect)]
 #[relationship_target(relationship=ReplicateLike, linked_spawn)]
 #[reflect(Component)]
