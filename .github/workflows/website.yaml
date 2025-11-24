@@ -14,7 +14,7 @@ jobs:
       pages: write  # To push to a GitHub Pages site
       id-token: write # To update the deployment status
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           fetch-depth: 0
       - name: Install latest mdbook
