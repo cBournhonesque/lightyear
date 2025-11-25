@@ -11,7 +11,11 @@ use {
 
 use bevy_enhanced_input::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
-use lightyear_link::prelude::Server;
+use {
+    lightyear_connection::server::Started,
+    lightyear_link::prelude::Server
+};
+
 use lightyear_replication::prelude::*;
 use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
@@ -64,7 +68,7 @@ impl InputRegistryPlugin {
     #[cfg(feature = "client")]
     pub(crate) fn add_action_of_replicate<C: Component>(
         trigger: On<Add, ActionOf<C>>,
-        server: Query<(), With<Server>>,
+        server: Query<(), (With<Server>, With<Started>)>,
         // we don't want to add Replicate on action entities that were already replicated
         // PreSpawned entities are replicated from server to client
         action: Query<&ActionOf<C>, (Without<Replicated>, Without<PreSpawned>)>,
@@ -88,7 +92,7 @@ impl InputRegistryPlugin {
         trigger: On<Add, ActionOf<C>>,
         query: Query<&ActionOf<C>, With<Replicated>>,
         mut host: Query<&mut MessageManager, With<HostClient>>,
-        _: Single<(), With<Server>>,
+        _: Single<(), (With<Server>, With<Started>)>,
         config: Res<ServerInputConfig<C>>,
         mut commands: Commands,
     ) {
