@@ -1,20 +1,15 @@
 use crate::registry::ComponentNetId;
-use bevy_ecs::{
-    entity::{Entity, EntityHash},
-    error::Result,
-    event::Event,
-};
-use bevy_platform::collections::HashMap;
+use bevy_ecs::{entity::Entity, error::Result, event::Event};
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
 use lightyear_core::time::PositiveTickDelta;
-use lightyear_serde::{reader::{ReadInteger, Reader}, varint::varint_len};
+use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::{WriteInteger, Writer};
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::packet::packet_builder::MAX_PACKET_SIZE;
 
-use crate::prelude::ReplicationGroupId;
+use crate::prelude::{DEFAULT_GROUP, ReplicationGroupId};
 use alloc::vec::Vec;
 use std::marker::PhantomData;
 
@@ -32,8 +27,7 @@ pub struct MetadataChannel;
 
 /// Maximum size of a single replication message when sending to the default group
 /// We take some margin as the length computation is not exact.
-pub const MAX_MESSAGE_SIZE: usize = MAX_PACKET_SIZE - 100;
-
+pub const MAX_MESSAGE_SIZE: usize = MAX_PACKET_SIZE - 50;
 
 /// All the entity actions (Spawn/despawn/inserts/removals) for a single entity
 #[doc(hidden)]
@@ -177,7 +171,6 @@ impl Default for EntityActions {
     }
 }
 
-
 /// Helps us build replication messages while avoiding intermediary allocations.
 ///
 /// Instead of storing an intermediate Vec or HashMap containing the serialized updates,
@@ -186,52 +179,61 @@ impl Default for EntityActions {
 /// The data written is already serialized (for example `EntityActions` or `EntityUpdates`)
 pub(crate) struct MessageBuilder<'a, T: ToBytes> {
     pub(crate) group_id: ReplicationGroupId,
-    pub(crate) entity_count: usize,
-    pub(crate) num_bytes: usize,
+    pub(crate) entity_count: u16,
+    // position in the buffer where `entity_count` is written
+    pub(crate) entity_count_offset: usize,
     pub(crate) writer: &'a mut Writer,
     marker: PhantomData<T>,
 }
 
 impl<'a, T: ToBytes> MessageBuilder<'a, T> {
-    pub(crate) fn new(sequence_id: MessageId, group_id: ReplicationGroupId, writer: &'a mut Writer) -> Result<Self, SerializationError> {
-        sequence_id.to_bytes(writer)?;
+    pub(crate) fn new(
+        group_id: ReplicationGroupId,
+        writer: &'a mut Writer,
+    ) -> Result<Self, SerializationError> {
         group_id.to_bytes(writer)?;
-        // the extra 1 is for the entity count
-        let num_bytes = ToBytes::bytes_len(&sequence_id) + ToBytes::bytes_len(&group_id) + 1;
+        // we write the number of entities now, and we will update it at the end
+        let entity_count_offset = writer.len();
+        writer.write_u16(0)?;
         Ok(Self {
             group_id,
             entity_count: 0,
-            num_bytes,
+            entity_count_offset,
             writer,
             marker: PhantomData,
         })
+    }
+
+    /// Check if we can add data to this message.
+    ///
+    /// If the group_id is 0, then we only add data if the message is smaller than the MTU
+    pub(crate) fn can_add_data(&self, entity: Entity, data: &T) -> bool {
+        let total_bytes = entity.bytes_len() + data.bytes_len();
+        !(self.group_id == DEFAULT_GROUP.group_id(None)
+            && self.entity_count > 0
+            && self.writer.len() + total_bytes > MAX_MESSAGE_SIZE)
     }
 
     /// Try to add another piece of data to the message.
     ///
     /// If the message is too big, return false and do not add the data to the message.
     pub(crate) fn add_data(&mut self, entity: Entity, data: T) -> Result<bool, SerializationError> {
-        let entity_bytes = entity.bytes_len();
-        let data_bytes = data.bytes_len();
-        let total_bytes = entity_bytes + data_bytes;
-        if self.entity_count > 0 && self.num_bytes + total_bytes > MAX_MESSAGE_SIZE {
-            return Ok(false);
-        }
-        self.num_bytes += total_bytes;
         self.entity_count += 1;
         entity.to_bytes(self.writer)?;
         data.to_bytes(self.writer)?;
-        Ok(true);
+        Ok(true)
     }
 
     /// Return the bytes corresponding to the `ActionsMessage`
     pub(crate) fn build(self) -> Result<Bytes, SerializationError> {
-        self.writer.write_varint(self.entity_count as u64)?;
-        return self.writer.split();
+        // TODO: figure out how we can avoid using a u16 for this
+        // backpatch the entity count
+        let mut entity_count_slice =
+            &mut self.writer.as_mut()[self.entity_count_offset..self.entity_count_offset + 2];
+        entity_count_slice.write_u16(self.entity_count)?;
+        Ok(self.writer.split())
     }
-
 }
-
 
 // TODO: 99% of the time the ReplicationGroup is the same as the Entity in the hashmap,
 // and there's only 1 entity. have an optimization for that
@@ -241,6 +243,7 @@ pub(crate) struct ActionsMessage {
     pub(crate) sequence_id: MessageId,
     pub(crate) group_id: ReplicationGroupId,
     pub(crate) entity_count: usize,
+    // Equivalent to Vec<(Entity, EntityActions)>
     // TODO: for better compression we should have a Vec<Entity> and a Vec<EntityActions>
     pub(crate) data: Bytes,
 }
@@ -250,15 +253,15 @@ impl ToBytes for ActionsMessage {
         unimplemented!("Use SendEntityActionsMessage on the read side");
     }
 
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+    fn to_bytes(&self, _: &mut impl WriteInteger) -> Result<(), SerializationError> {
         unimplemented!("Use SendEntityActionsMessage on the read side");
     }
 
     fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
         let sequence_id = MessageId::from_bytes(buffer)?;
         let group_id = ReplicationGroupId::from_bytes(buffer)?;
-        let entity_count = buffer.read_varint()? as usize;
-        let data = Bytes::from_bytes(buffer)?;
+        let entity_count = buffer.read_u16()? as usize;
+        let data = buffer.split();
         Ok(Self {
             sequence_id,
             group_id,
@@ -267,7 +270,6 @@ impl ToBytes for ActionsMessage {
         })
     }
 }
-
 
 /// Iterator over the entities and [`EntityActions`] in an [`ActionsMessage`]
 pub(crate) struct ActionsMessageIter {
@@ -290,19 +292,18 @@ impl Iterator for ActionsMessageIter {
     }
 }
 
-impl IntoIterator for ActionsMessage {
+impl IntoIterator for &ActionsMessage {
     type Item = (Entity, EntityActions);
-    type IntoIter = IntoIter<Self::Item>;
+    type IntoIter = ActionsMessageIter;
 
     fn into_iter(self) -> Self::IntoIter {
         ActionsMessageIter {
-            reader: Reader::from(self.data),
+            reader: Reader::from(self.data.clone()),
             index: 0,
             entity_count: self.entity_count,
         }
     }
 }
-
 
 /// All the component updates for the entities of a given [`ReplicationGroup`](crate::prelude::ReplicationGroup)
 #[derive(Clone, PartialEq, Debug)]
@@ -312,6 +313,7 @@ pub(crate) struct UpdatesMessage {
     /// We set this to None after a certain amount of time without any new Actions, to signify on the receiver side
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     pub(crate) last_action_tick: Option<Tick>,
+    pub(crate) entity_count: usize,
     /// Updates containing the full component data, equivalent to Vec<(Entity, Vec<Bytes>)>
     pub(crate) data: Bytes,
 }
@@ -321,7 +323,7 @@ impl ToBytes for UpdatesMessage {
         unimplemented!("This is only used on the read side");
     }
 
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+    fn to_bytes(&self, _: &mut impl WriteInteger) -> Result<(), SerializationError> {
         unimplemented!("This is only used on the read side");
     }
 
@@ -329,10 +331,16 @@ impl ToBytes for UpdatesMessage {
     where
         Self: Sized,
     {
+        // read in the order that the data was written
+        let last_action_tick = Option::<Tick>::from_bytes(buffer)?;
+        let group_id = ReplicationGroupId::from_bytes(buffer)?;
+        let entity_count = buffer.read_u16()? as usize;
+        let data = buffer.split();
         Ok(Self {
-            group_id: ReplicationGroupId::from_bytes(buffer)?,
-            last_action_tick: Option::<Tick>::from_bytes(buffer)?,
-            data: Bytes::from_bytes(buffer)?,
+            group_id,
+            last_action_tick,
+            entity_count,
+            data,
         })
     }
 }
@@ -358,13 +366,13 @@ impl Iterator for UpdatesMessageIter {
     }
 }
 
-impl IntoIterator for UpdatesMessage {
+impl IntoIterator for &UpdatesMessage {
     type Item = (Entity, Vec<Bytes>);
-    type IntoIter = IntoIter<Self::Item>;
+    type IntoIter = UpdatesMessageIter;
 
     fn into_iter(self) -> Self::IntoIter {
         UpdatesMessageIter {
-            reader: Reader::from(self.data),
+            reader: Reader::from(self.data.clone()),
             index: 0,
             entity_count: self.entity_count,
         }
@@ -398,5 +406,45 @@ impl ToBytes for SenderMetadata {
             send_interval,
             sender_entity,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MessageBuilder, UpdatesMessage};
+    use crate::error::ReplicationError;
+    use crate::prelude::ReplicationGroupId;
+    use alloc::{vec, vec::Vec};
+    use bevy_ecs::entity::Entity;
+    use bytes::Bytes;
+    use lightyear_core::tick::Tick;
+    use lightyear_serde::ToBytes;
+    use lightyear_serde::reader::Reader;
+    use lightyear_serde::writer::Writer;
+    use test_log::test;
+
+    #[test]
+    fn test_updates_message_serde() -> Result<(), ReplicationError> {
+        let mut writer = Writer::with_capacity(100);
+
+        let tick = Some(Tick(1));
+        let group_id = ReplicationGroupId(0);
+        tick.to_bytes(&mut writer)?;
+        let mut builder = MessageBuilder::<Vec<Bytes>>::new(ReplicationGroupId(0), &mut writer)?;
+        let entity = Entity::from_raw_u32(10).unwrap();
+        let updates = vec![Bytes::from_static(&[2; 3])];
+        builder.add_data(entity, updates.clone())?;
+        let ser = builder.build()?;
+
+        let mut reader = Reader::from(ser);
+        let message = UpdatesMessage::from_bytes(&mut reader)?;
+        assert_eq!(message.last_action_tick, tick);
+        assert_eq!(message.group_id, group_id);
+        assert_eq!(message.entity_count, 1);
+        for (entity_serde, updates_serde) in message.into_iter() {
+            assert_eq!(entity_serde, entity);
+            assert_eq!(updates_serde, updates);
+        }
+        Ok(())
     }
 }

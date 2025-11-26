@@ -1,6 +1,6 @@
 //! Map between local and remote entities
 
-use crate::reader::{ReadInteger, ReadVarInt, Reader};
+use crate::reader::{ReadVarInt, Reader};
 use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
@@ -12,7 +12,7 @@ use bevy_reflect::Reflect;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
-const MARKED: u64 = 1 << 62;
+const MARKED: u64 = 1 << 63;
 
 /// EntityMap that maps the entity if a mapping is present, or does nothing if not
 ///
@@ -200,17 +200,48 @@ impl RemoteEntityMap {
 
 /// Serialize Entity as two varints for the index and generation (because they will probably be low).
 /// Revisit this when relations comes out
-///
-/// TODO: optimize for the case where generation == 1, which should be most cases
 impl ToBytes for Entity {
+    // see details in `to_bytes`
     fn bytes_len(&self) -> usize {
-        varint_len(self.index() as u64) + 4
+        let mut index = self.index() << 2;
+        let is_mapped = RemoteEntityMap::is_mapped(*self);
+        let unmarked = RemoteEntityMap::mark_unmapped(*self);
+
+        let generation = unmarked.generation();
+        let is_first_generation = generation == EntityGeneration::FIRST;
+        index |= is_first_generation as u32;
+        index |= (is_mapped as u32) << 1;
+
+        let mut len = varint_len(index as u64);
+        if !is_first_generation {
+            len += varint_len(generation.to_bits() as u64);
+        }
+        len
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        buffer.write_varint(self.index() as u64)?;
-        // TODO: use varint by using index = u32::MAX (which is not allowed) as niche.
-        buffer.write_u32(self.generation().to_bits())?;
+        // the entity's bit pattern is:
+        // - first 32 bits: generation. Lightyear uses the highest bit (generation 1^31) to indicate if the entity was mapped
+        // - second 32 bits: index. The index cannot be u32::MAX
+
+        // We will use 2 bits to indicate if:
+        // - bit 1: if the generation is EntityGeneration::FIRST or not
+        // - bit 2: if the entity generation has been
+        // we put these bits at the end (low bits) since we use var int encoding
+        let mut index = self.index() << 2;
+        let is_mapped = RemoteEntityMap::is_mapped(*self);
+        let unmarked = RemoteEntityMap::mark_unmapped(*self);
+
+        // we will use a second bit to indicate if the entity is mapped or not
+        let generation = unmarked.generation();
+        let is_first_generation = generation == EntityGeneration::FIRST;
+        index |= is_first_generation as u32;
+        index |= (is_mapped as u32) << 1;
+
+        buffer.write_varint(index as u64)?;
+        if !is_first_generation {
+            buffer.write_varint(generation.to_bits() as u64)?;
+        }
         Ok(())
     }
 
@@ -218,16 +249,23 @@ impl ToBytes for Entity {
     where
         Self: Sized,
     {
-        let index = buffer.read_varint()?;
+        let index = buffer.read_varint()? as u32;
+        let is_first_generation = (index & 1) != 0;
+        let is_mapped = (index & 2) != 0;
 
-        // TODO: use varint by using index = u32::MAX (which is not allowed) as niche.
-        // NOTE: not that useful now that we use a high bit to symbolize 'is_masked'
-        // let generation = buffer.read_varint()?;
-        let generation = EntityGeneration::from_bits(buffer.read_u32()?);
-        Ok(Entity::from_row_and_generation(
-            EntityRow::from_raw_u32(index as u32).unwrap(),
-            generation,
-        ))
+        let generation = if !is_first_generation {
+            buffer.read_varint()? as u32
+        } else {
+            0
+        };
+        let row = unsafe { EntityRow::from_raw_u32(index >> 2).unwrap_unchecked() };
+        let generation = EntityGeneration::from_bits(generation);
+        let entity = Entity::from_row_and_generation(row, generation);
+        if is_mapped {
+            Ok(RemoteEntityMap::mark_mapped(entity))
+        } else {
+            Ok(entity)
+        }
     }
 }
 
@@ -241,28 +279,66 @@ mod tests {
     use test_log::test;
 
     #[test]
-    fn test_entity_serde() {
+    fn test_entity_serde_first_generation() {
         let e = Entity::from_row_and_generation(
             EntityRow::from_raw_u32(1).unwrap(),
-            EntityGeneration::from_bits(1),
+            EntityGeneration::FIRST,
         );
 
         let mut writer = Writer::with_capacity(100);
-        let ser = e.to_bytes(&mut writer).unwrap();
+        e.to_bytes(&mut writer).unwrap();
+        // entities of the first generation only serialize the row
+        assert_eq!(writer.len(), 1);
         let mut reader = Reader::from(writer.split());
         let serde_e = Entity::from_bytes(&mut reader).unwrap();
         assert_eq!(e, serde_e);
     }
 
     #[test]
-    fn test_entity_serde_mapped() {
+    fn test_entity_serde_non_first_generation() {
+        let e = Entity::from_row_and_generation(
+            EntityRow::from_raw_u32(1).unwrap(),
+            EntityGeneration::from_bits(1),
+        );
+
+        let mut writer = Writer::with_capacity(100);
+        e.to_bytes(&mut writer).unwrap();
+        // both the row and generation are serialized
+        assert_eq!(writer.len(), 2);
+        let mut reader = Reader::from(writer.split());
+        let serde_e = Entity::from_bytes(&mut reader).unwrap();
+        assert_eq!(e, serde_e);
+    }
+
+    #[test]
+    fn test_entity_serde_mapped_first_generation() {
         let entity = Entity::from_raw_u32(10).unwrap();
         assert!(!RemoteEntityMap::is_mapped(entity));
         let entity_mapped = RemoteEntityMap::mark_mapped(entity);
         assert!(RemoteEntityMap::is_mapped(entity_mapped));
 
         let mut writer = Writer::with_capacity(100);
-        let ser = entity_mapped.to_bytes(&mut writer).unwrap();
+        entity_mapped.to_bytes(&mut writer).unwrap();
+        // even with entity mapping, it only takes 1 bytes (since the `is_mapped` information is included in the row)
+        assert_eq!(writer.len(), 1);
+        let mut reader = Reader::from(writer.split());
+        let serde_e = Entity::from_bytes(&mut reader).unwrap();
+        assert_eq!(entity_mapped, serde_e);
+    }
+
+    #[test]
+    fn test_entity_serde_mapped_non_first_generation() {
+        let entity = Entity::from_row_and_generation(
+            EntityRow::from_raw_u32(10).unwrap(),
+            EntityGeneration::from_bits(1),
+        );
+        assert!(!RemoteEntityMap::is_mapped(entity));
+        let entity_mapped = RemoteEntityMap::mark_mapped(entity);
+        assert!(RemoteEntityMap::is_mapped(entity_mapped));
+
+        let mut writer = Writer::with_capacity(100);
+        entity_mapped.to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.len(), 2);
         let mut reader = Reader::from(writer.split());
         let serde_e = Entity::from_bytes(&mut reader).unwrap();
         assert_eq!(entity_mapped, serde_e);
