@@ -830,7 +830,7 @@ impl GroupChannel {
                         );
                         // we still need to update the local entity to group mapping on the receiver
                         if !is_default_group {
-                        self.local_entities.insert(local_entity.id());
+                            self.local_entities.insert(local_entity.id());
                         }
                         continue;
                     }
@@ -894,7 +894,9 @@ impl GroupChannel {
             let local_entity = local_entity_mut.id();
 
             // for the default group: update the ConfirmedTick now
-            if is_default_group && let Some(mut confirmed) = local_entity_mut.get_mut::<ConfirmedTick>() {
+            if is_default_group
+                && let Some(mut confirmed) = local_entity_mut.get_mut::<ConfirmedTick>()
+            {
                 trace!(
                     ?remote_tick,
                     ?local_entity,
@@ -910,10 +912,9 @@ impl GroupChannel {
             let interpolated = local_entity_mut.get::<Interpolated>().is_some();
 
             // the local Sender has authority over the entity, so we don't want to accept the updates
-            if authority_map.is_some_and(|a| {
-                a.get(&local_entity)
-                    .is_some_and(|status| status.authority)
-            }) {
+            if authority_map
+                .is_some_and(|a| a.get(&local_entity).is_some_and(|status| status.authority))
+            {
                 trace!(
                     "Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}",
                     remote, entity
@@ -1018,7 +1019,9 @@ impl GroupChannel {
             };
             let local_entity = local_entity_mut.id();
             // for the default group: update the ConfirmedTick now
-            if is_default_group && let Some(mut confirmed) = local_entity_mut.get_mut::<ConfirmedTick>() {
+            if is_default_group
+                && let Some(mut confirmed) = local_entity_mut.get_mut::<ConfirmedTick>()
+            {
                 trace!(
                     ?remote_tick,
                     ?local_entity,
@@ -1032,10 +1035,9 @@ impl GroupChannel {
             let interpolated = local_entity_mut.get::<Interpolated>().is_some();
 
             // the local Sender has authority over the entity, so we don't want to accept the updates
-            if authority_map.is_some_and(|a| {
-                a.get(&local_entity)
-                    .is_some_and(|status| status.authority)
-            }) {
+            if authority_map
+                .is_some_and(|a| a.get(&local_entity).is_some_and(|status| status.authority))
+            {
                 trace!(
                     "Ignored a replication action received from peer {:?} that does not have authority over the entity: {:?}",
                     remote, entity

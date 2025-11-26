@@ -11,7 +11,7 @@ use lightyear_transport::packet::packet_builder::MAX_PACKET_SIZE;
 
 use crate::prelude::{DEFAULT_GROUP, ReplicationGroupId};
 use alloc::vec::Vec;
-use std::marker::PhantomData;
+use core::marker::PhantomData;
 
 /// Default channel to replicate entity actions.
 /// This is an Unordered Reliable channel.
