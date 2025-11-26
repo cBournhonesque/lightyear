@@ -29,7 +29,7 @@ pub mod packet;
 
 pub mod error;
 /// Manages building a single [`Packet`](packet::Packet) from multiple messages
-pub(crate) mod packet_builder;
+pub mod packet_builder;
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 pub(crate) mod packet_type;
 pub mod priority_manager;

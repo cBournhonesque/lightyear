@@ -20,6 +20,7 @@ use lightyear_link::server::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::server::Server;
 use lightyear_serde::entity_map::SendEntityMap;
+use lightyear_serde::prelude::{Seek, SeekFrom};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -27,6 +28,11 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
 
+/// Default replication group which corresponds to the absence of a group:
+/// updates will be packed into a single message up to the MTU
+/// but there is no guarantee that updates for entities in this group are sent
+/// together
+pub const DEFAULT_GROUP: ReplicationGroup = ReplicationGroup::new_id(0);
 /// Replication group shared by all predicted entities
 pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
@@ -162,6 +168,9 @@ pub enum ReplicationGroupIdBuilder {
 ///
 /// If multiple entities are part of the same replication group, they will be sent together in the same message.
 /// It is guaranteed that these entities will be updated at the same time on the remote world.
+///
+/// There is one exception: the default (ReplicationGroup(0)) which doesn't guarantee that all updates
+/// will be sent in the same message.
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicationGroup {
@@ -190,7 +199,7 @@ pub struct ReplicationGroup {
 impl Default for ReplicationGroup {
     fn default() -> Self {
         Self {
-            id_builder: ReplicationGroupIdBuilder::FromEntity,
+            id_builder: ReplicationGroupIdBuilder::Group(0),
             base_priority: 1.0,
             send_frequency: None,
             should_send: true,
@@ -217,6 +226,7 @@ impl ReplicationGroup {
         }
     }
 
+    #[inline]
     pub fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
         match self.id_builder {
             ReplicationGroupIdBuilder::FromEntity => {
@@ -260,21 +270,19 @@ pub struct ReplicationGroupId(pub u64);
 // Re-use the Entity serialization since ReplicationGroupId are often entities
 impl ToBytes for ReplicationGroupId {
     fn bytes_len(&self) -> usize {
-        8
-        // TODO: if it's a valid entity (generation > 0 and high-bit is 0)
-        //  optimize by serializing as an entity!
-        // Entity::try_from_bits(self.0).map_or_else(|_| 8, |entity| entity.bytes_len())
+        if self.0 == 0 {
+            1
+        } else {
+            Entity::from_bits(self.0).bytes_len()
+        }
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        // Entity::try_from_bits(self.0).map_or_else(|_| {)
-        //     buffer.write_u64(self.0)?;
-        //     Ok(())
-        // }, |entity| {
-        //     entity.to_bytes(buffer)
-        // })?;
-        buffer.write_u64(self.0)?;
-        // Entity::to_bytes(&Entity::from_bits(self.0), buffer)?;
+        if self.0 == 0 {
+            buffer.write_u8(0)?;
+        } else {
+            Entity::from_bits(self.0).to_bytes(buffer)?;
+        }
         Ok(())
     }
 
@@ -282,9 +290,13 @@ impl ToBytes for ReplicationGroupId {
     where
         Self: Sized,
     {
-        Ok(Self(buffer.read_u64()?))
-        // let entity = Entity::from_bytes(buffer)?;
-        // Ok(Self(entity.to_bits()))
+        let first = buffer.read_u8()?;
+        if first == 0 {
+            return Ok(Self(0));
+        }
+        // go back one byte
+        buffer.seek(SeekFrom::Current(-1))?;
+        Ok(Self(Entity::from_bytes(buffer)?.to_bits()))
     }
 }
 
@@ -962,3 +974,32 @@ pub(crate) struct CachedReplicate {
 //    - we use CachedReplicate to check which senders were removed and had spawned the entity
 // 6) new replicate is added that adds some senders:
 //    - we use CachedReplicate to check which senders were added
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::ReplicationGroupId;
+    use bevy_ecs::entity::Entity;
+    use lightyear_serde::ToBytes;
+    use lightyear_serde::reader::Reader;
+    use lightyear_serde::writer::Writer;
+
+    #[test]
+    fn test_replication_group_id_serde() {
+        let group_0 = ReplicationGroupId(0);
+        let mut writer = Writer::with_capacity(100);
+        group_0.to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.len(), 1);
+        let mut reader = Reader::from(writer.split());
+        let serde_group_0 = ReplicationGroupId::from_bytes(&mut reader).unwrap();
+        assert_eq!(group_0, serde_group_0);
+
+        let entity = Entity::from_raw_u32(10).unwrap();
+        let group_1 = ReplicationGroupId(entity.to_bits());
+        let mut writer = Writer::with_capacity(100);
+        group_1.to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.len(), 1);
+        let mut reader = Reader::from(writer.split());
+        let serde_group_1 = ReplicationGroupId::from_bytes(&mut reader).unwrap();
+        assert_eq!(group_1, serde_group_1);
+    }
+}

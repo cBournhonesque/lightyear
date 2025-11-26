@@ -1,3 +1,28 @@
+### PartialPrediction Snapshots
+
+- we want to treat the 'default replication group' differently: instead of each entity being its own replication group, 
+we don't include a ReplicationGroupId in the message, we just pack replication data in the message up to the MTU
+
+- one behavior of groups is that if we don't receive an update for a given
+entity in the group, then we know that other entities in the group were not updated. This is mostly used for prediction.
+
+- we might want to handle the case where predicted entities are not in the same replication group
+
+What I want:
+- maybe we don't need replication groups at all, since for prediction, if updates are not received at the same time we would get a misprediction but it should be quickly corrected!
+- entities can have no replication group
+- for hierarchies, we can ensure that their spawns are in the same message, but we don't have to explicitly add the entities in the same replication group
+- having a replication group is useful to add extra behaviour + to guarantee that the updates are received at the same time even if there are bandwidth limits.
+- the replication group 0 is reserved and cannot be used. It is the default
+- if entities have no replication group
+- ReplicationGroupIds should be small and the next value should be provided by some global api, we can then use bitmaps for group_with_actions, etc.
+
+- how do we set the priority or update frequency for an entity? do we need to put it in a group?
+
+
+
+####
+
 - InputRollbackMode::Always -> issue on the first rollback (because we rollback to the previous time
   where we received inputs, which is never, since we only send inputs when there are not empty!!)
 
