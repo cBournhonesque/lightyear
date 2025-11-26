@@ -27,6 +27,11 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
 
+/// Default replication group which corresponds to the absence of a group:
+/// updates will be packed into a single message up to the MTU
+/// but there is no guarantee that updates for entities in this group are sent
+/// together
+pub const DEFAULT_GROUP: ReplicationGroup = ReplicationGroup::new_id(0);
 /// Replication group shared by all predicted entities
 pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
@@ -190,7 +195,7 @@ pub struct ReplicationGroup {
 impl Default for ReplicationGroup {
     fn default() -> Self {
         Self {
-            id_builder: ReplicationGroupIdBuilder::FromEntity,
+            id_builder: ReplicationGroupIdBuilder::Group(0),
             base_priority: 1.0,
             send_frequency: None,
             should_send: true,
