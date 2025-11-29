@@ -14,7 +14,7 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::buffered::BufferedChanges;
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
 
 #[derive(Resource)]
@@ -92,7 +92,7 @@ pub(crate) struct PredictionSyncBuffer(BufferedChanges);
 
 #[derive(Component, Debug, Reflect)]
 #[component(on_insert = PredictionManager::on_insert)]
-#[require(InputTimeline)]
+#[require(InputTimelineConfig)]
 #[require(PredictionSyncBuffer)]
 #[require(PreSpawnedReceiver)]
 // TODO: ideally we would only insert LastConfirmedInput if the PredictionManager is updated to use RollbackMode::AlwaysInput

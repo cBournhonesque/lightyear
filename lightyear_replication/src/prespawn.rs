@@ -26,7 +26,7 @@ use lightyear_link::prelude::Server;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "client")]
-use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::Input};
+use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::InputTimelineConfig};
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
@@ -309,7 +309,7 @@ impl PreSpawnedReceiver {
 
     #[cfg(feature = "client")]
     pub(crate) fn handle_tick_sync(
-        trigger: On<SyncEvent<Input>>,
+        trigger: On<SyncEvent<InputTimelineConfig>>,
         mut manager: Single<&mut Self, With<Connected>>,
     ) {
         manager

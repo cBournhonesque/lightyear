@@ -75,7 +75,7 @@ use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::client::IsSynced;
-use lightyear_sync::prelude::{Input, InputTimeline};
+use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
@@ -303,7 +303,15 @@ fn get_action_state<S: ActionStateSequence>(
     config: Res<InputConfig<S::Action>>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
-    sender: Single<(&LocalTimeline, &InputTimeline, Has<Rollback>), Without<HostClient>>,
+    sender: Single<
+        (
+            &LocalTimeline,
+            &InputTimeline,
+            &InputTimelineConfig,
+            Has<Rollback>,
+        ),
+        Without<HostClient>,
+    >,
 
     // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -320,7 +328,7 @@ fn get_action_state<S: ActionStateSequence>(
         Allow<PredictionDisable>,
     >,
 ) {
-    let (local_timeline, input_timeline, is_rollback) = sender.into_inner();
+    let (local_timeline, input_timeline, input_config, is_rollback) = sender.into_inner();
     let input_delay = input_timeline.input_delay() as i16;
     let tick = local_timeline.tick();
     if is_rollback && config.ignore_rollbacks {
@@ -364,7 +372,7 @@ fn get_action_state<S: ActionStateSequence>(
                 input_buffer
             );
         } else if !is_local && config.rebroadcast_inputs {
-            if input_timeline.is_lockstep() {
+            if input_config.is_lockstep() {
                 error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
             }
             // we are here if:
@@ -677,7 +685,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
     last_confirmed_input: Single<
-        (&LastConfirmedInput, &InputTimeline, &LocalTimeline),
+        (&LastConfirmedInput, &InputTimelineConfig, &LocalTimeline),
         With<Client>,
     >,
     predicted_query: Query<
@@ -685,11 +693,11 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (last_confirmed_input, input_timeline, local_timeline) = last_confirmed_input.into_inner();
+    let (last_confirmed_input, input_config, local_timeline) = last_confirmed_input.into_inner();
     let tick = local_timeline.tick();
     // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
     // we will just use the current tick as the last confirmed input tick
-    if input_timeline.is_lockstep() {
+    if input_config.is_lockstep() {
         last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
@@ -843,7 +851,7 @@ fn send_input_messages<S: ActionStateSequence>(
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(
-    trigger: On<SyncEvent<Input>>,
+    trigger: On<SyncEvent<InputTimelineConfig>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,

@@ -8,7 +8,7 @@ use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::InputTimelineConfig;
 use lightyear_sync::prelude::client::InputDelayConfig;
 use test_log::test;
 use tracing::info;
@@ -19,11 +19,9 @@ use tracing::info;
 fn test_buffer_inputs_with_delay() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
-    stepper
-        .host_client_mut()
-        .get_mut::<InputTimeline>()
-        .unwrap()
-        .input_delay_config = InputDelayConfig::fixed_input_delay(1);
+    stepper.host_client_mut().insert(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
+    );
 
     let server_entity = stepper
         .server_app

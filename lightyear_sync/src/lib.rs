@@ -40,12 +40,12 @@ pub mod prelude {
     pub use crate::timeline::sync::{IsSynced, SyncConfig};
     pub use crate::timeline::{
         DrivingTimeline,
-        input::{Input, InputTimeline},
+        input::{InputTimeline, InputTimelineConfig},
     };
 
     #[cfg(feature = "client")]
     pub mod client {
-        pub use crate::timeline::input::{Input, InputDelayConfig, InputTimeline};
+        pub use crate::timeline::input::{InputDelayConfig, InputTimeline, InputTimelineConfig};
         pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
         pub use crate::timeline::sync::IsSynced;
     }

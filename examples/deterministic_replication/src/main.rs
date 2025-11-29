@@ -63,7 +63,7 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
-    use lightyear::prelude::client::{Input, InputDelayConfig};
+    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()
@@ -84,12 +84,12 @@ fn add_input_delay(app: &mut App) {
             },
             ..default()
         })
-        .insert(InputTimeline(Timeline::from(
-            Input::default()
+        .insert(
+            InputTimelineConfig::default()
                 // Enable `no_prediction()` to do deterministic_lockstep! 100% of the latency will be covered
                 // by input delay so there won't be any rollbacks
                 // .with_input_delay(InputDelayConfig::no_prediction()),
                 // Otherwise control the input delay manually
                 .with_input_delay(InputDelayConfig::fixed_input_delay(INPUT_DELAY_TICKS)),
-        )));
+        );
 }

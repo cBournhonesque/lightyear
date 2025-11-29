@@ -40,7 +40,7 @@ use lightyear_utils::metrics::{DormantTimerGauge, TimerGauge};
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[cfg(feature = "client")]
-use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::Input};
+use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::InputTimelineConfig};
 
 type EntityHashMap<K, V> = HashMap<K, V, EntityHash>;
 
@@ -191,7 +191,7 @@ impl ReplicationReceivePlugin {
 
     #[cfg(feature = "client")]
     pub(crate) fn on_sync_event(
-        trigger: On<SyncEvent<Input>>,
+        trigger: On<SyncEvent<InputTimelineConfig>>,
         mut receiver: Query<&mut ReplicationReceiver>,
     ) {
         receiver.iter_mut().for_each(|mut receiver| {
