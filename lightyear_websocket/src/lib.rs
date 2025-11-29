@@ -25,7 +25,7 @@ pub mod prelude {
 
     #[cfg(feature = "client")]
     pub mod client {
-        pub use crate::client::WebSocketClientIo;
+        pub use crate::client::{WebSocketClientIo, WebSocketScheme};
         pub use aeronet_websocket::client::ClientConfig;
     }
 

@@ -108,7 +108,7 @@ impl ExampleClient {
                             ClientConfig::builder().with_no_cert_validation()
                         }
                     };
-                    entity_mut.insert(WebSocketClientIo { config });
+                    entity_mut.insert(WebSocketClientIo { config, scheme: Default::default() });
                 }
                 #[cfg(feature = "steam")]
                 ClientTransports::Steam => {

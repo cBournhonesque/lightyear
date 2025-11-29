@@ -9,6 +9,24 @@ use lightyear_link::{Link, LinkStart, Linked, Linking};
 
 pub struct WebSocketClientPlugin;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum WebSocketScheme {
+    /// Unencrypted WebSocket (ws://)
+    Plain,
+    /// Encrypted WebSocket (wss://) - default
+    #[default]
+    Secure,
+}
+
+impl WebSocketScheme {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Plain => "ws",
+            Self::Secure => "wss",
+        }
+    }
+}
+
 impl Plugin for WebSocketClientPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<AeronetPlugin>() {
@@ -29,6 +47,8 @@ impl Plugin for WebSocketClientPlugin {
 #[require(Link)]
 pub struct WebSocketClientIo {
     pub config: ClientConfig,
+    /// The URL scheme to use (ws:// or wss://)
+    pub scheme: WebSocketScheme,
 }
 
 impl WebSocketClientPlugin {
@@ -43,8 +63,9 @@ impl WebSocketClientPlugin {
         if let Ok((entity, client, peer_addr)) = query.get(trigger.entity) {
             let server_addr = peer_addr.ok_or(WebSocketError::PeerAddrMissing)?.0;
             let config = client.config.clone();
+            let scheme = client.scheme.as_str();
             commands.queue(move |world: &mut World| -> Result {
-                let target = format!("wss://{server_addr}");
+                let target = format!("{scheme}://{server_addr}");
                 let entity_mut =
                     world.spawn((AeronetLinkOf(entity), Name::from("WebSocketClient")));
                 WebSocketClient::connect(config, target).apply(entity_mut);
