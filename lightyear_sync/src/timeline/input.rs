@@ -304,13 +304,15 @@ impl SyncedTimeline for InputTimeline {
         if ping_manager.pongs_recv < self.config.handshake_pings as u32 {
             return None;
         }
-        self.is_synced = true;
         let now = self.now();
         let objective = self.sync_objective(main, ping_manager, tick_duration);
-
         let error = now - objective;
         let error_ticks = error.to_f32();
-        let adjustment = self.config.speed_adjustment(error_ticks);
+        let adjustment = if !self.is_synced {
+            SyncAdjustment::Resync
+        } else {
+            self.config.speed_adjustment(error_ticks)
+        };
         trace!(
             ?now,
             ?objective,
@@ -320,6 +322,7 @@ impl SyncedTimeline for InputTimeline {
             max_error_margin = ?self.config.max_error_margin,
             "InputTimeline sync"
         );
+        self.is_synced = true;
         match adjustment {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));
