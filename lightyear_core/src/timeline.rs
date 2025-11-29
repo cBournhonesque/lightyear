@@ -15,30 +15,32 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 
 /// A timeline defines an independent progression of time.
+///
+/// A given entity can be associated with multiple timelines.
+/// Each Timeline is associated with a [`TimelineConfig`] component that is used to
+/// configure the timeline.
 #[derive(Default, Debug, Clone, Reflect)]
-pub struct Timeline<T: TimelineContext> {
-    pub context: T,
+pub struct Timeline<T: TimelineConfig> {
+    pub context: T::Context,
     pub now: TickInstant,
     #[reflect(ignore)]
     pub marker: core::marker::PhantomData<T>,
 }
 
-impl<T: TimelineContext> From<T> for Timeline<T> {
-    fn from(value: T) -> Self {
-        Self {
-            context: value,
-            now: Default::default(),
-            marker: Default::default(),
-        }
-    }
-}
+/// Configuration for a [`Timeline`].
+///
+/// The user should only modify the configuration.
+pub trait TimelineConfig: Component + Send + Sync + Sized + 'static {
+    /// Contextual data associated with this timeline configuration; used by the timeline's internals
+    type Context;
 
-pub trait TimelineContext: Send + Sync + 'static {}
+    type Timeline: NetworkTimeline + Default;
+}
 
 // TODO: should we get rid of this trait and just use the Timeline<T> struct?
 //  maybe a trait gives us more options in the future
 pub trait NetworkTimeline: Component<Mutability = Mutable> {
-    type Context: TimelineContext;
+    type Config: TimelineConfig;
     const PAUSED_DURING_ROLLBACK: bool = true;
 
     /// Estimate of the current time in the [`Timeline`]
@@ -57,12 +59,10 @@ pub trait NetworkTimeline: Component<Mutability = Mutable> {
     }
 }
 
-impl<T: NetworkTimeline> TimelineContext for T {}
-
-impl<C: TimelineContext, T: Component<Mutability = Mutable> + DerefMut<Target = Timeline<C>>>
+impl<C: TimelineConfig, T: Component<Mutability = Mutable> + DerefMut<Target = Timeline<C>>>
     NetworkTimeline for T
 {
-    type Context = C;
+    type Config = C;
 
     /// Estimate of the current time in the [`Timeline`]
     fn now(&self) -> TickInstant {
@@ -86,15 +86,15 @@ impl<C: TimelineContext, T: Component<Mutability = Mutable> + DerefMut<Target = 
     }
 }
 
-impl<T: TimelineContext> Deref for Timeline<T> {
-    type Target = T;
+impl<T: TimelineConfig> Deref for Timeline<T> {
+    type Target = T::Context;
 
     fn deref(&self) -> &Self::Target {
         &self.context
     }
 }
 
-impl<T: TimelineContext> DerefMut for Timeline<T> {
+impl<T: TimelineConfig> DerefMut for Timeline<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.context
     }
@@ -103,10 +103,14 @@ impl<T: TimelineContext> DerefMut for Timeline<T> {
 /// The local timeline that matches [`Time<Virtual>`]
 /// - the Tick is incremented every FixedUpdate (including during rollback)
 /// - the overstep is set by the overstep of [`Time<Fixed>`]
-#[derive(Default, Clone, Reflect)]
+#[derive(Default, Component, Clone, Reflect)]
+#[require(LocalTimeline)]
 pub struct Local;
 
-impl TimelineContext for Local {}
+impl TimelineConfig for Local {
+    type Context = ();
+    type Timeline = LocalTimeline;
+}
 
 #[derive(Component, Deref, DerefMut, Default, Clone, Reflect)]
 pub struct LocalTimeline(Timeline<Local>);
@@ -174,7 +178,7 @@ impl Plugin for TimelinePlugin {
 }
 
 #[derive(EntityEvent, Debug)]
-pub struct SyncEvent<T: TimelineContext> {
+pub struct SyncEvent<T: TimelineConfig> {
     /// Entity holding a [`Timeline`]
     pub entity: Entity,
     // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
@@ -182,10 +186,10 @@ pub struct SyncEvent<T: TimelineContext> {
     //  to update the LocalTimeline
     /// Delta in number of ticks to apply to the timeline
     pub tick_delta: i16,
-    pub marker: core::marker::PhantomData<T>,
+    marker: core::marker::PhantomData<T>,
 }
 
-impl<T: TimelineContext> SyncEvent<T> {
+impl<T: TimelineConfig> SyncEvent<T> {
     pub fn new(entity: Entity, tick_delta: i16) -> Self {
         SyncEvent {
             entity,
@@ -195,13 +199,13 @@ impl<T: TimelineContext> SyncEvent<T> {
     }
 }
 
-impl<T: TimelineContext> Clone for SyncEvent<T> {
+impl<T: TimelineConfig> Clone for SyncEvent<T> {
     fn clone(&self) -> Self {
         *self
     }
 }
 
-impl<T: TimelineContext> Copy for SyncEvent<T> {}
+impl<T: TimelineConfig> Copy for SyncEvent<T> {}
 
 /// Marker component inserted on the Link if we are currently in rollback
 ///

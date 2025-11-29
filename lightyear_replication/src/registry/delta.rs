@@ -198,6 +198,7 @@ fn buffer_insert_delta<
     let entity = entity_mut.entity.id();
     let delta = deserialize.deserialize(entity_map, reader)?;
     trace!(
+        ?tick,
         ?predicted,
         ?interpolated,
         ?kind,

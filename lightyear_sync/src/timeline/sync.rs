@@ -35,6 +35,7 @@ pub trait SyncedTimeline: NetworkTimeline {
     fn sync_objective<Remote: SyncTargetTimeline>(
         &self,
         other: &Remote,
+        config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) -> TickInstant;
@@ -52,6 +53,7 @@ pub trait SyncedTimeline: NetworkTimeline {
     fn sync<Remote: SyncTargetTimeline>(
         &mut self,
         main: &Remote,
+        config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) -> Option<i16>;
@@ -133,6 +135,23 @@ impl Default for SyncConfig {
     }
 }
 
+#[derive(Debug, Reflect)]
+pub struct SyncContext {
+    /// How many consecutive errors have we seen that are in the same direction
+    pub consecutive_errors: u8,
+    /// Sign of the previous error
+    pub previous_error_sign: bool,
+}
+
+impl Default for SyncContext {
+    fn default() -> Self {
+        Self {
+            consecutive_errors: 0,
+            previous_error_sign: true,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum SyncAdjustment {
     Resync,
@@ -140,25 +159,25 @@ pub enum SyncAdjustment {
     DoNothing,
 }
 
-impl SyncConfig {
-    pub fn speed_adjustment(&mut self, offset: f32) -> SyncAdjustment {
+impl SyncContext {
+    pub fn speed_adjustment(&mut self, config: &SyncConfig, offset: f32) -> SyncAdjustment {
         let current_error_sign = offset.is_sign_positive();
         let previous_error_sign = self.previous_error_sign;
         self.previous_error_sign = current_error_sign;
-        if offset.abs() > self.max_error_margin {
+        if offset.abs() > config.max_error_margin {
             self.consecutive_errors = 0;
             SyncAdjustment::Resync
-        } else if offset.abs() > self.error_margin {
+        } else if offset.abs() > config.error_margin {
             self.consecutive_errors = self.consecutive_errors.saturating_add(1);
             // skip if we haven't seen enough consecutive errors in the same direction
             if (current_error_sign ^ previous_error_sign)
-                || self.consecutive_errors < self.consecutive_errors_threshold
+                || self.consecutive_errors < config.consecutive_errors_threshold
             {
                 self.previous_error_sign = current_error_sign;
                 return SyncAdjustment::DoNothing;
             }
-            let base_factor = self.speedup_factor - 1.0;
-            let error_ratio = (offset.abs() / self.max_error_margin).clamp(0.0, 1.0);
+            let base_factor = config.speedup_factor - 1.0;
+            let error_ratio = (offset.abs() / config.max_error_margin).clamp(0.0, 1.0);
 
             // Apply progressively stronger adjustment as error increases
             let adjustment = 1.0 + (base_factor * error_ratio * 2.0);
@@ -258,6 +277,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
             (
                 Entity,
                 &mut Synced,
+                &Synced::Config,
                 &Remote,
                 &mut LocalTimeline,
                 &PingManager,
@@ -267,7 +287,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         >,
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
-        query.iter_mut().for_each(|(entity, mut sync_timeline, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
+        query.iter_mut().for_each(|(entity, mut sync_timeline, config, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
             trace!(?entity, ?has_is_synced, "In SyncTimelines from {:?} to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
             // return early if the remote timeline hasn't received any packets
             if !main_timeline.received_packet() {
@@ -277,7 +297,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 debug!("Timeline {:?} is synced to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
                 commands.entity(entity).insert(IsSynced::<Synced>::default());
             }
-            if let Some(tick_delta) = sync_timeline.sync(main_timeline, ping_manager, tick_duration.0) {
+            if let Some(tick_delta) = sync_timeline.sync(main_timeline, config, ping_manager, tick_duration.0) {
                 // if it's the driving pipeline, also update the LocalTimeline
                 if DRIVING {
                     let local_tick = local_timeline.tick();
@@ -287,7 +307,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                         ?local_tick, ?synced_tick, ?tick_delta, new_local_tick = ?local_timeline.tick(),
                         "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", DebugName::type_name::<Synced>());
                 }
-                commands.trigger(SyncEvent::<Synced::Context>::new(entity, tick_delta));
+                commands.trigger(SyncEvent::<Synced::Config>::new(entity, tick_delta));
             }
         })
     }

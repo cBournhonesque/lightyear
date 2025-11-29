@@ -7,24 +7,25 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
-use bevy_utils::default;
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineContext};
+use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
 use lightyear_messages::prelude::RemoteEvent;
 use lightyear_replication::message::SenderMetadata;
 use lightyear_sync::prelude::PingManager;
 use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::timeline::sync::{
-    SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline, SyncedTimelinePlugin,
+    SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
+    SyncedTimelinePlugin,
 };
 use tracing::{debug, trace};
 
 /// Config to specify how the snapshot interpolation should behave
-#[derive(Clone, Copy, Debug, Reflect)]
+#[derive(Component, Clone, Copy, Debug, Reflect)]
+#[require(InterpolationTimeline)]
 pub struct InterpolationConfig {
     /// The minimum delay that we will apply for interpolation
     /// This should be big enough so that the interpolated entity always has a server snapshot
@@ -35,6 +36,7 @@ pub struct InterpolationConfig {
     /// The higher the server update_rate (i.e. smaller send_interval), the smaller the interpolation delay
     /// Set to 0.0 if you want to only use the Delay
     pub send_interval_ratio: f32,
+    pub sync: SyncConfig,
 }
 
 impl Default for InterpolationConfig {
@@ -42,6 +44,7 @@ impl Default for InterpolationConfig {
         Self {
             min_delay: Duration::from_millis(5),
             send_interval_ratio: 1.7,
+            sync: SyncConfig::default(),
         }
     }
 }
@@ -65,53 +68,35 @@ impl InterpolationConfig {
     }
 }
 
-#[derive(Default, Reflect)]
-pub struct Interpolation {
-    tick_duration: Duration,
+impl TimelineConfig for InterpolationConfig {
+    type Context = InterpolationContext;
+    type Timeline = InterpolationTimeline;
+}
+
+#[derive(Default, Debug, Reflect)]
+pub struct InterpolationContext {
+    pub(crate) remote_send_interval: Duration,
+    sync: SyncContext,
     relative_speed: f32,
-    pub remote_send_interval: Duration,
-    pub interpolation_config: InterpolationConfig,
-    pub sync_config: SyncConfig,
     is_synced: bool,
 }
 
-#[derive(Component, Deref, DerefMut, Default, Reflect)]
-pub struct InterpolationTimeline(Timeline<Interpolation>);
-
-impl TimelineContext for Interpolation {}
-
-impl InterpolationTimeline {
-    fn new(
-        tick_duration: Duration,
-        interpolation_config: InterpolationConfig,
-        sync_config: SyncConfig,
-    ) -> Self {
-        let interpolation = Interpolation {
-            tick_duration,
-            interpolation_config,
-            sync_config,
-            ..default()
-        };
-        InterpolationTimeline(interpolation.into())
-    }
-}
+#[derive(Component, Default, Deref, DerefMut, Reflect)]
+pub struct InterpolationTimeline(Timeline<InterpolationConfig>);
 
 impl SyncedTimeline for InterpolationTimeline {
     fn sync_objective<T: SyncTargetTimeline>(
         &self,
         remote: &T,
+        config: &InterpolationConfig,
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) -> TickInstant {
-        let delay = TickDelta::from_duration(
-            self.interpolation_config
-                .to_duration(self.remote_send_interval),
-            tick_duration,
-        );
+        let delay =
+            TickDelta::from_duration(config.to_duration(self.remote_send_interval), tick_duration);
         // take extra margin if there is jitter
         let jitter_margin = TickDelta::from_duration(
-            ping_manager.jitter() * self.sync_config.jitter_multiple as u32
-                + self.sync_config.jitter_margin,
+            ping_manager.jitter() * config.sync.jitter_multiple as u32 + config.sync.jitter_margin,
             tick_duration,
         );
         let target = remote.current_estimate();
@@ -143,30 +128,31 @@ impl SyncedTimeline for InterpolationTimeline {
     fn sync<T: SyncTargetTimeline>(
         &mut self,
         remote: &T,
+        config: &InterpolationConfig,
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) -> Option<i16> {
         // skip syncing if we haven't received enough information
-        if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
+        if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
             return None;
         }
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let now = self.now();
-        let objective = self.sync_objective(remote, ping_manager, tick_duration);
+        let objective = self.sync_objective(remote, config, ping_manager, tick_duration);
         let error = now - objective;
         let error_ticks = error.to_f32();
         let adjustment = if !self.is_synced {
             SyncAdjustment::Resync
         } else {
-            self.sync_config.speed_adjustment(error_ticks)
+            self.sync.speed_adjustment(&config.sync, error_ticks)
         };
         trace!(
             ?now,
             ?objective,
             ?adjustment,
             ?error_ticks,
-            error_margin = ?self.sync_config.error_margin,
-            max_error_margin = ?self.sync_config.max_error_margin,
+            error_margin = ?config.sync.error_margin,
+            max_error_margin = ?config.sync.max_error_margin,
             "InterpolationTimeline sync"
         );
         self.is_synced = true;
@@ -246,7 +232,7 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
-        app.register_required_components::<Client, InterpolationTimeline>();
+        app.register_required_components::<Client, InterpolationConfig>();
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
         app.add_systems(PreUpdate, Self::advance_timeline);
         app.add_observer(Self::receive_sender_metadata);

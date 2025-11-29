@@ -102,7 +102,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_insert)
+            .get(&server_tick_insert)
             .unwrap(),
         &CompDelta(1)
     );
@@ -131,7 +131,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_update_1)
+            .get(&server_tick_update_1)
             .unwrap(),
         &CompDelta(2)
     );
@@ -189,7 +189,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_insert)
+            .get(&server_tick_insert)
             .is_none()
     );
     assert!(
@@ -199,7 +199,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_update_1)
+            .get(&server_tick_update_1)
             .is_some()
     );
     assert!(
@@ -209,7 +209,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_update_2)
+            .get(&server_tick_update_2)
             .is_some()
     );
 }

@@ -73,9 +73,7 @@ fn add_input_delay(app: &mut App) {
         .unwrap();
 
     // set some input-delay since we are predicting all entities
-    app.world_mut()
-        .entity_mut(client)
-        .insert(InputTimeline(Timeline::from(
-            Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-        )));
+    app.world_mut().entity_mut(client).insert(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+    );
 }

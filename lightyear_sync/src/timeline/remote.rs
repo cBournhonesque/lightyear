@@ -9,10 +9,14 @@ use lightyear_connection::client::Connected;
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineContext};
+use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
 use lightyear_link::Linked;
 use lightyear_transport::plugin::PacketReceived;
 use tracing::trace;
+
+#[derive(Component, Default, Debug, Reflect)]
+#[require(RemoteTimeline)]
+pub struct RemoteTimelineConfig;
 
 /// The local peer's estimate of the remote peer's timeline
 ///
@@ -60,9 +64,12 @@ impl Default for RemoteEstimate {
 
 // We need to wrap the inner Timeline to avoid the orphan rule
 #[derive(Component, Default, Debug, Deref, DerefMut, Reflect)]
-pub struct RemoteTimeline(Timeline<RemoteEstimate>);
+pub struct RemoteTimeline(Timeline<RemoteTimelineConfig>);
 
-impl TimelineContext for RemoteEstimate {}
+impl TimelineConfig for RemoteTimelineConfig {
+    type Context = RemoteEstimate;
+    type Timeline = RemoteTimeline;
+}
 
 impl RemoteTimeline {
     /// Returns the most recent tick received from the remote peer.
