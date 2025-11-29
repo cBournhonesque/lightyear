@@ -150,13 +150,16 @@ impl SyncedTimeline for InterpolationTimeline {
         if ping_manager.pongs_recv < self.sync_config.handshake_pings as u32 {
             return None;
         }
-        self.is_synced = true;
         // TODO: should we call current_estimate()? now() should basically return the same thing
         let now = self.now();
         let objective = self.sync_objective(remote, ping_manager, tick_duration);
         let error = now - objective;
         let error_ticks = error.to_f32();
-        let adjustment = self.sync_config.speed_adjustment(error_ticks);
+        let adjustment = if !self.is_synced {
+            SyncAdjustment::Resync
+        } else {
+            self.sync_config.speed_adjustment(error_ticks)
+        };
         trace!(
             ?now,
             ?objective,
@@ -166,6 +169,7 @@ impl SyncedTimeline for InterpolationTimeline {
             max_error_margin = ?self.sync_config.max_error_margin,
             "InterpolationTimeline sync"
         );
+        self.is_synced = true;
         match adjustment {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));
