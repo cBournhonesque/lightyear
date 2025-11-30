@@ -260,6 +260,11 @@ pub mod frame_interpolation {
     pub use lightyear_frame_interpolation::*;
 }
 
+#[cfg(feature = "metrics")]
+pub mod metrics {
+    pub use lightyear_metrics::*;
+}
+
 #[cfg(feature = "netcode")]
 pub mod netcode {
     pub use lightyear_netcode::*;
@@ -333,6 +338,8 @@ pub mod prelude {
     pub use lightyear_core::prelude::*;
     pub use lightyear_link::prelude::*;
     pub use lightyear_messages::prelude::*;
+    #[cfg(feature = "metrics")]
+    pub use lightyear_metrics::prelude::*;
     #[cfg(feature = "replication")]
     pub use lightyear_replication::prelude::*;
     pub use lightyear_serde::prelude::*;
@@ -363,7 +370,7 @@ pub mod prelude {
     #[cfg(feature = "interpolation")]
     pub use lightyear_interpolation::prelude::*;
 
-    #[cfg(feature = "metrics")]
+    #[cfg(feature = "debug")]
     pub use lightyear_ui::prelude::*;
 
     #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]

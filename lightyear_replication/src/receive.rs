@@ -865,7 +865,7 @@ impl GroupChannel {
                     self.local_entities.insert(local_entity.id());
                 }
                 remote_entity_map.insert(remote_entity, local_entity.id());
-                debug!("Updated remote entity map: {:?}", remote_entity_map);
+                trace!("Updated remote entity map: {:?}", remote_entity_map);
             }
         }
 

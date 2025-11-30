@@ -4,5 +4,3 @@ CARGO_PROFILE_RELEASE_DEBUG=true RUSTFLAGS='-C force-frame-pointers=y' cargo ben
 
 # Run the flamegraph separately
 CARGO_PROFILE_RELEASE_DEBUG=true RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph --root --bin=replication_profiling --profile=release
-
-#

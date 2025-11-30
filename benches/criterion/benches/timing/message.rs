@@ -4,10 +4,9 @@
 use criterion::{BatchSize, Criterion, criterion_group, criterion_main};
 use lightyear::prelude::MessageSender;
 use lightyear_tests::protocol::{Channel1, StringMessage};
-use lightyear_tests::stepper::ClientServerStepper;
+use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
 
 criterion_group!(message_benches, send_receive_simple_messages_to_one_client);
-criterion_main!(message_benches);
 
 const NUM_MESSAGE: &[usize] = &[0, 10, 100, 1000, 10000];
 
@@ -23,7 +22,7 @@ fn send_receive_simple_messages_to_one_client(criterion: &mut Criterion) {
             n,
             |bencher, n| {
                 bencher.iter_batched_ref(
-                    || ClientServerStepper::single(),
+                    || ClientServerStepper::from_config(StepperConfig::single()),
                     |stepper| {
                         for _ in 0..*n {
                             stepper

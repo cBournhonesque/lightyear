@@ -1,4 +1,4 @@
-use crate::metrics::registry::MetricsRegistry;
+use crate::registry::MetricsRegistry;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use metrics::set_global_recorder;
@@ -10,7 +10,7 @@ use tracing::error;
 /// [`ClearBucketsSystem`]. Direct consumers of atomic buckets (e.g. plots)
 /// should read the documentation of [`ClearBucketsSystem`].
 #[derive(Default)]
-pub struct RegistryPlugin {
+pub struct MetricsPlugin {
     registry: Option<MetricsRegistry>,
 }
 
@@ -21,10 +21,10 @@ pub struct RegistryPlugin {
 #[derive(Copy, Clone, Debug, Eq, Hash, PartialEq, SystemSet)]
 pub struct ClearBucketsSystem;
 
-impl RegistryPlugin {
+impl MetricsPlugin {
     /// Create a default plugin.
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(registry: Option<MetricsRegistry>) -> Self {
+        Self { registry }
     }
 
     /// Provide your own instance of a registry.
@@ -39,18 +39,12 @@ impl RegistryPlugin {
     }
 }
 
-impl Plugin for RegistryPlugin {
+impl Plugin for MetricsPlugin {
     fn build(&self, app: &mut App) {
-        let registry = if let Some(registry) = &self.registry {
-            _ = set_global_recorder(registry.clone());
-            registry.clone()
-        } else {
-            let registry = MetricsRegistry::default();
-            if let Err(e) = set_global_recorder(registry.clone()) {
-                error!("Failed to set global recorder: {e}");
-            }
-            registry
-        };
+        let registry = self.registry.clone().unwrap_or_default();
+        _ = set_global_recorder(registry.clone()).inspect_err(|e| {
+            error!("Failed to set global recorder: {e}");
+        });
         app.insert_resource(registry).add_systems(
             Last,
             MetricsRegistry::clear_atomic_buckets_system.in_set(ClearBucketsSystem),

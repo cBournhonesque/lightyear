@@ -69,6 +69,8 @@ pub struct StepperConfig {
     pub clients: Vec<ClientType>,
     pub server: ServerType,
     pub init: bool,
+    pub server_registry: Option<MetricsRegistry>,
+    pub client_registry: Option<MetricsRegistry>,
     pub avian_mode: AvianReplicationMode,
 }
 
@@ -81,6 +83,8 @@ impl StepperConfig {
             clients: vec![ClientType::Netcode],
             server: ServerType::Netcode,
             init: true,
+            server_registry: None,
+            client_registry: None,
             avian_mode: AvianReplicationMode::default(),
         }
     }
@@ -93,6 +97,8 @@ impl StepperConfig {
             clients: vec![ClientType::Host, ClientType::Netcode],
             server: ServerType::Netcode,
             init: true,
+            server_registry: None,
+            client_registry: None,
             avian_mode: AvianReplicationMode::default(),
         }
     }
@@ -104,6 +110,8 @@ impl StepperConfig {
             clients: vec![ClientType::Netcode; n],
             server: ServerType::Netcode,
             init: true,
+            server_registry: None,
+            client_registry: None,
             avian_mode: AvianReplicationMode::default(),
         }
     }
@@ -115,6 +123,8 @@ impl StepperConfig {
             clients,
             server,
             init: true,
+            server_registry: None,
+            client_registry: None,
             avian_mode: AvianReplicationMode::default(),
         }
     }
@@ -127,9 +137,10 @@ impl ClientServerStepper {
             config.frame_duration,
             config.server,
             config.avian_mode,
+            config.server_registry.clone(),
         );
         for client_type in config.clients {
-            stepper.new_client(client_type);
+            stepper.new_client(client_type, config.client_registry.clone());
         }
         if config.init {
             stepper.init();
@@ -144,6 +155,7 @@ impl ClientServerStepper {
         frame_duration: Duration,
         server_type: ServerType,
         avian_mode: AvianReplicationMode,
+        metrics_registry: Option<MetricsRegistry>,
     ) -> Self {
         let mut server_app = App::new();
         // NOTE: we add LogPlugin so that tracing works
@@ -153,6 +165,7 @@ impl ClientServerStepper {
             StatesPlugin,
             InputPlugin,
             LogPlugin::default(),
+            MetricsPlugin::new(metrics_registry),
         ));
         if matches!(server_type, ServerType::Steam) {
             // the steam resources need to be added before the ServerPlugins
@@ -196,7 +209,11 @@ impl ClientServerStepper {
         }
     }
 
-    pub fn new_client(&mut self, client_type: ClientType) -> usize {
+    pub fn new_client(
+        &mut self,
+        client_type: ClientType,
+        metrics_registry: Option<MetricsRegistry>,
+    ) -> usize {
         let mut client_app = App::new();
         client_app.add_plugins((
             MinimalPlugins,
@@ -204,6 +221,7 @@ impl ClientServerStepper {
             StatesPlugin,
             InputPlugin,
             LogPlugin::default(),
+            MetricsPlugin::new(metrics_registry),
         ));
 
         if client_type == ClientType::Steam {
@@ -343,6 +361,7 @@ impl ClientServerStepper {
             frame_duration,
             server_type,
             AvianReplicationMode::default(),
+            None,
         )
     }
 

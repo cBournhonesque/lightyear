@@ -1,5 +1,5 @@
 [package]
-name = "lightyear_benches"
+name = "lightyear_benches_divan"
 version.workspace = true
 publish = false
 authors.workspace = true
@@ -12,31 +12,21 @@ categories = ["game-development", "network-programming"]
 license.workspace = true
 
 [dependencies]
-lightyear = { workspace = true, features = ["interpolation", "metrics", "std"] }
+lightyear = { workspace = true, features = ["interpolation"] }
 lightyear_tests = { workspace = true }
+
 
 # enable all the bevy defaults:
 bevy = { workspace = true, default-features = true }
 tracy-client = { version = "=0.18.0" }
 
 # crates specific to benchmarks, so not in top-level Cargo workspace
-pprof = { version = "0.15.0", features = ["flamegraph", "frame-pointer"] }
-criterion = { version = "0.6", features = ["html_reports"] }
+divan = { version = "0.1.21"}
 
 [lib]
 bench = false
 
-[[bin]]
-name = "replication_profiling"
-path = "src/replication_profiling.rs"
-doc = false
-
 [[bench]]
-name = "timing"
-path = "benches/timing/main.rs"
-harness = false
-
-[[bench]]
-name = "bandwidth"
-path = "benches/bandwidth/main.rs"
+name = "message"
+path = "src/message.rs"
 harness = false
