@@ -20,7 +20,6 @@ criterion_group!(
     receive_float_update,
     send_float_insert_n_clients,
 );
-criterion_main!(replication_benches);
 
 // const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
 const NUM_ENTITIES: &[usize] = &[1000];

@@ -1,11 +1,11 @@
 [package]
-name = "lightyear_ui"
+name = "lightyear_metrics"
 version = "0.25.5"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Runtime debug UI for lightyear"
+description = "Metrics recorder lightyear"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
@@ -14,8 +14,6 @@ std = []
 test_utils = []
 
 [dependencies]
-lightyear_metrics.workspace = true
-
 # utils
 metrics.workspace = true
 metrics-util.workspace = true

@@ -153,6 +153,7 @@ impl ClientServerStepper {
             StatesPlugin,
             InputPlugin,
             LogPlugin::default(),
+            MetricsPlugin::default(),
         ));
         if matches!(server_type, ServerType::Steam) {
             // the steam resources need to be added before the ServerPlugins
@@ -204,6 +205,7 @@ impl ClientServerStepper {
             StatesPlugin,
             InputPlugin,
             LogPlugin::default(),
+            MetricsPlugin::default(),
         ));
 
         if client_type == ClientType::Steam {

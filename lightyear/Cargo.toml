@@ -117,6 +117,7 @@ trace = [
 metrics = [
   # the metrics crate is not no-std compatible currently
   "std",
+  "dep:lightyear_metrics",
   "lightyear_inputs?/metrics",
   "lightyear_interpolation?/metrics",
   "lightyear_messages/metrics",
@@ -125,7 +126,10 @@ metrics = [
   "lightyear_transport/metrics",
   "lightyear_utils/metrics",
   "lightyear_udp?/metrics",
+]
+debug = [
   "dep:lightyear_ui",
+  "metrics"
 ]
 
 ## INPUTS
@@ -184,6 +188,7 @@ lightyear_netcode = { workspace = true, optional = true }
 lightyear_interpolation = { workspace = true, optional = true }
 lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
+lightyear_metrics = { workspace = true, optional = true }
 lightyear_replication = { workspace = true, optional = true }
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true

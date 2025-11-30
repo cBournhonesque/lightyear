@@ -18,12 +18,15 @@ const MESSAGE_LEN: &[usize] = &[1, 10, 100, 1000];
     consts = MESSAGE_LEN,
 )]
 /// Sending N message from server to channel, with a local io
-fn send_receive_simple_messages_to_one_client<const N: usize>(bencher: Bencher, num_message: usize) {
+fn send_receive_simple_messages_to_one_client<const N: usize>(
+    bencher: Bencher,
+    num_message: usize,
+) {
     bencher
         .with_inputs(|| ClientServerStepper::from_config(StepperConfig::single()))
         .bench_values(|mut stepper| {
             for _ in 0..num_message {
-            stepper
+                stepper
                     .client_of_mut(0)
                     .get_mut::<MessageSender<StringMessage>>()
                     .unwrap()

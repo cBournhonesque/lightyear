@@ -10,15 +10,40 @@ use metrics_util::{
     registry::{AtomicStorage, Registry},
     storage::AtomicBucket,
 };
+#[cfg(feature = "std")]
+use {metrics::set_global_recorder, std::sync::LazyLock};
+
+/// In some cases it can be convenient to use a global registry instead of the [`MetricsRegistry`] resource
+#[cfg(feature = "std")]
+pub static GLOBAL_RECORDER: LazyLock<MetricsRegistry> = LazyLock::new(|| {
+    let registry = MetricsRegistry::default();
+    _ = set_global_recorder(registry.clone());
+    registry.clone()
+});
 
 /// Tracks all metrics in the current process.
 ///
 /// You may never need to interact with this, unless you want to call
 /// [`set_global_recorder`](metrics::set_global_recorder) manually and provide a
-/// clone of that same registry to the [`RegistryPlugin`](super::plugin::RegistryPlugin).
+/// clone of that same registry to the [`RegistryPlugin`](super::plugin::MetricsPlugin).
 #[derive(Clone, Resource)]
 pub struct MetricsRegistry {
     inner: Arc<Inner>,
+}
+
+impl MetricsRegistry {
+    pub fn fetch_metric_value(&self, key: &CompositeKey) -> Option<f64> {
+        match key.kind() {
+            MetricKind::Counter => self.get_counter_value(key.key()),
+            MetricKind::Gauge => self.get_gauge_value(key.key()),
+            MetricKind::Histogram => self.get_histogram_mean(key.key()),
+        }
+    }
+
+    #[cfg(feature = "std")]
+    pub fn fetch_global_metric_value(key: &CompositeKey) -> Option<f64> {
+        GLOBAL_RECORDER.fetch_metric_value(key)
+    }
 }
 
 struct Inner {

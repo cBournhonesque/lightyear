@@ -12,9 +12,8 @@ categories = ["game-development", "network-programming"]
 license.workspace = true
 
 [dependencies]
-lightyear = { workspace = true, features = ["interpolation"] }
+lightyear = { workspace = true, features = ["interpolation", "metrics"] }
 lightyear_tests = { workspace = true }
-
 
 # enable all the bevy defaults:
 bevy = { workspace = true, default-features = true }
@@ -33,11 +32,11 @@ path = "src/replication_profiling.rs"
 doc = false
 
 [[bench]]
-name = "replication"
-path = "src/replication.rs"
+name = "timing"
+path = "benches/timing/main.rs"
 harness = false
 
 [[bench]]
-name = "message"
-path = "src/message.rs"
+name = "bandwidth"
+path = "benches/bandwidth/main.rs"
 harness = false

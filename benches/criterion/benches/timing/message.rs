@@ -7,7 +7,6 @@ use lightyear_tests::protocol::{Channel1, StringMessage};
 use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
 
 criterion_group!(message_benches, send_receive_simple_messages_to_one_client);
-criterion_main!(message_benches);
 
 const NUM_MESSAGE: &[usize] = &[0, 10, 100, 1000, 10000];
 
