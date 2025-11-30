@@ -15,5 +15,6 @@ pub mod prelude {
     pub use crate::plugin::{ClearBucketsSystem, MetricsPlugin};
     #[cfg(feature = "std")]
     pub use crate::registry::GLOBAL_RECORDER;
+
     pub use crate::registry::{MetricsRegistry, SearchResult};
 }

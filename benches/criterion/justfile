@@ -1,0 +1,20 @@
+# run each benchmark once.
+test:
+    cargo test --benches -- --nocapture
+
+# run a specific benchmark once. This is mostly useful for bandwidth benchmarks, as the bandwidth is deterministic so we only need to run it once
+test-target target="bandwidth":
+    cargo test --bench={{target}} -- --nocapture
+
+# run a benchmark
+profile bench="timing" target="replication/send_float_insert/1_client":
+    cargo bench --bench {{bench}} --profile=release -- {{target}} --nocapture
+
+# Run the benchmark and generate a flamegraph.
+# The env variables are needed to have debug symbols even in release mode.
+bench bench="timing" target="replication/send_float_insert/1_client":
+    CARGO_PROFILE_RELEASE_DEBUG=true RUSTFLAGS='-C force-frame-pointers=y' cargo bench --bench {{bench}} --profile=release -- {{target}}
+
+# Run the flamegraph separately
+flamegraph:
+    CARGO_PROFILE_RELEASE_DEBUG=true RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph --root --bin=replication_profiling --profile=release

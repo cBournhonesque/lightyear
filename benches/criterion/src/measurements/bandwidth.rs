@@ -117,14 +117,16 @@ struct BandwidthFormatter;
 impl ValueFormatter for BandwidthFormatter {
     fn format_value(&self, value: f64) -> String {
         // The value will be in nanoseconds so we have to convert to half-seconds.
-        format!("{} KB", value / 1024.0)
+        format!("{:.2} KB", value / 1024.0)
     }
 
     fn format_throughput(&self, throughput: &Throughput, value: f64) -> String {
         match *throughput {
-            Throughput::Bytes(bytes) => format!("{} KB/s", bytes as f64 / (value * 1024.0)),
-            Throughput::BytesDecimal(bytes) => format!("{} KB/s", bytes as f64 / (value * 1024.0)),
-            Throughput::Elements(elems) => format!("{} elem/s", elems as f64 / (value * 1024.0)),
+            Throughput::Bytes(bytes) => format!("{:.2} KB/s", bytes as f64 / (value * 1024.0)),
+            Throughput::BytesDecimal(bytes) => {
+                format!("{:.2} KB/s", bytes as f64 / (value * 1024.0))
+            }
+            Throughput::Elements(elems) => format!("{:.2} elem/s", elems as f64 / (value * 1024.0)),
         }
     }
 

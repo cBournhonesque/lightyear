@@ -92,7 +92,7 @@ fn test_spawn_new_connection() {
         .unwrap();
 
     // second client connects
-    stepper.new_client(ClientType::Netcode);
+    stepper.new_client(ClientType::Netcode, None);
     stepper.init();
 
     // make sure the entity is also replicated to the newly connected client

@@ -10,9 +10,3 @@ opt-level = 3
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
-
-# used for debugging/profiling
-[profile.debug]
-rustflags = ["-C", "force-frame-pointers=yes", "-C", "symbol-mangling-version=v0"]
-debug = "line-tables-only"
-

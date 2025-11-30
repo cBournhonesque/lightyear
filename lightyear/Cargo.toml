@@ -34,6 +34,7 @@ std = [
   "lightyear_inputs_native?/std",
   "lightyear_interpolation?/std",
   "lightyear_link/std",
+  "lightyear_metrics/std",
   "lightyear_messages/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",

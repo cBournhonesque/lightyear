@@ -190,7 +190,7 @@ fn test_replicate_new_connection() {
         .unwrap();
 
     // new client connects
-    stepper.new_client(ClientType::Netcode);
+    stepper.new_client(ClientType::Netcode, None);
     stepper.init();
 
     info!("Spawning entity 2 on server");
