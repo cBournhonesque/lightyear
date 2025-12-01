@@ -31,11 +31,10 @@ use lightyear_messages::MessageManager;
 use lightyear_serde::entity_map::RemoteEntityMap;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
-use tracing::warn;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
-use tracing::{debug, error, info, info_span, trace, trace_span};
+use tracing::{debug, error, info, info_span, trace, trace_span, warn};
 
 pub(crate) fn replicate(
     // query &C + various replication components
@@ -112,7 +111,7 @@ pub(crate) fn replicate(
                     continue;
                 }
                 let Ok(root_entity_ref) = entity_query.get(entity) else {
-                    warn!("Replicated Entity {:?} not found in entity_query", entity);
+                    debug!("Replicated Entity {:?} not found in entity_query", entity);
                     continue;
                 };
                 let _root_span = trace_span!("root", ?entity).entered();

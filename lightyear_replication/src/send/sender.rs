@@ -61,7 +61,7 @@ pub struct ReplicationStatus {
     /// If true, the sender has sent a Spawn message about the entity.
     /// This is useful because each sender runs the replication system at a different time (because they might have
     /// different send_intervals)
-    spawned: bool,
+    pub(crate) spawned: bool,
 }
 
 #[derive(Component, Debug)]
@@ -185,14 +185,13 @@ impl ReplicationSender {
         }
     }
 
-    pub(crate) fn add_replicated_entity(&mut self, entity: Entity, authority: bool) {
-        self.replicated_entities.insert(
-            entity,
-            ReplicationStatus {
-                authority,
+    pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {
+        self.replicated_entities
+            .entry(entity)
+            .or_insert(ReplicationStatus {
+                authority: true,
                 spawned: false,
-            },
-        );
+            });
     }
 
     pub fn gain_authority(&mut self, entity: Entity) {

@@ -1,9 +1,4 @@
 //! The client plugin.
-//! The client will be responsible for:
-//! - connecting to the server at Startup
-//! - sending inputs to the server
-//! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
-//! predicted entity and the server entity)
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
@@ -34,7 +29,7 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-/// When a Ball entity gets replicated to use from the server, add the Replicate component
+/// When a Ball entity gets replicated to us from the server, add the Replicate component
 /// on the client so that we can replicate updates to the server if we get authority
 /// over the ball
 pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) {
@@ -44,7 +39,7 @@ pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) 
         ..default()
     });
     commands.entity(trigger.entity).insert((
-        Replicate::to_server(),
+        Replicate::to_server().without_authority(),
         Name::new("Ball"),
         // Disable PlayerColor replication from client to server
         color_override,

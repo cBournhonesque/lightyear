@@ -19,6 +19,7 @@ use lightyear_transport::packet::message::MessageId;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, trace_span, warn};
 
+use crate::authority::AuthorityBroker;
 use crate::plugin::ReplicationSystems;
 use crate::prelude::{Persistent, PreSpawned, ReplicationGroupId, ReplicationSender};
 use crate::prespawn::PreSpawnedReceiver;
@@ -27,10 +28,12 @@ use crate::send::sender::ReplicationStatus;
 use crate::{plugin, prespawn};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_connection::host::HostClient;
+use lightyear_connection::server::Started;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted};
 use lightyear_core::timeline::NetworkTimeline;
+use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
@@ -131,6 +134,7 @@ impl ReplicationReceivePlugin {
                 With<LocalTimeline>,
             ),
         >,
+        authority: &mut QueryState<Entity, (With<Server>, With<Started>, With<AuthorityBroker>)>,
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
@@ -141,6 +145,9 @@ impl ReplicationReceivePlugin {
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
         // See https://discord.com/channels/691052431525675048/1358658786851684393/1358793406679355593
         receiver_entities.extend(query.iter(world).map(|(e, remote_id)| (e, remote_id.0)));
+
+        // get the server entity to update the AuthorityBroker state
+        let server_entity = authority.single(world).ok();
 
         // SAFETY: the other uses of `world` won't access the ComponentRegistry
         let unsafe_world = world.as_unsafe_world_cell();
@@ -156,10 +163,12 @@ impl ReplicationReceivePlugin {
                 let unsafe_world = world.as_unsafe_world_cell();
                 // Get the list of entities which we might have authority over
                 // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
-                let authority_map = unsafe { unsafe_world.world_mut() }
-                    .get::<ReplicationSender>(entity)
-                    .as_ref()
-                    .map(|s| &s.replicated_entities);
+                let mut binding =
+                    unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationSender>(entity);
+                let mut authority_map = binding
+                    .as_mut()
+                    .map(|s| &mut **s)
+                    .map(|s| &mut s.replicated_entities);
 
                 // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function
                 let mut receiver = unsafe { unsafe_world.world_mut() }
@@ -181,7 +190,8 @@ impl ReplicationReceivePlugin {
                     entity,
                     remote_peer,
                     &mut manager.entity_mapper,
-                    authority_map,
+                    &mut authority_map,
+                    server_entity,
                     component_registry,
                     tick,
                 );
@@ -394,7 +404,8 @@ impl ReplicationReceiver {
         receiver_entity: Entity,
         remote: PeerId,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: Option<&EntityIndexMap<ReplicationStatus>>,
+        authority_map: &mut Option<&mut EntityIndexMap<ReplicationStatus>>,
+        server_entity: Option<Entity>,
         component_registry: &ComponentRegistry,
         current_tick: Tick,
     ) {
@@ -439,6 +450,7 @@ impl ReplicationReceiver {
                         message,
                         remote_entity_map,
                         authority_map,
+                        server_entity,
                         &mut self.buffer,
                     );
                 }
@@ -734,7 +746,8 @@ impl GroupChannel {
         remote_tick: Tick,
         message: ActionsMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: Option<&EntityIndexMap<ReplicationStatus>>,
+        authority_map: &mut Option<&mut EntityIndexMap<ReplicationStatus>>,
+        server_entity: Option<Entity>,
         temp_write_buffer: &mut BufferedChanges,
     ) {
         let insert_sync_components = |predicted: bool,
@@ -779,7 +792,9 @@ impl GroupChannel {
         let world_clone = world.as_unsafe_world_cell();
         let mut prespawned_receiver =
             unsafe { world_clone.world_mut() }.get_mut::<PreSpawnedReceiver>(receiver_entity);
-        // SAFETY: the rest of the function won't affect PreSpawnedReceiver
+        let mut authority_broker = server_entity
+            .and_then(|e| unsafe { world_clone.world_mut() }.get_mut::<AuthorityBroker>(e));
+        // SAFETY: the rest of the function won't use world to access PreSpawnedReceiver or AuthorityBroker
         let world = unsafe { world_clone.world_mut() };
 
         // NOTE: order matters here, because some components can depend on other entities.
@@ -810,6 +825,13 @@ impl GroupChannel {
                     })
                     .or(remote_entity_map.get_local(remote_entity))
                 {
+                    // if we received the entity from the remote, then we don't have authority over it
+                    if let Some(ref mut broker) = authority_broker {
+                        broker.owners.entry(local_entity).or_insert(Some(remote));
+                    }
+                    if let Some(authority_map) = authority_map {
+                        authority_map.entry(local_entity).or_default();
+                    }
                     if let Ok(mut local_entity) = world.get_entity_mut(local_entity) {
                         debug!(
                             "Received spawn for entity {:?} that already exists. This might be because of an authority transfer or prespawning.",
@@ -855,6 +877,14 @@ impl GroupChannel {
                         receiver: receiver_entity,
                     },
                 ));
+                // if we received the entity from the remote, then we don't have authority over it
+                if let Some(ref mut broker) = authority_broker {
+                    broker.owners.insert(local_entity.id(), Some(remote));
+                }
+                if let Some(authority_map) = authority_map {
+                    authority_map.insert(local_entity.id(), ReplicationStatus::default());
+                }
+
                 debug!(
                     "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
                     local_entity.id()
@@ -913,6 +943,7 @@ impl GroupChannel {
 
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map
+                .as_ref()
                 .is_some_and(|a| a.get(&local_entity).is_some_and(|status| status.authority))
             {
                 trace!(
@@ -994,7 +1025,7 @@ impl GroupChannel {
         is_history: bool,
         message: UpdatesMessage,
         remote_entity_map: &mut RemoteEntityMap,
-        authority_map: Option<&EntityIndexMap<ReplicationStatus>>,
+        authority_map: &mut Option<&mut EntityIndexMap<ReplicationStatus>>,
     ) {
         let group_id = message.group_id;
         let is_default_group = group_id == ReplicationGroupId(0);
@@ -1036,6 +1067,7 @@ impl GroupChannel {
 
             // the local Sender has authority over the entity, so we don't want to accept the updates
             if authority_map
+                .as_ref()
                 .is_some_and(|a| a.get(&local_entity).is_some_and(|status| status.authority))
             {
                 trace!(
