@@ -49,8 +49,8 @@ pub mod visibility;
 /// Commonly used items for replication.
 pub mod prelude {
     pub use crate::authority::{
-        AuthorityBroker, AuthorityGrantedEvent, AuthorityPlugin, AuthorityTransfer,
-        AuthorityTransferEvent, AuthorityTransferType, GiveAuthority, RequestAuthority,
+        AuthorityBroker, AuthorityPlugin, AuthorityTransfer, GiveAuthority, HasAuthority,
+        RequestAuthority,
     };
     pub use crate::components::*;
     pub use crate::control::{Controlled, ControlledBy, ControlledByRemote, Lifetime};

@@ -23,7 +23,6 @@ impl Plugin for ExampleClientPlugin {
             buffer_input.in_set(InputSystems::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
-        app.add_systems(Update, change_ball_color_on_authority);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_ball);
     }
@@ -39,7 +38,7 @@ pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) 
         ..default()
     });
     commands.entity(trigger.entity).insert((
-        Replicate::to_server().without_authority(),
+        Replicate::to_server(),
         Name::new("Ball"),
         // Disable PlayerColor replication from client to server
         color_override,
@@ -80,66 +79,6 @@ fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs
     for (position, input) in position_query.iter_mut() {
         shared::shared_movement_behaviour(position, input);
     }
-}
-
-/// Set the color of the ball to the color of the peer that has authority
-// Changed to observe HasAuthority component changes
-pub(crate) fn change_ball_color_on_authority(
-    // Observe changes to HasAuthority on Ball entities
-    authority_changes: Query<
-        (Entity, &Authority),
-        (
-            With<BallMarker>,
-            Or<(Added<HasAuthority>, Changed<HasAuthority>)>,
-        ),
-    >,
-    no_authority_balls: Query<Entity, (With<BallMarker>, Without<HasAuthority>)>,
-    players: Query<(&PlayerColor, &PlayerId), With<Confirmed>>, // Query confirmed players for color
-    mut balls: Query<&mut PlayerColor, With<BallMarker>>,       // Query ball color mutably
-) {
-    // Handle cases where authority is gained or changed
-    for (ball_entity, authority) in authority_changes.iter() {
-        if let Ok(mut ball_color) = balls.get_mut(ball_entity) {
-            match authority.peer_id {
-                PeerId::Server => {
-                    ball_color.0 = Color::WHITE;
-                    info!("Ball authority changed to Server. Setting color to WHITE.");
-                }
-                PeerId::Client(client_id) => {
-                    let player_color_opt = players
-                        .iter()
-                        .find(|(_, player_id)| player_id.0 == client_id)
-                        .map(|(color, _)| color.0);
-                    if let Some(player_color) = player_color_opt {
-                        ball_color.0 = player_color;
-                        info!(
-                            "Ball authority changed to Client {}. Setting color.",
-                            client_id
-                        );
-                    } else {
-                        warn!("Could not find player color for client {}", client_id);
-                        ball_color.0 = Color::BLACK; // Fallback color
-                    }
-                }
-            }
-        }
-    }
-
-    // Handle cases where authority is lost (HasAuthority component removed)
-    // This requires tracking removals, which is harder with observers directly.
-    // An alternative is to check balls without HasAuthority each frame.
-    for ball_entity in no_authority_balls.iter() {
-        if let Ok(mut ball_color) = balls.get_mut(ball_entity) {
-            if ball_color.0 != Color::BLACK {
-                // Avoid redundant sets
-                ball_color.0 = Color::BLACK;
-                info!("Ball lost authority. Setting color to BLACK.");
-            }
-        }
-    }
-
-    // Old logic using messages:
-    // for event in messages.drain() { ... }
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

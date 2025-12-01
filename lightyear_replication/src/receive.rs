@@ -28,12 +28,10 @@ use crate::send::sender::ReplicationStatus;
 use crate::{plugin, prespawn};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
 use lightyear_connection::host::HostClient;
-use lightyear_connection::server::Started;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted};
 use lightyear_core::timeline::NetworkTimeline;
-use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
@@ -134,7 +132,7 @@ impl ReplicationReceivePlugin {
                 With<LocalTimeline>,
             ),
         >,
-        authority: &mut QueryState<Entity, (With<Server>, With<Started>, With<AuthorityBroker>)>,
+        authority: &mut QueryState<Entity, With<AuthorityBroker>>,
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
