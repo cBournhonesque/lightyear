@@ -12,6 +12,7 @@ use crate::shared::color_from_id;
 use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
+use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::native::prelude::ActionState;
 use lightyear::prelude::*;
@@ -101,21 +102,25 @@ pub(crate) fn transfer_authority(
     // mut connection: ResMut<ServerConnectionManager>,
     mut commands: Commands,
     ball_q: Query<(Entity, &Position), With<BallMarker>>,
-    player_q: Query<(&PlayerId, &Position)>, // PlayerId now contains PeerId
+    player_q: Query<(&PlayerId, &Position)>,
+    peer_metadata: Res<PeerMetadata>,
 ) {
-    if !timer.tick(time.delta()).finished() {
+    if !timer.tick(time.delta()).is_finished() {
         return;
     }
     *timer = Timer::new(Duration::from_secs_f32(0.3), TimerMode::Once);
     for (ball_entity, ball_pos) in ball_q.iter() {
         // TODO: sort by player_id?
         for (player_id, player_pos) in player_q.iter() {
+            let sender = *peer_metadata.mapping.get(&player_id.0).unwrap();
             if player_pos.0.distance(ball_pos.0) < 100.0 {
-                trace!("Player {:?} has authority over the ball", player_id);
+                trace!("Give authority to Player {:?}", player_id);
                 // Use PeerId::Client for authority transfer
-                commands
-                    .entity(ball_entity)
-                    .transfer_authority(PeerId::Client(player_id.0));
+                commands.trigger(GiveAuthority {
+                    sender,
+                    entity: ball_entity,
+                    remote_peer: player_id.0,
+                });
 
                 // Removed message sending for AuthorityPeer
                 // connection.send_message_to_target::<Channel1, _>(...)
@@ -124,6 +129,11 @@ pub(crate) fn transfer_authority(
         }
 
         // if no player is close to the ball, transfer authority back to the server
+        commands.trigger(RequestAuthority {
+            sender,
+            entity: ball_entity,
+            remote_peer: player_id.0,
+        });
         commands
             .entity(ball_entity)
             .transfer_authority(PeerId::Server); // Use PeerId::Server
