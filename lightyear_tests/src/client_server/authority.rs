@@ -43,7 +43,7 @@ fn test_give_authority_server_to_client() {
         .insert(Replicate::to_server());
     stepper.server_app.world_mut().trigger(GiveAuthority {
         entity: server_entity,
-        remote_peer: Some(PeerId::Netcode(0)),
+        peer: Some(PeerId::Netcode(0)),
     });
     stepper.frame_step(2);
 
@@ -137,7 +137,7 @@ fn test_give_authority_client_to_server() {
         .insert(Replicate::to_clients(NetworkTarget::All));
     stepper.client_app().world_mut().trigger(GiveAuthority {
         entity: client_entity,
-        remote_peer: Some(PeerId::Server),
+        peer: Some(PeerId::Server),
     });
     stepper.frame_step(2);
 
@@ -224,7 +224,7 @@ fn test_transfer_authority_despawn() {
 
     stepper.client_app().world_mut().trigger(GiveAuthority {
         entity: client_entity,
-        remote_peer: Some(PeerId::Server),
+        peer: Some(PeerId::Server),
     });
     stepper.frame_step(2);
 
@@ -294,7 +294,7 @@ fn test_transfer_authority_map_entities() {
 
     stepper.client_app().world_mut().trigger(GiveAuthority {
         entity: client_entity,
-        remote_peer: Some(PeerId::Server),
+        peer: Some(PeerId::Server),
     });
     stepper.frame_step(2);
 
@@ -420,7 +420,7 @@ fn test_transfer_authority_client_to_client() {
     // give the authority from client 0 to client 1
     stepper.client_apps[0].world_mut().trigger(GiveAuthority {
         entity: client_entity_0,
-        remote_peer: Some(PeerId::Netcode(1)),
+        peer: Some(PeerId::Netcode(1)),
     });
     stepper.frame_step(4);
 

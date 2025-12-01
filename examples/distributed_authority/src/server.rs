@@ -41,8 +41,6 @@ fn setup(mut commands: Commands) {
         PlayerColor(Color::WHITE),
         Replicate::to_clients(NetworkTarget::All),
         InterpolationTarget::to_clients(NetworkTarget::All),
-        // Add ReplicationSender to send updates back to clients
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
     ));
 }
 
@@ -93,83 +91,63 @@ fn movement(
     }
 }
 
-/// Assign authority over the ball to any player that comes close to it
+/// Assign authority over the ball to any player that comes close to it.
+///
+/// The server has the power to give the authority to any peer.
+/// This is controlled via the field `has_full_control` on the [`AuthorityBroker`] component.
 pub(crate) fn transfer_authority(
     // timer so that we only transfer authority every X seconds
     mut timer: Local<Timer>,
     time: Res<Time>,
-    // Use ServerConnectionManager (though not needed for sending messages anymore)
-    // mut connection: ResMut<ServerConnectionManager>,
     mut commands: Commands,
     ball_q: Query<(Entity, &Position), With<BallMarker>>,
     player_q: Query<(&PlayerId, &Position)>,
-    peer_metadata: Res<PeerMetadata>,
 ) {
     if !timer.tick(time.delta()).is_finished() {
         return;
     }
     *timer = Timer::new(Duration::from_secs_f32(0.3), TimerMode::Once);
     for (ball_entity, ball_pos) in ball_q.iter() {
-        // TODO: sort by player_id?
+        let mut closest = None;
+        let mut closest_distance = f32::MAX;
         for (player_id, player_pos) in player_q.iter() {
-            let sender = *peer_metadata.mapping.get(&player_id.0).unwrap();
-            if player_pos.0.distance(ball_pos.0) < 100.0 {
-                trace!("Give authority to Player {:?}", player_id);
-                // Use PeerId::Client for authority transfer
-                commands.trigger(GiveAuthority {
-                    sender,
-                    entity: ball_entity,
-                    remote_peer: player_id.0,
-                });
-
-                // Removed message sending for AuthorityPeer
-                // connection.send_message_to_target::<Channel1, _>(...)
-                return;
+            let dist = player_pos.0.distance(ball_pos.0);
+            if dist < 100.0 && dist < closest_distance {
+                closest_distance = dist;
+                closest = Some(player_id.0);
             }
         }
-
+        let new_authority = Some(closest.unwrap_or(PeerId::Server));
+        debug!("Give authority to peer {:?}", new_authority);
         // if no player is close to the ball, transfer authority back to the server
-        commands.trigger(RequestAuthority {
-            sender,
+        commands.trigger(GiveAuthority {
             entity: ball_entity,
-            remote_peer: player_id.0,
+            peer: new_authority,
         });
-        commands
-            .entity(ball_entity)
-            .transfer_authority(PeerId::Server); // Use PeerId::Server
-
-        // Removed message sending for AuthorityPeer
-        // connection.send_message_to_target::<Channel1, _>(...)
     }
 }
 
 /// Everytime the ball changes authority, repaint the ball according to the new owner
 pub(crate) fn update_ball_color(
-    // Query Authority component instead of AuthorityPeer
-    mut balls: Query<(&mut PlayerColor, &Authority), (With<BallMarker>, Changed<Authority>)>,
+    broker: Query<&AuthorityBroker, (With<Server>, Changed<AuthorityBroker>)>,
+    mut balls: Query<&mut PlayerColor, With<BallMarker>>,
     player_q: Query<(&PlayerId, &PlayerColor), Without<BallMarker>>, // PlayerId now contains PeerId
 ) {
-    for (mut ball_color, authority) in balls.iter_mut() {
-        info!("Ball authority changed to {:?}", authority.peer_id);
-        match authority.peer_id {
-            // Check authority.peer_id
-            PeerId::Server => {
-                // Use PeerId::Server
-                ball_color.0 = Color::WHITE;
-            }
-            PeerId::Client(client_id) => {
-                // Use PeerId::Client
-                let player_color_opt = player_q
-                    .iter()
-                    .find(|(player_id, _)| player_id.0 == client_id)
-                    .map(|(_, color)| color.0);
-                if let Some(player_color) = player_color_opt {
-                    ball_color.0 = player_color;
-                } else {
-                    warn!("Could not find player color for client {}", client_id);
-                    ball_color.0 = Color::BLACK; // Fallback color
+    if let Ok(broker) = broker.single() {
+        for (entity, current_authority) in broker.owners.iter() {
+            if let Ok(mut color) = balls.get_mut(*entity) {
+                match current_authority {
+                    None => {
+                        color.0 = Color::BLACK;
+                    }
+                    Some(PeerId::Server) => {
+                        color.0 = Color::WHITE;
+                    }
+                    Some(p) => {
+                        color.0 = color_from_id(*p);
+                    }
                 }
-            } // AuthorityPeer::None is not directly represented, absence of Authority component implies no authority
+            }
         }
     }
 }

@@ -107,7 +107,7 @@ pub(crate) fn replicate(
             for i in 0..sender.replicated_entities.len() {
                 let (&entity, status) = sender.replicated_entities.get_index(i).unwrap();
                 if !status.authority {
-                    trace!("Skipping entity {entity:?} because we don't have authority");
+                    info!("Skipping entity {entity:?} because we don't have authority");
                     continue;
                 }
                 let Ok(root_entity_ref) = entity_query.get(entity) else {
