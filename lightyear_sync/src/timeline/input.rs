@@ -6,7 +6,6 @@ use crate::timeline::sync::{
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_utils::default;
 use core::time::Duration;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
