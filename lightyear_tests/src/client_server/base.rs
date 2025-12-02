@@ -27,16 +27,6 @@ fn test_setup_client_server() {
             .contains::<MessageReceiver<StringMessage>>()
     );
     assert!(stepper.client(0).contains::<EventSender<SenderMetadata>>());
-    assert!(
-        stepper
-            .client(0)
-            .contains::<EventSender<AuthorityTransferEvent>>()
-    );
-    assert!(
-        stepper
-            .client(0)
-            .contains::<EventSender<AuthorityGrantedEvent>>()
-    );
     assert!(stepper.client(0).contains::<ReplicationSender>());
     assert!(stepper.client(0).contains::<ReplicationReceiver>());
     assert!(stepper.client(0).contains::<CrossbeamIo>());
@@ -66,16 +56,6 @@ fn test_setup_client_server() {
         stepper
             .client_of(0)
             .contains::<EventSender<SenderMetadata>>()
-    );
-    assert!(
-        stepper
-            .client_of(0)
-            .contains::<EventSender<AuthorityTransferEvent>>()
-    );
-    assert!(
-        stepper
-            .client_of(0)
-            .contains::<EventSender<AuthorityGrantedEvent>>()
     );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());

@@ -28,7 +28,6 @@ impl InputTimelineConfig {
         Self {
             sync: sync_config,
             input_delay_config: input_delay,
-            ..default()
         }
     }
 

@@ -128,10 +128,7 @@ metrics = [
   "lightyear_utils/metrics",
   "lightyear_udp?/metrics",
 ]
-debug = [
-  "dep:lightyear_ui",
-  "metrics"
-]
+debug = ["dep:lightyear_ui", "metrics"]
 
 ## INPUTS
 ## Add support for handling inputs where you can define your own input structs
