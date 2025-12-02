@@ -237,7 +237,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     /// Synchronize the driving timeline's phase with the local simulation phase
     /// derived from [`LocalTimeline`] and [`Time<Fixed>`].
     ///
-    /// This runs once per frame before [`sync_timelines`] for driving timelines.
+    /// This runs once per frame before `sync_timelines` for driving timelines.
     pub(crate) fn sync_from_local_timeline(
         fixed_time: Res<Time<Fixed>>,
         mut query: Query<(&LocalTimeline, &mut Synced)>,

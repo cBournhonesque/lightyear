@@ -7,9 +7,7 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
-use lightyear_replication::prelude::{
-    ComponentReplicationOverride, ComponentReplicationOverrides, Replicate, ReplicationSender,
-};
+use lightyear_replication::prelude::*;
 use lightyear_sync::prelude::InputTimeline;
 use test_log::test;
 use tracing::info;
@@ -362,6 +360,55 @@ fn test_component_remove() {
             .entity(server_entity)
             .get::<CompA>()
             .is_none()
+    );
+}
+
+/// Check that component removes are not replicated if the entity does not have Replicating
+#[test]
+fn test_component_remove_not_replicating() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), CompA(1.0)))
+        .id();
+    stepper.frame_step(1);
+    let server_entity = stepper
+        .client_of(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(client_entity)
+        .unwrap();
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .expect("component missing"),
+        &CompA(1.0)
+    );
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .remove::<Replicating>();
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .remove::<CompA>();
+    stepper.frame_step(1);
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<CompA>()
+            .is_some()
     );
 }
 
