@@ -52,9 +52,12 @@
 //! ### Misc
 //!
 //! - Only the server knows which peer has authority over each entity; this information is present in the [`AuthorityBroker`] component.
+//!
 //! - You can use the `has_full_control` field on the [`AuthorityBroker`] to specify whether the server is allowed to forcefully steal authority
 //! from other peers.
+//!
 //! - A entity can be orphaned, in which case no peer has authority over it and it is not simulated.
+//!
 //! - For each `Link` between two peers, only one of those two peers can have authority over an entity.
 //! This means that replication updates only flow in one direction, even if the [`Replicate`] component is present on both sides
 //! of the Link.

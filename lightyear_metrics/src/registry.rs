@@ -24,7 +24,7 @@ pub static GLOBAL_RECORDER: LazyLock<MetricsRegistry> = LazyLock::new(|| {
 /// Tracks all metrics in the current process.
 ///
 /// You may never need to interact with this, unless you want to call
-/// [`set_global_recorder`](metrics::set_global_recorder) manually and provide a
+/// [`set_global_recorder`] manually and provide a
 /// clone of that same registry to the [`RegistryPlugin`](super::plugin::MetricsPlugin).
 #[derive(Clone, Resource)]
 pub struct MetricsRegistry {

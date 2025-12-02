@@ -164,8 +164,7 @@ impl ReplicationReceivePlugin {
                 let mut binding =
                     unsafe { unsafe_world.world_mut() }.get_mut::<ReplicationSender>(entity);
                 let mut authority_map = binding
-                    .as_mut()
-                    .map(|s| &mut **s)
+                    .as_deref_mut()
                     .map(|s| &mut s.replicated_entities);
 
                 // SAFETY: all these accesses don't conflict with each other. We need these because there is no `world.entity_mut::<QueryData>` function

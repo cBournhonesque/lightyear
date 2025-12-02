@@ -18,7 +18,10 @@ use lightyear_serde::writer::Writer;
 #[allow(unused_imports)]
 use tracing::{debug, info};
 #[cfg(any(feature = "client", feature = "server"))]
-use {lightyear_connection::{server::Started, host::HostClient}, lightyear_link::prelude::Server};
+use {
+    lightyear_connection::{host::HostClient, server::Started},
+    lightyear_link::prelude::Server,
+};
 #[cfg(feature = "server")]
 use {
     lightyear_inputs::server::ServerInputConfig, lightyear_messages::MessageManager,
