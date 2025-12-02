@@ -4,16 +4,63 @@
 //! That peer will then be replicating the entity to other peers.
 //!
 //! Note that replicating state to other peers doesn't necessary mean that you have authority:
-//! client C1 could have authority (is simulating the entity), replicated to the server which then replicates to other clients.
-//! In this case C1 has authority even though the server is still replicating some states.
+//! client C1 could have authority (is simulating the entity) and replicates updates to the server which then replicates to other clients.
+//! In this case C1 has authority even though the server is still replicating to entity's state to the other clients.
 //!
-//! For every Link between two peers, an entity can have a Replicate component on both sides. (enabling replication in both directions)
-//! However only one side of the Link can have authority over the entity, and that side will be sending replication
-//! updates to the other side.
+//! Conversely, having authority over an entity does not mean that replication updates are being sent. You still need to add
+//! a [`Replicate`] component on the entity to send replication updates. Replication is only done if:
+//! - the peer has authority over the entity
+//! - the [`Replicate`] component is present on the entity
 //!
-//! The Server will always know which peer has authority over an entity as it brokers the authority messages between
-//! the different peers.
-//! A entity can be orphaned, in which case no peer has authority over it and it is not simulated.
+//! ### Acquiring authority
+//!
+//! - Authority is acquired over an entity when the [`Replicate`] component is added to the entity
+//! - If the entity is received from a remote peer via replication, then we don't have authority over the entity
+//!
+//! The entity will have a [`HasAuthority`] component in the app of the peer that currently holds authority over an entity.
+//! You can filter on this component to avoid simulating the entity when you don't have authority over it.
+//!
+
+//!
+//! ### Transferring authority
+//!
+//! You can transfer authority by simply emitting the following triggers:
+//! ```rust
+//! # use bevy_ecs::entity::Entity;
+//! use bevy_ecs::prelude::World;
+//! # use lightyear_replication::prelude::{GiveAuthority, RequestAuthority};
+//! # let entity = Entity::from_raw_u32(1);
+//! # let mut world = World::new();
+//!
+//! // Give authority to another peer
+//! world.trigger(GiveAuthority {
+//!   entity,
+//!   peer: Some(PeerId::Netcode(1))
+//! });
+//!
+//! // Request authority from another peer
+//! // The server will automatically transfer the request to the peer currently having authority over the entity.
+//! world.trigger(RequestAuthority {
+//!   entity,
+//! });
+//! ```
+//!
+//! The peer holding authority over the entity can add the [`AuthorityTransfer`] component to specify if it
+//! can give away authority over the entity.
+//!
+//!
+//! ### Misc
+//!
+//! - Only the server knows which peer has authority over each entity; this information is present in the [`AuthorityBroker`] component.
+//! - You can use the `has_full_control` field on the [`AuthorityBroker`] to specify whether the server is allowed to forcefully steal authority
+//! from other peers.
+//! - A entity can be orphaned, in which case no peer has authority over it and it is not simulated.
+//! - For each `Link` between two peers, only one of those two peers can have authority over an entity.
+//! This means that replication updates only flow in one direction, even if the [`Replicate`] component is present on both sides
+//! of the Link.
+//!
+//!
+//! [`Replicate`]: crate::prelude::Replicate
 
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin};
