@@ -52,6 +52,7 @@ pub enum ClientType {
     Host,
     Raw,
     Netcode,
+    #[cfg(feature = "steam")]
     Steam,
 }
 
@@ -59,6 +60,7 @@ pub enum ClientType {
 pub enum ServerType {
     Raw,
     Netcode,
+    #[cfg(feature = "steam")]
     Steam,
 }
 
@@ -167,6 +169,7 @@ impl ClientServerStepper {
             LogPlugin::default(),
             MetricsPlugin::new(metrics_registry),
         ));
+        #[cfg(feature = "steam")]
         if matches!(server_type, ServerType::Steam) {
             // the steam resources need to be added before the ServerPlugins
             server_app.add_steam_resources(STEAM_APP_ID);
@@ -185,6 +188,7 @@ impl ClientServerStepper {
                     lightyear_netcode::server_plugin::NetcodeConfig::default(),
                 ));
             }
+            #[cfg(feature = "steam")]
             ServerType::Steam => {
                 let server_addr =
                     SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, SERVER_PORT));
@@ -224,6 +228,7 @@ impl ClientServerStepper {
             MetricsPlugin::new(metrics_registry),
         ));
 
+        #[cfg(feature = "steam")]
         if client_type == ClientType::Steam {
             // the steam resources need to be added before the ClientPlugins
             client_app.add_steam_resources(STEAM_APP_ID);
@@ -291,6 +296,7 @@ impl ClientServerStepper {
             ClientType::Netcode => {
                 client.insert(NetcodeClient::new(auth, NetcodeConfig::default()).unwrap());
             }
+            #[cfg(feature = "steam")]
             ClientType::Steam => {
                 client.insert(SteamClientIo {
                     target: ConnectTarget::Addr(SERVER_ADDR),

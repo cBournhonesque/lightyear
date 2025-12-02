@@ -6,14 +6,15 @@ test:
 test-target target="bandwidth":
     cargo test --bench={{target}} -- --nocapture
 
-# run a benchmark
+# run a benchmark and generate a flamegraph
+# The env variables are needed to have debug symbols even in release mode.
 profile bench="timing" target="replication/send_float_insert/1_client":
-    cargo bench --bench {{bench}} --profile=release -- {{target}} --nocapture
+     CARGO_PROFILE_RELEASE_DEBUG=true RUSTFLAGS='-C force-frame-pointers=y' cargo bench --bench {{bench}} --profile=release -- {{target}} --nocapture
 
 # Run the benchmark and generate a flamegraph.
 # The env variables are needed to have debug symbols even in release mode.
 bench bench="timing" target="replication/send_float_insert/1_client":
-    CARGO_PROFILE_RELEASE_DEBUG=true RUSTFLAGS='-C force-frame-pointers=y' cargo bench --bench {{bench}} --profile=release -- {{target}}
+    cargo bench --bench {{bench}} --profile=release -- {{target}}
 
 # Run the flamegraph separately
 flamegraph:

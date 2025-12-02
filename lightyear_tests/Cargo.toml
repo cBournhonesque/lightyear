@@ -9,7 +9,7 @@ description = "Setup for integration tests for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
-default = ["std", "test_utils"]
+default = ["std", "test_utils", "steam"]
 std = [
   "bevy/std",
   "bytes/std",
@@ -27,6 +27,9 @@ test_utils = [
   "lightyear_replication/test_utils",
   "lightyear_crossbeam/test_utils",
   "lightyear_aeronet/test_utils",
+]
+steam = [
+  "lightyear/steam"
 ]
 
 
@@ -46,7 +49,6 @@ lightyear = { workspace = true, features = [
   "prediction",
   "raw_connection",
   "replication",
-  "steam",
 ] }
 lightyear_utils.workspace = true
 lightyear_serde.workspace = true
