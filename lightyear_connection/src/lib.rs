@@ -64,6 +64,7 @@ pub mod prelude {
     // we also export these types at the top level for easier access
     pub use crate::client::{
         Client, Connect, Connected, Connecting, ConnectionError, Disconnect, Disconnected,
+        PeerMetadata,
     };
 
     #[cfg(feature = "client")]

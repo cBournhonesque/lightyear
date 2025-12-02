@@ -34,6 +34,7 @@ std = [
   "lightyear_inputs_native?/std",
   "lightyear_interpolation?/std",
   "lightyear_link/std",
+  "lightyear_metrics/std",
   "lightyear_messages/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
@@ -117,6 +118,7 @@ trace = [
 metrics = [
   # the metrics crate is not no-std compatible currently
   "std",
+  "dep:lightyear_metrics",
   "lightyear_inputs?/metrics",
   "lightyear_interpolation?/metrics",
   "lightyear_messages/metrics",
@@ -125,8 +127,8 @@ metrics = [
   "lightyear_transport/metrics",
   "lightyear_utils/metrics",
   "lightyear_udp?/metrics",
-  "dep:lightyear_ui",
 ]
+debug = ["dep:lightyear_ui", "metrics"]
 
 ## INPUTS
 ## Add support for handling inputs where you can define your own input structs
@@ -184,6 +186,7 @@ lightyear_netcode = { workspace = true, optional = true }
 lightyear_interpolation = { workspace = true, optional = true }
 lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
+lightyear_metrics = { workspace = true, optional = true }
 lightyear_replication = { workspace = true, optional = true }
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true

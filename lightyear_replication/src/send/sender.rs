@@ -1,9 +1,6 @@
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
-use crate::message::{
-    ActionsChannel, EntityActions, SendEntityActionsMessage, SpawnAction, UpdatesChannel,
-    UpdatesSendMessage,
-};
+use crate::message::{ActionsChannel, EntityActions, MessageBuilder, SpawnAction, UpdatesChannel};
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
@@ -64,7 +61,7 @@ pub struct ReplicationStatus {
     /// If true, the sender has sent a Spawn message about the entity.
     /// This is useful because each sender runs the replication system at a different time (because they might have
     /// different send_intervals)
-    spawned: bool,
+    pub(crate) spawned: bool,
 }
 
 #[derive(Component, Debug)]
@@ -188,14 +185,13 @@ impl ReplicationSender {
         }
     }
 
-    pub(crate) fn add_replicated_entity(&mut self, entity: Entity, authority: bool) {
-        self.replicated_entities.insert(
-            entity,
-            ReplicationStatus {
-                authority,
+    pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {
+        self.replicated_entities
+            .entry(entity)
+            .or_insert(ReplicationStatus {
+                authority: true,
                 spawned: false,
-            },
-        );
+            });
     }
 
     pub fn gain_authority(&mut self, entity: Entity) {
@@ -650,15 +646,16 @@ impl ReplicationSender {
         self.group_with_actions.drain().try_for_each(|group_id| {
             // SAFETY: we know that the group_channel exists since group_with_actions contains the group_id
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let mut actions = core::mem::take(&mut channel.pending_actions);
 
             // TODO: should we be careful about not mapping entities for actions if it's a Spawn action?
             //  how could that happen?
+
             // Add any updates for that group
             if self.group_with_updates.remove(&group_id) {
                 // drain so that we keep the allocated memory
                 for (entity, components) in channel.pending_updates.drain() {
-                    actions
+                    channel
+                        .pending_actions
                         .entry(entity)
                         .or_default()
                         .updates
@@ -690,38 +687,72 @@ impl ReplicationSender {
             // so we set the ack_tick so that we only send components values
             // that changed after this tick
             channel.ack_bevy_tick = Some(bevy_tick);
-
             let priority = channel.accumulated_priority;
-            let message_id = channel.actions_next_send_message_id;
-            channel.actions_next_send_message_id += 1;
-            channel.last_action_tick = Some(tick);
-            // we use SendEntityActionsMessage so that we don't have to convert the hashmap into a vec
-            let message = SendEntityActionsMessage {
-                sequence_id: message_id,
-                group_id,
-                actions,
-            };
-            trace!("final action messages to send: {:?}", message);
 
-            // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
+            debug_assert!(self.writer.is_empty());
+
+            // keep adding entities to the message until we can't fit any more
             actions_net_id.to_bytes(&mut self.writer)?;
-            message.to_bytes(&mut self.writer)?;
-            let message_bytes = self.writer.split();
-            let message_id = sender
-                .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
-                .expect("The entity actions channels should always return a message_id");
-            trace!(
-                ?message_id,
-                ?group_id,
-                ?bevy_tick,
-                ?tick,
-                "Send replication action"
-            );
+            channel
+                .actions_next_send_message_id
+                .to_bytes(&mut self.writer)?;
+            let mut builder = Some(MessageBuilder::<EntityActions>::new(
+                group_id,
+                &mut self.writer,
+            )?);
+            channel.actions_next_send_message_id += 1;
+            for (entity, actions) in channel.pending_actions.drain() {
+                trace!("Actions to send for entity {:?}: {:?}", entity, actions);
+                // SAFETY: we always re-create the builder after taking it
+                if !unsafe { builder.as_ref().unwrap_unchecked() }.can_add_data(entity, &actions) {
+                    // we cannot fit the entity/action into this message, so we sent it now
+                    let current_builder = unsafe { builder.take().unwrap_unchecked() };
+                    let message_bytes = current_builder.build()?;
+                    let message_id = sender
+                        .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
+                        .expect("The entity actions channels should always return a message_id");
+                    trace!(
+                        ?message_id,
+                        ?group_id,
+                        ?bevy_tick,
+                        ?tick,
+                        "Send replication action"
+                    );
+                    // start a new message
+                    actions_net_id.to_bytes(&mut self.writer)?;
+                    channel
+                        .actions_next_send_message_id
+                        .to_bytes(&mut self.writer)?;
+                    builder = Some(MessageBuilder::<EntityActions>::new(
+                        group_id,
+                        &mut self.writer,
+                    )?);
+                    channel.actions_next_send_message_id += 1;
+                }
 
-            // restore the hashmap that we took out, so that we can reuse the allocated memory
-            channel.pending_actions = message.actions;
-            channel.pending_actions.clear();
+                unsafe { builder.as_mut().unwrap_unchecked() }.add_data(entity, actions)?;
+            }
+            // flush if we have any entities left
+            let builder = unsafe { builder.unwrap_unchecked() };
+            if builder.entity_count > 0 {
+                let message_bytes = builder.build()?;
+                let message_id = sender
+                    .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
+                    .expect("The entity actions channels should always return a message_id");
+                trace!(
+                    ?message_id,
+                    ?group_id,
+                    ?bevy_tick,
+                    ?tick,
+                    "Send replication action"
+                );
+            } else {
+                // flush any bytes written
+                self.writer.split();
+            }
 
+            // TODO: update bandwidth cap
+            channel.last_action_tick = Some(tick);
             Ok::<(), ReplicationError>(())
         })
     }
@@ -737,45 +768,89 @@ impl ReplicationSender {
     ) -> Result<(), ReplicationError> {
         self.group_with_updates.drain().try_for_each(|group_id| {
             let channel = self.group_channels.get_mut(&group_id).unwrap();
-            let updates = core::mem::take(&mut channel.pending_updates);
-            trace!(?group_id, "pending updates: {:?}", updates);
+            trace!(?group_id, "pending updates: {:?}", channel.pending_updates);
             let priority = channel.accumulated_priority;
-            let message = UpdatesSendMessage {
-                group_id,
-                // TODO: as an optimization (to avoid 1 byte for the Option), we can use `last_action_tick = tick`
-                //  to signify that there is no constraint!
-                // SAFETY: the last action tick is usually always set because we send Actions before Updates
-                //  but that might not be the case (for example if the authority got transferred to us, we start sending
-                //  updates without sending any action before that)
-                last_action_tick: channel.last_action_tick,
-                updates,
-            };
 
-            // Since we are serializing directly though the Transport, we need to serialize the message_net_id ourselves
+            debug_assert!(self.writer.is_empty());
+
             updates_net_id.to_bytes(&mut self.writer)?;
-            message.to_bytes(&mut self.writer)?;
-            let message_bytes = self.writer.split();
-            let message_id = transport
-                .send_mut_with_priority::<UpdatesChannel>(message_bytes, priority)?
-                .expect("The entity actions channels should always return a message_id");
+            // TODO: as an optimization (to avoid 1 byte for the Option), we can use `last_action_tick = tick`
+            //  to signify that there is no constraint!
+            // SAFETY: the last action tick is usually always set because we send Actions before Updates
+            //  but that might not be the case (for example if the authority got transferred to us, we start sending
+            //  updates without sending any action before that)
+            channel.last_action_tick.to_bytes(&mut self.writer)?;
+            let mut builder = Some(MessageBuilder::<Vec<Bytes>>::new(
+                group_id,
+                &mut self.writer,
+            )?);
+            for (entity, updates) in channel.pending_updates.drain() {
+                // SAFETY: builder is always Some at the start of an iteration
+                if !unsafe { builder.as_ref().unwrap_unchecked() }.can_add_data(entity, &updates) {
+                    // can't add any more data in this message: send message and re-create the builder
+                    let current_builder = builder.take().unwrap();
+                    let message_bytes = current_builder.build()?;
+                    let message_id = transport
+                        .send_mut_with_priority::<UpdatesChannel>(message_bytes, priority)?
+                        .expect("The entity updates channels should always return a message_id");
+                    // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
+                    self.updates_message_id_to_group_id.insert(
+                        message_id,
+                        UpdateMessageMetadata {
+                            group_id,
+                            bevy_tick,
+                            tick,
+                            delta: core::mem::take(&mut channel.pending_delta_updates),
+                        },
+                    );
+                    trace!(
+                        ?message_id,
+                        ?group_id,
+                        ?bevy_tick,
+                        ?tick,
+                        "Send replication update"
+                    );
 
-            // keep track of the message_id -> group mapping, so we can handle receiving an ACK for that message_id later
-            trace!(
-                ?message_id,
-                ?group_id,
-                ?bevy_tick,
-                ?tick,
-                "Send replication update"
-            );
-            self.updates_message_id_to_group_id.insert(
-                message_id,
-                UpdateMessageMetadata {
-                    group_id,
-                    bevy_tick,
-                    tick,
-                    delta: core::mem::take(&mut channel.pending_delta_updates),
-                },
-            );
+                    // add the entity/action to the next message
+                    updates_net_id.to_bytes(&mut self.writer)?;
+                    channel.last_action_tick.to_bytes(&mut self.writer)?;
+                    builder = Some(MessageBuilder::<Vec<Bytes>>::new(
+                        group_id,
+                        &mut self.writer,
+                    )?);
+                }
+                // SAFETY: builder is always Some at this point, since we re-create it
+                unsafe { builder.as_mut().unwrap_unchecked() }.add_data(entity, updates)?;
+            }
+
+            // flush if we have any entities left
+            let builder = unsafe { builder.unwrap_unchecked() };
+            if builder.entity_count > 0 {
+                let message_bytes = builder.build()?;
+                let message_id = transport
+                    .send_mut_with_priority::<UpdatesChannel>(message_bytes, priority)?
+                    .expect("The entity updates channels should always return a message_id");
+                self.updates_message_id_to_group_id.insert(
+                    message_id,
+                    UpdateMessageMetadata {
+                        group_id,
+                        bevy_tick,
+                        tick,
+                        delta: core::mem::take(&mut channel.pending_delta_updates),
+                    },
+                );
+                trace!(
+                    ?message_id,
+                    ?group_id,
+                    ?bevy_tick,
+                    ?tick,
+                    "Send replication updatesk"
+                );
+            } else {
+                // make sure to flush the writer
+                self.writer.split();
+            }
+
             // If we don't have a bandwidth cap, buffering a message is equivalent to sending it
             // so we can set the `send_tick` right away
             // TODO: but doesn't that mean we double send it?
@@ -784,10 +859,6 @@ impl ReplicationSender {
                 channel.accumulated_priority = 0.0;
                 channel.send_tick = Some(bevy_tick);
             }
-
-            // restore the hashmap that we took out, so that we can reuse the allocated memory
-            channel.pending_updates = message.updates;
-            channel.pending_updates.clear();
             Ok(())
         })
         // TODO: also return for each message a list of the components that have delta-compression data?

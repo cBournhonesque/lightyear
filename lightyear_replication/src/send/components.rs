@@ -1,5 +1,6 @@
+use crate::authority::{AuthorityBroker, HasAuthority};
 use crate::components::ComponentReplicationOverrides;
-use crate::send::sender::ReplicationSender;
+use crate::send::sender::{ReplicationSender, ReplicationStatus};
 use alloc::vec::Vec;
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::index_set::EntityIndexSet;
@@ -7,19 +8,22 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectComponent;
 use bevy_ecs::world::DeferredWorld;
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use bevy_time::{Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
-use lightyear_connection::client::{Client, Connected};
+use lightyear_connection::client::{Client, Connected, PeerMetadata};
+#[cfg(feature = "server")]
+use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
-#[cfg(feature = "server")]
-use lightyear_connection::{client::PeerMetadata, client_of::ClientOf};
-use lightyear_core::id::RemoteId;
+
+use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::server::LinkOf;
 #[cfg(feature = "server")]
 use lightyear_link::server::Server;
 use lightyear_serde::entity_map::SendEntityMap;
+use lightyear_serde::prelude::{Seek, SeekFrom};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -27,6 +31,11 @@ use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
 
+/// Default replication group which corresponds to the absence of a group:
+/// updates will be packed into a single message up to the MTU
+/// but there is no guarantee that updates for entities in this group are sent
+/// together
+pub const DEFAULT_GROUP: ReplicationGroup = ReplicationGroup::new_id(0);
 /// Replication group shared by all predicted entities
 pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
@@ -162,6 +171,9 @@ pub enum ReplicationGroupIdBuilder {
 ///
 /// If multiple entities are part of the same replication group, they will be sent together in the same message.
 /// It is guaranteed that these entities will be updated at the same time on the remote world.
+///
+/// There is one exception: the default (ReplicationGroup(0)) which doesn't guarantee that all updates
+/// will be sent in the same message.
 #[derive(Component, Debug, Clone, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ReplicationGroup {
@@ -190,7 +202,7 @@ pub struct ReplicationGroup {
 impl Default for ReplicationGroup {
     fn default() -> Self {
         Self {
-            id_builder: ReplicationGroupIdBuilder::FromEntity,
+            id_builder: ReplicationGroupIdBuilder::Group(0),
             base_priority: 1.0,
             send_frequency: None,
             should_send: true,
@@ -217,6 +229,7 @@ impl ReplicationGroup {
         }
     }
 
+    #[inline]
     pub fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
         match self.id_builder {
             ReplicationGroupIdBuilder::FromEntity => {
@@ -260,21 +273,19 @@ pub struct ReplicationGroupId(pub u64);
 // Re-use the Entity serialization since ReplicationGroupId are often entities
 impl ToBytes for ReplicationGroupId {
     fn bytes_len(&self) -> usize {
-        8
-        // TODO: if it's a valid entity (generation > 0 and high-bit is 0)
-        //  optimize by serializing as an entity!
-        // Entity::try_from_bits(self.0).map_or_else(|_| 8, |entity| entity.bytes_len())
+        if self.0 == 0 {
+            1
+        } else {
+            Entity::from_bits(self.0).bytes_len()
+        }
     }
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        // Entity::try_from_bits(self.0).map_or_else(|_| {)
-        //     buffer.write_u64(self.0)?;
-        //     Ok(())
-        // }, |entity| {
-        //     entity.to_bytes(buffer)
-        // })?;
-        buffer.write_u64(self.0)?;
-        // Entity::to_bytes(&Entity::from_bits(self.0), buffer)?;
+        if self.0 == 0 {
+            buffer.write_u8(0)?;
+        } else {
+            Entity::from_bits(self.0).to_bytes(buffer)?;
+        }
         Ok(())
     }
 
@@ -282,9 +293,13 @@ impl ToBytes for ReplicationGroupId {
     where
         Self: Sized,
     {
-        Ok(Self(buffer.read_u64()?))
-        // let entity = Entity::from_bytes(buffer)?;
-        // Ok(Self(entity.to_bits()))
+        let first = buffer.read_u8()?;
+        if first == 0 {
+            return Ok(Self(0));
+        }
+        // go back one byte
+        buffer.seek(SeekFrom::Current(-1))?;
+        Ok(Self(Entity::from_bytes(buffer)?.to_bits()))
     }
 }
 
@@ -499,6 +514,7 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
             With<Connected>,
         >,
         mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
+        mut commands: Commands,
     ) {
         if let Ok((sender_entity, mut sender, remote_peer_id, link_of)) =
             sender_query.get_mut(trigger.entity)
@@ -513,7 +529,13 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     ReplicationMode::SingleServer(target) => {
                         if link_of.is_some() && target.targets(remote_peer_id) {
                             debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
-                            sender.add_replicated_entity(entity, true);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
                             replicate.senders.insert(sender_entity);
                         }
                     }
@@ -521,13 +543,25 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
                         if target.targets(remote_peer_id) && link_of.is_some_and(|c| c.server == *e) {
-                            sender.add_replicated_entity(entity, true);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
                             replicate.senders.insert(sender_entity);
                         }
                     }
                     ReplicationMode::Target(target) => {
                         if target.targets(remote_peer_id) {
-                            sender.add_replicated_entity(entity, true);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
                             replicate.senders.insert(sender_entity);
                         }
                     }
@@ -577,8 +611,6 @@ pub struct Replicate {
     /// The list of [`ReplicationSender`] entities that this entity is being replicated on
     #[reflect(ignore)]
     pub(crate) senders: EntityIndexSet,
-    // do we have authority over this entity?
-    authority: bool,
 }
 
 impl Replicate {
@@ -586,13 +618,7 @@ impl Replicate {
         Self {
             mode,
             senders: EntityIndexSet::default(),
-            authority: true,
         }
-    }
-
-    pub fn without_authority(mut self) -> Self {
-        self.authority = false;
-        self
     }
 
     #[cfg(feature = "client")]
@@ -600,7 +626,6 @@ impl Replicate {
         Self {
             mode: ReplicationMode::SingleClient,
             senders: EntityIndexSet::default(),
-            authority: true,
         }
     }
 
@@ -609,7 +634,6 @@ impl Replicate {
         Self {
             mode: ReplicationMode::SingleServer(target),
             senders: EntityIndexSet::default(),
-            authority: true,
         }
     }
 
@@ -617,7 +641,6 @@ impl Replicate {
         Self {
             mode: ReplicationMode::Manual(senders),
             senders: EntityIndexSet::default(),
-            authority: true,
         }
     }
 
@@ -626,10 +649,11 @@ impl Replicate {
         self.senders.iter().copied()
     }
 
-    // We NEVER manually update replicate, or if we do we also update CachedReplicate? so we can handle everything via observers
+    // We NEVER manually update replicate, so we can handle everything via observers
+    //
     // ON REPLACE: (on drop)
     // - store the previous state of Replicate in CachedReplicate
-
+    //
     // ON INSERT:
     // - check each newly added sender with CachedReplicate to see if we removed/added some senders
     //   - removed senders: get added to `sender.removed_entities` if we had spawned the entity on that sender
@@ -637,6 +661,7 @@ impl Replicate {
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             let unsafe_world = world.as_unsafe_world_cell();
+
             // SAFETY: we will use this world to access the ReplicationSender
             let world = unsafe { unsafe_world.world_mut() };
 
@@ -645,7 +670,14 @@ impl Replicate {
             let mut replicate = unsafe { unsafe_entity_cell.get_mut::<Replicate>().unwrap() };
             let cached_replicate = unsafe { unsafe_entity_cell.get::<CachedReplicate>() };
 
-            let add_sender = |senders: &mut EntityIndexSet, cached_replicate: Option<&CachedReplicate>, sender_entity: Entity, sender: Option<Mut<ReplicationSender>>, authority: bool| {
+            // update the authority broker if the entity is spawned on the server
+            if let Some(peer_metadata) = world.get_resource::<PeerMetadata>() && let Some(server) = peer_metadata.mapping.get(&PeerId::Server) && let Some(mut broker) = world.get_mut::<AuthorityBroker>(*server) {
+                // only set the authority if it didn't have an owner already (in case the authority was replicated
+                // by another peer)
+                broker.owners.entry(context.entity).or_insert(Some(PeerId::Server));
+            }
+
+            let add_sender = |senders: &mut EntityIndexSet, cached_replicate: Option<&CachedReplicate>, sender_entity: Entity, sender: Option<Mut<ReplicationSender>>, unsafe_world: UnsafeWorldCell| {
                 let Some(mut sender) = sender else {
                     error!(?sender_entity, "No ReplicationSender found in the world in mode Manual");
                     return;
@@ -653,13 +685,23 @@ impl Replicate {
                 // Add senders that were not in the previous CachedReplicate
                 senders.insert(sender_entity);
                 if cached_replicate.is_none_or(|c| !c.senders.contains(&sender_entity)) {
-                    trace!(?authority, "Adding new sender {} for replicated entity {}", sender_entity, context.entity);
-                    sender.add_replicated_entity(context.entity, authority);
+                    trace!("Adding new sender {} for replicated entity {}", sender_entity, context.entity);
+                    // if the entity was already in sender.replicated_entities (because we received it from another peer)
+                    // don't update the authority
+                    if !sender.replicated_entities.contains_key(&context.entity) {
+                        sender.replicated_entities.insert(context.entity, ReplicationStatus {
+                            authority: true,
+                            spawned: false,
+                        });
+                        trace!("Adding HasAuthority to entity {:?} because Replicate is inserted", context.entity);
+                        // SAFETY: we are not doing aliasing
+                        unsafe { unsafe_world.world_mut() }.entity_mut(context.entity).insert_if_new(HasAuthority);
+                    };
+
                 }
             };
 
             // enable split borrows
-            let authority = replicate.authority;
             let replicate = &mut *replicate;
             match &replicate.mode {
                 ReplicationMode::SingleSender => {
@@ -673,7 +715,7 @@ impl Replicate {
                     if host_client {
                         return;
                     }
-                    add_sender(&mut replicate.senders, cached_replicate, sender_entity, sender, authority);
+                    add_sender(&mut replicate.senders, cached_replicate, sender_entity, sender, unsafe_world);
                 }
                 #[cfg(feature = "client")]
                 ReplicationMode::SingleClient => {
@@ -696,7 +738,7 @@ impl Replicate {
                     if host_client {
                         return;
                     }
-                    add_sender(&mut replicate.senders, cached_replicate, sender_entity, sender, authority);
+                    add_sender(&mut replicate.senders, cached_replicate, sender_entity, sender, unsafe_world);
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::SingleServer(target) => {
@@ -736,7 +778,7 @@ impl Replicate {
                             if host_client {
                                 return;
                             }
-                            add_sender(&mut replicate.senders, cached_replicate, client, sender, authority);
+                            add_sender(&mut replicate.senders, cached_replicate, client, sender, unsafe_world);
                         },
                     );
                 }
@@ -751,7 +793,7 @@ impl Replicate {
                     if host_client {
                         return;
                     }
-                    add_sender(&mut replicate.senders, cached_replicate, *entity, sender, authority);
+                    add_sender(&mut replicate.senders, cached_replicate, *entity, sender, unsafe_world);
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::Server(server, target) => {
@@ -795,7 +837,7 @@ impl Replicate {
                             if host_client {
                                 return;
                             }
-                            add_sender(&mut replicate.senders, cached_replicate, client, sender, authority);
+                            add_sender(&mut replicate.senders, cached_replicate, client, sender, unsafe_world);
                         },
                     );
                 }
@@ -818,7 +860,7 @@ impl Replicate {
                         if host_client {
                             return;
                         }
-                        add_sender(&mut replicate.senders, cached_replicate, *entity, sender, authority);
+                        add_sender(&mut replicate.senders, cached_replicate, *entity, sender, unsafe_world);
                     }
                 }
             }
@@ -865,6 +907,7 @@ impl Replicate {
             With<Connected>,
         >,
         mut replicate_query: Query<(Entity, &mut Replicate, Option<&mut CachedReplicate>)>,
+        mut commands: Commands,
     ) {
         if let Ok((sender_entity, mut sender, remote_peer_id, _client, client_of)) =
             sender_query.get_mut(trigger.entity)
@@ -883,7 +926,13 @@ impl Replicate {
                     ReplicationMode::SingleServer(target) => {
                         if client_of.is_some() && target.targets(remote_peer_id) {
                             debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
-                            sender.add_replicated_entity(entity, replicate.authority);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
                             replicate.senders.insert(sender_entity);
                             // we also update the Cache, so that it's correct if a new Replicate is inserted
                             if let Some(cached_replicate) = cached_replicate.as_mut() {
@@ -897,7 +946,13 @@ impl Replicate {
                     #[cfg(feature = "server")]
                     ReplicationMode::Server(e, target) => {
                         if client_of.is_some_and(|c| c.server == *e) && target.targets(remote_peer_id) {
-                            sender.add_replicated_entity(entity, replicate.authority);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
                             replicate.senders.insert(sender_entity);
                             if let Some(cached_replicate) = cached_replicate.as_mut() {
                                 cached_replicate.senders.insert(sender_entity);
@@ -906,7 +961,14 @@ impl Replicate {
                     }
                     ReplicationMode::Target(target) => {
                         if target.targets(remote_peer_id) {
-                            sender.add_replicated_entity(entity, replicate.authority);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
+
                             replicate.senders.insert(sender_entity);
                             if let Some(cached_replicate) = cached_replicate.as_mut() {
                                 cached_replicate.senders.insert(sender_entity);
@@ -915,7 +977,13 @@ impl Replicate {
                     }
                     ReplicationMode::Manual(entities) => {
                         if entities.contains(&sender_entity) {
-                            sender.add_replicated_entity(entity, replicate.authority);
+                            if !sender.replicated_entities.contains_key(&entity) {
+                                sender.replicated_entities.insert(entity, ReplicationStatus {
+                                    authority: true,
+                                    spawned: false,
+                                });
+                                commands.entity(entity).insert_if_new(HasAuthority);
+                            }
                             replicate.senders.insert(sender_entity);
                             if let Some(cached_replicate) = cached_replicate.as_mut() {
                                 cached_replicate.senders.insert(sender_entity);
@@ -962,3 +1030,32 @@ pub(crate) struct CachedReplicate {
 //    - we use CachedReplicate to check which senders were removed and had spawned the entity
 // 6) new replicate is added that adds some senders:
 //    - we use CachedReplicate to check which senders were added
+
+#[cfg(test)]
+mod tests {
+    use crate::prelude::ReplicationGroupId;
+    use bevy_ecs::entity::Entity;
+    use lightyear_serde::ToBytes;
+    use lightyear_serde::reader::Reader;
+    use lightyear_serde::writer::Writer;
+
+    #[test]
+    fn test_replication_group_id_serde() {
+        let group_0 = ReplicationGroupId(0);
+        let mut writer = Writer::with_capacity(100);
+        group_0.to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.len(), 1);
+        let mut reader = Reader::from(writer.split());
+        let serde_group_0 = ReplicationGroupId::from_bytes(&mut reader).unwrap();
+        assert_eq!(group_0, serde_group_0);
+
+        let entity = Entity::from_raw_u32(10).unwrap();
+        let group_1 = ReplicationGroupId(entity.to_bits());
+        let mut writer = Writer::with_capacity(100);
+        group_1.to_bytes(&mut writer).unwrap();
+        assert_eq!(writer.len(), 1);
+        let mut reader = Reader::from(writer.split());
+        let serde_group_1 = ReplicationGroupId::from_bytes(&mut reader).unwrap();
+        assert_eq!(group_1, serde_group_1);
+    }
+}

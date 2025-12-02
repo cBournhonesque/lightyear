@@ -20,8 +20,8 @@ use bevy_time::prelude::*;
 use bevy_ui::prelude::*;
 use bevy_utils::prelude::*;
 
-use crate::prelude::{ClearBucketsSystem, MetricsRegistry, RegistryPlugin};
 use bevy_platform::collections::HashMap;
+use lightyear_metrics::prelude::{ClearBucketsSystem, MetricsPlugin, MetricsRegistry};
 use metrics::Key;
 use metrics_util::{CompositeKey, MetricKind};
 #[allow(unused_imports)]
@@ -499,8 +499,8 @@ pub struct DebugUIPlugin;
 
 impl Plugin for DebugUIPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<RegistryPlugin>() {
-            app.add_plugins(RegistryPlugin::default());
+        if !app.is_plugin_added::<MetricsPlugin>() {
+            app.add_plugins(MetricsPlugin::default());
         }
         app.init_resource::<MetricsPanelSettings>();
         app.init_resource::<MetricsPanelLayout>();
@@ -965,7 +965,7 @@ fn sample_metrics_history(
     let delta = time.delta().as_secs_f64();
     let cap = settings.window_len.max(1);
     for line in &q_lines {
-        if let Some(mut sample) = fetch_metric_value(registry.as_ref(), line) {
+        if let Some(mut sample) = registry.fetch_metric_value(&line.spec.key) {
             let key = line.spec.key.key().get_hash();
             let buffer = history.buffers.entry(key).or_default();
             if line.spec.per_second {
@@ -980,13 +980,5 @@ fn sample_metrics_history(
                 registry.reset_metric(&line.spec.key);
             }
         }
-    }
-}
-
-fn fetch_metric_value(reg: &MetricsRegistry, line: &MetricLine) -> Option<f64> {
-    match line.spec.key.kind() {
-        MetricKind::Counter => reg.get_counter_value(line.spec.key.key()),
-        MetricKind::Gauge => reg.get_gauge_value(line.spec.key.key()),
-        MetricKind::Histogram => reg.get_histogram_mean(line.spec.key.key()),
     }
 }

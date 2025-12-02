@@ -8,19 +8,20 @@ use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::Replicate;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::InputDelayConfig;
+use lightyear_sync::prelude::*;
 use test_log::test;
 
 /// Check that ActionStates are stored correctly in the InputBuffer
 #[test]
 fn test_buffer_inputs_with_delay() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    stepper
-        .client_mut(0)
-        .get_mut::<InputTimeline>()
-        .unwrap()
-        .input_delay_config = InputDelayConfig::fixed_input_delay(1);
+    let mut config = StepperConfig::single();
+    config.init = false;
+    let mut stepper = ClientServerStepper::from_config(config);
+    stepper.client_mut(0).insert(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
+    );
+    stepper.init();
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -53,8 +54,16 @@ fn test_buffer_inputs_with_delay() {
         .world_mut()
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyA);
+    tracing::info!("tick: {:?}", stepper.client_tick(0));
     stepper.frame_step(1);
     let client_tick = stepper.client_tick(0);
+    let buffer = stepper
+        .client_app()
+        .world()
+        .entity(client_entity)
+        .get::<LeafwingBuffer<LeafwingInput1>>()
+        .unwrap();
+    tracing::info!(?client_tick, ?buffer);
 
     // check that the action state got buffered without any press (because the input is delayed)
     // (we cannot use JustPressed because we start by ticking the ActionState)

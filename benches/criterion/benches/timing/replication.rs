@@ -13,14 +13,16 @@ use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
 
 criterion_group!(
     name = replication_benches;
-    config = Criterion::default().with_profiler(FlamegraphProfiler::new(3000));
+    // config = Criterion::default().with_profiler(FlamegraphProfiler::new(3000));
+    config = Criterion::default()
+        .warm_up_time(Duration::from_millis(500))
+        .measurement_time(Duration::from_millis(4000));
     targets = send_float_insert_one_client,
     send_float_update_one_client,
     receive_float_insert,
     receive_float_update,
     send_float_insert_n_clients,
 );
-criterion_main!(replication_benches);
 
 // const NUM_ENTITIES: &[usize] = &[0, 10, 100, 1000, 10000];
 const NUM_ENTITIES: &[usize] = &[1000];
@@ -28,8 +30,6 @@ const NUM_ENTITIES: &[usize] = &[1000];
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_insert_one_client(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_insert/1_client");
-    group.warm_up_time(Duration::from_millis(500));
-    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -64,8 +64,6 @@ fn send_float_insert_one_client(criterion: &mut Criterion) {
 /// Replicating N entity spawn from server to channel, with a local io
 fn send_float_update_one_client(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_update/1_client");
-    group.warm_up_time(Duration::from_millis(500));
-    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -145,8 +143,6 @@ fn receive_float_insert(criterion: &mut Criterion) {
 /// Replicating N entity spawn from server to channel, with a local io
 fn receive_float_update(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/receive_float_update/1_client");
-    group.warm_up_time(Duration::from_millis(500));
-    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_ENTITIES.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -191,8 +187,6 @@ const NUM_CLIENTS: &[usize] = &[0, 1, 2, 4, 8, 16];
 /// Replicating entity spawns from server to N clients, with a socket io
 fn send_float_insert_n_clients(criterion: &mut Criterion) {
     let mut group = criterion.benchmark_group("replication/send_float_inserts/n_clients");
-    group.warm_up_time(Duration::from_millis(500));
-    group.measurement_time(Duration::from_millis(4000));
     for n in NUM_CLIENTS.iter() {
         group.bench_with_input(
             criterion::BenchmarkId::new("num_entities", n),
@@ -205,7 +199,10 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                             StepperConfig::with_netcode_clients(*n),
                         );
                         let entities =
-                            vec![(CompFull(0.0), Replicate::default()); FIXED_NUM_ENTITIES];
+                            vec![
+                                (CompFull(0.0), Replicate::to_clients(NetworkTarget::All));
+                                FIXED_NUM_ENTITIES
+                            ];
                         stepper.server_app.world_mut().spawn_batch(entities);
 
                         // advance time by one frame
@@ -216,7 +213,9 @@ fn send_float_insert_n_clients(criterion: &mut Criterion) {
                         stepper.server_app.update();
                         elapsed += instant.elapsed();
 
-                        stepper.client_app().update();
+                        for i in 0..*n {
+                            stepper.client_apps[i].update();
+                        }
                     }
                     elapsed
                 });

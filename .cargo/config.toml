@@ -3,3 +3,13 @@
 # overwritten in parallel tests
 t = "test -- --test-threads=1"
 clip = "clippy --workspace --features=lightyear_core/not_mock --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes"
+
+# used for debugging/profiling
+[profile.debug]
+rustflags = [
+  "-C",
+  "force-frame-pointers=yes",
+  "-C",
+  "symbol-mangling-version=v0",
+]
+debug = "line-tables-only"

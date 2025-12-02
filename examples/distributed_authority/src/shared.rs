@@ -25,7 +25,7 @@ impl Plugin for SharedPlugin {
 
 // Generate pseudo-random color from id
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
+    let h = (((client_id.to_bits().wrapping_mul(80)) % 360) as f32) / 360.0;
     let s = 1.0;
     let l = 0.5;
     Color::hsl(h, s, l)
@@ -34,33 +34,26 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
-    match input {
-        Inputs::Direction(direction) => {
-            if direction.up {
-                position.y += MOVE_SPEED;
-            }
-            if direction.down {
-                position.y -= MOVE_SPEED;
-            }
-            if direction.left {
-                position.x -= MOVE_SPEED;
-            }
-            if direction.right {
-                position.x += MOVE_SPEED;
-            }
-        }
-        _ => {}
+    let Inputs::Direction(direction) = input;
+    if direction.up {
+        position.y += MOVE_SPEED;
+    }
+    if direction.down {
+        position.y -= MOVE_SPEED;
+    }
+    if direction.left {
+        position.x -= MOVE_SPEED;
+    }
+    if direction.right {
+        position.x += MOVE_SPEED;
     }
 }
 
 /// We move the ball only when we have authority over it.
+///
 /// The peer that has authority could be the Server, a Client or no one
 pub(crate) fn ball_movement(
-    mut balls: Query<
-        (&mut Position, &mut Speed),
-        // Query should check for HasAuthority, which is added by lightyear based on Replicate config
-        (With<BallMarker>, With<HasAuthority>, Without<Interpolated>),
-    >,
+    mut balls: Query<(&mut Position, &mut Speed), (With<BallMarker>, With<HasAuthority>)>,
 ) {
     for (mut position, mut speed) in balls.iter_mut() {
         if position.y > 300.0 {

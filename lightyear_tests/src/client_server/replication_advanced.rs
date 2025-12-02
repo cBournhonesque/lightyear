@@ -14,12 +14,16 @@ use tracing::info;
 fn test_since_last_ack() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
+    let group_id = ReplicationGroupId(10);
     let client_entity = stepper
         .client_app()
         .world_mut()
-        .spawn((Replicate::to_server(), CompA(1.0)))
+        .spawn((
+            Replicate::to_server(),
+            CompA(1.0),
+            ReplicationGroup::new_id(10),
+        ))
         .id();
-    let group_id = ReplicationGroupId(client_entity.to_bits());
 
     let tick_duration = stepper.tick_duration;
     stepper.advance_time(tick_duration);
@@ -186,7 +190,7 @@ fn test_replicate_new_connection() {
         .unwrap();
 
     // new client connects
-    stepper.new_client(ClientType::Netcode);
+    stepper.new_client(ClientType::Netcode, None);
     stepper.init();
 
     info!("Spawning entity 2 on server");

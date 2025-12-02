@@ -1,36 +1,32 @@
 use crate::ping::manager::PingManager;
-use crate::timeline::sync::{SyncAdjustment, SyncConfig, SyncTargetTimeline, SyncedTimeline};
+use crate::timeline::sync::{
+    SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
+};
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_utils::default;
 use core::time::Duration;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineContext};
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineConfig};
 use lightyear_link::{Link, LinkStats};
 use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer
-#[derive(Debug, Reflect)]
-pub struct Input {
-    pub config: SyncConfig,
-    pub input_delay_config: InputDelayConfig,
-
-    /// Current input_delay_ticks that are being applied
-    pub(crate) input_delay_ticks: u16,
-    relative_speed: f32,
-    is_synced: bool,
+#[derive(Debug, Component, Reflect)]
+#[require(InputTimeline)]
+pub struct InputTimelineConfig {
+    pub(crate) sync: SyncConfig,
+    pub(crate) input_delay_config: InputDelayConfig,
 }
 
-impl Input {
+impl InputTimelineConfig {
     pub fn new(sync_config: SyncConfig, input_delay: InputDelayConfig) -> Self {
         Self {
-            config: sync_config,
+            sync: sync_config,
             input_delay_config: input_delay,
-            ..default()
         }
     }
 
@@ -40,15 +36,8 @@ impl Input {
     }
 
     pub fn with_sync_config(mut self, sync_config: SyncConfig) -> Self {
-        self.config = sync_config;
+        self.sync = sync_config;
         self
-    }
-
-    // TODO: currently this is fixed, but the input delay should be updated everytime we have a
-    //  SyncEvent. We want to make it configurable based on prediction settings.
-    /// Return the input delay in number of ticks
-    pub fn input_delay(&self) -> u16 {
-        self.input_delay_ticks
     }
 
     /// Returns the true if the timeline is configured for deterministic lockstep mode,
@@ -60,15 +49,15 @@ impl Input {
 
     /// Update the input delay based on the current RTT and tick duration
     /// when there is a SyncEvent
-    pub(crate) fn recompute_input_delay(
-        trigger: On<SyncEvent<Input>>,
+    pub(crate) fn recompute_input_delay_on_sync(
+        trigger: On<SyncEvent<InputTimelineConfig>>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline)>,
+        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
     ) {
-        if let Ok((link, mut timeline)) = query.get_mut(trigger.entity) {
-            timeline.input_delay_ticks = timeline.input_delay_config.input_delay_ticks(
+        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
+            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
                 link.stats,
-                &timeline.config,
+                &config.sync,
                 tick_duration.0,
             );
             trace!(
@@ -83,30 +72,55 @@ impl Input {
     /// Update the input delay based on the current RTT and tick duration
     /// when the InputDelayConfig is updated
     pub(crate) fn recompute_input_delay_on_config_update(
+        trigger: On<Insert, InputTimelineConfig>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline), Changed<InputTimeline>>,
+        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
     ) {
-        query.iter_mut().for_each(|(link, mut timeline)| {
-            timeline.input_delay_ticks = timeline.input_delay_config.input_delay_ticks(
+        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
+            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
                 link.stats,
-                &timeline.config,
+                &config.sync,
                 tick_duration.0,
             );
             trace!(
                 "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
-                timeline.input_delay_ticks, timeline.input_delay_config
+                timeline.input_delay_ticks, config.input_delay_config
             );
-        });
+        }
     }
 }
 
-impl Default for Input {
+impl Default for InputTimelineConfig {
     fn default() -> Self {
         Self {
-            config: SyncConfig::default(),
+            sync: SyncConfig::default(),
+            input_delay_config: InputDelayConfig::no_input_delay(),
+        }
+    }
+}
+
+#[derive(Debug, Reflect)]
+pub struct InputContext {
+    sync: SyncContext,
+    /// Current input_delay_ticks that are being applied
+    input_delay_ticks: u16,
+    relative_speed: f32,
+    is_synced: bool,
+}
+
+impl InputContext {
+    /// Return the input delay in number of ticks
+    pub fn input_delay(&self) -> u16 {
+        self.input_delay_ticks
+    }
+}
+
+impl Default for InputContext {
+    fn default() -> Self {
+        Self {
+            sync: SyncContext::default(),
             input_delay_ticks: 0,
             relative_speed: 1.0,
-            input_delay_config: InputDelayConfig::no_input_delay(),
             is_synced: false,
         }
     }
@@ -241,9 +255,12 @@ impl InputDelayConfig {
 /// This timeline is updated in PostUpdate; it CANNOT be used to get accurate `tick` in PreUpdate or Update;
 /// use `LocalTimeline` instead.
 #[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
-pub struct InputTimeline(pub Timeline<Input>);
+pub struct InputTimeline(pub Timeline<InputTimelineConfig>);
 
-impl TimelineContext for Input {}
+impl TimelineConfig for InputTimelineConfig {
+    type Context = InputContext;
+    type Timeline = InputTimeline;
+}
 
 impl SyncedTimeline for InputTimeline {
     /// We want the Predicted timeline to be:
@@ -255,13 +272,14 @@ impl SyncedTimeline for InputTimeline {
     fn sync_objective<T: SyncTargetTimeline>(
         &self,
         remote: &T,
+        config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) -> TickInstant {
         let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
         let jitter_margin = TickDelta::from_duration(
-            self.context.config.jitter_margin(ping_manager.jitter()),
+            config.sync.jitter_margin(ping_manager.jitter()),
             tick_duration,
         );
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
@@ -297,29 +315,33 @@ impl SyncedTimeline for InputTimeline {
     fn sync<T: SyncTargetTimeline>(
         &mut self,
         main: &T,
+        config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) -> Option<i16> {
         // skip syncing if we haven't received enough information
-        if ping_manager.pongs_recv < self.config.handshake_pings as u32 {
+        if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
             return None;
         }
-        self.is_synced = true;
         let now = self.now();
-        let objective = self.sync_objective(main, ping_manager, tick_duration);
-
+        let objective = self.sync_objective(main, config, ping_manager, tick_duration);
         let error = now - objective;
         let error_ticks = error.to_f32();
-        let adjustment = self.config.speed_adjustment(error_ticks);
+        let adjustment = if !self.is_synced {
+            SyncAdjustment::Resync
+        } else {
+            self.sync.speed_adjustment(&config.sync, error_ticks)
+        };
         trace!(
             ?now,
             ?objective,
             ?adjustment,
             ?error_ticks,
-            error_margin = ?self.config.error_margin,
-            max_error_margin = ?self.config.max_error_margin,
+            error_margin = ?config.sync.error_margin,
+            max_error_margin = ?config.sync.max_error_margin,
             "InputTimeline sync"
         );
+        self.is_synced = true;
         match adjustment {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));

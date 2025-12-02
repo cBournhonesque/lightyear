@@ -14,6 +14,8 @@ std = []
 test_utils = []
 
 [dependencies]
+lightyear_metrics.workspace = true
+
 # utils
 metrics.workspace = true
 metrics-util.workspace = true

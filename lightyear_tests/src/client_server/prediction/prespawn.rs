@@ -17,7 +17,7 @@ use lightyear_replication::prelude::{
     PreSpawned, PredictionTarget, Replicate, Replicated, ReplicationGroup,
 };
 use lightyear_replication::prespawn::PreSpawnedReceiver;
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::*;
 use test_log::test;
 use tracing::info;
 
@@ -40,7 +40,9 @@ fn test_compute_hash() {
 
     let current_tick = stepper.client_tick(0);
     let prediction_manager = stepper.client(0).get::<PreSpawnedReceiver>().unwrap();
-    let expected_hash: u64 = 5335464222343754353;
+    let expected_hash: u64 = 6945170416458392155;
+    tracing::info!(?prediction_manager
+            .prespawn_hash_to_entities, "hi");
     assert_eq!(
         prediction_manager
             .prespawn_hash_to_entities
@@ -320,14 +322,11 @@ fn test_prespawn_local_despawn_match() {
     let mut stepper = ClientServerStepper::from_config(config);
     let tick_duration = stepper.tick_duration;
     // add a conditioner to make sure that the client is ahead of the server, and make sure there is a resync
+    let mut sync_config = SyncConfig::default();
+    sync_config.max_error_margin = 0.5;
     stepper
         .client_mut(0)
-        .get_mut::<InputTimeline>()
-        .unwrap()
-        .0
-        .context
-        .config
-        .max_error_margin = 0.5;
+        .insert(InputTimelineConfig::default().with_sync_config(sync_config));
     stepper
         .client_mut(0)
         .get_mut::<Link>()

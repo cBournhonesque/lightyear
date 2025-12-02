@@ -12,14 +12,13 @@ use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;
 use lightyear_connection::client::Client;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick, Timeline};
+use lightyear_core::prelude::*;
 use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
-use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::prelude::client::{Input, InputDelayConfig};
+use lightyear_sync::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use test_log::test;
 use tracing::info;
 
@@ -98,10 +97,13 @@ fn test_actions_on_client_entity() {
 /// Check that ActionStates are stored correctly in the InputBuffer
 #[test]
 fn test_buffer_inputs_with_delay() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    stepper.client_mut(0).insert(InputTimeline(Timeline::from(
-        Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
-    )));
+    let mut config = StepperConfig::single();
+    config.init = false;
+    let mut stepper = ClientServerStepper::from_config(config);
+    stepper.client_mut(0).insert(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
+    );
+    stepper.init();
     let server_entity = stepper
         .server_app
         .world_mut()

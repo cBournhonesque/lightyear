@@ -65,7 +65,7 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn update_client(app: &mut App) {
-    use lightyear::prelude::client::{Input, InputDelayConfig};
+    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
     use lightyear::prelude::{Client, InputTimeline, Timeline};
     let client = app
         .world_mut()

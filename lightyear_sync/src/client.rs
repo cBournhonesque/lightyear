@@ -3,10 +3,10 @@
 use crate::plugin::TimelineSyncPlugin;
 use crate::prelude::InputTimeline;
 use crate::prelude::client::RemoteTimeline;
-use crate::timeline::input::Input;
+use crate::timeline::input::InputTimelineConfig;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
-use bevy_app::{App, First, Last, Plugin, PreUpdate};
+use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
@@ -24,7 +24,7 @@ pub struct ClientPlugin;
 
 impl ClientPlugin {
     pub fn update_local_timeline(
-        trigger: On<SyncEvent<Input>>,
+        trigger: On<SyncEvent<InputTimelineConfig>>,
         mut query: Query<&mut LocalTimeline>,
     ) {
         if let Ok(mut timeline) = query.get_mut(trigger.entity) {
@@ -66,12 +66,11 @@ impl Plugin for ClientPlugin {
             app.add_plugins(TimelineSyncPlugin);
         }
 
-        app.register_required_components::<Client, InputTimeline>();
+        app.register_required_components::<Client, InputTimelineConfig>();
         app.register_required_components::<Client, RemoteTimeline>();
 
-        // TODO: add a system that recomputes input_delay_ticks whenever the InputDelayConfig changes
-        app.add_observer(Input::recompute_input_delay);
-        app.add_systems(First, Input::recompute_input_delay_on_config_update);
+        app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
+        app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
 
         // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline

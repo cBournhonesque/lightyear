@@ -1,4 +1,4 @@
-use crate::client::{Client, Disconnected, Disconnecting};
+use crate::client::{Client, Disconnected, Disconnecting, PeerMetadata};
 use crate::client_of::ClientOf;
 use bevy_app::{App, Last, Plugin};
 use bevy_ecs::lifecycle::HookContext;
@@ -6,6 +6,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
+use lightyear_core::id::PeerId;
 use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
 use tracing::trace;
@@ -53,6 +54,10 @@ pub struct Started;
 
 impl Started {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
+        world
+            .resource_mut::<PeerMetadata>()
+            .mapping
+            .insert(PeerId::Server, context.entity);
         trace!("Started added: removing Starting/Stopped");
         world
             .commands()
@@ -81,6 +86,10 @@ pub struct Stopped;
 
 impl Stopped {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
+        world
+            .resource_mut::<PeerMetadata>()
+            .mapping
+            .remove(&PeerId::Server);
         trace!("Stopped added: removing Started/Starting");
         world
             .commands()

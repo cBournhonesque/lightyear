@@ -76,6 +76,14 @@ pub(crate) mod std {
             bytes
         }
 
+        /// Return the remaining length of the buffer as a separate Bytes.
+        ///
+        /// This doesn't allocate and just increases some reference counts. O(1) cost.
+        pub fn split(&mut self) -> Bytes {
+            let current_pos = self.0.position() as usize;
+            self.0.get_mut().split_off(current_pos)
+        }
+
         pub fn has_remaining(&self) -> bool {
             self.remaining() > 0
         }
@@ -168,6 +176,14 @@ pub(crate) mod no_std {
             // increment the position
             self.0.set_position(new_pos as u64);
             bytes
+        }
+
+        /// Return the remaining length of the buffer as a separate Bytes.
+        ///
+        /// This doesn't allocate and just increases some reference counts. O(1) cost.
+        pub fn split(&mut self) -> Bytes {
+            let current_pos = self.0.position() as usize;
+            self.0.get_mut().split_off(current_pos)
         }
 
         pub fn has_remaining(&self) -> bool {

@@ -38,6 +38,7 @@ pub mod writer;
 pub mod prelude {
     pub use crate::SerializationError;
     pub use crate::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
+    pub use no_std_io2::io::{Seek, SeekFrom};
 }
 
 use crate::writer::WriteInteger;

@@ -1,31 +1,28 @@
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
-use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_utils::prelude::DebugName;
 #[cfg(feature = "client")]
 use {
-    lightyear_connection::client::Client, lightyear_connection::host::HostClient,
+    bevy_enhanced_input::context::ExternallyMocked, lightyear_connection::client::Client,
     lightyear_replication::prelude::Replicate,
 };
 
 use bevy_enhanced_input::prelude::*;
-#[cfg(any(feature = "client", feature = "server"))]
-use {
-    lightyear_connection::server::Started,
-    lightyear_link::prelude::Server
-};
-
+#[cfg(all(feature = "client", feature = "server"))]
+use lightyear_connection::host::HostServer;
 use lightyear_replication::prelude::*;
 use lightyear_serde::SerializationError;
 use lightyear_serde::registry::SerializeFns;
 use lightyear_serde::writer::Writer;
 #[allow(unused_imports)]
 use tracing::{debug, info};
+#[cfg(any(feature = "client", feature = "server"))]
+use {lightyear_connection::{server::Started, host::HostClient}, lightyear_link::prelude::Server};
 #[cfg(feature = "server")]
 use {
-    lightyear_connection::host::HostServer, lightyear_inputs::server::ServerInputConfig,
-    lightyear_messages::MessageManager, lightyear_replication::prelude::ReplicateLike,
+    lightyear_inputs::server::ServerInputConfig, lightyear_messages::MessageManager,
+    lightyear_replication::prelude::ReplicateLike,
 };
 // TODO: ideally we would have an entity-mapped that is PreSpawn aware. If you include an entity
 //   that is PreSpawned, then in the entity-mapper we use a Query<Entity, With<PreSpawned>> to check the hash

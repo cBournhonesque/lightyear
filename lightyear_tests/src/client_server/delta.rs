@@ -102,7 +102,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_insert)
+            .get(&server_tick_insert)
             .unwrap(),
         &CompDelta(1)
     );
@@ -131,7 +131,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_update_1)
+            .get(&server_tick_update_1)
             .unwrap(),
         &CompDelta(2)
     );
@@ -189,7 +189,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_insert)
+            .get(&server_tick_insert)
             .is_none()
     );
     assert!(
@@ -199,7 +199,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_update_1)
+            .get(&server_tick_update_1)
             .is_some()
     );
     assert!(
@@ -209,7 +209,7 @@ fn test_component_update() {
             .get::<DeltaComponentHistory<CompDelta>>(client_entity)
             .unwrap()
             .buffer
-            .get(&client_tick_update_2)
+            .get(&server_tick_update_2)
             .is_some()
     );
 }
@@ -241,10 +241,15 @@ fn test_client_use_component_history() {
         },
     ));
 
+    let group_id = ReplicationGroupId(10);
     let server_entity = stepper
         .server_app
         .world_mut()
-        .spawn((Replicate::to_clients(NetworkTarget::All), CompDelta(1)))
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            CompDelta(1),
+            ReplicationGroup::new_id(10),
+        ))
         .id();
     stepper.frame_step_server_first(1);
     let client_entity = stepper
@@ -275,7 +280,7 @@ fn test_client_use_component_history() {
             .get::<ReplicationSender>()
             .unwrap()
             .group_channels
-            .get(&ReplicationGroupId(server_entity.to_bits()))
+            .get(&group_id)
             .unwrap()
             .delta_ack_ticks
             .get(&(server_entity, kind))
@@ -299,7 +304,7 @@ fn test_client_use_component_history() {
             .get::<ReplicationSender>()
             .unwrap()
             .group_channels
-            .get(&ReplicationGroupId(server_entity.to_bits()))
+            .get(&group_id)
             .unwrap()
             .delta_ack_ticks
             .get(&(server_entity, kind))
@@ -332,7 +337,7 @@ fn test_client_use_component_history() {
             .get::<ReplicationSender>()
             .unwrap()
             .group_channels
-            .get(&ReplicationGroupId(server_entity.to_bits()))
+            .get(&group_id)
             .unwrap()
             .delta_ack_ticks
             .get(&(server_entity, kind))
