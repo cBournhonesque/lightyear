@@ -127,6 +127,9 @@ impl ValueFormatter for BandwidthFormatter {
                 format!("{:.2} KB/s", bytes as f64 / (value * 1024.0))
             }
             Throughput::Elements(elems) => format!("{:.2} elem/s", elems as f64 / (value * 1024.0)),
+            _ => {
+                unimplemented!()
+            }
         }
     }
 
@@ -163,6 +166,9 @@ impl ValueFormatter for BandwidthFormatter {
                     *val = (elems as f64) / (*val * 1024.0)
                 }
                 "elem/s"
+            }
+            _ => {
+                unimplemented!()
             }
         }
     }
