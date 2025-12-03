@@ -75,7 +75,7 @@ pub struct NetworkVisibility {
 }
 
 impl NetworkVisibility {
-    pub(crate) fn is_visible(&self, sender: Entity) -> bool {
+    pub fn is_visible(&self, sender: Entity) -> bool {
         self.clients.get(&sender).is_some_and(|v| v.is_visible())
     }
 
