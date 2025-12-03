@@ -11,9 +11,14 @@ fn main() {
         vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); NUM_ENTITIES];
     stepper.server_app.world_mut().spawn_batch(entities);
 
-    // advance time by one frame
     stepper.advance_time(stepper.frame_duration);
+    stepper.server_app.update();
 
-    // buffer and send replication messages
+    // spawn a second batch (allocations should be reused)
+    let entities =
+    vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); NUM_ENTITIES];
+    stepper.server_app.world_mut().spawn_batch(entities);
+
+    stepper.advance_time(stepper.frame_duration);
     stepper.server_app.update();
 }
