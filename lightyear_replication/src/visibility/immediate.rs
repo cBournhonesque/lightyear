@@ -6,19 +6,20 @@ The **network visibility** is used to determine which entities are replicated to
 relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
 
 
-You can update the [`NetworkVisibility`] component of an entity to control its relevance for specific clients.
+You can add the [`NetworkVisibility`] component on an entity to indicate that this entity is using the visibility system.
 
 The visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
 until you change the setting again.
+To control the visibility, you can set it on the [`ReplicationState`] componet.
 
 ```rust
 # use bevy_ecs::entity::Entity;
-# use lightyear_replication::prelude::NetworkVisibility;
+# use lightyear_replication::prelude::ReplicationState;
 
 # let mut client = Entity::from_bits(1);
-let mut visibility = NetworkVisibility::default();
-visibility.gain_visibility(client);
-visibility.lose_visibility(client);
+let mut state = ReplicationState::default();
+state.gain_visibility(client);
+state.lose_visibility(client);
 ```
 */
 
@@ -68,6 +69,7 @@ impl VisibilityState {
 ///
 /// (the client still needs to be included in the [`Replicate`](crate::prelude::Replicate), the room is simply an additional constraint)
 #[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
+#[require(ReplicationState)]
 #[reflect(Component)]
 pub struct NetworkVisibility;
 
@@ -153,84 +155,96 @@ mod tests {
         let sender = app.world_mut().spawn_empty().id();
 
         app.world_mut()
-            .get_mut::<NetworkVisibility>(entity)
+            .get_mut::<ReplicationState>(entity)
             .unwrap()
             .gain_visibility(sender);
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get_mut::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Gained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Gained
         );
 
         // after an update: Gained -> Visible
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get_mut::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Maintained
         );
 
         // if an entity is already visible, we do not make it Gained
         app.world_mut()
-            .get_mut::<NetworkVisibility>(entity)
+            .get_mut::<ReplicationState>(entity)
             .unwrap()
             .gain_visibility(sender);
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get_mut::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Maintained
         );
 
         // entity now loses Visibility
         app.world_mut()
-            .get_mut::<NetworkVisibility>(entity)
+            .get_mut::<ReplicationState>(entity)
             .unwrap()
             .lose_visibility(sender);
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get_mut::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Lost)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Lost
         );
 
         // after an update: Lost -> Cleared
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get_mut::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            None
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Always
         );
 
         // if we Gain/Lose visibility in the same tick, do nothing
         app.world_mut()
-            .get_mut::<NetworkVisibility>(entity)
+            .get_mut::<ReplicationState>(entity)
             .unwrap()
             .gain_visibility(sender);
         app.world_mut()
-            .get_mut::<NetworkVisibility>(entity)
+            .get_mut::<ReplicationState>(entity)
             .unwrap()
             .lose_visibility(sender);
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get_mut::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            None
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Always
         );
     }
 }

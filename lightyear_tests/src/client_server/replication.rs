@@ -831,24 +831,15 @@ fn test_reinsert_replicate() {
         .get_local(client_entity)
         .expect("entity is not present in entity map");
 
-    assert_eq!(
+    assert!(
         stepper
             .client_app()
             .world()
-            .get::<Replicate>(client_entity)
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .senders()
-            .collect::<Vec<_>>(),
-        vec![client_sender]
+            .state()
+            .contains_key(&client_sender)
     );
-    let replicated_entities = &stepper
-        .client_app()
-        .world()
-        .get::<ReplicationSender>(client_sender)
-        .unwrap()
-        .replicated_entities;
-    assert_eq!(replicated_entities.len(), 1);
-    assert!(replicated_entities.contains_key(&client_entity));
 
     stepper
         .client_app()
@@ -857,22 +848,13 @@ fn test_reinsert_replicate() {
         .insert(Replicate::to_server());
     stepper.frame_step(1);
 
-    assert_eq!(
+    assert!(
         stepper
             .client_app()
             .world()
-            .get::<Replicate>(client_entity)
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .senders()
-            .collect::<Vec<_>>(),
-        vec![client_sender]
+            .state()
+            .contains_key(&client_sender)
     );
-    let replicated_entities = &stepper
-        .client_app()
-        .world()
-        .get::<ReplicationSender>(client_sender)
-        .unwrap()
-        .replicated_entities;
-    assert_eq!(replicated_entities.len(), 1);
-    assert!(replicated_entities.contains_key(&client_entity));
 }

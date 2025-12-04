@@ -15,7 +15,9 @@ use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::entity::EntityIndexSet;
 use bevy_ecs::prelude::*;
-use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder};
+use bevy_ecs::system::{
+    ParamBuilder, ParamSetBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder,
+};
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -303,42 +305,44 @@ impl Plugin for ReplicationSendPlugin {
             .unwrap();
 
         let replicate = (
-            QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
-                builder.or(|b| {
-                    b.with::<ReplicateLikeChildren>();
-                    b.with::<ReplicateLike>();
-                    b.and(|b| {
-                        b.with::<Replicating>();
-                        b.with::<Replicate>();
-                        b.with::<ReplicationState>();
-                    });
-                });
-                builder.optional(|b| {
-                    b.data::<(
-                        &Replicate,
-                        &ReplicationState,
-                        &ReplicationGroup,
-                        &NetworkVisibility,
-                        &ReplicateLikeChildren,
-                        &ReplicateLike,
-                        &ControlledBy,
-                        &PreSpawned,
-                    )>();
-                    // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-                    component_registry
-                        .component_metadata_map
-                        .iter()
-                        .for_each(|(kind, m)| {
-                            let id = m.component_id;
-                            b.ref_id(id);
-                            if let Some(r) = &m.replication {
-                                b.ref_id(r.overrides_component_id);
-                            }
+            ParamSetBuilder((
+                QueryParamBuilder::new(|builder| {
+                    // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
+                    builder.or(|b| {
+                        b.with::<ReplicateLikeChildren>();
+                        b.with::<ReplicateLike>();
+                        b.and(|b| {
+                            b.with::<Replicating>();
+                            b.with::<Replicate>();
+                            b.with::<ReplicationState>();
                         });
-                });
-            }),
-            ParamBuilder,
+                    });
+                    builder.optional(|b| {
+                        b.data::<(
+                            &Replicate,
+                            &ReplicationState,
+                            &ReplicationGroup,
+                            &NetworkVisibility,
+                            &ReplicateLikeChildren,
+                            &ReplicateLike,
+                            &ControlledBy,
+                            &PreSpawned,
+                        )>();
+                        // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
+                        component_registry
+                            .component_metadata_map
+                            .iter()
+                            .for_each(|(kind, m)| {
+                                let id = m.component_id;
+                                b.ref_id(id);
+                                if let Some(r) = &m.replication {
+                                    b.ref_id(r.overrides_component_id);
+                                }
+                            });
+                    });
+                }),
+                ParamBuilder,
+            )),
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,

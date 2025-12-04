@@ -37,8 +37,7 @@ use tracing::{debug, error, info, info_span, trace, trace_span, warn};
 pub(crate) fn replicate(
     // query &C + various replication components
     // we know that we always query Replicate from the parent
-    entity_query: Query<FilteredEntityRef>,
-    mut query: Query<&mut ReplicationState>,
+    mut query: ParamSet<(Query<FilteredEntityRef>, Query<&mut ReplicationState>)>,
     mut manager_query: Query<
         (
             Entity,
@@ -70,6 +69,7 @@ pub(crate) fn replicate(
     // Maybe the easiest would be to simply store the component history for every tick where the sender is ready to send?
     // (this assumes that the senders are all sending at the same tick). Otherwise we store the component history for all
     // past ticks where the component changes.
+    let p0 = query.p0();
     manager_query.par_iter_mut().for_each(
         |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
 
@@ -104,7 +104,7 @@ pub(crate) fn replicate(
                 last_run = ?sender.last_run,
                 "Starting buffer replication for sender {sender_entity:?}");
             replicable_entities.entities.iter().for_each(|&entity| {
-                let Ok(root_entity_ref) = entity_query.get(entity) else {
+                let Ok(root_entity_ref) = p0.get(entity) else {
                     trace!("Replicated Entity {:?} not found in entity_query. This could be because Replicating is not present on the entity", entity);
                     return;
                 };
@@ -124,7 +124,7 @@ pub(crate) fn replicate(
                 if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
                     for child in children.collection() {
                         let _child_span = trace_span!("child", ?child).entered();
-                        let child_entity_ref = entity_query.get(*child).unwrap();
+                        let child_entity_ref = p0.get(*child).unwrap();
                         replicate_entity(
                             *child,
                             tick,
@@ -152,7 +152,7 @@ pub(crate) fn replicate(
         .iter_mut()
         .for_each(|(sender_entity, mut sender, _, _, _, _)| {
             sender.new_spawns.drain(..).for_each(|e| {
-                if let Ok(mut state) = query.get_mut(e)
+                if let Ok(mut state) = query.p1().get_mut(e)
                     && let Some(s) = state.per_sender_state.get_mut(&sender_entity)
                 {
                     s.spawned = true;

@@ -34,7 +34,7 @@ fn test_spawn_gain_visibility() {
     // gain visibility
     stepper.client_apps[0]
         .world_mut()
-        .get_mut::<NetworkVisibility>(client_entity)
+        .get_mut::<ReplicationState>(client_entity)
         .unwrap()
         .gain_visibility(stepper.client_entities[0]);
     stepper.frame_step(1);
@@ -53,13 +53,18 @@ fn test_spawn_gain_visibility() {
 fn test_despawn_lose_visibility() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let mut visibility = NetworkVisibility::default();
-    visibility.gain_visibility(stepper.client_entities[0]);
     let client_entity = stepper
         .client_app()
         .world_mut()
-        .spawn((Replicate::to_server(), visibility))
+        .spawn((Replicate::to_server(), NetworkVisibility::default()))
         .id();
+    let sender = stepper.client_entities[0];
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<ReplicationState>(client_entity)
+        .unwrap()
+        .lose_visibility(sender);
     // entity is visible because of NetworkVisibility
     stepper.frame_step(1);
     let server_entity = stepper
@@ -73,9 +78,9 @@ fn test_despawn_lose_visibility() {
     // lose visibility: a Despawn message should be sent
     stepper.client_apps[0]
         .world_mut()
-        .get_mut::<NetworkVisibility>(client_entity)
+        .get_mut::<ReplicationState>(client_entity)
         .unwrap()
-        .lose_visibility(stepper.client_entities[0]);
+        .lose_visibility(sender);
     stepper.frame_step(1);
     assert!(
         stepper
@@ -97,29 +102,39 @@ fn test_despawn_with_visibility() {
     let mut stepper: ClientServerStepper =
         ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
-    let mut visibility_0 = NetworkVisibility::default();
-    visibility_0.gain_visibility(stepper.client_of_entities[0]);
     let server_entity_0 = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            visibility_0,
+            NetworkVisibility::default(),
             ReplicationGroup::new_id(1),
         ))
         .id();
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity_0)
+        .get_mut::<ReplicationState>()
+        .unwrap()
+        .gain_visibility(stepper.client_of_entities[0]);
 
-    let mut visibility_1 = NetworkVisibility::default();
-    visibility_1.gain_visibility(stepper.client_of_entities[1]);
     let server_entity_1 = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            visibility_1,
+            NetworkVisibility::default(),
             ReplicationGroup::new_id(1),
         ))
         .id();
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity_1)
+        .get_mut::<ReplicationState>()
+        .unwrap()
+        .gain_visibility(stepper.client_of_entities[1]);
 
     stepper.frame_step(2);
     let client_entity_0 = stepper

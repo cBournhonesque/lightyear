@@ -586,12 +586,18 @@ pub struct ReplicationState {
 }
 
 impl ReplicationState {
+    #[cfg(feature = "test_utils")]
+    pub fn state(&self) -> &EntityIndexMap<PerSenderReplicationState> {
+        &self.per_sender_state
+    }
+
     pub(crate) fn is_visible(&self, sender: Entity) -> bool {
         self.per_sender_state
             .get(&sender)
             .is_some_and(|s| s.visibility.is_visible())
     }
 
+    /// Indicate that the entity is not visible for that [`ReplicationSender`] entity.
     pub fn lose_visibility(&mut self, sender: Entity) {
         let state = self.per_sender_state.entry(sender).or_default();
         // if we just set it to Gained, it cancels out
@@ -602,7 +608,9 @@ impl ReplicationState {
         }
     }
 
+    /// Indicate that the entity is now visible for that [`ReplicationSender`] entity.
     pub fn gain_visibility(&mut self, sender: Entity) {
+        // TODO: what do we do if we had replicated spawn when not using visibility?
         let state = self.per_sender_state.entry(sender).or_default();
         // if the entity was already relevant (Relevance::Maintained), be careful to not set it to
         // Relevance::Gained as it would trigger a duplicate spawn replication action
@@ -610,7 +618,7 @@ impl ReplicationState {
             state.visibility = VisibilityState::Gained
         };
     }
-    pub(crate) fn has_authority(&self, sender: Entity) -> bool {
+    pub fn has_authority(&self, sender: Entity) -> bool {
         self.per_sender_state
             .get(&sender)
             .is_some_and(|s| s.authority.is_some_and(|a| a))
@@ -633,8 +641,9 @@ impl ReplicationState {
 
 // TODO: maybe also add disabling/component-overrides here?
 //  if any is enabled then we add a marker component to identify those archetypes
+#[doc(hidden)]
 #[derive(Clone, Debug, PartialEq, Reflect)]
-pub(crate) struct PerSenderReplicationState {
+pub struct PerSenderReplicationState {
     #[cfg(feature = "prediction")]
     pub(crate) predicted: bool,
     #[cfg(feature = "interpolation")]
@@ -649,7 +658,7 @@ pub(crate) struct PerSenderReplicationState {
     // - Replicate can be added on the entity in the server app to propagate replication updates to other clients
     //
     // If None, then the authority state is unknown
-    pub(crate) authority: Option<bool>,
+    pub authority: Option<bool>,
     // Set to true if the `ReplicationSender` sent a 'spawn' message for this entity
     //
     // This is needed because we cannot simply rely on seeing if `Replicate` has changed to check if we need to spawn the entity again.
