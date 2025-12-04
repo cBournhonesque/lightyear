@@ -7,18 +7,27 @@ const NUM_ENTITIES: usize = 1000;
 
 fn main() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    let entities =
-        vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); NUM_ENTITIES];
+    let entities = vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); NUM_ENTITIES];
     stepper.server_app.world_mut().spawn_batch(entities);
 
     stepper.advance_time(stepper.frame_duration);
     stepper.server_app.update();
 
     // spawn a second batch (allocations should be reused)
-    let entities =
-    vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); NUM_ENTITIES];
+    let entities = vec![(CompFull(0.0), Replicate::to_clients(NetworkTarget::All),); NUM_ENTITIES];
     stepper.server_app.world_mut().spawn_batch(entities);
 
     stepper.advance_time(stepper.frame_duration);
     stepper.server_app.update();
 }
+
+// Results: (RUST_LOG=info)
+// 1st update
+// - replicate: 270us
+// - send_replication_message: 96us
+// - Message::send: 12us
+// - Transport::buffer_send: 15us
+// - Netcode::send: 35us
+
+// 2nd update:
+// Same, but Message::send: 5us

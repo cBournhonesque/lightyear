@@ -125,10 +125,76 @@ Example: client sends E1 to server, who adds replicate. Replicate should definit
 We need an extra component for that.
 - it's ok to have a single component for visibility, because we will iterate through them in `buffer` every frame.
 
-- Replicate::lose_visibility() or Replicate::gain_visibility() activate visibility
-  Can only be used on entities with
+- Replicate::lose_visibility() or Replicate::gain_visibility() activate visibility.
 
 
+So:
+- visibility is part of Replicate.
+  - update visibility system
+- unique list of Replicate entities to use
+- separate authority component
+
+Maybe we can use a bitset with multiple bits per sender to represent authority/visibility/etc.
+
+Could add a single ReplicationState component that contains both visibility and authority.
+It's separate from Replicate so users wouldn't overwrite it. + we can add the "non-authoritative" information
+independently from the user adding Replicate.
+ 
+
+CachedReplicate:
+- if we change Replicate, we want to only send spawn to new senders, and despawn to the diff of senders.
+
+With separate ReplicateStatus:
+- replicated to 1, 2
+- spawned to 1, 2
+- insert Replicate to 1, 3
+-  -> add sender to ReplicateStatus for 3
+-  -> since we spawned on 2, prepare a despawn for 2.
+no need for cached replicate!
+
+- if we add PredictionTarget before Replicate
+  - we add to ReplicateState but not to ReplicateEntities
+  - we add 'prediction' but not 'authority' (authority is unknown)
+
+
+# Mode
+
+The thing is that we don't want to penalize cases where there is only one ReplicationSender in the world:
+- single-client
+The cases with multiple senders could be:
+- server
+- P2P with distributed authority.
+
+We could add features:
+- mode_server: potentially multiple ReplicationSender
+- mode_p2p:
+- mode_client:
+
+
+MODES
+# Client
+- each replicate can only have a single sender (no need for a hashmap)
+# Server 
+- 
+# P2P-Deterministic
+# P2P-StateReplication
+- multiple links, no state replication?
+# HostClient
+- Server, but one of the clients is the host
+
+
+- LightyearMetadata resource 
+  - includes the Mode (Client, Server, P2P)
+    - Other potential modes:
+      - maybe a client wants to connect to multiple servers in a server-mesh scenario?
+      - i don't think we would ever want multiple servers in the same app
+    - with maybe a pointer to the 'main' entity?
+  - includes the TickDuration.
+  - maybe includes the LocalTimeline!
+
+- Client mode:
+  - Replicate/Authority/NetworkVisibility don't need hashmaps
+- 
 
 
 # Component visibility
@@ -138,3 +204,25 @@ For example we have ComponentReplicationOverride that is global or per-sender.
 
 What if you specified once a set of ComponentReplicationOverride rules.
 Then you can attach a Rule1 on a Sender and on an entity. This means that the rule applies to both.
+
+
+# Multi-Server
+
+I think it's too complicated to properly handle multi-servers.
+
+We can have either:
+- multiple 'servers' that are still part of a same global server
+  - i.e. global server timeline, multiple Server entities (Websocket, WebTransport, etc.) that each have their own ClientOfs.
+  - but otherwise the big 'SERVER' is the same. (it is a resource)
+  - the server is just there to manage multiple client connections, but otherwise the app itself only has a single server
+- single client
+- host-server: one of the clients is also a ClientOf of one of the servers
+- P2P: multiple Links in the same app?
+  - these are not Clients though, because Clients implies that there is a Server on the other side.
+- deterministic via server relay: 
+  - clients have a single Link
+  - we could again have multiple servers, but a single SERVER timeline
+
+We can have a component Role that indicates that the this is the main timeline.
+(or AuthorityBroker).
+

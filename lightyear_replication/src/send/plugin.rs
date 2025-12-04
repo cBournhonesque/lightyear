@@ -5,18 +5,15 @@ use crate::message::{
     ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
 };
 use crate::plugin::ReplicationSystems;
-use crate::prelude::{CachedReplicate, NetworkVisibility};
+use crate::prelude::{CachedReplicationState, NetworkVisibility, ReplicationState};
 use crate::prespawn;
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
-#[cfg(feature = "interpolation")]
-use crate::send::components::InterpolationTarget;
-#[cfg(feature = "prediction")]
-use crate::send::components::PredictionTarget;
 use crate::send::components::{Replicate, Replicating, ReplicationGroup};
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::entity::EntityIndexSet;
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder};
 use bevy_time::{Real, Time};
@@ -181,7 +178,7 @@ impl ReplicationSendPlugin {
     fn handle_disconnection(
         trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
-        mut replicate: Query<(&mut Replicate, Option<&mut CachedReplicate>)>,
+        mut replicate: Query<(&mut ReplicationState, Option<&mut CachedReplicationState>)>,
     ) {
         if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
@@ -191,7 +188,7 @@ impl ReplicationSendPlugin {
             );
         }
         replicate.iter_mut().for_each(|(mut r, cached)| {
-            r.senders.swap_remove(&trigger.entity);
+            r.per_sender_state.swap_remove(&trigger.entity);
             // we also update CachedReplicate because it's only used to compute the diff when a new Replicate is inserted.
             if let Some(mut cached) = cached {
                 cached.senders.swap_remove(&trigger.entity);
@@ -229,6 +226,9 @@ impl ReplicationSendPlugin {
 
 impl Plugin for ReplicationSendPlugin {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<ReplicableRootEntities>();
+
         // PLUGINS
         if !app.is_plugin_added::<crate::plugin::SharedPlugin>() {
             app.add_plugins(crate::plugin::SharedPlugin);
@@ -260,11 +260,8 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(Replicate::handle_connection);
         #[cfg(feature = "prediction")]
         {
-            app.add_observer(PredictionTarget::handle_connection);
-            app.add_observer(PredictionTarget::add_replication_group);
+            app.add_observer(crate::prelude::PredictionTarget::add_replication_group);
         }
-        #[cfg(feature = "interpolation")]
-        app.add_observer(InterpolationTarget::handle_connection);
         app.add_observer(Self::handle_disconnection);
 
         app.add_observer(ControlledBy::handle_disconnection);
@@ -314,11 +311,13 @@ impl Plugin for ReplicationSendPlugin {
                     b.and(|b| {
                         b.with::<Replicating>();
                         b.with::<Replicate>();
+                        b.with::<ReplicationState>();
                     });
                 });
                 builder.optional(|b| {
                     b.data::<(
                         &Replicate,
+                        &ReplicationState,
                         &ReplicationGroup,
                         &NetworkVisibility,
                         &ReplicateLikeChildren,
@@ -326,10 +325,6 @@ impl Plugin for ReplicationSendPlugin {
                         &ControlledBy,
                         &PreSpawned,
                     )>();
-                    #[cfg(feature = "prediction")]
-                    b.data::<&PredictionTarget>();
-                    #[cfg(feature = "interpolation")]
-                    b.data::<&InterpolationTarget>();
                     // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
                     component_registry
                         .component_metadata_map
@@ -343,6 +338,8 @@ impl Plugin for ReplicationSendPlugin {
                         });
                 });
             }),
+            ParamBuilder,
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -415,12 +412,14 @@ impl Plugin for ReplicationSendPlugin {
                     b.and(|b| {
                         b.with::<Replicating>();
                         b.with::<Replicate>();
+                        b.with::<ReplicationState>();
                     });
                 });
                 builder.optional(|b| {
                     b.data::<(
                         &ReplicateLike,
                         &Replicate,
+                        &ReplicationState,
                         &Replicating,
                         &NetworkVisibility,
                         &ReplicationGroup,
@@ -474,4 +473,12 @@ pub enum ReplicationBufferSystems {
     AfterBuffer,
     // Flush the buffered replication messages to the Transport
     Flush,
+}
+
+/// Global list of root entities that should be considered for replication
+///
+/// Equivalent to Query<(), (With<Replicate>, With<Replicating>)> but we cache the result
+#[derive(Resource, Default)]
+pub(crate) struct ReplicableRootEntities {
+    pub(crate) entities: EntityIndexSet,
 }

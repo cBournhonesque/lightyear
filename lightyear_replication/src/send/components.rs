@@ -1,14 +1,14 @@
 use crate::authority::{AuthorityBroker, HasAuthority};
-use crate::components::ComponentReplicationOverrides;
-use crate::send::sender::{ReplicationSender, ReplicationStatus};
+use crate::components::{ComponentReplicationOverrides, InitialReplicated, Replicated};
+use crate::send::sender::ReplicationSender;
 use alloc::vec::Vec;
 use bevy_ecs::component::Component;
+use bevy_ecs::entity::EntityIndexMap;
 use bevy_ecs::entity::index_set::EntityIndexSet;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::reflect::ReflectComponent;
 use bevy_ecs::world::DeferredWorld;
-use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
 use bevy_time::{Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
@@ -18,6 +18,9 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
 
+use crate::host::SpawnedOnHostServer;
+use crate::send::plugin::ReplicableRootEntities;
+use crate::visibility::immediate::VisibilityState;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::server::LinkOf;
 #[cfg(feature = "server")]
@@ -313,28 +316,64 @@ impl PredictionTarget {
     }
 }
 
+#[cfg(feature = "prediction")]
+impl ReplicationTargetT for lightyear_core::prediction::Predicted {
+    fn update_host_client(entity_mut: &mut EntityWorldMut) {
+        entity_mut.insert(Self);
+    }
+
+    fn update_replicate_state(state: &mut PerSenderReplicationState) {
+        state.predicted = true;
+    }
+
+    fn clear_replicate_state(state: &mut PerSenderReplicationState) {
+        state.predicted = false;
+    }
+}
+
 pub type InterpolationTarget = ReplicationTarget<lightyear_core::interpolation::Interpolated>;
+
+#[cfg(feature = "interpolation")]
+impl ReplicationTargetT for lightyear_core::interpolation::Interpolated {
+    fn update_host_client(entity_mut: &mut EntityWorldMut) {
+        entity_mut.insert(Self);
+    }
+
+    fn update_replicate_state(state: &mut PerSenderReplicationState) {
+        state.interpolated = true;
+    }
+
+    fn clear_replicate_state(state: &mut PerSenderReplicationState) {
+        state.interpolated = false;
+    }
+}
 
 /// Insert this component to specify which remote peers will start predicting the entity
 /// upon receiving the entity.
 // NOTE: we don't require Replicate here because we might be using this with ReplicateLike entities
 //  in order to override the prediction/interpolation targets.
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
+#[require(ReplicationState)]
 #[component(on_insert = ReplicationTarget::<T>::on_insert)]
 #[component(on_replace = ReplicationTarget::<T>::on_replace)]
-pub struct ReplicationTarget<T: Sync + Send + 'static> {
+pub struct ReplicationTarget<T: ReplicationTargetT> {
     mode: ReplicationMode,
-    #[reflect(ignore)]
-    pub senders: EntityIndexSet,
     #[reflect(ignore)]
     marker: core::marker::PhantomData<T>,
 }
 
-impl<T: Sync + Send + 'static> ReplicationTarget<T> {
+#[doc(hidden)]
+pub trait ReplicationTargetT: Send + Sync + 'static {
+    fn update_host_client(entity_mut: &mut EntityWorldMut);
+    fn update_replicate_state(state: &mut PerSenderReplicationState);
+
+    fn clear_replicate_state(state: &mut PerSenderReplicationState);
+}
+
+impl<T: ReplicationTargetT> ReplicationTarget<T> {
     pub fn new(mode: ReplicationMode) -> Self {
         Self {
             mode,
-            senders: EntityIndexSet::default(),
             marker: core::marker::PhantomData,
         }
     }
@@ -354,50 +393,49 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
         Self::new(ReplicationMode::Manual(senders))
     }
 
-    /// List of [`ReplicationSender`] entities that this entity targets
-    pub fn senders(&self) -> impl Iterator<Item = Entity> {
-        self.senders.iter().copied()
-    }
-
     pub(crate) fn on_insert(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             let unsafe_world = world.as_unsafe_world_cell();
             // SAFETY: we will use this world to access the ReplicationSender
             let world = unsafe { unsafe_world.world_mut() };
             // SAFETY: we will use this world only to access the Replicated entity, so there is no aliasing issue
-            let mut replicate_entity_mut =
+            let mut entity_mut =
+                unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
+            let mut entity_mut_state =
                 unsafe { unsafe_world.world_mut().entity_mut(context.entity) };
 
-            let mut replicate = replicate_entity_mut
-                .get_mut::<ReplicationTarget<T>>()
+            let (replicate, mut state) =
+                // SAFETY: there is no aliasing because `entity_mut_state` just fetches ReplicationTarget and ReplicationState,
+                //  and `entity_mut` inserts some unrelated components
+                unsafe { entity_mut_state.get_components_mut_unchecked::<(&ReplicationTarget<T>, &mut ReplicationState)>() }
                 .unwrap();
+
             // enable split borrows
-            let replicate = &mut *replicate;
-            match &mut replicate.mode {
+            match &replicate.mode {
                 ReplicationMode::SingleSender => {
-                    let Ok(sender_entity) = world.query_filtered::<Entity, Or<(With<ReplicationSender>, With<HostClient>)>>().single_mut(world) else {
-                        error!(mode = ?replicate.mode, "No ReplicationSender found in the world");
+                    let Ok((sender_entity, is_host_client)) = world.query_filtered::<(Entity, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>().single_mut(world) else {
+                        trace!(mode = ?replicate.mode, "No ReplicationSender found in the world");
                         return;
                     };
-                    replicate.senders.insert(sender_entity);
+                    T::update_replicate_state(state.per_sender_state.entry(sender_entity).or_default());
+                    if is_host_client {
+                        T::update_host_client(&mut entity_mut);
+                    }
                 }
                 #[cfg(feature = "client")]
                 ReplicationMode::SingleClient => {
                     use lightyear_connection::client::Client;
                     use lightyear_connection::host::HostClient;
-                    use tracing::{debug};
-                    let Ok(sender_entity) = world
-                        .query_filtered::<Entity, (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
+                    let Ok((sender_entity, is_host_client)) = world
+                        .query_filtered::<(Entity, Has<HostClient>), (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                         .single_mut(world)
                     else {
-                        debug!("No Client found in the world");
                         return;
                     };
-                    debug!(
-                        "Adding replicated entity {} to sender {}",
-                        context.entity, sender_entity
-                    );
-                    replicate.senders.insert(sender_entity);
+                    T::update_replicate_state(state.per_sender_state.entry(sender_entity).or_default());
+                    if is_host_client {
+                        T::update_host_client(&mut entity_mut);
+                    }
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::SingleServer(target) => {
@@ -424,28 +462,30 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                                 context.entity,
                                 client
                             );
-                            let Ok(()) = world
-                                .query_filtered::<(), (
-                                    With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>
-                                )>()
+                            let Ok(is_host_client) = world
+                                .query_filtered::<Has<HostClient>, (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                                 .get_mut(world, client)
                             else {
-                                error!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
-                            replicate.senders.insert(client);
+                            T::update_replicate_state(state.per_sender_state.entry(client).or_default());
+                            if is_host_client {
+                                T::update_host_client(&mut entity_mut);
+                            }
                         },
                     );
                 }
                 ReplicationMode::Sender(entity) => {
-                    let Ok(()) = world
-                        .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
+                    let Ok(is_host_client) = world
+                        .query_filtered::<Has<HostClient>, Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *entity)
                     else {
-                        error!(mode = ?replicate.mode, "No ReplicationSender found in the world");
                         return;
                     };
-                    replicate.senders.insert(*entity);
+                    T::update_replicate_state(state.per_sender_state.entry(*entity).or_default());
+                    if is_host_client {
+                        T::update_host_client(&mut entity_mut);
+                    }
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::Server(server, target) => {
@@ -467,14 +507,16 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                         server.collection().iter().copied(),
                         &peer_metadata.mapping,
                         &mut |client| {
-                            let Ok(()) = world
-                                .query_filtered::<(), (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
+                            let Ok(is_host_client) = world
+                                .query_filtered::<Has<HostClient>, (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)>()
                                 .get_mut(world, client)
                             else {
-                                debug!("No Client found in the world");
                                 return;
                             };
-                            replicate.senders.insert(client);
+                            T::update_replicate_state(state.per_sender_state.entry(client).or_default());
+                            if is_host_client {
+                                T::update_host_client(&mut entity_mut);
+                            }
                         },
                     );
                 }
@@ -485,14 +527,16 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
                 }
                 ReplicationMode::Manual(sender_entities) => {
                     for sender_entity in sender_entities.iter() {
-                        let Ok(()) = world
-                            .query_filtered::<(), Or<(With<ReplicationSender>, With<HostClient>)>>()
+                        let Ok(is_host_client) = world
+                            .query_filtered::<Has<HostClient>, Or<(With<ReplicationSender>, With<HostClient>)>>()
                             .get_mut(world, *sender_entity)
                         else {
-                            error!(mode = ?replicate.mode, "No ReplicationSender found in the world for target: {:?}", DebugName::type_name::<T>());
                             return;
                         };
-                        replicate.senders.insert(*sender_entity);
+                        T::update_replicate_state(state.per_sender_state.entry(*sender_entity).or_default());
+                        if is_host_client {
+                            T::update_host_client(&mut entity_mut);
+                        }
                     }
                 }
             }
@@ -500,75 +544,10 @@ impl<T: Sync + Send + 'static> ReplicationTarget<T> {
     }
 
     pub(crate) fn on_replace(mut world: DeferredWorld, context: HookContext) {
-        let mut replicate = world
-            .get_mut::<ReplicationTarget<T>>(context.entity)
-            .unwrap();
-        replicate.senders = EntityIndexSet::default();
-    }
-
-    /// When a new client connects, check if we need to replicate existing entities to it
-    pub(crate) fn handle_connection(
-        trigger: On<Add, (Connected, ReplicationSender)>,
-        mut sender_query: Query<
-            (Entity, &mut ReplicationSender, &RemoteId, Option<&LinkOf>),
-            With<Connected>,
-        >,
-        mut replicate_query: Query<(Entity, &mut ReplicationTarget<T>)>,
-        mut commands: Commands,
-    ) {
-        if let Ok((sender_entity, mut sender, remote_peer_id, link_of)) =
-            sender_query.get_mut(trigger.entity)
-        {
-            // TODO: maybe do this in parallel?
-            replicate_query.iter_mut().for_each(|(entity, mut replicate)| {
-                match &replicate.mode {
-                    ReplicationMode::SingleSender => {}
-                    #[cfg(feature = "client")]
-                    ReplicationMode::SingleClient => {}
-                    #[cfg(feature = "server")]
-                    ReplicationMode::SingleServer(target) => {
-                        if link_of.is_some() && target.targets(remote_peer_id) {
-                            debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
-                            }
-                            replicate.senders.insert(sender_entity);
-                        }
-                    }
-                    ReplicationMode::Sender(_) => {}
-                    #[cfg(feature = "server")]
-                    ReplicationMode::Server(e, target) => {
-                        if target.targets(remote_peer_id) && link_of.is_some_and(|c| c.server == *e) {
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
-                            }
-                            replicate.senders.insert(sender_entity);
-                        }
-                    }
-                    ReplicationMode::Target(target) => {
-                        if target.targets(remote_peer_id) {
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
-                            }
-                            replicate.senders.insert(sender_entity);
-                        }
-                    }
-                    ReplicationMode::Manual(_) => {}
-                }
-            })
-        }
+        let mut state = world.get_mut::<ReplicationState>(context.entity).unwrap();
+        state.per_sender_state.values_mut().for_each(|v| {
+            T::clear_replicate_state(v);
+        });
     }
 }
 
@@ -595,6 +574,119 @@ pub enum ReplicationMode {
     Manual(Vec<Entity>),
 }
 
+/// Component containins replication metadata for the entity
+///
+// This is kept separate from the Replicate for situations like:
+// - specifying that a sender has no authority over an entity independently even without Replicate being added
+#[derive(Component, Default, Debug)]
+pub struct ReplicationState {
+    /// The list of [`ReplicationSender`] entities that this entity is being replicated on
+    pub(crate) per_sender_state: EntityIndexMap<PerSenderReplicationState>,
+    // TODO: maybe add ReplicationGroup information here?
+}
+
+impl ReplicationState {
+    pub(crate) fn is_visible(&self, sender: Entity) -> bool {
+        self.per_sender_state
+            .get(&sender)
+            .is_some_and(|s| s.visibility.is_visible())
+    }
+
+    pub fn lose_visibility(&mut self, sender: Entity) {
+        let state = self.per_sender_state.entry(sender).or_default();
+        // if we just set it to Gained, it cancels out
+        if state.visibility == VisibilityState::Gained {
+            state.visibility = VisibilityState::Always;
+        } else {
+            state.visibility = VisibilityState::Lost;
+        }
+    }
+
+    pub fn gain_visibility(&mut self, sender: Entity) {
+        let state = self.per_sender_state.entry(sender).or_default();
+        // if the entity was already relevant (Relevance::Maintained), be careful to not set it to
+        // Relevance::Gained as it would trigger a duplicate spawn replication action
+        if state.visibility != VisibilityState::Maintained {
+            state.visibility = VisibilityState::Gained
+        };
+    }
+    pub(crate) fn has_authority(&self, sender: Entity) -> bool {
+        self.per_sender_state
+            .get(&sender)
+            .is_some_and(|s| s.authority.is_some_and(|a| a))
+    }
+
+    pub(crate) fn lose_authority(&mut self, sender: Entity) {
+        self.per_sender_state
+            .entry(sender)
+            .and_modify(|s| s.authority = Some(false))
+            .or_insert_with(|| PerSenderReplicationState::without_authority());
+    }
+
+    pub(crate) fn gain_authority(&mut self, sender: Entity) {
+        self.per_sender_state
+            .entry(sender)
+            .and_modify(|s| s.authority = Some(true))
+            .or_insert_with(|| PerSenderReplicationState::with_authority());
+    }
+}
+
+// TODO: maybe also add disabling/component-overrides here?
+//  if any is enabled then we add a marker component to identify those archetypes
+#[derive(Clone, Debug, PartialEq, Reflect)]
+pub(crate) struct PerSenderReplicationState {
+    #[cfg(feature = "prediction")]
+    pub(crate) predicted: bool,
+    #[cfg(feature = "interpolation")]
+    pub(crate) interpolated: bool,
+    pub(crate) visibility: VisibilityState,
+    // Set to true if the sender has authority over the entity (is allowed to send replication updates for it).
+    //
+    // It is possible to have an entity with the Replicate component, but without authority.
+    // For example:
+    // - C1 replicates E to ClientOf C1' on the server
+    // - on the server app, C1' does not have authority over the entity
+    // - Replicate can be added on the entity in the server app to propagate replication updates to other clients
+    //
+    // If None, then the authority state is unknown
+    pub(crate) authority: Option<bool>,
+    // Set to true if the `ReplicationSender` sent a 'spawn' message for this entity
+    //
+    // This is needed because we cannot simply rely on seeing if `Replicate` has changed to check if we need to spawn the entity again.
+    // For example:
+    // - spawn Replicate to client 1
+    // - spawn message is sent to client 1
+    // - add client 2 as a replication target
+    // -> Replicate has changed, but we only want to send a 'spawn' message to client 1
+    pub(crate) spawned: bool,
+}
+
+impl PerSenderReplicationState {
+    pub(crate) fn new(authority: Option<bool>) -> Self {
+        Self {
+            #[cfg(feature = "prediction")]
+            predicted: false,
+            #[cfg(feature = "interpolation")]
+            interpolated: false,
+            visibility: VisibilityState::default(),
+            authority,
+            spawned: false,
+        }
+    }
+    pub(crate) fn with_authority() -> Self {
+        Self::new(Some(true))
+    }
+    pub(crate) fn without_authority() -> Self {
+        Self::new(Some(false))
+    }
+}
+
+impl Default for PerSenderReplicationState {
+    fn default() -> Self {
+        Self::new(None)
+    }
+}
+
 /// Insert this component to start replicating your entity.
 ///
 /// - If sender is an Entity that has a ReplicationSender, we will replicate on that entity
@@ -602,30 +694,24 @@ pub enum ReplicationMode {
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
 #[require(Replicating)]
 #[require(ReplicationGroup)]
+#[require(ReplicationState)]
 #[component(on_insert = Replicate::on_insert)]
 #[component(on_replace = Replicate::on_replace)]
 #[reflect(Component)]
 pub struct Replicate {
     /// Defines which [`ReplicationSenders`](ReplicationSender) this entity will be replicated to
     mode: ReplicationMode,
-    /// The list of [`ReplicationSender`] entities that this entity is being replicated on
-    #[reflect(ignore)]
-    pub(crate) senders: EntityIndexSet,
 }
 
 impl Replicate {
     pub fn new(mode: ReplicationMode) -> Self {
-        Self {
-            mode,
-            senders: EntityIndexSet::default(),
-        }
+        Self { mode }
     }
 
     #[cfg(feature = "client")]
     pub fn to_server() -> Self {
         Self {
             mode: ReplicationMode::SingleClient,
-            senders: EntityIndexSet::default(),
         }
     }
 
@@ -633,42 +719,23 @@ impl Replicate {
     pub fn to_clients(target: NetworkTarget) -> Self {
         Self {
             mode: ReplicationMode::SingleServer(target),
-            senders: EntityIndexSet::default(),
         }
     }
 
     pub fn manual(senders: Vec<Entity>) -> Self {
         Self {
             mode: ReplicationMode::Manual(senders),
-            senders: EntityIndexSet::default(),
         }
-    }
-
-    /// List of [`ReplicationSender`] entities that this entity is being replicated on
-    pub fn senders(&self) -> impl Iterator<Item = Entity> {
-        self.senders.iter().copied()
     }
 
     // We NEVER manually update replicate, so we can handle everything via observers
     //
-    // ON REPLACE: (on drop)
-    // - store the previous state of Replicate in CachedReplicate
-    //
     // ON INSERT:
-    // - check each newly added sender with CachedReplicate to see if we removed/added some senders
-    //   - removed senders: get added to `sender.removed_entities` if we had spawned the entity on that sender
-    //   - added senders: get added to `sender.replicated_entities` if it was not in the previous CachedReplicate
+    // - add new senders to the ReplicateState
+    // - senders that were in ReplicateState but don't match the new Replicate target should be removed.
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
-            let unsafe_world = world.as_unsafe_world_cell();
-
-            // SAFETY: we will use this world to access the ReplicationSender
-            let world = unsafe { unsafe_world.world_mut() };
-
-            let unsafe_entity_cell = unsafe_world.get_entity(context.entity).unwrap();
-            // SAFETY: there is no aliasing because we only access Replicate and CachedReplicate
-            let mut replicate = unsafe { unsafe_entity_cell.get_mut::<Replicate>().unwrap() };
-            let cached_replicate = unsafe { unsafe_entity_cell.get::<CachedReplicate>() };
+            world.resource_mut::<ReplicableRootEntities>().entities.insert(context.entity);
 
             // update the authority broker if the entity is spawned on the server
             if let Some(peer_metadata) = world.get_resource::<PeerMetadata>() && let Some(server) = peer_metadata.mapping.get(&PeerId::Server) && let Some(mut broker) = world.get_mut::<AuthorityBroker>(*server) {
@@ -677,51 +744,63 @@ impl Replicate {
                 broker.owners.entry(context.entity).or_insert(Some(PeerId::Server));
             }
 
-            let add_sender = |senders: &mut EntityIndexSet, cached_replicate: Option<&CachedReplicate>, sender_entity: Entity, sender: Option<Mut<ReplicationSender>>, unsafe_world: UnsafeWorldCell| {
-                let Some(mut sender) = sender else {
-                    error!(?sender_entity, "No ReplicationSender found in the world in mode Manual");
-                    return;
-                };
-                // Add senders that were not in the previous CachedReplicate
-                senders.insert(sender_entity);
-                if cached_replicate.is_none_or(|c| !c.senders.contains(&sender_entity)) {
-                    trace!("Adding new sender {} for replicated entity {}", sender_entity, context.entity);
-                    // if the entity was already in sender.replicated_entities (because we received it from another peer)
-                    // don't update the authority
-                    if !sender.replicated_entities.contains_key(&context.entity) {
-                        sender.replicated_entities.insert(context.entity, ReplicationStatus {
-                            authority: true,
-                            spawned: false,
-                        });
-                        trace!("Adding HasAuthority to entity {:?} because Replicate is inserted", context.entity);
-                        // SAFETY: we are not doing aliasing
-                        unsafe { unsafe_world.world_mut() }.entity_mut(context.entity).insert_if_new(HasAuthority);
-                    };
+            let unsafe_world = world.as_unsafe_world_cell();
+            // SAFETY: we will use this world to access the ReplicationSender
+            let world = unsafe { unsafe_world.world_mut() };
+            let mut entity_mut = unsafe { unsafe_world.world_mut() }.entity_mut(context.entity);
+            let mut entity_mut_state = unsafe { unsafe_world.world_mut() }.entity_mut(context.entity);
+            // SAFETY: there is no aliasing because the `entity_mut_state` is used to get these 4 components
+            //  and `entity_mut` is used to insert some extra components
+            let Some((mut state, replicate, group, cached_replicate)) = (unsafe {
+                entity_mut_state.get_components_mut_unchecked::<(&mut ReplicationState, &Replicate, &ReplicationGroup,
+                                                           Option<&CachedReplicationState>)>
+                ()
+            }) else {
+                return
+            };
 
+            let add_sender = |senders: &mut EntityIndexMap<PerSenderReplicationState>, sender_entity: Entity, entity_mut: &mut EntityWorldMut, is_host_client: bool| {
+                if is_host_client {
+                    entity_mut.insert((
+                         Replicated { receiver: sender_entity },
+                         InitialReplicated { receiver: sender_entity },
+                         SpawnedOnHostServer,
+                    ));
+                    return;
                 }
+                // only insert a sender if it was not already present
+                // since it could already be present with no_authority (if we received the entity from a remote peer)
+                senders.entry(sender_entity)
+                    .and_modify(|s| {
+                        // authority could be set to None (for example if PredictionTarget is processed first)
+                        if s.authority.is_none() {
+                        entity_mut.insert(HasAuthority);
+                        }
+                    })
+                    .or_insert_with(|| {
+                    trace!("Adding HasAuthority to entity {:?} because Replicate is inserted", context.entity);
+                    entity_mut.insert(HasAuthority);
+                    PerSenderReplicationState::with_authority()
+                });
             };
 
             // enable split borrows
-            let replicate = &mut *replicate;
             match &replicate.mode {
                 ReplicationMode::SingleSender => {
-                    let Ok((sender_entity, sender, host_client)) = world
-                        .query_filtered::<(Entity, Option<&mut ReplicationSender>, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
+                    let Ok((sender_entity, host_client)) = world
+                        .query_filtered::<(Entity, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .single_mut(world)
                     else {
                         error!(entity = ?context.entity, "No ReplicationSender found in the world in mode SingleSender");
                         return;
                     };
-                    if host_client {
-                        return;
-                    }
-                    add_sender(&mut replicate.senders, cached_replicate, sender_entity, sender, unsafe_world);
+                    add_sender(&mut state.per_sender_state, sender_entity, &mut entity_mut, host_client);
                 }
                 #[cfg(feature = "client")]
                 ReplicationMode::SingleClient => {
-                    let Ok((sender_entity, sender, host_client)) = world
+                    let Ok((sender_entity, host_client)) = world
                         .query_filtered::<
-                            (Entity, Option<&mut ReplicationSender>, Has<HostClient>),
+                            (Entity, Has<HostClient>),
                             (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)
                         >()
                         .single_mut(world)
@@ -733,12 +812,7 @@ impl Replicate {
                         "Adding replicated entity {} to sender {}",
                         context.entity, sender_entity
                     );
-                    // TODO: maybe we should update `sender` even if it's a HostClient since it might be needed
-                    //  to insert the fake replication components for host-server
-                    if host_client {
-                        return;
-                    }
-                    add_sender(&mut replicate.senders, cached_replicate, sender_entity, sender, unsafe_world);
+                    add_sender(&mut state.per_sender_state, sender_entity, &mut entity_mut, host_client);
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::SingleServer(target) => {
@@ -765,9 +839,9 @@ impl Replicate {
                         server.collection().iter().copied(),
                         &peer_metadata.mapping,
                         &mut |client| {
-                            let Ok((sender, host_client)) = world
+                            let Ok(host_client) = world
                                 .query_filtered::<
-                                    (Option<&mut ReplicationSender>, Has<HostClient>),
+                                    Has<HostClient>,
                                     (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)
                                 >()
                                 .get_mut(world, client)
@@ -775,25 +849,19 @@ impl Replicate {
                                 error!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
-                            if host_client {
-                                return;
-                            }
-                            add_sender(&mut replicate.senders, cached_replicate, client, sender, unsafe_world);
+                            add_sender(&mut state.per_sender_state, client, &mut entity_mut, host_client);
                         },
                     );
                 }
                 ReplicationMode::Sender(entity) => {
-                    let Ok((sender, host_client)) = world
-                        .query_filtered::<(Option<&mut ReplicationSender>, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
+                    let Ok(host_client) = world
+                        .query_filtered::<Has<HostClient>, Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *entity)
                     else {
                         error!(?entity, "No ReplicationSender found in the world in mode Sender");
                         return;
                     };
-                    if host_client {
-                        return;
-                    }
-                    add_sender(&mut replicate.senders, cached_replicate, *entity, sender, unsafe_world);
+                    add_sender(&mut state.per_sender_state, *entity, &mut entity_mut, host_client);
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::Server(server, target) => {
@@ -806,13 +874,13 @@ impl Replicate {
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let entity_ref = unsafe { unsafe_world.world() }.entity(*server);
                     if !entity_ref.contains::<Started>() {
-                        error!("Server {:?} was not started", *server);
+                        error!("Server {:?} was not started", server);
                         return;
                     }
                     let Some(server) = entity_ref.get::<Server>() else {
                         error!(
                             "Provided entity {:?} doesn't have a Server component",
-                            *server
+                            server
                         );
                         return;
                     };
@@ -824,9 +892,9 @@ impl Replicate {
                         server.collection().iter().copied(),
                         &peer_metadata.mapping,
                         &mut |client| {
-                            let Ok((sender, host_client)) = world
+                            let Ok(host_client) = world
                                 .query_filtered::<
-                                    (Option<&mut ReplicationSender>, Has<HostClient>),
+                                    Has<HostClient>,
                                     (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)
                                 >()
                                 .get_mut(world, client)
@@ -834,10 +902,7 @@ impl Replicate {
                                 debug!("ClientOf {client:?} not found or does not have ReplicationSender");
                                 return;
                             };
-                            if host_client {
-                                return;
-                            }
-                            add_sender(&mut replicate.senders, cached_replicate, client, sender, unsafe_world);
+                            add_sender(&mut state.per_sender_state, client, &mut entity_mut, host_client);
                         },
                     );
                 }
@@ -848,47 +913,50 @@ impl Replicate {
                 }
                 ReplicationMode::Manual(sender_entities) => {
                     for entity in sender_entities.iter() {
-                         let Ok((sender, host_client)) = world
-                        .query_filtered::<
-                            (Option<&mut ReplicationSender>, Has<HostClient>),
-                            Or<(With<ReplicationSender>, With<HostClient>)>>()
-                        .get_mut(world, *entity)
+                        let Ok(host_client) = world
+                            .query_filtered::<
+                                Has<HostClient>,
+                                Or<(With<ReplicationSender>, With<HostClient>)>>()
+                            .get_mut(world, *entity)
                         else {
                             error!(?entity, "No ReplicationSender found in the world in mode Manual");
                             return;
                         };
-                        if host_client {
-                            return;
-                        }
-                        add_sender(&mut replicate.senders, cached_replicate, *entity, sender, unsafe_world);
+                        add_sender(&mut state.per_sender_state, *entity, &mut entity_mut, host_client);
                     }
                 }
             }
 
-            // Remove senders that were in the previous CachedReplicate but are not in the new Replicate
+            // Remove senders that were in the previous ReplicationState but are not in the new Replicate
             if let Some(cached_replicate) = cached_replicate {
                 cached_replicate.senders.iter().for_each(|sender_entity| {
-                    if !replicate.senders.contains(sender_entity) && let Some(mut sender) = world.get_mut::<ReplicationSender>(*sender_entity) {
-                        let group_id = unsafe { unsafe_entity_cell.get::<ReplicationGroup>().unwrap() }.group_id(Some(context.entity));
+                    if !state.per_sender_state.contains_key(sender_entity) && let Some(mut sender) = world.get_mut::<ReplicationSender>(*sender_entity) {
+                        let group_id = group.group_id(Some(context.entity));
                         trace!("Removing sender {} for replicated entity {}", sender_entity, context.entity);
                         sender.set_replicated_despawn(context.entity, group_id);
                     }
-                });
+                })
             }
         });
     }
 
-    // We don't allow users to manually update replicate, so CachedReplicate can be updated in observers.
+    // We don't allow users to manually update Replicate, therefore we can fully rely on observers
     //
     // ON REPLACE:
     // - store the previous state of Replicate in CachedReplicate
     fn on_replace(mut world: DeferredWorld, context: HookContext) {
-        let replicate = world.get::<Replicate>(context.entity).unwrap().clone();
         world.commands().queue(move |world: &mut World| {
+            world
+                .resource_mut::<ReplicableRootEntities>()
+                .entities
+                .swap_remove(&context.entity);
             if let Ok(mut entity_mut) = world.get_entity_mut(context.entity) {
-                entity_mut.insert(CachedReplicate {
-                    senders: replicate.senders,
-                });
+                if let Some(senders) = entity_mut
+                    .get::<ReplicationState>()
+                    .map(|s| s.per_sender_state.keys().copied().collect())
+                {
+                    entity_mut.insert(CachedReplicationState { senders });
+                }
             }
         });
     }
@@ -897,101 +965,164 @@ impl Replicate {
     pub(crate) fn handle_connection(
         trigger: On<Add, (Connected, ReplicationSender)>,
         mut sender_query: Query<
-            (
-                Entity,
-                &mut ReplicationSender,
-                &RemoteId,
-                Has<Client>,
-                Option<&LinkOf>,
-            ),
-            With<Connected>,
+            (Entity, &RemoteId, Has<Client>, Option<&LinkOf>),
+            // no need to replicate to the HostClient
+            (With<Connected>, Without<HostClient>),
         >,
-        mut replicate_query: Query<(Entity, &mut Replicate, Option<&mut CachedReplicate>)>,
+        mut replicate_query: Query<(
+            Entity,
+            &Replicate,
+            Option<&PredictionTarget>,
+            Option<&InterpolationTarget>,
+            &mut ReplicationState,
+            Option<&mut CachedReplicationState>,
+        )>,
         mut commands: Commands,
     ) {
-        if let Ok((sender_entity, mut sender, remote_peer_id, _client, client_of)) =
+        fn update_replicate(
+            state: &mut Mut<ReplicationState>,
+            entity: Entity,
+            sender_entity: Entity,
+            cached_replicate: &mut Option<Mut<CachedReplicationState>>,
+            commands: &mut Commands,
+        ) {
+            state
+                .per_sender_state
+                .entry(sender_entity)
+                .or_insert_with(|| {
+                    commands.entity(entity).insert_if_new(HasAuthority);
+                    PerSenderReplicationState::with_authority()
+                });
+            if let Some(cached_replicate) = cached_replicate.as_mut() {
+                cached_replicate
+                    .bypass_change_detection()
+                    .senders
+                    .insert(sender_entity);
+            }
+        }
+        #[cfg(feature = "prediction")]
+        fn update_prediction(
+            state: &mut Mut<ReplicationState>,
+            entity: Entity,
+            sender_entity: Entity,
+            cached_replicate: &mut Option<Mut<CachedReplicationState>>,
+            _: &mut Commands,
+        ) {
+            state
+                .per_sender_state
+                .entry(sender_entity)
+                .and_modify(|s| s.predicted = true);
+        }
+        #[cfg(feature = "interpolation")]
+        fn update_interpolation(
+            state: &mut Mut<ReplicationState>,
+            entity: Entity,
+            sender_entity: Entity,
+            cached_replicate: &mut Option<Mut<CachedReplicationState>>,
+            _: &mut Commands,
+        ) {
+            state
+                .per_sender_state
+                .entry(sender_entity)
+                .and_modify(|s| s.interpolated = true);
+        }
+
+        if let Ok((sender_entity, remote_peer_id, _client, client_of)) =
             sender_query.get_mut(trigger.entity)
         {
             // TODO: maybe do this in parallel?
-            replicate_query.iter_mut().for_each(|(entity, mut replicate, mut cached_replicate)| {
-                match &replicate.mode {
-                    ReplicationMode::SingleSender => {
-                        todo!()
-                    }
-                    #[cfg(feature = "client")]
-                    ReplicationMode::SingleClient => {
-                        // this can only happen if we are in host-server mode. In which case we don't want to replicate on other clients
-                    }
-                    #[cfg(feature = "server")]
-                    ReplicationMode::SingleServer(target) => {
-                        if client_of.is_some() && target.targets(remote_peer_id) {
-                            debug!("Replicating existing entity {entity:?} to newly connected sender {sender_entity:?}");
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
+            replicate_query.iter_mut().for_each(
+                |(
+                    entity,
+                    replicate,
+                    prediction,
+                    interpolation,
+                    mut state,
+                    mut cached_replicate,
+                )| {
+                    let state = &mut state;
+                    let cached_replicate = &mut cached_replicate;
+                    let mut update_state = |mode: &ReplicationMode,
+                                            f: fn(
+                        &mut Mut<ReplicationState>,
+                        Entity,
+                        Entity,
+                        &mut Option<Mut<CachedReplicationState>>,
+                        &mut Commands,
+                    )| {
+                        match &replicate.mode {
+                            ReplicationMode::SingleSender => {
+                                todo!()
                             }
-                            replicate.senders.insert(sender_entity);
-                            // we also update the Cache, so that it's correct if a new Replicate is inserted
-                            if let Some(cached_replicate) = cached_replicate.as_mut() {
-                                cached_replicate.senders.insert(sender_entity);
+                            #[cfg(feature = "client")]
+                            ReplicationMode::SingleClient => {
+                                // this can only happen if we are in host-server mode. In which case we don't want to replicate on other clients
+                            }
+                            #[cfg(feature = "server")]
+                            ReplicationMode::SingleServer(target) => {
+                                if client_of.is_some() && target.targets(remote_peer_id) {
+                                    f(
+                                        state,
+                                        entity,
+                                        sender_entity,
+                                        cached_replicate,
+                                        &mut commands,
+                                    );
+                                }
+                            }
+                            ReplicationMode::Sender(_) => {
+                                todo!()
+                            }
+                            #[cfg(feature = "server")]
+                            ReplicationMode::Server(e, target) => {
+                                if client_of.is_some_and(|c| c.server == *e)
+                                    && target.targets(remote_peer_id)
+                                {
+                                    f(
+                                        state,
+                                        entity,
+                                        sender_entity,
+                                        cached_replicate,
+                                        &mut commands,
+                                    );
+                                }
+                            }
+                            ReplicationMode::Target(target) => {
+                                if target.targets(remote_peer_id) {
+                                    f(
+                                        state,
+                                        entity,
+                                        sender_entity,
+                                        cached_replicate,
+                                        &mut commands,
+                                    );
+                                }
+                            }
+                            ReplicationMode::Manual(entities) => {
+                                if entities.contains(&sender_entity) {
+                                    f(
+                                        state,
+                                        entity,
+                                        sender_entity,
+                                        cached_replicate,
+                                        &mut commands,
+                                    );
+                                };
                             }
                         }
-                    }
-                    ReplicationMode::Sender(_) => {
-                        todo!()
-                    }
-                    #[cfg(feature = "server")]
-                    ReplicationMode::Server(e, target) => {
-                        if client_of.is_some_and(|c| c.server == *e) && target.targets(remote_peer_id) {
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
-                            }
-                            replicate.senders.insert(sender_entity);
-                            if let Some(cached_replicate) = cached_replicate.as_mut() {
-                                cached_replicate.senders.insert(sender_entity);
-                            }
-                        }
-                    }
-                    ReplicationMode::Target(target) => {
-                        if target.targets(remote_peer_id) {
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
-                            }
+                    };
 
-                            replicate.senders.insert(sender_entity);
-                            if let Some(cached_replicate) = cached_replicate.as_mut() {
-                                cached_replicate.senders.insert(sender_entity);
-                            }
-                        }
+                    update_state(&replicate.mode, update_replicate);
+                    #[cfg(feature = "prediction")]
+                    if let Some(prediction) = prediction {
+                        update_state(&prediction.mode, update_prediction);
                     }
-                    ReplicationMode::Manual(entities) => {
-                        if entities.contains(&sender_entity) {
-                            if !sender.replicated_entities.contains_key(&entity) {
-                                sender.replicated_entities.insert(entity, ReplicationStatus {
-                                    authority: true,
-                                    spawned: false,
-                                });
-                                commands.entity(entity).insert_if_new(HasAuthority);
-                            }
-                            replicate.senders.insert(sender_entity);
-                            if let Some(cached_replicate) = cached_replicate.as_mut() {
-                                cached_replicate.senders.insert(sender_entity);
-                            }
-                        };
+                    #[cfg(feature = "interpolation")]
+                    if let Some(interpolation) = interpolation {
+                        update_state(&interpolation.mode, update_interpolation);
                     }
-                }
-            })
+                },
+            );
         }
     }
 }
@@ -999,7 +1130,7 @@ impl Replicate {
 /// Internal component to cache which senders an entity was previously replicated to
 
 #[derive(Component, Debug)]
-pub(crate) struct CachedReplicate {
+pub(crate) struct CachedReplicationState {
     pub(crate) senders: EntityIndexSet,
 }
 

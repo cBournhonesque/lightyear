@@ -65,7 +65,7 @@
 //!
 //! [`Replicate`]: crate::prelude::Replicate
 
-use crate::send::sender::ReplicationSender;
+use crate::prelude::{PerSenderReplicationState, ReplicationState};
 use bevy_app::{App, Plugin};
 use bevy_ecs::entity::{EntityHashMap, MapEntities};
 use bevy_ecs::prelude::*;
@@ -88,16 +88,13 @@ use {
 /// in case a remote peer requests authority over it.
 ///
 /// The absence of this component is equivalent to `AuthorityTransfer::Denied`.
-#[derive(Component, Debug, Default, Clone, Copy)]
+#[derive(Component, Debug, Clone, Copy)]
 pub enum AuthorityTransfer {
     /// Authority can be requested, but it can be rejected by the current authority.
     /// Returns true if the authority request is accepted
     Request(OnAuthorityRequestFn),
     /// Authority can be requested, and it will be granted automatically
     Steal,
-    #[default]
-    /// Authority cannot be requested
-    Denied,
 }
 
 /// Component that is added to an entity if the peer in the current app
@@ -107,6 +104,16 @@ pub enum AuthorityTransfer {
 /// or one Server.
 #[derive(Component)]
 pub struct HasAuthority;
+
+#[derive(Component)]
+pub struct Authority {
+    // true if the sender has authority over this entity, false if not.
+    //
+    // If the sender is absent in the map, that means the authority-status is unknown.
+    // Adding `Replicate` will add authority over the entity only if a negative-authority is not
+    // already present in the map.
+    pub(crate) senders: EntityHashMap<bool>,
+}
 
 pub type OnAuthorityRequestFn = fn(entity: Entity, request_peer: PeerId) -> bool;
 
@@ -209,16 +216,41 @@ type BrokerQuery<'w, 's> =
     Query<'w, 's, &'static mut AuthorityBroker, (With<Server>, With<Started>)>;
 
 impl AuthorityPlugin {
+    fn update_authority(
+        add: bool,
+        state: &mut Option<Mut<ReplicationState>>,
+        sender: Entity,
+        commands: &mut EntityCommands,
+    ) {
+        match state {
+            None => {
+                let mut state = ReplicationState::default();
+                state
+                    .per_sender_state
+                    .insert(sender, PerSenderReplicationState::new(Some(add)));
+                commands.insert(state);
+            }
+            Some(state) => {
+                if add {
+                    state.gain_authority(sender);
+                } else {
+                    state.lose_authority(sender);
+                }
+            }
+        }
+    }
     fn handle_authority_request(
         mut trigger: On<RemoteEvent<AuthorityTransferEvent>>,
         mut broker: BrokerQuery,
         metadata: Res<PeerMetadata>,
-        sender_query: Query<(
-            &mut ReplicationSender,
-            &mut EventSender<AuthorityGrantedEvent>,
-            &mut EventSender<AuthorityTransferEvent>,
-        )>,
-        query: Query<&AuthorityTransfer>,
+        sender_query: Query<
+            (
+                &mut EventSender<AuthorityGrantedEvent>,
+                &mut EventSender<AuthorityTransferEvent>,
+            ),
+            Without<AuthorityTransfer>,
+        >,
+        mut query: Query<(Option<&mut ReplicationState>, Option<&AuthorityTransfer>)>,
         mut commands: Commands,
     ) {
         let entity = trigger.event_target();
@@ -226,11 +258,14 @@ impl AuthorityPlugin {
             return;
         };
         // SAFETY: we make sure to not alias the sender_entity
-        let Ok((mut sender, mut response_sender, _)) =
-            (unsafe { sender_query.get_unchecked(sender_entity) })
+        let Ok((mut response_sender, _)) = (unsafe { sender_query.get_unchecked(sender_entity) })
         else {
             return;
         };
+        let mut entity_commands = commands.entity(entity);
+
+        let (mut state, authority_transfer) = query.get_mut(entity).unwrap();
+
         // on server
         if let Ok(mut broker) = broker.single_mut() {
             let Some(current_authority) = broker.owners.get_mut(&entity) else {
@@ -250,40 +285,50 @@ impl AuthorityPlugin {
                                 from: None,
                             });
                         }
-                        Some(PeerId::Server) => match query.get(entity) {
-                            Ok(AuthorityTransfer::Request(on_request)) => {
+                        Some(PeerId::Server) => match authority_transfer {
+                            Some(AuthorityTransfer::Request(on_request)) => {
                                 if on_request(entity, trigger.from) {
                                     trace!(
                                         "Peer {:?} takes authority for entity {entity:?} from server",
                                         trigger.from
                                     );
-                                    commands.entity(entity).remove::<HasAuthority>();
+                                    entity_commands.remove::<HasAuthority>();
+                                    Self::update_authority(
+                                        false,
+                                        &mut state,
+                                        sender_entity,
+                                        &mut entity_commands,
+                                    );
                                     *current_authority = Some(trigger.from);
-                                    sender.lose_authority(entity);
                                     response_sender.trigger::<AuthorityChannel>(
                                         AuthorityGrantedEvent { entity, from: None },
                                     );
                                 }
                             }
-                            Ok(AuthorityTransfer::Steal) => {
+                            Some(AuthorityTransfer::Steal) => {
                                 trace!(
                                     "Peer {:?} takes authority for entity {entity:?} from server",
                                     trigger.from
                                 );
-                                commands.entity(entity).remove::<HasAuthority>();
+                                entity_commands.remove::<HasAuthority>();
+                                Self::update_authority(
+                                    false,
+                                    &mut state,
+                                    sender_entity,
+                                    &mut entity_commands,
+                                );
                                 *current_authority = Some(trigger.from);
-                                sender.lose_authority(entity);
                                 response_sender.trigger::<AuthorityChannel>(
                                     AuthorityGrantedEvent { entity, from: None },
                                 );
                             }
-                            _ => {}
+                            None => {}
                         },
                         // forward the request to the peer that currently has authority
                         Some(p) => {
                             if *p != trigger.from
                                 && let Some(&forward_sender_entity) = metadata.mapping.get(p)
-                                && let Ok((_, _, mut forward_sender)) =
+                                && let Ok((_, mut forward_sender)) =
                                     // SAFETY: we make sure to not alias the sender_entity with the forward_sender_entity
                                     unsafe {
                                         sender_query.get_unchecked(forward_sender_entity)
@@ -315,15 +360,20 @@ impl AuthorityPlugin {
                                 "Peer {:?} gives authority for entity {entity:?} to server",
                                 trigger.from
                             );
-                            commands.entity(entity).insert(HasAuthority);
+                            entity_commands.insert(HasAuthority);
+                            Self::update_authority(
+                                true,
+                                &mut state,
+                                sender_entity,
+                                &mut entity_commands,
+                            );
                             *current_authority = Some(PeerId::Server);
-                            sender.gain_authority(entity);
                         }
                         // forward the message to the correct peer
                         Some(p) => {
                             if p != trigger.from
                                 && let Some(&forward_sender_entity) = metadata.mapping.get(&p)
-                                && let Ok((mut forward_sender, _, mut forward_response_sender)) =
+                                && let Ok((_, mut forward_response_sender)) =
                                     // SAFETY: we make sure to not alias the sender_entity with the forward_sender_entity
                                     unsafe {
                                         sender_query.get_unchecked(forward_sender_entity)
@@ -338,8 +388,18 @@ impl AuthorityPlugin {
                                     .trigger::<AuthorityChannel>(trigger.trigger);
                                 *current_authority = Some(p);
                                 // the Server will now have authority on the original client's Link
-                                sender.gain_authority(entity);
-                                forward_sender.lose_authority(entity);
+                                Self::update_authority(
+                                    true,
+                                    &mut state,
+                                    sender_entity,
+                                    &mut entity_commands,
+                                );
+                                Self::update_authority(
+                                    false,
+                                    &mut state,
+                                    forward_sender_entity,
+                                    &mut entity_commands,
+                                );
                             }
                         }
                     }
@@ -351,8 +411,8 @@ impl AuthorityPlugin {
         } else {
             // client
             match trigger.trigger.request {
-                AuthorityTransferType::Request => match query.get(entity) {
-                    Ok(AuthorityTransfer::Request(on_request_fn)) => {
+                AuthorityTransferType::Request => match authority_transfer {
+                    Some(AuthorityTransfer::Request(on_request_fn)) => {
                         let from = trigger.trigger.from.unwrap_or(trigger.from);
                         if on_request_fn(entity, from) {
                             trace!("Peer gives authority for entity {entity:?} to {from:?}");
@@ -360,11 +420,16 @@ impl AuthorityPlugin {
                                 entity,
                                 from: trigger.trigger.from,
                             });
-                            commands.entity(entity).remove::<HasAuthority>();
-                            sender.lose_authority(entity);
+                            entity_commands.remove::<HasAuthority>();
+                            Self::update_authority(
+                                false,
+                                &mut state,
+                                sender_entity,
+                                &mut entity_commands,
+                            );
                         }
                     }
-                    Ok(AuthorityTransfer::Steal) => {
+                    Some(AuthorityTransfer::Steal) => {
                         trace!(
                             "Peer {:?} loses authority for entity {entity:?} to {:?}",
                             trigger.from, trigger.trigger.from
@@ -373,21 +438,26 @@ impl AuthorityPlugin {
                             entity,
                             from: trigger.trigger.from,
                         });
-                        commands.entity(entity).remove::<HasAuthority>();
-                        sender.lose_authority(entity);
+                        entity_commands.remove::<HasAuthority>();
+                        Self::update_authority(
+                            false,
+                            &mut state,
+                            sender_entity,
+                            &mut entity_commands,
+                        );
                     }
-                    _ => {}
+                    None => {}
                 },
                 AuthorityTransferType::Give { to } => {
                     let from = trigger.trigger.from.unwrap_or(trigger.from);
                     trace!("Peer {to:?} gains authority for entity {entity:?} from {from:?}");
-                    commands.entity(entity).insert(HasAuthority);
-                    sender.gain_authority(entity);
+                    entity_commands.insert(HasAuthority);
+                    Self::update_authority(true, &mut state, sender_entity, &mut entity_commands);
                 }
                 AuthorityTransferType::Remove => {
                     trace!("Peer abandons authority for entity {entity:?}");
-                    commands.entity(entity).remove::<HasAuthority>();
-                    sender.lose_authority(entity);
+                    entity_commands.remove::<HasAuthority>();
+                    Self::update_authority(false, &mut state, sender_entity, &mut entity_commands);
                 }
             }
         }
@@ -397,10 +467,8 @@ impl AuthorityPlugin {
         trigger: On<RemoteEvent<AuthorityGrantedEvent>>,
         metadata: Res<PeerMetadata>,
         mut broker: BrokerQuery,
-        sender_query: Query<(
-            &mut ReplicationSender,
-            &mut EventSender<AuthorityGrantedEvent>,
-        )>,
+        sender_query: Query<&mut EventSender<AuthorityGrantedEvent>, Without<ReplicationState>>,
+        mut query: Query<Option<&mut ReplicationState>>,
         mut commands: Commands,
     ) {
         let entity = trigger.event_target();
@@ -408,15 +476,17 @@ impl AuthorityPlugin {
             return;
         };
         // SAFETY: the original peer cannot be the same as the sender_entity
-        let Ok((mut sender, _)) = (unsafe { sender_query.get_unchecked(sender_entity) }) else {
+        let Ok(_) = (unsafe { sender_query.get_unchecked(sender_entity) }) else {
             return;
         };
+        let mut entity_commands = commands.entity(entity);
+        let mut state = query.get_mut(entity).unwrap();
         // on server
         if let Ok(mut broker) = broker.single_mut() {
             // the response needs to be propagated back to the original peer
             if let Some(p) = trigger.trigger.from {
                 if let Some(&forward_sender_entity) = metadata.mapping.get(&p)
-                    && let Ok((mut forward_sender, mut forward_response_sender)) =
+                    && let Ok(mut forward_response_sender) =
                         // SAFETY: the original peer cannot be the same as the sender_entity
                         unsafe { sender_query.get_unchecked(forward_sender_entity) }
                 {
@@ -425,8 +495,13 @@ impl AuthorityPlugin {
                         trigger.from
                     );
                     forward_response_sender.trigger::<AuthorityChannel>(trigger.trigger);
-                    sender.gain_authority(entity);
-                    forward_sender.lose_authority(entity);
+                    Self::update_authority(true, &mut state, sender_entity, &mut entity_commands);
+                    Self::update_authority(
+                        false,
+                        &mut state,
+                        forward_sender_entity,
+                        &mut entity_commands,
+                    );
 
                     broker
                         .owners
@@ -439,8 +514,8 @@ impl AuthorityPlugin {
                     "Peer {:?} gains authority for entity {entity:?}",
                     trigger.from
                 );
-                commands.entity(entity).remove::<HasAuthority>();
-                sender.gain_authority(entity);
+                entity_commands.remove::<HasAuthority>();
+                Self::update_authority(true, &mut state, sender_entity, &mut entity_commands);
                 broker
                     .owners
                     .entry(entity)
@@ -453,8 +528,8 @@ impl AuthorityPlugin {
                 "Peer {:?} gains authority for entity {entity:?}",
                 trigger.from
             );
-            commands.entity(entity).insert(HasAuthority);
-            sender.gain_authority(entity);
+            entity_commands.insert(HasAuthority);
+            Self::update_authority(true, &mut state, sender_entity, &mut entity_commands);
         }
     }
 
@@ -462,13 +537,15 @@ impl AuthorityPlugin {
         trigger: On<GiveAuthority>,
         metadata: Res<PeerMetadata>,
         mut broker: BrokerQuery,
-        mut sender_query: Query<(
-            &mut ReplicationSender,
+        mut sender_query: Query<
             &mut EventSender<AuthorityTransferEvent>,
-        )>,
+            Without<ReplicationState>,
+        >,
+        mut query: Query<&mut ReplicationState>,
         mut commands: Commands,
     ) {
         let entity = trigger.event_target();
+        let mut state = query.get_mut(entity).unwrap();
         // on server
         if let Ok(mut broker) = broker.single_mut() {
             let has_full_control = broker.has_full_control;
@@ -476,8 +553,9 @@ impl AuthorityPlugin {
                 None => {}
                 auth_mut @ Some(Some(PeerId::Server)) => match trigger.peer {
                     None => {
-                        sender_query.iter_mut().for_each(|(mut sender, _)| {
-                            sender.lose_authority(entity);
+                        // we currently have authority and we give it away
+                        state.per_sender_state.values_mut().for_each(|s| {
+                            s.authority = Some(false);
                         });
                         commands.entity(entity).remove::<HasAuthority>();
                         *auth_mut.unwrap() = None;
@@ -485,13 +563,11 @@ impl AuthorityPlugin {
                     Some(PeerId::Server) => {}
                     Some(p) => {
                         if let Some(sender_entity) = metadata.mapping.get(&p)
-                            && let Ok((mut sender, mut trigger_sender)) =
-                                sender_query.get_mut(*sender_entity)
+                            && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
                         {
-                            debug_assert!(sender.has_authority(entity));
+                            state.lose_authority(*sender_entity);
                             commands.entity(entity).remove::<HasAuthority>();
                             *auth_mut.unwrap() = Some(p);
-                            sender.lose_authority(entity);
                             trigger_sender.trigger::<AuthorityChannel>(AuthorityTransferEvent {
                                 entity: trigger.entity,
                                 request: AuthorityTransferType::Give { to: Some(p) },
@@ -504,7 +580,7 @@ impl AuthorityPlugin {
                 auth_mut @ Some(Some(_)) if has_full_control => {
                     let current_owner = auth_mut.as_ref().unwrap().unwrap();
                     if let Some(sender_entity) = metadata.mapping.get(&current_owner)
-                        && let Ok((mut sender, mut trigger_sender)) =
+                        && let Ok(mut trigger_sender) =
                             // SAFETY: we make sure to not alias
                             unsafe { sender_query.get_unchecked(*sender_entity) }
                     {
@@ -528,16 +604,19 @@ impl AuthorityPlugin {
                                     },
                                 );
                                 commands.entity(entity).insert(HasAuthority);
-                                sender.gain_authority(entity);
+                                state.gain_authority(*sender_entity);
                                 *auth_mut.unwrap() = Some(PeerId::Server);
                             }
                             Some(p) => {
                                 if p != current_owner
-                                    && let Some(sender_entity) = metadata.mapping.get(&p)
-                                    && let Ok((mut forward_sender, mut forward_trigger_sender)) =
+                                    && let Some(forward_sender_entity) = metadata.mapping.get(&p)
+                                    && let Ok(mut forward_trigger_sender) =
                                         // SAFETY: we make sure to not alias p and current_owner
-                                        unsafe { sender_query.get_unchecked(*sender_entity) }
+                                        unsafe {
+                                            sender_query.get_unchecked(*forward_sender_entity)
+                                        }
                                 {
+                                    let mut state = query.get_mut(entity).unwrap();
                                     trigger_sender.trigger::<AuthorityChannel>(
                                         AuthorityTransferEvent {
                                             entity: trigger.entity,
@@ -549,8 +628,8 @@ impl AuthorityPlugin {
                                         "Server forcibly takes authority from {current_owner:?} and gives it to {p:?} for {entity:?}"
                                     );
                                     *auth_mut.unwrap() = Some(p);
-                                    sender.gain_authority(entity);
-                                    forward_sender.lose_authority(entity);
+                                    state.gain_authority(*sender_entity);
+                                    state.lose_authority(*forward_sender_entity);
                                     forward_trigger_sender.trigger::<AuthorityChannel>(
                                         AuthorityTransferEvent {
                                             entity: trigger.entity,
@@ -568,20 +647,21 @@ impl AuthorityPlugin {
                     match trigger.peer {
                         None => {}
                         Some(PeerId::Server) => {
-                            sender_query.iter_mut().for_each(|(mut sender, _)| {
-                                sender.gain_authority(entity);
-                            });
+                            state
+                                .per_sender_state
+                                .values_mut()
+                                .for_each(|s| s.authority = Some(true));
                             commands.entity(entity).insert(HasAuthority);
                             *auth_mut.unwrap() = Some(PeerId::Server);
                         }
                         Some(p) => {
                             if let Some(sender_entity) = metadata.mapping.get(&p)
-                                && let Ok((mut forward_sender, mut forward_trigger_sender)) =
+                                && let Ok(mut forward_trigger_sender) =
                                     // SAFETY: we make sure to not alias p and current_owner
                                     unsafe { sender_query.get_unchecked(*sender_entity) }
                             {
                                 *auth_mut.unwrap() = Some(p);
-                                forward_sender.lose_authority(entity);
+                                state.lose_authority(*sender_entity);
                                 forward_trigger_sender.trigger::<AuthorityChannel>(
                                     AuthorityTransferEvent {
                                         entity: trigger.entity,
@@ -598,11 +678,10 @@ impl AuthorityPlugin {
         } else {
             // on client: send request to the server which knows who to forward the request to
             if let Some(sender_entity) = metadata.mapping.get(&PeerId::Server)
-                && let Ok((mut sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity)
-                && sender.has_authority(entity)
+                && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
             {
                 commands.entity(entity).remove::<HasAuthority>();
-                sender.lose_authority(entity);
+                state.lose_authority(*sender_entity);
                 trigger_sender.trigger::<AuthorityChannel>(AuthorityTransferEvent {
                     entity: trigger.entity,
                     request: AuthorityTransferType::Give { to: trigger.peer },
@@ -616,7 +695,11 @@ impl AuthorityPlugin {
         trigger: On<RequestAuthority>,
         metadata: Res<PeerMetadata>,
         mut broker: BrokerQuery,
-        mut sender_query: Query<(&ReplicationSender, &mut EventSender<AuthorityTransferEvent>)>,
+        mut sender_query: Query<
+            &mut EventSender<AuthorityTransferEvent>,
+            Without<ReplicationState>,
+        >,
+        query: Query<&ReplicationState>,
         mut commands: Commands,
     ) {
         let entity = trigger.event_target();
@@ -632,10 +715,14 @@ impl AuthorityPlugin {
                     Some(PeerId::Server) => {}
                     Some(p) => {
                         if let Some(sender_entity) = metadata.mapping.get(p)
-                            && let Ok((sender, mut trigger_sender)) =
-                                sender_query.get_mut(*sender_entity)
+                            && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
                         {
-                            debug_assert!(!sender.has_authority(entity));
+                            debug_assert!(
+                                query
+                                    .get(entity)
+                                    .ok()
+                                    .is_none_or(|s| !s.has_authority(*sender_entity))
+                            );
                             trigger_sender.trigger::<AuthorityChannel>(AuthorityTransferEvent {
                                 entity: trigger.entity,
                                 request: AuthorityTransferType::Request,
@@ -650,8 +737,11 @@ impl AuthorityPlugin {
         } else {
             // on client: send request to the server which knows who to forward the request to
             if let Some(sender_entity) = metadata.mapping.get(&PeerId::Server)
-                && let Ok((sender, mut trigger_sender)) = sender_query.get_mut(*sender_entity)
-                && !sender.has_authority(entity)
+                && let Ok(mut trigger_sender) = sender_query.get_mut(*sender_entity)
+                && query
+                    .get(entity)
+                    .ok()
+                    .is_none_or(|s| !s.has_authority(*sender_entity))
             {
                 trace!("Client peer requesting authority for entity {entity:?}");
                 trigger_sender.trigger::<AuthorityChannel>(AuthorityTransferEvent {

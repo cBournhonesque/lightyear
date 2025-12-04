@@ -38,6 +38,7 @@ commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
 
 */
 
+use crate::prelude::{PerSenderReplicationState, ReplicationState};
 use crate::send::plugin::ReplicationBufferSystems;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
@@ -193,7 +194,7 @@ impl RoomPlugin {
     fn apply_room_events(
         mut commands: Commands,
         mut room_events: ResMut<RoomEvents>,
-        mut query: Query<&mut NetworkVisibility>,
+        mut query: Query<&mut ReplicationState>,
     ) {
         // TODO: should we use iter_mut here to keep the allocated NetworkVisibility?
         room_events
@@ -210,6 +211,7 @@ impl RoomPlugin {
                             VisibilityState::Maintained => {
                                 unreachable!()
                             }
+                            _ => {}
                         });
                 } else {
                     trace!(
@@ -218,9 +220,24 @@ impl RoomPlugin {
                     );
                     commands
                         .entity(entity)
-                        .try_insert(NetworkVisibility::from(room_vis));
+                        .try_insert((ReplicationState::from(room_vis), NetworkVisibility));
                 }
             });
+    }
+}
+
+impl From<RoomVisibility> for ReplicationState {
+    fn from(value: RoomVisibility) -> Self {
+        let per_sender_state = value
+            .clients
+            .into_iter()
+            .map(|(e, v)| {
+                let mut state = PerSenderReplicationState::default();
+                state.visibility = v;
+                (e, state)
+            })
+            .collect();
+        Self { per_sender_state }
     }
 }
 
@@ -297,14 +314,6 @@ impl RoomVisibility {
             Entry::Vacant(e) => {
                 e.insert(VisibilityState::Lost);
             }
-        }
-    }
-}
-
-impl From<RoomVisibility> for NetworkVisibility {
-    fn from(value: RoomVisibility) -> Self {
-        Self {
-            clients: value.clients,
         }
     }
 }

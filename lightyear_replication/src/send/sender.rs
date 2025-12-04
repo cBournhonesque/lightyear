@@ -8,7 +8,7 @@ use crate::send::components::ReplicationGroupId;
 use alloc::{string::ToString, vec::Vec};
 use bevy_ecs::{
     component::{Component, Tick as BevyTick},
-    entity::{Entity, EntityHash, EntityIndexMap},
+    entity::{Entity, EntityHash},
 };
 use bevy_platform::collections::{HashMap, HashSet};
 use bevy_ptr::Ptr;
@@ -16,7 +16,6 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bytes::Bytes;
 use core::time::Duration;
-use indexmap::map::Entry;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_messages::MessageNetId;
@@ -53,25 +52,14 @@ pub enum SendUpdatesMode {
     SinceLastSend,
 }
 
-/// Metadata that a [`ReplicationSender`] tracks about entities it is currently replicating
-#[derive(Debug, Default)]
-pub struct ReplicationStatus {
-    /// If true, the sender has authority over the entity
-    pub(crate) authority: bool,
-    /// If true, the sender has sent a Spawn message about the entity.
-    /// This is useful because each sender runs the replication system at a different time (because they might have
-    /// different send_intervals)
-    pub(crate) spawned: bool,
-}
-
 #[derive(Component, Debug)]
 #[require(Transport)]
 #[require(LocalTimeline)]
 pub struct ReplicationSender {
-    // public for tests
-    #[doc(hidden)]
-    pub replicated_entities: EntityIndexMap<ReplicationStatus>,
-    pub entities_to_despawn: EntityIndexMap<ReplicationGroupId>,
+    // track entities that were recently spawned on this sender, so that we can update ReplicationState after `replicate`
+    // this would not be needed if we used DashMap within ReplicationState
+    pub(crate) new_spawns: Vec<Entity>,
+    pub(crate) pending_despawns: Vec<(Entity, ReplicationGroupId)>,
     pub(crate) writer: Writer,
     /// Map from message-id to the corresponding group-id that sent this update message, as well as the `send_tick` BevyTick
     /// when we buffered the message. (so that when it's acked, we know we only need to include updates that happened after that tick,
@@ -112,8 +100,8 @@ impl ReplicationSender {
         send_timer.tick(Duration::MAX);
         Self {
             // SEND
-            replicated_entities: EntityIndexMap::default(),
-            entities_to_despawn: EntityIndexMap::default(),
+            new_spawns: Vec::default(),
+            pending_despawns: Vec::default(),
             writer: Writer::default(),
             updates_message_id_to_group_id: Default::default(),
             group_with_actions: EntityHashSet::default(),
@@ -137,7 +125,7 @@ impl ReplicationSender {
     }
 
     pub(crate) fn prepare_entity_despawns(&mut self) {
-        self.entities_to_despawn
+        self.pending_despawns
             .drain(..)
             .for_each(|(entity, group_id)| {
                 // NOTE: this is copy-pasted from `self.prepare_entity_despawn` to avoid borrow-checker issues
@@ -160,62 +148,9 @@ impl ReplicationSender {
         self.send_timer.duration()
     }
 
-    pub(crate) fn has_replicated_spawn(&mut self, entity: Entity) -> bool {
-        self.replicated_entities
-            .get(&entity)
-            .is_some_and(|e| e.spawned)
-    }
-
     /// Mark an entity as needing to be despawned if it was previously replicated-spawned by this sender
     pub(crate) fn set_replicated_despawn(&mut self, entity: Entity, group_id: ReplicationGroupId) {
-        match self.replicated_entities.entry(entity) {
-            Entry::Occupied(s) => {
-                if s.get().spawned {
-                    s.swap_remove();
-                }
-                self.entities_to_despawn.insert(entity, group_id);
-            }
-            Entry::Vacant(_) => {}
-        }
-    }
-
-    pub(crate) fn set_replicated_spawn(&mut self, entity: Entity) {
-        if let Some(s) = self.replicated_entities.get_mut(&entity) {
-            s.spawned = true;
-        }
-    }
-
-    pub(crate) fn add_replicated_entity(&mut self, entity: Entity) {
-        self.replicated_entities
-            .entry(entity)
-            .or_insert(ReplicationStatus {
-                authority: true,
-                spawned: false,
-            });
-    }
-
-    pub fn gain_authority(&mut self, entity: Entity) {
-        self.replicated_entities
-            .entry(entity)
-            .and_modify(|e| e.authority = true)
-            .or_insert(ReplicationStatus {
-                authority: true,
-                spawned: false,
-            });
-    }
-
-    pub fn lose_authority(&mut self, entity: Entity) {
-        self.replicated_entities
-            .entry(entity)
-            .and_modify(|e| e.authority = false)
-            .or_default();
-    }
-
-    /// Returns true if this sender has authority over the entity
-    pub fn has_authority(&self, entity: Entity) -> bool {
-        self.replicated_entities
-            .get(&entity)
-            .is_some_and(|a| a.authority)
+        self.pending_despawns.push((entity, group_id));
     }
 
     /// Get the `send_tick` for a given group.
@@ -615,7 +550,7 @@ impl ReplicationSender {
     /// Before sending replication messages, we accumulate the priority for all replication groups.
     ///
     /// (the priority starts at 0.0, and is accumulated for each group based on the base priority of the group)
-    pub(crate) fn accumulate_priority(&mut self, time: &Time<Real>) {
+    pub(crate) fn accumulate_priority(&mut self, _time: &Time<Real>) {
         // let priority_multiplier = if self.replication_config.send_interval == Duration::default() {
         //     1.0
         // } else {
