@@ -5,7 +5,7 @@ use crate::message::{
     ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
 };
 use crate::plugin::ReplicationSystems;
-use crate::prelude::{CachedReplicationState, NetworkVisibility, ReplicationState};
+use crate::prelude::{NetworkVisibility, ReplicationState};
 use crate::prespawn;
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
@@ -33,6 +33,7 @@ use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
+use tracing::info;
 #[allow(unused_imports)]
 use tracing::{error, warn};
 
@@ -180,7 +181,7 @@ impl ReplicationSendPlugin {
     fn handle_disconnection(
         trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
-        mut replicate: Query<(&mut ReplicationState, Option<&mut CachedReplicationState>)>,
+        mut replicate: Query<&mut ReplicationState>,
     ) {
         if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
@@ -189,12 +190,9 @@ impl ReplicationSendPlugin {
                 sender.bandwidth_cap_enabled,
             );
         }
-        replicate.iter_mut().for_each(|(mut r, cached)| {
+        replicate.iter_mut().for_each(|mut r| {
+            info!("remove sender {:?} from state", trigger.entity);
             r.per_sender_state.swap_remove(&trigger.entity);
-            // we also update CachedReplicate because it's only used to compute the diff when a new Replicate is inserted.
-            if let Some(mut cached) = cached {
-                cached.senders.swap_remove(&trigger.entity);
-            }
         });
     }
 
@@ -265,7 +263,6 @@ impl Plugin for ReplicationSendPlugin {
             app.add_observer(crate::prelude::PredictionTarget::add_replication_group);
         }
         app.add_observer(Self::handle_disconnection);
-
         app.add_observer(ControlledBy::handle_disconnection);
 
         app.add_systems(

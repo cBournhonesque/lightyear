@@ -110,6 +110,7 @@ impl NetworkVisibilityPlugin {
                 }
                 // discard these entities since we already sent a despawn message for it
                 if state.visibility == VisibilityState::Lost {
+                    info!("discarding sender state since vis is lost");
                     return false;
                 }
                 true

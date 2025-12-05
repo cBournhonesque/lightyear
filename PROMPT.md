@@ -157,6 +157,9 @@ no need for cached replicate!
   - we add 'prediction' but not 'authority' (authority is unknown)
 
 
+# Authority
+- make it as optional as possible if feature is not active
+
 # Mode
 
 The thing is that we don't want to penalize cases where there is only one ReplicationSender in the world:

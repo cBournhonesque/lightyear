@@ -21,6 +21,10 @@ fn test_spawn() {
         .world_mut()
         .spawn((Replicate::to_server(),))
         .id();
+    let state = stepper
+        .client_app()
+        .world()
+        .get::<ReplicationState>(client_entity);
     // TODO: might need to step more when syncing to avoid receiving updates from the past?
     stepper.frame_step(1);
     stepper
@@ -682,7 +686,6 @@ fn test_component_replicate_once_overrides() {
 fn test_component_disabled_overrides() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    info!("start");
     let client_entity = stepper
         .client_app()
         .world_mut()

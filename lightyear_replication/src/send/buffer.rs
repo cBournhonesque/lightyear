@@ -238,6 +238,7 @@ pub(crate) fn replicate_entity(
     let Some(state) = replication_state.per_sender_state.get(&sender_entity) else {
         return;
     };
+    info!(?state, "replication state");
     if state.authority.is_none_or(|a| !a) {
         return;
     }
@@ -658,10 +659,9 @@ fn replicate_component_update(
     Ok(())
 }
 
-// Removals for all replicated components
-// - check if the entity is in the sender's replication components
+// TODO: does this also trigger when the entity gets despawned???
 
-/// Send component remove message when a component gets removed
+/// Send component remove message when a replicated component gets removed
 // TODO: you could have a case where you remove a component C, and then afterwards
 //   modify the replication target, but we still send messages to the old components.
 //   Maybe we should just add the components to a buffer?
