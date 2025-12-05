@@ -5,20 +5,19 @@ use crate::message::{
     ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
 };
 use crate::plugin::ReplicationSystems;
-use crate::prelude::{CachedReplicate, NetworkVisibility};
+use crate::prelude::{NetworkVisibility, ReplicationState};
 use crate::prespawn;
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
-#[cfg(feature = "interpolation")]
-use crate::send::components::InterpolationTarget;
-#[cfg(feature = "prediction")]
-use crate::send::components::PredictionTarget;
 use crate::send::components::{Replicate, Replicating, ReplicationGroup};
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
+use bevy_ecs::entity::EntityIndexSet;
 use bevy_ecs::prelude::*;
-use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder};
+use bevy_ecs::system::{
+    ParamBuilder, ParamSetBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder,
+};
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
@@ -35,7 +34,7 @@ use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
 #[allow(unused_imports)]
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 pub struct ReplicationSendPlugin;
 
@@ -181,7 +180,7 @@ impl ReplicationSendPlugin {
     fn handle_disconnection(
         trigger: On<Add, Disconnected>,
         mut query: Query<&mut ReplicationSender>,
-        mut replicate: Query<(&mut Replicate, Option<&mut CachedReplicate>)>,
+        mut replicate: Query<&mut ReplicationState>,
     ) {
         if let Ok(mut sender) = query.get_mut(trigger.entity) {
             *sender = ReplicationSender::new(
@@ -190,12 +189,8 @@ impl ReplicationSendPlugin {
                 sender.bandwidth_cap_enabled,
             );
         }
-        replicate.iter_mut().for_each(|(mut r, cached)| {
-            r.senders.swap_remove(&trigger.entity);
-            // we also update CachedReplicate because it's only used to compute the diff when a new Replicate is inserted.
-            if let Some(mut cached) = cached {
-                cached.senders.swap_remove(&trigger.entity);
-            }
+        replicate.iter_mut().for_each(|mut r| {
+            r.per_sender_state.swap_remove(&trigger.entity);
         });
     }
 
@@ -229,6 +224,9 @@ impl ReplicationSendPlugin {
 
 impl Plugin for ReplicationSendPlugin {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<ReplicableRootEntities>();
+
         // PLUGINS
         if !app.is_plugin_added::<crate::plugin::SharedPlugin>() {
             app.add_plugins(crate::plugin::SharedPlugin);
@@ -260,13 +258,9 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(Replicate::handle_connection);
         #[cfg(feature = "prediction")]
         {
-            app.add_observer(PredictionTarget::handle_connection);
-            app.add_observer(PredictionTarget::add_replication_group);
+            app.add_observer(crate::prelude::PredictionTarget::add_replication_group);
         }
-        #[cfg(feature = "interpolation")]
-        app.add_observer(InterpolationTarget::handle_connection);
         app.add_observer(Self::handle_disconnection);
-
         app.add_observer(ControlledBy::handle_disconnection);
 
         app.add_systems(
@@ -306,43 +300,45 @@ impl Plugin for ReplicationSendPlugin {
             .unwrap();
 
         let replicate = (
-            QueryParamBuilder::new(|builder| {
-                // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
-                builder.or(|b| {
-                    b.with::<ReplicateLikeChildren>();
-                    b.with::<ReplicateLike>();
-                    b.and(|b| {
-                        b.with::<Replicating>();
-                        b.with::<Replicate>();
-                    });
-                });
-                builder.optional(|b| {
-                    b.data::<(
-                        &Replicate,
-                        &ReplicationGroup,
-                        &NetworkVisibility,
-                        &ReplicateLikeChildren,
-                        &ReplicateLike,
-                        &ControlledBy,
-                        &PreSpawned,
-                    )>();
-                    #[cfg(feature = "prediction")]
-                    b.data::<&PredictionTarget>();
-                    #[cfg(feature = "interpolation")]
-                    b.data::<&InterpolationTarget>();
-                    // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-                    component_registry
-                        .component_metadata_map
-                        .iter()
-                        .for_each(|(kind, m)| {
-                            let id = m.component_id;
-                            b.ref_id(id);
-                            if let Some(r) = &m.replication {
-                                b.ref_id(r.overrides_component_id);
-                            }
+            ParamSetBuilder((
+                QueryParamBuilder::new(|builder| {
+                    // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
+                    builder.or(|b| {
+                        b.with::<ReplicateLikeChildren>();
+                        b.with::<ReplicateLike>();
+                        b.and(|b| {
+                            b.with::<Replicating>();
+                            b.with::<Replicate>();
+                            b.with::<ReplicationState>();
                         });
-                });
-            }),
+                    });
+                    builder.optional(|b| {
+                        b.data::<(
+                            &Replicate,
+                            &ReplicationState,
+                            &ReplicationGroup,
+                            &NetworkVisibility,
+                            &ReplicateLikeChildren,
+                            &ReplicateLike,
+                            &ControlledBy,
+                            &PreSpawned,
+                        )>();
+                        // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
+                        component_registry
+                            .component_metadata_map
+                            .iter()
+                            .for_each(|(kind, m)| {
+                                let id = m.component_id;
+                                b.ref_id(id);
+                                if let Some(r) = &m.replication {
+                                    b.ref_id(r.overrides_component_id);
+                                }
+                            });
+                    });
+                }),
+                ParamBuilder,
+            )),
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -354,58 +350,6 @@ impl Plugin for ReplicationSendPlugin {
             .build_state(app.world_mut())
             .build_system(buffer::replicate)
             .with_name("ReplicationSendPlugin::replicate");
-        // let replicate = (
-        //     QueryParamBuilder::new(|builder| {
-        //         // Or<(With<ReplicateLike>, With<ReplicateLikeChildren>, (With<Replicating>, With<Replicate>))>
-        //         builder.or(|b| {
-        //             b.with::<ReplicateLikeChildren>();
-        //             b.with::<ReplicateLike>();
-        //             b.and(|b| {
-        //                 b.with::<Replicating>();
-        //                 b.with::<Replicate>();
-        //             });
-        //         });
-        //         builder.optional(|b| {
-        //             b.data::<(
-        //                 &Replicate,
-        //                 &ReplicationGroup,
-        //                 &NetworkVisibility,
-        //                 &ReplicateLikeChildren,
-        //                 &ReplicateLike,
-        //                 &ControlledBy,
-        //             )>();
-        //             #[cfg(feature = "prediction")]
-        //             b.data::<&PredictionTarget>();
-        //             #[cfg(feature = "interpolation")]
-        //             b.data::<&InterpolationTarget>();
-        //             // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-        //             component_registry
-        //                 .replication_map
-        //                 .iter()
-        //                 .for_each(|(kind, _)| {
-        //                     let id = component_registry.kind_to_component_id.get(kind).unwrap();
-        //                     b.ref_id(*id);
-        //                     let override_id = component_registry
-        //                         .replication_map
-        //                         .get(kind)
-        //                         .unwrap()
-        //                         .overrides_component_id;
-        //                     b.ref_id(override_id);
-        //                 });
-        //         });
-        //     }),
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        // )
-        //     .build_state(app.world_mut())
-        //     .build_system(buffer::replicate_bis)
-        //     .with_name("ReplicationSendPlugin::replicate_bis");
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {
@@ -415,12 +359,14 @@ impl Plugin for ReplicationSendPlugin {
                     b.and(|b| {
                         b.with::<Replicating>();
                         b.with::<Replicate>();
+                        b.with::<ReplicationState>();
                     });
                 });
                 builder.optional(|b| {
                     b.data::<(
                         &ReplicateLike,
                         &Replicate,
+                        &ReplicationState,
                         &Replicating,
                         &NetworkVisibility,
                         &ReplicationGroup,
@@ -474,4 +420,12 @@ pub enum ReplicationBufferSystems {
     AfterBuffer,
     // Flush the buffered replication messages to the Transport
     Flush,
+}
+
+/// Global list of root entities that should be considered for replication
+///
+/// Equivalent to Query<(), (With<Replicate>, With<Replicating>)> but we cache the result
+#[derive(Resource, Default)]
+pub(crate) struct ReplicableRootEntities {
+    pub(crate) entities: EntityIndexSet,
 }

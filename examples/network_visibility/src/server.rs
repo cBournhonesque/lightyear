@@ -77,7 +77,7 @@ pub(crate) fn handle_connected(
                 lifetime: Default::default(),
             },
             // Use network visibility for interest management
-            NetworkVisibility::default(),
+            NetworkVisibility,
         ))
         .id();
     info!(
@@ -107,8 +107,7 @@ pub(crate) fn init(mut commands: Commands) {
                 Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
                 CircleMarker,
                 Replicate::to_clients(NetworkTarget::All),
-                // Use network visibility for interest management
-                NetworkVisibility::default(),
+                NetworkVisibility,
             ));
         }
     }
@@ -120,8 +119,8 @@ pub(crate) fn interest_management(
     peer_metadata: Res<PeerMetadata>,
     player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
     mut circle_query: Query<
-        (Entity, &Position, &mut NetworkVisibility),
-        (With<CircleMarker>, With<Replicate>),
+        (Entity, &Position, &mut ReplicationState),
+        (With<CircleMarker>, With<Replicate>, With<NetworkVisibility>),
     >,
 ) {
     for (client_id, position) in player_query.iter() {
@@ -131,14 +130,14 @@ pub(crate) fn interest_management(
         };
         if position.is_changed() {
             // in real game, you would have a spatial index (kd-tree) to only find entities within a certain radius
-            for (circle, circle_position, mut visibility) in circle_query.iter_mut() {
+            for (circle, circle_position, mut state) in circle_query.iter_mut() {
                 let distance = position.distance(**circle_position);
                 if distance < INTEREST_RADIUS {
-                    debug!("Gain visibility with {circle:?}");
-                    visibility.gain_visibility(*sender_entity);
+                    trace!("Gain visibility with {circle:?}");
+                    state.gain_visibility(*sender_entity);
                 } else {
-                    debug!("Lose visibility with {circle:?}");
-                    visibility.lose_visibility(*sender_entity);
+                    trace!("Lose visibility with {circle:?}");
+                    state.lose_visibility(*sender_entity);
                 }
             }
         }

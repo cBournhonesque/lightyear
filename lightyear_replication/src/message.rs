@@ -74,7 +74,9 @@ pub(crate) enum SpawnAction {
     None,
     Spawn {
         // TODO: make it impossible to enable both predicted and interpolatd
+        #[cfg(feature = "prediction")]
         predicted: bool,
+        #[cfg(feature = "interpolation")]
         interpolated: bool,
         // If a PreSpawn hash is provided, instead of spawning an entity on the receiver we will try to match
         // with an entity that has the same PreSpawn hash
@@ -97,10 +99,13 @@ impl ToBytes for SpawnAction {
             SpawnAction::None => buffer.write_u8(0)?,
             SpawnAction::Despawn => buffer.write_u8(1)?,
             SpawnAction::Spawn {
+                #[cfg(feature = "prediction")]
                 predicted,
+                #[cfg(feature = "interpolation")]
                 interpolated,
                 prespawn,
             } => {
+                #[cfg(all(feature = "prediction", feature = "interpolation"))]
                 if *predicted && *interpolated {
                     return Err(SerializationError::InvalidValue);
                 }
@@ -109,9 +114,11 @@ impl ToBytes for SpawnAction {
                 // 1: interpolated
                 // 2: prespawn.is_some()
                 let mut flags = 0u8;
+                #[cfg(feature = "prediction")]
                 if *predicted {
                     flags |= 1 << 0;
                 }
+                #[cfg(feature = "interpolation")]
                 if *interpolated {
                     flags |= 1 << 1;
                 }
@@ -140,7 +147,9 @@ impl ToBytes for SpawnAction {
             // Spawn variants are in the range [2, 9]
             val @ 2..=9 => {
                 let flags = val - 2;
+                #[cfg(feature = "prediction")]
                 let predicted = (flags & (1 << 0)) != 0;
+                #[cfg(feature = "interpolation")]
                 let interpolated = (flags & (1 << 1)) != 0;
                 let has_prespawn = (flags & (1 << 2)) != 0;
 
@@ -150,7 +159,9 @@ impl ToBytes for SpawnAction {
                     None
                 };
                 Ok(SpawnAction::Spawn {
+                    #[cfg(feature = "prediction")]
                     predicted,
+                    #[cfg(feature = "interpolation")]
                     interpolated,
                     prespawn,
                 })

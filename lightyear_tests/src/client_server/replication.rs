@@ -21,6 +21,10 @@ fn test_spawn() {
         .world_mut()
         .spawn((Replicate::to_server(),))
         .id();
+    let state = stepper
+        .client_app()
+        .world()
+        .get::<ReplicationState>(client_entity);
     // TODO: might need to step more when syncing to avoid receiving updates from the past?
     stepper.frame_step(1);
     stepper
@@ -682,7 +686,6 @@ fn test_component_replicate_once_overrides() {
 fn test_component_disabled_overrides() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    info!("start");
     let client_entity = stepper
         .client_app()
         .world_mut()
@@ -831,24 +834,15 @@ fn test_reinsert_replicate() {
         .get_local(client_entity)
         .expect("entity is not present in entity map");
 
-    assert_eq!(
+    assert!(
         stepper
             .client_app()
             .world()
-            .get::<Replicate>(client_entity)
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .senders()
-            .collect::<Vec<_>>(),
-        vec![client_sender]
+            .state()
+            .contains_key(&client_sender)
     );
-    let replicated_entities = &stepper
-        .client_app()
-        .world()
-        .get::<ReplicationSender>(client_sender)
-        .unwrap()
-        .replicated_entities;
-    assert_eq!(replicated_entities.len(), 1);
-    assert!(replicated_entities.contains_key(&client_entity));
 
     stepper
         .client_app()
@@ -857,22 +851,13 @@ fn test_reinsert_replicate() {
         .insert(Replicate::to_server());
     stepper.frame_step(1);
 
-    assert_eq!(
+    assert!(
         stepper
             .client_app()
             .world()
-            .get::<Replicate>(client_entity)
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .senders()
-            .collect::<Vec<_>>(),
-        vec![client_sender]
+            .state()
+            .contains_key(&client_sender)
     );
-    let replicated_entities = &stepper
-        .client_app()
-        .world()
-        .get::<ReplicationSender>(client_sender)
-        .unwrap()
-        .replicated_entities;
-    assert_eq!(replicated_entities.len(), 1);
-    assert!(replicated_entities.contains_key(&client_entity));
 }

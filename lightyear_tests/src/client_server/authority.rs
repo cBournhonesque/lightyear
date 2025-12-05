@@ -58,19 +58,30 @@ fn test_give_authority_server_to_client() {
             .unwrap(),
         &Some(PeerId::Netcode(0))
     );
-    assert!(
-        !stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
+    let client_0 = stepper.client(0).id();
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .has_authority(server_entity)
+            .state()
+            .get(&client_0)
+            .unwrap()
+            .authority,
+        Some(true)
     );
-    assert!(
+    let client_of_0 = stepper.client_of(0).id();
+    assert_eq!(
         stepper
-            .client(0)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(client_entity)
+            .state()
+            .get(&client_of_0)
+            .unwrap()
+            .authority,
+        Some(false)
     );
 
     // check that the server updates are not replicated
@@ -152,19 +163,30 @@ fn test_give_authority_client_to_server() {
             .unwrap(),
         &Some(PeerId::Server)
     );
-    assert!(
-        stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
+    let client_0 = stepper.client(0).id();
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .has_authority(server_entity)
+            .state()
+            .get(&client_0)
+            .unwrap()
+            .authority,
+        Some(false)
     );
-    assert!(
-        !stepper
-            .client(0)
-            .get::<ReplicationSender>()
+    let client_of_0 = stepper.client_of(0).id();
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(client_entity)
+            .state()
+            .get(&client_of_0)
+            .unwrap()
+            .authority,
+        Some(true)
     );
 
     // check that the client updates are not replicated
@@ -229,19 +251,30 @@ fn test_transfer_authority_despawn() {
     stepper.frame_step(2);
 
     // check that the client lost authority and server gained authority
-    assert!(
-        !stepper
-            .client(0)
-            .get::<ReplicationSender>()
+    let client_0 = stepper.client(0).id();
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .has_authority(client_entity)
+            .state()
+            .get(&client_0)
+            .unwrap()
+            .authority,
+        Some(false)
     );
-    assert!(
+    let client_of_0 = stepper.client_of(0).id();
+    assert_eq!(
         stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(server_entity)
+            .state()
+            .get(&client_of_0)
+            .unwrap()
+            .authority,
+        Some(true)
     );
 
     // server despawn the entity
@@ -299,19 +332,30 @@ fn test_transfer_authority_map_entities() {
     stepper.frame_step(2);
 
     // check that the client lost authority and server gained authority
-    assert!(
-        !stepper
-            .client(0)
-            .get::<ReplicationSender>()
+    let client_0 = stepper.client(0).id();
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<ReplicationState>(client_entity)
             .unwrap()
-            .has_authority(client_entity)
+            .state()
+            .get(&client_0)
+            .unwrap()
+            .authority,
+        Some(false)
     );
-    assert!(
+    let client_of_0 = stepper.client_of(0).id();
+    assert_eq!(
         stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(server_entity)
+            .state()
+            .get(&client_of_0)
+            .unwrap()
+            .authority,
+        Some(true)
     );
 
     // check that server sent an update and that the components were mapped correctly
@@ -341,21 +385,21 @@ fn test_transfer_authority_client_to_client() {
         .entity_mapper
         .get_local(client_entity_0)
         .expect("entity is not present in entity map");
-    assert!(
+    let client_0 = stepper.client(0).id();
+    let client_1 = stepper.client(1).id();
+    let client_of_0 = stepper.client_of(0).id();
+    let client_of_1 = stepper.client_of(1).id();
+    assert_eq!(
         stepper
-            .client_of_mut(0)
-            .get_mut::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .replicated_entities
-            .get(&server_entity)
-            .is_some()
-    );
-    assert!(
-        !stepper
-            .client_of_mut(0)
-            .get_mut::<ReplicationSender>()
+            .state()
+            .get(&client_of_0)
             .unwrap()
-            .has_authority(server_entity)
+            .authority,
+        Some(false)
     );
     assert_eq!(
         stepper
@@ -376,19 +420,29 @@ fn test_transfer_authority_client_to_client() {
             Replicate::to_clients(NetworkTarget::All),
             CompMap(server_entity),
         ));
-    assert!(
-        !stepper
-            .client_of_mut(0)
-            .get_mut::<ReplicationSender>()
-            .unwrap()
-            .has_authority(server_entity)
-    );
-    assert!(
+    assert_eq!(
         stepper
-            .client_of_mut(1)
-            .get_mut::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(server_entity)
+            .state()
+            .get(&client_of_0)
+            .unwrap()
+            .authority,
+        Some(false)
+    );
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
+            .unwrap()
+            .state()
+            .get(&client_of_1)
+            .unwrap()
+            .authority,
+        Some(true)
     );
     assert_eq!(
         stepper
@@ -425,33 +479,51 @@ fn test_transfer_authority_client_to_client() {
     stepper.frame_step(4);
 
     // check that the client 0 lost authority and client 1 gained authority
-    assert!(
-        !stepper
-            .client(0)
-            .get::<ReplicationSender>()
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<ReplicationState>(client_entity_0)
             .unwrap()
-            .has_authority(client_entity_0)
+            .state()
+            .get(&client_0)
+            .unwrap()
+            .authority,
+        Some(false)
     );
-    assert!(
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .get::<ReplicationState>(client_entity_1)
+            .unwrap()
+            .state()
+            .get(&client_1)
+            .unwrap()
+            .authority,
+        Some(true)
+    );
+    assert_eq!(
         stepper
-            .client(1)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(client_entity_1)
+            .state()
+            .get(&client_of_0)
+            .unwrap()
+            .authority,
+        Some(true)
     );
-    assert!(
+    assert_eq!(
         stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(server_entity)
-    );
-    assert!(
-        !stepper
-            .client_of(1)
-            .get::<ReplicationSender>()
+            .state()
+            .get(&client_of_1)
             .unwrap()
-            .has_authority(server_entity)
+            .authority,
+        Some(false)
     );
 
     // request the authority from client 0 to client 1
@@ -463,32 +535,50 @@ fn test_transfer_authority_client_to_client() {
     stepper.frame_step(4);
 
     // check that the client 1 lost authority and client 0 gained authority
-    assert!(
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .get::<ReplicationState>(client_entity_0)
+            .unwrap()
+            .state()
+            .get(&client_0)
+            .unwrap()
+            .authority,
+        Some(true)
+    );
+    assert_eq!(
+        stepper.client_apps[1]
+            .world()
+            .get::<ReplicationState>(client_entity_1)
+            .unwrap()
+            .state()
+            .get(&client_1)
+            .unwrap()
+            .authority,
+        Some(false)
+    );
+    assert_eq!(
         stepper
-            .client(0)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(client_entity_0)
-    );
-    assert!(
-        !stepper
-            .client(1)
-            .get::<ReplicationSender>()
+            .state()
+            .get(&client_of_0)
             .unwrap()
-            .has_authority(client_entity_1)
+            .authority,
+        Some(false)
     );
-    assert!(
-        !stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
-            .unwrap()
-            .has_authority(server_entity)
-    );
-    assert!(
+    assert_eq!(
         stepper
-            .client_of(1)
-            .get::<ReplicationSender>()
+            .server_app
+            .world()
+            .get::<ReplicationState>(server_entity)
             .unwrap()
-            .has_authority(server_entity)
+            .state()
+            .get(&client_of_1)
+            .unwrap()
+            .authority,
+        Some(true)
     );
 }

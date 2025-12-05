@@ -28,9 +28,7 @@ test_utils = [
   "lightyear_crossbeam/test_utils",
   "lightyear_aeronet/test_utils",
 ]
-steam = [
-  "lightyear/steam"
-]
+steam = ["lightyear/steam"]
 
 
 [dependencies]

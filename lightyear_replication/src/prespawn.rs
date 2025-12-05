@@ -3,7 +3,11 @@
 use crate::components::Replicated;
 use crate::control::{Controlled, ControlledBy};
 use crate::hierarchy::ReplicateLike;
-use crate::prelude::{ComponentRegistry, InterpolationTarget, PredictionTarget, Replicate};
+#[cfg(feature = "interpolation")]
+use crate::prelude::InterpolationTarget;
+#[cfg(feature = "prediction")]
+use crate::prelude::PredictionTarget;
+use crate::prelude::{ComponentRegistry, Replicate};
 use crate::registry::ComponentKind;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
@@ -408,14 +412,17 @@ pub(crate) fn compute_default_hash(
         .filter_map(|component_id| {
             if let Some(type_id) = components.get_info(component_id).unwrap().type_id() {
                 // ignore some book-keeping components that are included in the component registry
-                if type_id != TypeId::of::<PreSpawned>()
+                #[allow(unused_mut)]
+                let mut keep = type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<Controlled>()
                     && type_id != TypeId::of::<ReplicateLike>()
                     && type_id != TypeId::of::<Replicate>()
-                    && type_id != TypeId::of::<PredictionTarget>()
-                    && type_id != TypeId::of::<InterpolationTarget>()
-                    && type_id != TypeId::of::<ControlledBy>()
-                {
+                    && type_id != TypeId::of::<ControlledBy>();
+                #[cfg(feature = "prediction")]
+                let keep = keep && type_id != TypeId::of::<PredictionTarget>();
+                #[cfg(feature = "interpolation")]
+                let keep = keep && type_id != TypeId::of::<InterpolationTarget>();
+                if keep {
                     return component_registry
                         .kind_map
                         .net_id(&ComponentKind::from(type_id))

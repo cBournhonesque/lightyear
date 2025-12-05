@@ -34,7 +34,7 @@ fn test_spawn_gain_visibility() {
     // gain visibility
     stepper.client_apps[0]
         .world_mut()
-        .get_mut::<NetworkVisibility>(client_entity)
+        .get_mut::<ReplicationState>(client_entity)
         .unwrap()
         .gain_visibility(stepper.client_entities[0]);
     stepper.frame_step(1);
@@ -53,13 +53,18 @@ fn test_spawn_gain_visibility() {
 fn test_despawn_lose_visibility() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let mut visibility = NetworkVisibility::default();
-    visibility.gain_visibility(stepper.client_entities[0]);
     let client_entity = stepper
         .client_app()
         .world_mut()
-        .spawn((Replicate::to_server(), visibility))
+        .spawn((Replicate::to_server(), NetworkVisibility::default()))
         .id();
+    let sender = stepper.client_entities[0];
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<ReplicationState>(client_entity)
+        .unwrap()
+        .gain_visibility(sender);
     // entity is visible because of NetworkVisibility
     stepper.frame_step(1);
     let server_entity = stepper
@@ -73,9 +78,9 @@ fn test_despawn_lose_visibility() {
     // lose visibility: a Despawn message should be sent
     stepper.client_apps[0]
         .world_mut()
-        .get_mut::<NetworkVisibility>(client_entity)
+        .get_mut::<ReplicationState>(client_entity)
         .unwrap()
-        .lose_visibility(stepper.client_entities[0]);
+        .lose_visibility(sender);
     stepper.frame_step(1);
     assert!(
         stepper
@@ -86,7 +91,24 @@ fn test_despawn_lose_visibility() {
             .get_local(client_entity)
             .is_none()
     );
-    stepper.frame_step(10);
+    stepper.frame_step(2);
+
+    // gain visibility: a spawn message should be sent again
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ReplicationState>(client_entity)
+        .unwrap()
+        .gain_visibility(sender);
+    stepper.frame_step(1);
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(client_entity)
+            .is_some()
+    );
 }
 
 /// https://github.com/cBournhonesque/lightyear/issues/637
@@ -97,29 +119,39 @@ fn test_despawn_with_visibility() {
     let mut stepper: ClientServerStepper =
         ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
-    let mut visibility_0 = NetworkVisibility::default();
-    visibility_0.gain_visibility(stepper.client_of_entities[0]);
     let server_entity_0 = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            visibility_0,
+            NetworkVisibility::default(),
             ReplicationGroup::new_id(1),
         ))
         .id();
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity_0)
+        .get_mut::<ReplicationState>()
+        .unwrap()
+        .gain_visibility(stepper.client_of_entities[0]);
 
-    let mut visibility_1 = NetworkVisibility::default();
-    visibility_1.gain_visibility(stepper.client_of_entities[1]);
     let server_entity_1 = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            visibility_1,
+            NetworkVisibility::default(),
             ReplicationGroup::new_id(1),
         ))
         .id();
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity_1)
+        .get_mut::<ReplicationState>()
+        .unwrap()
+        .gain_visibility(stepper.client_of_entities[1]);
 
     stepper.frame_step(2);
     let client_entity_0 = stepper
@@ -217,5 +249,63 @@ fn test_despawn_non_visible_logspam() {
             .group_channels
             .get(&ReplicationGroupId(1))
             .is_none()
+    );
+}
+
+/// https://github.com/cBournhonesque/lightyear/issues/1347
+/// If `lose_visibility` clears metadata in ReplicationState, then multiple calls to `lose_visibility`
+/// will remove the authority information and prevent the entity from getting replicated!
+#[test]
+fn test_spawn_multiple_lose_visibility() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let client_entity = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Replicate::to_server(), NetworkVisibility::default()))
+        .id();
+    // entity is not visible because NetworkVisibility doesn't include it
+    stepper.frame_step(1);
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(client_entity)
+            .is_none()
+    );
+
+    // lose visibility: sender should be removed from ReplicationState
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ReplicationState>(client_entity)
+        .unwrap()
+        .lose_visibility(stepper.client_entities[0]);
+    stepper.frame_step(1);
+
+    // lose visibility: metadata should be added to ReplicationState (and hopefully with authority!)
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ReplicationState>(client_entity)
+        .unwrap()
+        .lose_visibility(stepper.client_entities[0]);
+    stepper.frame_step(1);
+
+    // gain visibility: we should be able to replicate
+    stepper.client_apps[0]
+        .world_mut()
+        .get_mut::<ReplicationState>(client_entity)
+        .unwrap()
+        .gain_visibility(stepper.client_entities[0]);
+    stepper.frame_step(1);
+    assert!(
+        stepper
+            .client_of(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(client_entity)
+            .is_some()
     );
 }
