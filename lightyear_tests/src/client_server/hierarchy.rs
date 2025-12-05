@@ -2,8 +2,8 @@
 
 use crate::stepper::*;
 use bevy::prelude::*;
+use lightyear::prelude::*;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{DisableReplicateHierarchy, Replicate, ReplicateLike};
 use test_log::test;
 
 // TODO:
@@ -165,3 +165,65 @@ fn test_new_client_is_added_to_parent() {}
 /// the child is also replicated to the remote
 #[test]
 fn test_propagate_hierarchy_new_child() {}
+
+#[test]
+fn test_child_overrides_prediction_target() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            InterpolationTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step_server_first(1);
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity is not present in entity map");
+
+    let server_child = stepper
+        .server_app
+        .world_mut()
+        // the child should not be interpolated; it has InterpolationTarget, which takes precedence over the one
+        // from the root entity
+        .spawn((ChildOf(server_entity), InterpolationTarget::manual(vec![])))
+        .id();
+    stepper.frame_step_server_first(1);
+    let client_child = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_child)
+        .expect("entity is not present in entity map");
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<ChildOf>(client_child)
+            .unwrap()
+            .parent(),
+        client_entity
+    );
+    // the parent is interpolated, but not the child
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Interpolated>(client_child)
+            .is_none()
+    );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Interpolated>(client_entity)
+            .is_some()
+    );
+}

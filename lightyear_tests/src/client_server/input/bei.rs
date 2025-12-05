@@ -545,7 +545,6 @@ fn test_input_broadcasting_prediction() {
     // client0 + 3: server receives the input (with 2 ticks delay) and rebroadcasts it to client 1
     // client1 + 4: client 1 receives the input but cannot process it yet because it receives the input BEFORE it spawns the rebroadcasted Action entity
     // client1 + 5: client 1 checks rollback for tick (client1 + 4), there is a rollback because of mismatch.
-
     let action1 = stepper.client_apps[1]
         .world()
         .get::<Actions<BEIContext>>(client1_predicted)

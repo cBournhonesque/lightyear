@@ -6,24 +6,25 @@ use bevy_ecs::component::Component;
 use bevy_ecs::entity::EntityIndexMap;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::reflect::ReflectComponent;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 use bevy_time::{Timer, TimerMode};
-use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected, PeerMetadata};
-#[cfg(feature = "server")]
-use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
+#[cfg(feature = "server")]
+use {
+    bevy_utils::prelude::DebugName, lightyear_connection::client_of::ClientOf,
+    lightyear_link::server::Server,
+};
 
 use crate::host::SpawnedOnHostServer;
 use crate::send::plugin::ReplicableRootEntities;
 use crate::visibility::immediate::VisibilityState;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::server::LinkOf;
-#[cfg(feature = "server")]
-use lightyear_link::server::Server;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::prelude::{Seek, SeekFrom};
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -315,35 +316,45 @@ impl PredictionTarget {
     }
 }
 
-#[cfg(feature = "prediction")]
 impl ReplicationTargetT for lightyear_core::prediction::Predicted {
     fn update_host_client(entity_mut: &mut EntityWorldMut) {
         entity_mut.insert(Self);
     }
 
     fn update_replicate_state(state: &mut PerSenderReplicationState) {
-        state.predicted = true;
+        #[cfg(feature = "prediction")]
+        {
+            state.predicted = true;
+        }
     }
 
     fn clear_replicate_state(state: &mut PerSenderReplicationState) {
-        state.predicted = false;
+        #[cfg(feature = "prediction")]
+        {
+            state.predicted = false;
+        }
     }
 }
 
 pub type InterpolationTarget = ReplicationTarget<lightyear_core::interpolation::Interpolated>;
 
-#[cfg(feature = "interpolation")]
 impl ReplicationTargetT for lightyear_core::interpolation::Interpolated {
     fn update_host_client(entity_mut: &mut EntityWorldMut) {
         entity_mut.insert(Self);
     }
 
     fn update_replicate_state(state: &mut PerSenderReplicationState) {
-        state.interpolated = true;
+        #[cfg(feature = "interpolation")]
+        {
+            state.interpolated = true;
+        }
     }
 
     fn clear_replicate_state(state: &mut PerSenderReplicationState) {
-        state.interpolated = false;
+        #[cfg(feature = "interpolation")]
+        {
+            state.interpolated = false;
+        }
     }
 }
 
@@ -581,8 +592,23 @@ pub enum ReplicationMode {
     Manual(Vec<Entity>),
 }
 
-/// Component containins replication metadata for the entity
+/// Component containins per-[`ReplicationSender`] metadata for the entity.
 ///
+/// This can be used to update the visibility of the entity if [`NetworkVisibility`](crate::visibility::immediate::NetworkVisibility)
+/// is present on the entity.
+///
+/// ```
+/// # use bevy_ecs::prelude::*;
+/// # use lightyear_replication::prelude::{NetworkVisibility, Replicate, ReplicationState};
+/// # let mut world = World::new();
+/// # let entity = world.spawn((ReplicationState::default(), NetworkVisibility));
+/// # let mut sender = world.spawn_empty();
+/// let mut state = world.get_mut::<ReplicationState>(entity).unwrap();
+/// // the entity will now be visible (replicated) on that sender
+/// state.gain_visibility(sender);
+/// // the entity won't be visible for that sender
+/// state.lose_visibility(sender);
+/// ```
 // This is kept separate from the Replicate for situations like:
 // - specifying that a sender has no authority over an entity independently even without Replicate being added
 #[derive(Component, Default, Debug)]
@@ -598,31 +624,33 @@ impl ReplicationState {
         &self.per_sender_state
     }
 
-    pub(crate) fn is_visible(&self, sender: Entity) -> bool {
-        self.per_sender_state
-            .get(&sender)
-            .is_some_and(|s| s.visibility.is_visible())
-    }
-
     /// Indicate that the entity is not visible for that [`ReplicationSender`] entity.
     pub fn lose_visibility(&mut self, sender: Entity) {
-        let state = self.per_sender_state.entry(sender).or_default();
-        // if we just set it to Gained, it cancels out
+        let state = self
+            .per_sender_state
+            .entry(sender)
+            .or_insert_with(PerSenderReplicationState::with_authority);
+        // if we just set it to Gained before we could tick the visibility, it cancels out
         if state.visibility == VisibilityState::Gained {
-            state.visibility = VisibilityState::Always;
-        } else {
+            state.visibility = VisibilityState::Default;
+        } else if state.visibility != VisibilityState::Lost {
             state.visibility = VisibilityState::Lost;
         }
     }
 
     /// Indicate that the entity is now visible for that [`ReplicationSender`] entity.
     pub fn gain_visibility(&mut self, sender: Entity) {
-        // TODO: what do we do if we had replicated spawn when not using visibility?
-        let state = self.per_sender_state.entry(sender).or_default();
+        let state = self
+            .per_sender_state
+            .entry(sender)
+            .or_insert_with(PerSenderReplicationState::with_authority);
         // if the entity was already relevant (Relevance::Maintained), be careful to not set it to
         // Relevance::Gained as it would trigger a duplicate spawn replication action
-        if state.visibility != VisibilityState::Maintained {
-            state.visibility = VisibilityState::Gained
+        if !matches!(
+            state.visibility,
+            VisibilityState::Visible | VisibilityState::Gained
+        ) {
+            state.visibility = VisibilityState::Gained;
         };
     }
     pub fn has_authority(&self, sender: Entity) -> bool {
@@ -635,14 +663,14 @@ impl ReplicationState {
         self.per_sender_state
             .entry(sender)
             .and_modify(|s| s.authority = Some(false))
-            .or_insert_with(|| PerSenderReplicationState::without_authority());
+            .or_insert_with(PerSenderReplicationState::without_authority);
     }
 
     pub(crate) fn gain_authority(&mut self, sender: Entity) {
         self.per_sender_state
             .entry(sender)
             .and_modify(|s| s.authority = Some(true))
-            .or_insert_with(|| PerSenderReplicationState::with_authority());
+            .or_insert_with(PerSenderReplicationState::with_authority);
     }
 }
 
@@ -666,6 +694,8 @@ pub struct PerSenderReplicationState {
     //
     // If None, then the authority state is unknown
     pub authority: Option<bool>,
+    // TODO: maybe set this back to false on LoseVisibility? But what if we lose and gain it quickly
+    //   before a replication update?
     // Set to true if the `ReplicationSender` sent a 'spawn' message for this entity
     //
     // This is needed because we cannot simply rely on seeing if `Replicate` has changed to check if we need to spawn the entity again.
@@ -952,6 +982,7 @@ impl Replicate {
             state.per_sender_state.retain(|sender_entity, v| {
                 if v.to_remove && let Some(mut sender) = world.get_mut::<ReplicationSender>(*sender_entity) {
                     let group_id = group.group_id(Some(context.entity));
+                    // TODO: we should also send a despawn for all the replicate-like?
                     sender.set_replicated_despawn(context.entity, group_id);
                 }
                 !v.to_remove
@@ -973,7 +1004,7 @@ impl Replicate {
     // We don't allow users to manually update Replicate, therefore we can fully rely on observers
     //
     // ON REPLACE:
-    // - store the previous state of Replicate in CachedReplicate
+    // - compare with the previous ReplicationState to identify which senders the entity should be despawned on
     fn on_replace(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             world
@@ -987,29 +1018,39 @@ impl Replicate {
                     .per_sender_state
                     .values_mut()
                     .for_each(|state| {
-                        // we need to remove this sender if it's not added in the next replicate
-                        // we don't remove them here because we want to keep the metadata if the sender is kept
-                        state.to_remove = true;
+                        if state.spawned {
+                            // we need to remove this sender if it's not added in the next replicate
+                            // we don't remove them here because we want to keep the metadata if the sender is kept
+                            state.to_remove = true;
+                        }
                     });
             }
         });
     }
+}
 
+#[derive(QueryData)]
+#[query_data(mutable)]
+pub(super) struct HandleConnectionQueryData {
+    entity: Entity,
+    replicate: &'static Replicate,
+    #[cfg(feature = "prediction")]
+    prediction: Option<&'static PredictionTarget>,
+    #[cfg(feature = "interpolation")]
+    interpolation: Option<&'static InterpolationTarget>,
+    state: &'static mut ReplicationState,
+}
+
+impl Replicate {
     /// When a new client connects, check if we need to replicate existing entities to it
-    pub(crate) fn handle_connection(
+    pub(super) fn handle_connection(
         trigger: On<Add, (Connected, ReplicationSender)>,
         mut sender_query: Query<
             (Entity, &RemoteId, Has<Client>, Option<&LinkOf>),
             // no need to replicate to the HostClient
             (With<Connected>, Without<HostClient>),
         >,
-        mut replicate_query: Query<(
-            Entity,
-            &Replicate,
-            Option<&PredictionTarget>,
-            Option<&InterpolationTarget>,
-            &mut ReplicationState,
-        )>,
+        mut replicate_query: Query<HandleConnectionQueryData>,
         mut commands: Commands,
     ) {
         fn update_replicate(
@@ -1056,7 +1097,15 @@ impl Replicate {
         {
             // TODO: maybe do this in parallel?
             replicate_query.iter_mut().for_each(
-                |(entity, replicate, prediction, interpolation, mut state)| {
+                |HandleConnectionQueryDataItem {
+                     entity,
+                     replicate,
+                     #[cfg(feature = "prediction")]
+                     prediction,
+                     #[cfg(feature = "interpolation")]
+                     interpolation,
+                     mut state,
+                 }| {
                     let state = &mut state;
                     let mut update_state = |mode: &ReplicationMode,
                                             f: fn(

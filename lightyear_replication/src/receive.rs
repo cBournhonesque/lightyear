@@ -746,8 +746,8 @@ impl GroupChannel {
         server_entity: Option<Entity>,
         temp_write_buffer: &mut BufferedChanges,
     ) {
-        let insert_sync_components = |predicted: bool,
-                                      interpolated: bool,
+        let insert_sync_components = |#[cfg(feature = "prediction")] predicted: bool,
+                                      #[cfg(feature = "interpolation")] interpolated: bool,
                                       entity: &mut EntityWorldMut,
                                       remote_tick: Tick| {
             #[cfg(any(feature = "interpolation", feature = "prediction"))]
@@ -799,7 +799,9 @@ impl GroupChannel {
         for (remote_entity, actions) in message.into_iter() {
             // spawn
             if let SpawnAction::Spawn {
+                #[cfg(feature = "prediction")]
                 predicted,
+                #[cfg(feature = "interpolation")]
                 interpolated,
                 prespawn,
             } = actions.spawn
@@ -838,7 +840,9 @@ impl GroupChannel {
                         local_entity.remove::<PreSpawned>();
 
                         insert_sync_components(
+                            #[cfg(feature = "prediction")]
                             predicted,
+                            #[cfg(feature = "interpolation")]
                             interpolated,
                             &mut local_entity,
                             remote_tick,
@@ -887,7 +891,14 @@ impl GroupChannel {
                     "Received entity spawn for remote entity {remote_entity:?}. Spawned local entity {:?}",
                     local_entity.id()
                 );
-                insert_sync_components(predicted, interpolated, &mut local_entity, remote_tick);
+                insert_sync_components(
+                    #[cfg(feature = "prediction")]
+                    predicted,
+                    #[cfg(feature = "interpolation")]
+                    interpolated,
+                    &mut local_entity,
+                    remote_tick,
+                );
 
                 if !is_default_group {
                     self.local_entities.insert(local_entity.id());

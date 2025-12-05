@@ -33,9 +33,8 @@ use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
-use tracing::info;
 #[allow(unused_imports)]
-use tracing::{error, warn};
+use tracing::{error, info, warn};
 
 pub struct ReplicationSendPlugin;
 
@@ -191,7 +190,6 @@ impl ReplicationSendPlugin {
             );
         }
         replicate.iter_mut().for_each(|mut r| {
-            info!("remove sender {:?} from state", trigger.entity);
             r.per_sender_state.swap_remove(&trigger.entity);
         });
     }
@@ -352,58 +350,6 @@ impl Plugin for ReplicationSendPlugin {
             .build_state(app.world_mut())
             .build_system(buffer::replicate)
             .with_name("ReplicationSendPlugin::replicate");
-        // let replicate = (
-        //     QueryParamBuilder::new(|builder| {
-        //         // Or<(With<ReplicateLike>, With<ReplicateLikeChildren>, (With<Replicating>, With<Replicate>))>
-        //         builder.or(|b| {
-        //             b.with::<ReplicateLikeChildren>();
-        //             b.with::<ReplicateLike>();
-        //             b.and(|b| {
-        //                 b.with::<Replicating>();
-        //                 b.with::<Replicate>();
-        //             });
-        //         });
-        //         builder.optional(|b| {
-        //             b.data::<(
-        //                 &Replicate,
-        //                 &ReplicationGroup,
-        //                 &NetworkVisibility,
-        //                 &ReplicateLikeChildren,
-        //                 &ReplicateLike,
-        //                 &ControlledBy,
-        //             )>();
-        //             #[cfg(feature = "prediction")]
-        //             b.data::<&PredictionTarget>();
-        //             #[cfg(feature = "interpolation")]
-        //             b.data::<&InterpolationTarget>();
-        //             // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-        //             component_registry
-        //                 .replication_map
-        //                 .iter()
-        //                 .for_each(|(kind, _)| {
-        //                     let id = component_registry.kind_to_component_id.get(kind).unwrap();
-        //                     b.ref_id(*id);
-        //                     let override_id = component_registry
-        //                         .replication_map
-        //                         .get(kind)
-        //                         .unwrap()
-        //                         .overrides_component_id;
-        //                     b.ref_id(override_id);
-        //                 });
-        //         });
-        //     }),
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        //     ParamBuilder,
-        // )
-        //     .build_state(app.world_mut())
-        //     .build_system(buffer::replicate_bis)
-        //     .with_name("ReplicationSendPlugin::replicate_bis");
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {

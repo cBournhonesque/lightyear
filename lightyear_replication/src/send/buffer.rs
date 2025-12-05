@@ -3,11 +3,15 @@ use crate::control::{Controlled, ControlledBy};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
-use crate::prelude::{PerSenderReplicationState, ReplicationState};
+use crate::prelude::{NetworkVisibility, ReplicationState};
 use crate::prespawn::PreSpawned;
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
+#[cfg(feature = "interpolation")]
+use crate::send::components::InterpolationTarget;
+#[cfg(feature = "prediction")]
+use crate::send::components::PredictionTarget;
 use crate::send::components::{Replicate, Replicating, ReplicationGroup, ReplicationGroupId};
 use crate::send::plugin::ReplicableRootEntities;
 use crate::send::sender::ReplicationSender;
@@ -100,6 +104,7 @@ pub(crate) fn replicate(
             sender.tick_cleanup(tick);
 
             trace!(
+                // ?replicable_entities.entities,
                 this_run = ?sender.this_run,
                 last_run = ?sender.last_run,
                 "Starting buffer replication for sender {sender_entity:?}");
@@ -147,6 +152,7 @@ pub(crate) fn replicate(
         },
     );
 
+    // TODO: this seems really inefficient.. maybe use a concurrent map for ReplicationState such as papaya?
     // update the metadata that tracks on which sender the entity was sent
     manager_query
         .iter_mut()
@@ -159,6 +165,22 @@ pub(crate) fn replicate(
                 }
             })
         })
+}
+
+#[derive(Debug)]
+pub(crate) struct StateMetadata {
+    // child: will check if ReplicateLike was added since the sender's last
+    should_spawn: bool,
+    // use child's if NetworkVisibility is present
+    visible: bool,
+    // this is for despawns that are NetworkVisibility-related
+    lost_visibility: bool,
+    // use child's if PredictionTarget is present
+    #[cfg(feature = "prediction")]
+    predicted: bool,
+    // use child's if InterpolationTarget is present
+    #[cfg(feature = "interpolation")]
+    interpolated: bool,
 }
 
 #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
@@ -174,12 +196,18 @@ pub(crate) fn replicate_entity(
     replicated_archetypes: &ReplicatedArchetypes,
     delta: Option<&DeltaManager>,
 ) {
+    // TODO: instead of FilteredEntityRef, use a custom QueryParam with no access checks
+    //  + can fetch multiple components at once
+
+    // if child:
+    // - has Replicate -> take authority from child
+    // - has PredictionTarget -> take predicted from child
+    // - has InterpolationTarget -> take interpolate from child
     // get the value of the replication components
     let (
         group_id,
         priority,
         group_ready,
-        replication_state,
         // TODO: fetch owned_by only if needed
         owned_by,
         entity_ref,
@@ -203,9 +231,6 @@ pub(crate) fn replicate_entity(
                 priority,
                 group_ready,
                 child_entity_ref
-                    .get::<ReplicationState>()
-                    .unwrap_or_else(|| root_entity_ref.get::<ReplicationState>().unwrap()),
-                child_entity_ref
                     .get::<ControlledBy>()
                     .or_else(|| root_entity_ref.get::<ControlledBy>()),
                 child_entity_ref,
@@ -228,62 +253,136 @@ pub(crate) fn replicate_entity(
                 group_id,
                 priority,
                 group_ready,
-                root_entity_ref.get::<ReplicationState>().unwrap(),
                 root_entity_ref.get::<ControlledBy>(),
                 root_entity_ref,
                 false,
             )
         }
     };
-    let Some(state) = replication_state.per_sender_state.get(&sender_entity) else {
+
+    let Some(state) = root_entity_ref
+        .get::<ReplicationState>()
+        .unwrap()
+        .per_sender_state
+        .get(&sender_entity)
+    else {
         return;
     };
-    info!(?state, "replication state");
-    if state.authority.is_none_or(|a| !a) {
+    // TODO: cache this in ReplicatedArchetypes? since it's archetype-level
+    let has_network_visibility = root_entity_ref.contains::<NetworkVisibility>();
+    let state_metadata = if let Some(child_state) =
+        child_entity_ref.and_then(|(c, _)| c.get::<ReplicationState>())
+    {
+        let (c, _) = child_entity_ref.unwrap();
+        // this could be done (for example if parent has [1, 2] but child added PredictionTarget for [1],
+        // there is no state for 2 on the child)
+        let child_state = child_state.per_sender_state.get(&sender_entity);
+
+        // if replicate is set, then we need explicit authority on the child. (we don't delegate to the parent)
+        let authority = if c.contains::<Replicate>() {
+            child_state.is_some_and(|a| a.authority == Some(true))
+        } else {
+            // use child's if authority is not None (so it has been explicitly set either because Replicate was added
+            // explicitly on the child, or because of an authority transfer)
+            if let Some(a) = child_state.and_then(|s| s.authority) {
+                a
+            } else {
+                state.authority == Some(true)
+            }
+        };
+        if !authority {
+            return;
+        }
+        // if NetworkVisibility was added directly on the child, we use the child's values
+        let (should_spawn, visible, lost_visibility) = if c.contains::<NetworkVisibility>() {
+            // replicate-like was added and the entity is visible for this sender
+            // (this is important in cases where the parent was already spawned so should_spawn is false, but we just
+            //  added a child entity)
+            let raw = child_state.map_or(VisibilityState::Default, |s| s.visibility);
+            let visible = raw.is_visible(true);
+            (
+                (visible && is_replicate_like_added) || (raw == VisibilityState::Gained),
+                visible,
+                raw == VisibilityState::Lost,
+            )
+        } else {
+            let visible = state.visibility.is_visible(has_network_visibility);
+            (
+                (visible && is_replicate_like_added) || state.visibility == VisibilityState::Gained,
+                visible,
+                state.visibility == VisibilityState::Lost,
+            )
+        };
+        StateMetadata {
+            should_spawn,
+            visible,
+            lost_visibility,
+            #[cfg(feature = "prediction")]
+            predicted: if c.contains::<PredictionTarget>() {
+                child_state.is_some_and(|c| c.predicted)
+            } else {
+                state.predicted
+            },
+            #[cfg(feature = "interpolation")]
+            interpolated: if c.contains::<InterpolationTarget>() {
+                child_state.is_some_and(|c| c.interpolated)
+            } else {
+                state.interpolated
+            },
+        }
+    } else {
+        if state.authority.is_none_or(|a| !a) {
+            return;
+        }
+        let visible = state.visibility.is_visible(has_network_visibility);
+        // 1. the sender got added to the list of senders for this entity's Replicate but we haven't spawned the entity
+        //    yet for this sender
+        //    Checking if `Replicate` is changed is not enough, because we don't to re-send Spawn for entities we have
+        //    already replicated.
+        // 2. If VisibilityState::Gained, we ignore state.spawned (since we need to re-send a spawn)
+        // 3. replicate-like was added and the entity is visible for this sender
+        //    (this is important in cases where the parent was already spawned so should_spawn is false, but we just
+        //    added a child entity)
+        let should_spawn = (visible && (!state.spawned || is_replicate_like_added))
+            || state.visibility == VisibilityState::Gained;
+        StateMetadata {
+            should_spawn,
+            visible,
+            // only send a despawn if we previously sent a spawn
+            lost_visibility: (state.visibility == VisibilityState::Lost) && state.spawned,
+            #[cfg(feature = "prediction")]
+            predicted: state.predicted,
+            #[cfg(feature = "interpolation")]
+            interpolated: state.interpolated,
+        }
+    };
+
+    // b. add entity despawns from Visibility lost
+    if state_metadata.lost_visibility {
+        replicate_entity_despawn(entity, group_id, entity_mapper, sender, sender_entity);
+    }
+
+    if !state_metadata.visible {
         return;
     }
 
     // we use the entity's PreSpawned component (we cannot re-use the root's)
     let prespawned = entity_ref.get::<PreSpawned>();
-    let replicated_components = replicated_archetypes
-        .archetypes
-        .get(&entity_ref.archetype().id())
-        .unwrap();
-
-    // the update will be 'insert' instead of update if the ReplicateOn component is new
-    // or the HasAuthority component is new. That's because the remote cannot receive update
-    // without receiving an action first (to populate the latest_tick on the replication-receiver)
-
-    // TODO: do the entity mapping here!
-
-    // b. add entity despawns from Visibility lost
-    replicate_entity_despawn(
-        entity,
-        group_id,
-        entity_mapper,
-        &state.visibility,
-        sender,
-        sender_entity,
-    );
-
-    if !state.visibility.is_visible() {
-        return;
-    }
 
     // c. add entity spawns for Replicate changing
-    let spawn = replicate_entity_spawn(
-        entity,
-        group_id,
-        priority,
-        state,
-        prespawned,
-        owned_by,
-        entity_mapper,
-        component_registry,
-        sender,
-        sender_entity,
-        is_replicate_like_added,
-    );
+    if state_metadata.should_spawn {
+        replicate_entity_spawn(
+            entity,
+            group_id,
+            priority,
+            &state_metadata,
+            prespawned,
+            owned_by,
+            component_registry,
+            sender,
+            sender_entity,
+        );
+    }
 
     // If the group is not set to send, skip this entity
     if !group_ready {
@@ -297,6 +396,11 @@ pub(crate) fn replicate_entity(
     //  instead of relying on the MessageManagers' remote_entity_map. This is because using the MessageManager
     //  wouldn't give us back a MessageId.
     let mapped_entity = entity_mapper.to_remote(entity);
+
+    let replicated_components = replicated_archetypes
+        .archetypes
+        .get(&entity_ref.archetype().id())
+        .unwrap();
 
     // NOTE: we pre-cache the list of components for each archetype to not iterate through
     //  all replicated components every time
@@ -363,7 +467,7 @@ pub(crate) fn replicate_entity(
             entity_mapper,
             sender,
             delta,
-            spawn,
+            state_metadata.should_spawn,
         )
         .inspect_err(|e| {
             error!(
@@ -380,19 +484,16 @@ pub(crate) fn replicate_entity_despawn(
     entity: Entity,
     group_id: ReplicationGroupId,
     entity_map: &mut RemoteEntityMap,
-    visibility: &VisibilityState,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
 ) {
-    if matches!(visibility, &VisibilityState::Lost) {
-        debug!(
-            ?entity,
-            ?sender_entity,
-            "Replicate entity despawn because visibility lost"
-        );
-        let entity = entity_map.to_remote(entity);
-        sender.prepare_entity_despawn(entity, group_id);
-    }
+    debug!(
+        ?entity,
+        ?sender_entity,
+        "Replicate entity despawn because visibility lost"
+    );
+    let entity = entity_map.to_remote(entity);
+    sender.prepare_entity_despawn(entity, group_id);
 }
 
 /// Send entity spawn if either of:
@@ -406,69 +507,36 @@ pub(crate) fn replicate_entity_spawn(
     entity: Entity,
     group_id: ReplicationGroupId,
     priority: f32,
-    state: &PerSenderReplicationState,
+    state: &StateMetadata,
     #[allow(unused_mut)] mut prespawned: Option<&PreSpawned>,
     controlled_by: Option<&ControlledBy>,
-    entity_map: &mut RemoteEntityMap,
     component_registry: &ComponentRegistry,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
-    is_replicate_like_added: bool,
-) -> bool {
-    // if the local entity is already mapped (for example because of authority transfer or PrePrediction), then
-    // there is no need to send a Spawn
-    if entity_map.get_remote(entity).is_some() {
-        trace!(
-            ?entity,
-            ?group_id,
-            "Not sending Spawn because entity is already mapped"
-        );
-        return false;
+) {
+    // mark that this entity has been spawned to this sender!
+    sender.new_spawns.push(entity);
+    debug!(?entity, ?group_id, ?state, "Sending Spawn");
+    #[cfg(feature = "interpolation")]
+    if state.interpolated {
+        // if the entity is interpolated, we don't want to Prespawn it
+        prespawned = None;
     }
-
-    let visible = state.visibility.is_visible();
-    // 1. the sender got added to the list of senders for this entity's Replicate but we haven't spawned the entity
-    //    yet for this sender
-    //    Checking if `Replicate` is changed is not enough, because we don't to re-send Spawn for entities we have
-    //    already replicated.
-    let should_spawn = !state.spawned;
-    // 2. replicate was not updated but NetworkVisibility is gained for this sender
-    let network_visibility_gained = state.visibility == VisibilityState::Gained;
-    // 3. replicate-like was added and the the entity is visible for this sender
-    let spawn = (visible && (should_spawn || is_replicate_like_added)) || network_visibility_gained;
-    if spawn {
-        // mark that this entity has been spawned to this sender!
-        sender.new_spawns.push(entity);
-        debug!(
-            ?entity,
-            ?group_id,
-            ?visible,
-            ?state,
-            ?should_spawn,
-            ?network_visibility_gained,
-            ?is_replicate_like_added,
-            "Sending Spawn"
-        );
-        if state.interpolated {
-            // if the entity is interpolated, we don't want to Prespawn it
-            prespawned = None;
-        }
-        sender.prepare_entity_spawn(
-            entity,
-            group_id,
-            priority,
-            state.predicted,
-            state.interpolated,
-            prespawned,
-        );
-
-        if controlled_by.is_some_and(|c| c.owner == sender_entity) {
-            sender
-                .prepare_typed_component_insert(entity, group_id, component_registry, &Controlled)
-                .unwrap();
-        }
+    sender.prepare_entity_spawn(
+        entity,
+        group_id,
+        priority,
+        #[cfg(feature = "prediction")]
+        state.predicted,
+        #[cfg(feature = "interpolation")]
+        state.interpolated,
+        prespawned,
+    );
+    if controlled_by.is_some_and(|c| c.owner == sender_entity) {
+        sender
+            .prepare_typed_component_insert(entity, group_id, component_registry, &Controlled)
+            .unwrap();
     }
-    spawn
 }
 
 /// Buffer entity despawn if an entity had [`Replicating`] and either:
@@ -489,40 +557,35 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     trigger: On<Remove, (Replicate, ReplicationState, ReplicateLike)>,
     root_query: Query<&ReplicateLike>,
     // only replicate the despawn event if the entity still has Replicating at the time of despawn
-    entity_query: Query<(&ReplicationGroup, &ReplicationState), With<Replicating>>,
+    entity_query: Query<
+        (&ReplicationGroup, &ReplicationState, Has<NetworkVisibility>),
+        With<Replicating>,
+    >,
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
     mut replicable_entities: ResMut<ReplicableRootEntities>,
 ) {
     let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
     // TODO: use the child's ReplicationGroup if there is one that overrides the root's
-    let Ok((group, replicate)) = entity_query.get(root) else {
+    let Ok((group, replicate, has_network_visibility)) = entity_query.get(root) else {
         return;
     };
     replicable_entities.entities.swap_remove(&entity);
     debug!(?entity, ?replicate, "Buffering entity despawn");
 
     // TODO: if ReplicateLike is removed, we need to use the root entity's Replicate
-    //  if Replicate is removed, we need to use the CachedReplicate (since Replicate is updated immediately via hook)
     //  for the root_entity and its ReplicateLike children
 
-    // If the entity has NetworkVisibility, we only send the Despawn to the senders that have visibility
-    // of this entity. Otherwise we send it to all senders that have the entity in their replicated_entities
+    // only send the despawn to senders that have visibility over the entity.
+    let senders = replicate.per_sender_state.keys().filter(|sender_entity| {
+        replicate
+            .per_sender_state
+            .get(*sender_entity)
+            .is_some_and(|s| s.visibility.is_visible(has_network_visibility))
+    });
     query
-        .par_iter_many_unique_mut(replicate.per_sender_state.keys())
+        .par_iter_many_unique_mut(senders)
         .for_each(|(sender_entity, mut sender, manager)| {
-            if replicate
-                .per_sender_state
-                .get(&sender_entity)
-                .is_none_or(|v| !v.visibility.is_visible())
-            {
-                trace!(
-                    ?entity,
-                    ?sender_entity,
-                    "Not sending despawn because the sender didn't have visibility of the entity"
-                );
-                return;
-            }
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             // TODO: should we just buffer the despawn instead of sending it immediately, by adding the entity
@@ -668,23 +731,22 @@ fn replicate_component_update(
 pub(crate) fn buffer_component_removed(
     trigger: On<Remove>,
     // Query<&C, Or<With<ReplicateLike>, (With<Replicate>, With<ReplicationGroup>)>>
-    query: Query<FilteredEntityRef>,
+    query: Query<(
+        &ReplicationGroup,
+        &ReplicationState,
+        Has<NetworkVisibility>,
+        FilteredEntityRef,
+    )>,
     registry: Res<ComponentRegistry>,
     root_query: Query<&ReplicateLike>,
     mut manager_query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
 ) {
     let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
-    let Ok(entity_ref) = query.get(root) else {
-        return;
-    };
-    let Some(group) = entity_ref.get::<ReplicationGroup>() else {
+    let Ok((group, replicate, has_network_visibility, entity_ref)) = query.get(root) else {
         return;
     };
     let group_id = group.group_id(Some(root));
-    let Some(replicate) = entity_ref.get::<ReplicationState>() else {
-        return;
-    };
 
     // Note: this is not needed because the SystemParamBuilder already makes sure that the entity
     //  must have both Replicate and Replicating
@@ -692,16 +754,15 @@ pub(crate) fn buffer_component_removed(
     //     return;
     // }
 
-    manager_query
-        .par_iter_many_unique_mut(replicate.per_sender_state.keys())
-        .for_each(|(sender_entity, mut sender, manager)| {
-            if replicate
-                .per_sender_state
-                .get(&sender_entity)
-                .is_none_or(|v| !v.visibility.is_visible())
-            {
-                return;
-            }
+    // only send the removal to senders that have visibility over the entity.
+    let senders = replicate.per_sender_state.keys().filter(|sender_entity| {
+        replicate
+            .per_sender_state
+            .get(*sender_entity)
+            .is_some_and(|s| s.visibility.is_visible(has_network_visibility))
+    });
+    manager_query.par_iter_many_unique_mut(senders).for_each(
+        |(sender_entity, mut sender, manager)| {
             // convert the entity to a network entity (possibly mapped)
             let entity = manager.entity_mapper.to_remote(entity);
             for component_id in trigger.trigger().components {
@@ -741,5 +802,6 @@ pub(crate) fn buffer_component_removed(
                 let net_id = *registry.kind_map.net_id(kind).unwrap();
                 sender.prepare_component_remove(entity, group_id, net_id);
             }
-        });
+        },
+    );
 }

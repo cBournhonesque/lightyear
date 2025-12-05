@@ -9,7 +9,8 @@ use core::ptr::NonNull;
 use dashmap::DashMap;
 use lightyear_core::prelude::Tick;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+#[allow(unused_imports)]
+use tracing::{info, trace};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 pub enum DeltaType {
@@ -106,7 +107,7 @@ unsafe impl Sync for PerComponentData {}
 /// The state is shared between all ReplicationSenders that use the same DeltaManager.
 ///
 /// You have to insert this component manually, either on:
-/// - on your Sender entity, since the DeltaManager is shared across all clients that are connected to the same server
+/// - on your Server entity, since the DeltaManager is shared across all clients that are connected to the same server
 /// - on your Client entity if you're doing client-to-server replication
 #[derive(Default, Component, Debug)]
 pub struct DeltaManager {
@@ -156,7 +157,8 @@ impl DeltaManager {
     }
 
     /// We receive an ack from a client for a specific tick.
-    /// Update the ack information;
+    /// Update the ack information: if all clients have acked the data for a tick T,
+    /// we can remove the data for ticks strictly older to T.
     pub(crate) fn receive_ack(
         &self,
         entity: Entity,
@@ -172,13 +174,10 @@ impl DeltaManager {
                 trace!(
                     ?kind,
                     ?entity,
-                    "DeltaManager: removing data for ticks older to {tick:?}",
+                    "DeltaManager: removing data for ticks strictly older than {tick:?}",
                 );
 
-                // if all clients have acked this tick, we can remove the data
-                // for all ticks older than this one
-
-                // we can remove all the keys older or equal than the acked key
+                // if all clients have acked this tick, we can remove the data for all ticks strictly older than this
                 let recent_data = group_data.data.split_off(&tick);
                 // call drop on all the data that we are removing
                 group_data.data.values_mut().for_each(|tick_data| {
@@ -216,6 +215,7 @@ mod tests {
     use bevy_app::App;
     use bevy_ecs::component::Component;
     use serde::{Deserialize, Serialize};
+    use test_log::test;
 
     #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
     pub struct Comp1(pub usize);
@@ -302,7 +302,7 @@ mod tests {
                 .expect("should have stored the component value")
                 .data
                 .get(&tick_1)
-                .is_none()
+                .is_some()
         );
         assert!(
             delta_manager

@@ -30,28 +30,29 @@ use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
-use tracing::info;
+use tracing::{info, trace};
 
 /// Event related to [`Entities`](Entity) which are relevant to a client
 ///
 /// The visibility switches to gained/lost/maintained if a visibility function is usedk
 #[derive(Debug, PartialEq, Clone, Copy, Default, Reflect)]
 pub(crate) enum VisibilityState {
-    /// the entity was not replicated to the client, but now is
+    /// the entity just gained visibility, we should send a spawn
     Gained,
-    /// the entity was replicated to the client, but not anymore
+    /// the entity just lost visibility, we should send a despawn
     Lost,
     /// the entity was already replicated to the client, and still is
-    Maintained,
+    Visible,
     #[default]
-    /// the entity is always visible (is not using the visibility system)
-    Always,
+    /// the entity is always visible (the visibility system is not used)
+    Default,
 }
 
 impl VisibilityState {
     /// Returns true if the entity is currently replicated to the client
-    pub fn is_visible(&self) -> bool {
-        !matches!(self, &VisibilityState::Lost)
+    pub fn is_visible(&self, has_network_visibility: bool) -> bool {
+        !has_network_visibility
+            || matches!(self, VisibilityState::Visible | VisibilityState::Gained)
     }
 }
 
@@ -106,11 +107,15 @@ impl NetworkVisibilityPlugin {
                     return true;
                 }
                 if state.visibility == VisibilityState::Gained {
-                    state.visibility = VisibilityState::Maintained;
+                    state.visibility = VisibilityState::Visible;
                 }
+
+                // TODO: is it safe to discard the PerSenderReplicationState information?
+                //  what if we knew that we don't have authority over the entity
+                //  so even if we call `gain_visibility` we want to keep that information?
+                //  The issue is that keeping the data around forever could be expensive...
                 // discard these entities since we already sent a despawn message for it
                 if state.visibility == VisibilityState::Lost {
-                    info!("discarding sender state since vis is lost");
                     return false;
                 }
                 true
@@ -147,13 +152,13 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "Broken on main"]
+    // #[ignore = "Broken on main"]
     fn test_network_visibility() {
         let mut app = App::new();
         app.add_plugins(NetworkVisibilityPlugin);
         let entity = app.world_mut().spawn(NetworkVisibility::default()).id();
 
-        let sender = app.world_mut().spawn_empty().id();
+        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
 
         app.world_mut()
             .get_mut::<ReplicationState>(entity)
@@ -180,7 +185,7 @@ mod tests {
                 .get(&sender)
                 .unwrap()
                 .visibility,
-            VisibilityState::Maintained
+            VisibilityState::Visible
         );
 
         // if an entity is already visible, we do not make it Gained
@@ -196,7 +201,7 @@ mod tests {
                 .get(&sender)
                 .unwrap()
                 .visibility,
-            VisibilityState::Maintained
+            VisibilityState::Visible
         );
 
         // entity now loses Visibility
@@ -217,15 +222,13 @@ mod tests {
 
         // after an update: Lost -> Cleared
         app.update();
-        assert_eq!(
+        assert!(
             app.world_mut()
                 .get_mut::<ReplicationState>(entity)
                 .unwrap()
                 .per_sender_state
                 .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Always
+                .is_none()
         );
 
         // if we Gain/Lose visibility in the same tick, do nothing
@@ -245,7 +248,7 @@ mod tests {
                 .get(&sender)
                 .unwrap()
                 .visibility,
-            VisibilityState::Always
+            VisibilityState::Default
         );
     }
 }

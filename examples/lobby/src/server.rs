@@ -96,7 +96,7 @@ fn spawn_player_entity(
         ))
         .id();
     if dedicated_server {
-        commands.entity(entity).insert(NetworkVisibility::default());
+        commands.entity(entity).insert(NetworkVisibility);
     }
     info!("Create entity {:?} for client {:?}", entity, client_id);
     entity

@@ -199,22 +199,15 @@ mod tests {
     use super::*;
 
     use crate::send::components::Replicate;
+    use crate::send::plugin::ReplicableRootEntities;
     use alloc::vec;
-
-    fn setup_hierarchy() -> (App, Entity, Entity, Entity) {
-        let mut app = App::default();
-        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
-        let grandparent = app.world_mut().spawn_empty().id();
-        let parent = app.world_mut().spawn(ChildOf(grandparent)).id();
-        let child = app.world_mut().spawn(ChildOf(parent)).id();
-        (app, grandparent, parent, child)
-    }
 
     /// Check that ReplicateLike propagation works correctly when Children gets updated
     /// on an entity that has ReplicationMarker
     #[test]
     fn propagate_replicate_like_children_updated() {
         let mut app = App::default();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
 
         let grandparent = app.world_mut().spawn(Replicate::manual(vec![])).id();
@@ -316,6 +309,7 @@ mod tests {
     #[test]
     fn propagate_replicate_like_replication_marker_added() {
         let mut app = App::default();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
 
         let grandparent = app.world_mut().spawn_empty().id();

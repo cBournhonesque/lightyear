@@ -1,11 +1,6 @@
 use crate::components::{ComponentReplicationOverrides, InitialReplicated, Replicated};
 use crate::control::{Controlled, ControlledBy};
-use crate::hierarchy::ReplicateLike;
-#[cfg(feature = "interpolation")]
-use crate::prelude::InterpolationTarget;
-#[cfg(feature = "prediction")]
-use crate::prelude::PredictionTarget;
-use crate::prelude::{Replicate, ReplicateLikeChildren, ReplicationState};
+use crate::prelude::ReplicateLikeChildren;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
@@ -16,35 +11,20 @@ use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
 #[allow(unused_imports)]
 use tracing::{debug, info};
-// impl ControlledBy {
-//     /// In Host-Server mode, any entity that is marked as ControlledBy the host
-//     /// should also have Controlled assigned to them
-//     /// (because most client queries have Controlled as filter)
-//     pub(crate) fn on_add_host_server(
-//         trigger: On<Add, ControlledBy>,
-//         query: Query<&ControlledBy>,
-//         owner: Query<(), With<HostClient>>,
-//         mut commands: Commands,
-//     ) {
-//         if owner.get(query.get(trigger.entity).unwrap().owner).is_ok() {
-//             commands.entity(trigger.entity).insert(Controlled);
-//         }
-//     }
-// }
 
 pub struct HostServerPlugin;
 
 #[derive(QueryData)]
 struct HostServerQueryData {
     entity: Entity,
-    state: Option<&'static ReplicationState>,
-    replicate: Option<Ref<'static, Replicate>>,
+    replicate_like: &'static ReplicateLikeChildren,
+    controlled_by: Option<Ref<'static, ControlledBy>>,
+    replicated: Ref<'static, Replicated>,
+    controlled: Option<&'static Controlled>,
     #[cfg(feature = "prediction")]
-    prediction: Option<Ref<'static, PredictionTarget>>,
+    predicted: Has<Predicted>,
     #[cfg(feature = "interpolation")]
-    interpolation: Option<Ref<'static, InterpolationTarget>>,
-    controlled: Option<Ref<'static, ControlledBy>>,
-    replicate_like: Option<Ref<'static, ReplicateLike>>,
+    interpolated: Has<Interpolated>,
 }
 
 #[derive(Component)]
@@ -57,28 +37,22 @@ impl HostServerPlugin {
     fn add_prediction_interpolation_components(
         mut commands: Commands,
         local_client: Single<(Entity, Ref<HostClient>)>,
-        root_query: Query<(
-            Entity,
-            &ReplicateLikeChildren,
-            Option<Ref<ControlledBy>>,
-            Ref<Replicated>,
-            Option<&Controlled>,
-            Has<Predicted>,
-            Has<Interpolated>,
-        )>,
+        root_query: Query<HostServerQueryData>,
     ) {
         let (local_entity, host_client) = local_client.into_inner();
 
         root_query.iter().for_each(
-            |(
-                entity,
-                replicate_like,
-                controlled_by,
-                replicated,
-                controlled,
-                predicted,
-                interpolated,
-            )| {
+            |HostServerQueryDataItem {
+                 entity,
+                 replicate_like,
+                 controlled_by,
+                 replicated,
+                 controlled,
+                 #[cfg(feature = "prediction")]
+                 predicted,
+                 #[cfg(feature = "interpolation")]
+                 interpolated,
+             }| {
                 let add_control = controlled_by.as_ref().is_some_and(|c| {
                     (c.is_changed() || host_client.is_added()) && c.owner == local_entity
                 });
@@ -104,9 +78,11 @@ impl HostServerPlugin {
                             },
                             SpawnedOnHostServer,
                         ));
+                        #[cfg(feature = "prediction")]
                         if predicted {
                             commands.entity(*e).insert(Predicted);
                         }
+                        #[cfg(feature = "interpolation")]
                         if interpolated {
                             commands.entity(*e).insert(Interpolated);
                         }

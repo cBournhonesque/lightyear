@@ -208,7 +208,7 @@ impl RoomPlugin {
                         .for_each(|(sender, state)| match state {
                             VisibilityState::Gained => vis.gain_visibility(sender),
                             VisibilityState::Lost => vis.lose_visibility(sender),
-                            VisibilityState::Maintained => {
+                            VisibilityState::Visible => {
                                 unreachable!()
                             }
                             _ => {}
@@ -232,8 +232,10 @@ impl From<RoomVisibility> for ReplicationState {
             .clients
             .into_iter()
             .map(|(e, v)| {
-                let mut state = PerSenderReplicationState::default();
-                state.visibility = v;
+                let state = PerSenderReplicationState {
+                    visibility: v,
+                    ..Default::default()
+                };
                 (e, state)
             })
             .collect();
@@ -353,6 +355,7 @@ mod tests {
     use super::*;
 
     use crate::prelude::{Replicate, ReplicationSender};
+    use crate::send::plugin::ReplicableRootEntities;
     use alloc::vec;
     use bevy_ecs::system::RunSystemOnce;
     use test_log::test;
@@ -362,6 +365,7 @@ mod tests {
     // we add a client to that room, then we remove it
     fn test_add_remove_client_room() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         // Client joins room
@@ -385,12 +389,14 @@ mod tests {
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
             // VisibilityGained -> Replicate -> Maintained
-            Some(&VisibilityState::Maintained)
+            VisibilityState::Visible
         );
 
         // Client leaves room
@@ -404,11 +410,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Lost)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Lost
         );
     }
 
@@ -417,6 +425,7 @@ mod tests {
     // we add an entity to that room, then we remove it
     fn test_add_remove_entity_room() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         // Entity joins room
@@ -440,12 +449,14 @@ mod tests {
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
             // VisibilityGained -> Replicate -> Maintained
-            Some(&VisibilityState::Maintained)
+            VisibilityState::Visible
         );
 
         // Entity leaves room
@@ -459,11 +470,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Lost)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Lost
         );
     }
 
@@ -473,6 +486,7 @@ mod tests {
     #[test]
     fn test_move_client_entity_room() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
@@ -496,11 +510,13 @@ mod tests {
 
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
 
         // Entity/client move to a different room
@@ -527,11 +543,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
     }
 
@@ -541,6 +559,7 @@ mod tests {
     #[test]
     fn test_move_entity_room() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
@@ -568,11 +587,13 @@ mod tests {
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
 
         // Entity moves from room 1 to 2 (sender belongs in both)
@@ -590,11 +611,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
     }
 
@@ -604,6 +627,7 @@ mod tests {
     #[test]
     fn test_move_client_room() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
@@ -631,11 +655,13 @@ mod tests {
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
 
         app.world_mut().trigger(RoomEvent {
@@ -652,11 +678,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
     }
 
@@ -667,6 +695,7 @@ mod tests {
     #[test]
     fn test_client_entity_both_leave_room() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
@@ -689,11 +718,13 @@ mod tests {
         app.update();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
 
         // Entity/client leaves room
@@ -711,11 +742,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Lost)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Lost
         );
     }
 
@@ -725,6 +758,7 @@ mod tests {
     #[test]
     fn test_client_entity_multiple_shared_rooms() {
         let mut app = App::new();
+        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         let room = app.world_mut().spawn(Room::default()).id();
@@ -758,11 +792,13 @@ mod tests {
 
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
 
         // Entity leaves room 1
@@ -776,11 +812,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Maintained)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Visible
         );
 
         // Entity leaves room 2
@@ -794,11 +832,13 @@ mod tests {
             .ok();
         assert_eq!(
             app.world_mut()
-                .get_mut::<NetworkVisibility>(entity)
+                .get::<ReplicationState>(entity)
                 .unwrap()
-                .clients
-                .get(&sender),
-            Some(&VisibilityState::Lost)
+                .per_sender_state
+                .get(&sender)
+                .unwrap()
+                .visibility,
+            VisibilityState::Lost
         );
     }
 }

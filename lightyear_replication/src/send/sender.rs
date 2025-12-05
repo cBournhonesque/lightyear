@@ -341,8 +341,8 @@ impl ReplicationSender {
         entity: Entity,
         group_id: ReplicationGroupId,
         priority: f32,
-        predicted: bool,
-        interpolated: bool,
+        #[cfg(feature = "prediction")] predicted: bool,
+        #[cfg(feature = "interpolation")] interpolated: bool,
         prespawned: Option<&PreSpawned>,
     ) {
         #[cfg(feature = "metrics")]
@@ -357,7 +357,9 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Spawn {
+            #[cfg(feature = "prediction")]
             predicted,
+            #[cfg(feature = "interpolation")]
             interpolated,
             prespawn: prespawned.and_then(|p| p.hash),
         };

@@ -28,8 +28,9 @@
 //! ```rust
 //! # use bevy_ecs::entity::Entity;
 //! use bevy_ecs::prelude::World;
+//! # use lightyear_core::prelude::PeerId;
 //! # use lightyear_replication::prelude::{GiveAuthority, RequestAuthority};
-//! # let entity = Entity::from_raw_u32(1);
+//! # let entity = Entity::from_raw_u32(1).unwrap();
 //! # let mut world = World::new();
 //!
 //! // Give authority to another peer
@@ -53,14 +54,14 @@
 //!
 //! - Only the server knows which peer has authority over each entity; this information is present in the [`AuthorityBroker`] component.
 //!
-//! - You can use the `has_full_control` field on the [`AuthorityBroker`] to specify whether the server is allowed to forcefully steal authority
-//! from other peers.
+//! - You can use the `has_full_control` field on the [`AuthorityBroker`] to specify whether the server is allowed to
+//!   forcefully steal authority from other peers.
 //!
 //! - A entity can be orphaned, in which case no peer has authority over it and it is not simulated.
 //!
 //! - For each `Link` between two peers, only one of those two peers can have authority over an entity.
-//! This means that replication updates only flow in one direction, even if the [`Replicate`] component is present on both sides
-//! of the Link.
+//!   This means that replication updates only flow in one direction, even if the [`Replicate`] component is present on
+//!   both sides of the Link.
 //!
 //!
 //! [`Replicate`]: crate::prelude::Replicate
