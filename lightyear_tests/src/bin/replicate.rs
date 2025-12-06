@@ -21,7 +21,7 @@ fn main() {
     stepper.server_app.update();
 }
 
-// Results: (RUST_LOG=info)
+// Results: (RUST_LOG=info) 785c170275e39c60e1f588e2c25368af6dee4ea8
 // 1st update
 // - replicate: 270us
 // - send_replication_message: 96us
@@ -31,3 +31,7 @@ fn main() {
 
 // 2nd update:
 // Same, but Message::send: 5us
+
+
+// Results: after switching to ReplicateState (61e848e79f89e313f6455936ed99474c87217836)
+// Exactly the same results.

@@ -58,6 +58,74 @@ Let's walk through some examples:
   We iterate
 
 
+Plan:
+ - remove replication groups
+ - on receiver side ignore groups entirely
+ - can register replication groups in registry with:
+   - send_freq
+   - priority
+   - consistency
+ - user can create their own ReplicationGroup components, which add (via required components)
+  - SendFreq
+  - Priority. (this should be per send)
+  - Consistency
+  
+ - on sender side: 
+   - can add ReplicationGroupId component to an entity, and its inherited from ReplicateLike
+
+- ReplicationState can have some default settings
+  (GlobalSendFreq? GlobalPriority? and also have some per-sender param)
+- Consistency: can be added on Replicate.
+  - By default, weak consistency (spawns are sent together)
+  - spawns are
+
+- Relationship: get connected components 
+  - to join multiple groups, users could create a new relationship where
+    multiple entities are 'children' of that new one
+
+- We could also analyze the archetypes of entities to replicate
+  - for each archetype that is the same (in terms of components to replicate), we serialize component by component.
+    - better cache locality when fetching data
+  - So data is like:
+    - archetype 1: [entities] [comp1] [comp2] [comp3]
+    - archetype 2: [entities] [comp1] [comp4]
+  - Entities with a relationship (both sides) are considered in the same archetype
+
+- Then during buffer:
+  - iterate through all archetypes (where only replicable components matter)
+
+
+- commands.spawn(ReplicationGroup)
+  -> we maintain an internal mapping from integer -> ReplicationGroup.
+  -> the root of a relationship (the parent)
+  
+
+# Replication
+
+- currently each sender operates in parallel on all replicable entities
+  - that means we might be replicating every entity/component multiple times
+- what we could do:
+  - go through all replicable entity once
+  - replicate all their entities + replicable components in a shared buffer
+  - crucially, we serialize things from the sender world's perspective with no
+    entity mapping applied?
+- then in parallel, for each sender:
+  - identify which entities out of all entities we want
+  - if there are any components, identify which ones we want.
+
+This would mean that we would need:
+- to replication for all senders at the same time (so no more per-sender replication frequency, which is probably ok)
+
+What about entity mapping with authority changes?
+- Client 1 sends entity EC1 to Server who spawns ES.
+  Any components that refer to EC1 are serialized as so, server applies the mapping on the receive side.
+- Server side: serialize ES with components referring to ES.
+  Bytes are shared for all.
+- Authority change: server has authority.
+  When sending to other clients: send normally.
+  When sending to C1, include ES/EC1 in the first message. Raw bytes are still sent normally (with no mapping).
+  Any non-replication message referring to ES can pre-map it on sender size.
+
 
 
 
