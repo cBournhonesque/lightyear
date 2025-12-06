@@ -1,0 +1,43 @@
+bin := "replicate"
+out := "my_capture.tracy"
+
+# run all tests in a single-threaded manner (necessary for MockTime to work properly)
+t:
+    cargo t
+
+tracy bin=bin out=out:
+    rm -f {{out}}
+    tracy-capture -o {{out}} -f &
+    RUSTFLAGS='-C force-frame-pointers=y -C symbol-mangling-version=v0' cargo run --profile=profiling --features bevy/trace_tracy -- {{bin}}
+    just wait_for_file {{out}}
+    tracy-profiler {{out}}
+
+tracy-memory bin=bin out=out:
+    rm -f {{out}}
+    tracy-capture -o {{out}} -f &
+    RUSTFLAGS='-C force-frame-pointers=y -C symbol-mangling-version=v0' cargo run --profile=profiling --features bevy/trace_tracy_memory -- {{bin}}
+    just wait_for_file {{out}}
+    tracy-profiler {{out}}
+
+flamegraph bin=bin:
+    rm -rf cargo-flamegraph.trace
+    RUSTFLAGS='-C force-frame-pointers=y' cargo flamegraph --open --profile=profiling --no-default-features --features=std,test_utils -- {{bin}}
+
+samply bin=bin:
+    RUSTFLAGS='-C force-frame-pointers=y' cargo build --no-default-features --features=std,test_utils --profile=profiling --bin={{bin}}
+    samply record ../target/profiling/{{bin}}
+
+# use MacOS Instruments. Profile can be either `time` or `Allocations`
+instruments bin=bin profile="time":
+    RUSTFLAGS='-C force-frame-pointers=y' cargo instruments -t {{profile}} --profile=profiling --no-default-features --features=std,test_utils --bin=replicate
+
+
+
+### Extras
+
+# Wait until file exists and is non-empty
+wait_for_file out:
+    #!/bin/zsh
+    until [ -s "{{out}}" ]; do
+        sleep 0.5
+    done

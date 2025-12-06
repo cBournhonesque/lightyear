@@ -692,7 +692,7 @@ pub struct PerSenderReplicationState {
     // - on the server app, C1' does not have authority over the entity
     // - Replicate can be added on the entity in the server app to propagate replication updates to other clients
     //
-    // If None, then the authority state is unknown
+    // If None, then the authority state is unknown.
     pub authority: Option<bool>,
     // TODO: maybe set this back to false on LoseVisibility? But what if we lose and gain it quickly
     //   before a replication update?
