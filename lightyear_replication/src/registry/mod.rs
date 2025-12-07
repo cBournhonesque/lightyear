@@ -10,6 +10,7 @@ mod delta;
 pub mod registry;
 pub mod replication;
 
+pub mod component_mask;
 #[cfg(feature = "deterministic")]
 pub mod deterministic;
 

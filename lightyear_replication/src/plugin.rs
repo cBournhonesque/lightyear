@@ -3,7 +3,9 @@
 //!
 
 use crate::control::Controlled;
-use crate::message::{ActionsChannel, MetadataChannel, SenderMetadata, UpdatesChannel};
+use crate::messages::actions::{ActionsChannel, ActionsMessage};
+use crate::messages::metadata::MetadataChannel;
+use crate::messages::updates::{UpdatesChannel, UpdatesMessage};
 use crate::prelude::*;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::SystemSet;
@@ -52,7 +54,7 @@ impl Plugin for SharedPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
         app.add_channel::<ActionsChannel>(ChannelSettings {
-            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
+            mode: ChannelMode::SequencedReliable(ReliableSettings::default()),
             // we do not send the send_frequency to `replication_interval` here
             // because we want to make sure that the entity updates for tick T
             // are sent on tick T, so we will set the `replication_interval`

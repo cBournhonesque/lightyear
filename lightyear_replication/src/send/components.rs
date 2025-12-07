@@ -24,23 +24,15 @@ use crate::host::SpawnedOnHostServer;
 use crate::send::plugin::ReplicableRootEntities;
 use crate::visibility::immediate::VisibilityState;
 use lightyear_core::id::{PeerId, RemoteId};
+use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_link::server::LinkOf;
+use lightyear_serde::SerializationError;
 use lightyear_serde::entity_map::SendEntityMap;
-use lightyear_serde::prelude::{Seek, SeekFrom};
-use lightyear_serde::reader::{ReadInteger, Reader};
-use lightyear_serde::writer::WriteInteger;
-use lightyear_serde::{SerializationError, ToBytes};
+use lightyear_serde::prelude::SeekFrom;
+use lightyear_serde::reader::Reader;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
-
-/// Default replication group which corresponds to the absence of a group:
-/// updates will be packed into a single message up to the MTU
-/// but there is no guarantee that updates for entities in this group are sent
-/// together
-pub const DEFAULT_GROUP: ReplicationGroup = ReplicationGroup::new_id(0);
-/// Replication group shared by all predicted entities
-pub const PREDICTION_GROUP: ReplicationGroup = ReplicationGroup::new_id(1);
 
 #[derive(Debug, Default, PartialEq, Clone, Reflect)]
 pub struct ComponentReplicationConfig {
@@ -150,171 +142,44 @@ impl<C> ComponentReplicationOverrides<C> {
 #[reflect(Component)]
 pub struct Replicating;
 
-/// Keeps track of the last known state of a component, so that we can compute
-/// the delta between the old and new state.
-#[derive(Component, Clone, Debug, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct Cached<C> {
-    pub value: C,
-}
+#[derive(Component, Default, Debug, PartialEq, Eq)]
+#[relationship_target(relationship = InReplicationGroup, linked_spawn)]
+pub struct ReplicationGroup(Vec<Entity>);
 
-#[derive(Debug, Default, Copy, Clone, PartialEq, Reflect)]
-pub enum ReplicationGroupIdBuilder {
-    // the group id is the entity id
-    #[default]
-    FromEntity,
-    // choose a different group id
-    // note: it must not be the same as any entity id!
-    // TODO: how can i generate one that doesn't conflict with an existing entity? maybe take u32 as input, and apply generation = u32::MAX - 1?
-    //  or reserver some entities on the sender world?
-    Group(u64),
-}
+#[derive(Component, Debug, PartialEq, Eq)]
+#[relationship(relationship_target = ReplicationGroup)]
+pub struct InReplicationGroup(Entity);
 
-/// Component to specify the replication group of an entity
+/// Component to specify a custom replication frequency for this entity.
 ///
-/// If multiple entities are part of the same replication group, they will be sent together in the same message.
-/// It is guaranteed that these entities will be updated at the same time on the remote world.
 ///
-/// There is one exception: the default (ReplicationGroup(0)) which doesn't guarantee that all updates
-/// will be sent in the same message.
-#[derive(Component, Debug, Clone, PartialEq, Reflect)]
-#[reflect(Component)]
-pub struct ReplicationGroup {
-    id_builder: ReplicationGroupIdBuilder,
-    /// the priority of the accumulation group
-    /// (priority will get reset to this value every time a message gets sent successfully)
-    base_priority: f32,
-    /// Keep track of whether we should send replication updates for this group.
-    ///
-    /// See [`ReplicationGroup::set_send_frequency`] for more information.
-    pub send_frequency: Option<Timer>,
-    /// Is true if we should send replication updates for this group.
-    ///
-    /// The interaction with `send_frequency` is as follows:
-    /// Time:               0    10   20    30    40    50    60    70    80    90    100
-    /// GroupTimer(30ms):   X               X                 X                 X
-    /// SendInterval(20ms): X          X          X           X           X           X
-    ///
-    /// At 40ms, 60ms and 100ms, we will buffer the replication updates for the group.
-    /// (We do not buffer the updates exactly at 30ms, 60ms, 90ms; instead we wait for the next send_interval.
-    /// This is to avoid having to track the send_tick for each replication group separately)
-    // TODO: maybe buffer the updates exactly at 30ms, 60ms, 90ms and include the send_tick in the message?
-    pub should_send: bool,
+///
+/// The interaction with `send_frequency` is as follows:
+/// Time:               0    10   20    30    40    50    60    70    80    90    100
+/// GroupTimer(30ms):   X               X                 X                 X
+/// SendInterval(20ms): X          X          X           X           X           X
+///
+/// At 40ms, 60ms and 100ms, we will buffer the replication updates for the group.
+/// (We do not buffer the updates exactly at 30ms, 60ms, 90ms; instead we wait for the next send_interval.
+/// This is to avoid having to track the send_tick for each replication group separately)
+#[derive(Component)]
+pub struct ReplicationFrequency {
+    frequency: TickDelta,
+    last_sent: Option<TickInstant>,
 }
 
-impl Default for ReplicationGroup {
-    fn default() -> Self {
-        Self {
-            id_builder: ReplicationGroupIdBuilder::Group(0),
-            base_priority: 1.0,
-            send_frequency: None,
-            should_send: true,
-        }
-    }
-}
-
-impl ReplicationGroup {
-    pub const fn new_from_entity() -> Self {
-        Self {
-            id_builder: ReplicationGroupIdBuilder::FromEntity,
-            base_priority: 1.0,
-            send_frequency: None,
-            should_send: true,
-        }
-    }
-
-    pub const fn new_id(id: u64) -> Self {
-        Self {
-            id_builder: ReplicationGroupIdBuilder::Group(id),
-            base_priority: 1.0,
-            send_frequency: None,
-            should_send: true,
-        }
-    }
-
-    #[inline]
-    pub fn group_id(&self, entity: Option<Entity>) -> ReplicationGroupId {
-        match self.id_builder {
-            ReplicationGroupIdBuilder::FromEntity => {
-                ReplicationGroupId(entity.expect("need to provide an entity").to_bits())
-            }
-            ReplicationGroupIdBuilder::Group(id) => ReplicationGroupId(id),
-        }
-    }
-
-    pub fn priority(&self) -> f32 {
-        self.base_priority
-    }
-
-    pub fn set_priority(mut self, priority: f32) -> Self {
-        self.base_priority = priority;
-        self
-    }
-
-    pub fn set_id(mut self, id: u64) -> Self {
-        self.id_builder = ReplicationGroupIdBuilder::Group(id);
-        self
-    }
-
-    /// Sets the send frequency for this [`ReplicationGroup`]
-    ///
-    /// Any replication updates related to this group will only be buffered at the specified frequency.
-    /// It is INCORRECT to set the send_frequency to be more frequent than the sender's send_interval.
-    ///
-    /// This can be useful to send updates for a group of entities less frequently than the default send_interval.
-    /// For example the send_interval could be 30Hz, but you could set the send_frequency to 10Hz for a group of entities
-    /// to buffer updates less frequently.
-    pub fn set_send_frequency(mut self, send_frequency: core::time::Duration) -> Self {
-        self.send_frequency = Some(Timer::new(send_frequency, TimerMode::Repeating));
-        self
-    }
-}
-
-#[derive(Default, Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, Reflect)]
-pub struct ReplicationGroupId(pub u64);
-
-// Re-use the Entity serialization since ReplicationGroupId are often entities
-impl ToBytes for ReplicationGroupId {
-    fn bytes_len(&self) -> usize {
-        if self.0 == 0 {
-            1
-        } else {
-            Entity::from_bits(self.0).bytes_len()
-        }
-    }
-
-    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        if self.0 == 0 {
-            buffer.write_u8(0)?;
-        } else {
-            Entity::from_bits(self.0).to_bytes(buffer)?;
-        }
-        Ok(())
-    }
-
-    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
-    where
-        Self: Sized,
-    {
-        let first = buffer.read_u8()?;
-        if first == 0 {
-            return Ok(Self(0));
-        }
-        // go back one byte
-        buffer.seek(SeekFrom::Current(-1))?;
-        Ok(Self(Entity::from_bytes(buffer)?.to_bits()))
-    }
-}
+/// Can be added on an entity to customize the priority of replication updates concerning this entity.
+///
+/// If this entity is part of a hierarchy (i.e. has the `ReplicateLike` component), then updates about the entire
+/// group are replicated together, so only the [`ReplicationPriority`] of the root entity in the hierarchy
+/// will be considered.
+///
+/// If this entity is part of a [`ReplicationGroup`], then updates about the entire group are replicated together,
+/// so only the [`ReplicationPriority`] of the root entity in the group will be considered.
+#[derive(Component)]
+pub struct ReplicationPriority(f32);
 
 pub type PredictionTarget = ReplicationTarget<lightyear_core::prediction::Predicted>;
-
-#[cfg(feature = "prediction")]
-impl PredictionTarget {
-    pub fn add_replication_group(trigger: On<Add, PredictionTarget>, mut commands: Commands) {
-        // note: we don't need to handle this for ReplicateLike entities because they take the ReplicationGroup from the root entity
-        commands.entity(trigger.entity).insert(PREDICTION_GROUP);
-    }
-}
 
 impl ReplicationTargetT for lightyear_core::prediction::Predicted {
     fn update_host_client(entity_mut: &mut EntityWorldMut) {
@@ -592,6 +457,9 @@ pub enum ReplicationMode {
     Manual(Vec<Entity>),
 }
 
+// TODO:
+//  - try to keep the base state as ReplicateToAll. (which is the most common)
+//  - add this component only if there's a special case (no authority, network visibility)
 /// Component containins per-[`ReplicationSender`] metadata for the entity.
 ///
 /// This can be used to update the visibility of the entity if [`NetworkVisibility`](crate::visibility::immediate::NetworkVisibility)
@@ -981,9 +849,8 @@ impl Replicate {
             // Remove senders that were in the previous ReplicationState but don't match the new Replicate target
             state.per_sender_state.retain(|sender_entity, v| {
                 if v.to_remove && let Some(mut sender) = world.get_mut::<ReplicationSender>(*sender_entity) {
-                    let group_id = group.group_id(Some(context.entity));
                     // TODO: we should also send a despawn for all the replicate-like?
-                    sender.set_replicated_despawn(context.entity, group_id);
+                    sender.set_replicated_despawn(context.entity);
                 }
                 !v.to_remove
             });

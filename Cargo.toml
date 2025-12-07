@@ -127,6 +127,7 @@ ringbuffer = "0.16"
 thiserror = "2.0.3"
 seahash = "4.1.0"
 smallvec = { version = "1", features = ["union", "const_generics"] }
+smallbitvec = "2.6"
 variadics_please = "1.1.0"
 
 # no_std

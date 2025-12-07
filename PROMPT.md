@@ -85,7 +85,9 @@ Plan:
 
 - We could also analyze the archetypes of entities to replicate
   - for each archetype that is the same (in terms of components to replicate), we serialize component by component.
-    - better cache locality when fetching data
+    - actually it's not faster in terms of cache locality because these entities might have extra components (Jumping, etc.)
+      which means they are not in the same tables..
+    - however we can still try to serialize per replication archetype, for better compression!
   - So data is like:
     - archetype 1: [entities] [comp1] [comp2] [comp3]
     - archetype 2: [entities] [comp1] [comp4]
@@ -100,7 +102,64 @@ Plan:
   -> the root of a relationship (the parent)
   
 
-# Replication
+- What data do we need:
+  - per entity: track which senders to target
+  - per sender:
+    - 
+    - for each entity (or group?): 
+      - last_ack or last_send tick
+  - per receiver: 
+    - need to know the next global action_id to wait for
+    - action_ids are applied in order
+    - update_id contains the last action_id seen at the time the update was sent. need that action_id to be applied
+      before the update can be applied
+
+- Optimization for server replication:
+  - all senders send at the same time
+  - go through every entity, if they are serializable to any client:
+    - add entity to a Vec<Entity>. If it's part of a group add it to a separate Vec<Vec<Entity>> that need to be serialized together.
+    - for each component:
+      - if component is visible on any client and changed since earliest (since_last_ack or since_last_send) of any client:
+        - serialize the component
+
+EASY REPLACEMENT FOR REPLACEMENT GROUP
+- if entity is in replicateLike, then it's in the same group as root
+  - the root can have a SendFrequency (which contains a timer)
+  - you can combine hierarchy groups by spawning a ReplicationGroup entity, and adding a ReplicationGroupOf()
+  - if we parallelize by entity in buffer have we have chunks. We iterate through:
+    - ReplicationGroups (and we go through all entities in that group + their ReplicateLike children)
+  - for that group, we serialize the data in a writer, and add to the sender metadata which ranges to consider.
+  - if the entity does not have replicate-like or 
+ 
+# How to parallelize
+  - fetch all per entity components first, since we get the global list of replicable components at the start!
+    (to avoid multiple refetches)
+  - replicon does query the component data only once
+
+- BUFFER: 
+  - 1) parallelize by entity chunks. Split the list of replicable entities into 10 chunks.
+    Prepare 10 independent Writers. 
+  - for each entity: fetch replication data from World only once.
+    - go through each sender, and check if we want to serialize.
+    - if we do:
+      - serialize in the writer.
+      - maybe keep track of which components were already written, as well as their range in the writer?
+      - keep a mapping from sender to ranges that are relevant.
+    
+  - 2) then parallelize per sender:
+    - for each 10 writers, look in the mapping and write the final thing.
+    - for each sender, find the list of (entities, comp)
+  - for each entity, fetch the required metadata. 
+
+# IMMEDIATE STEPS
+- 1. remove existing replication group
+- 2. eventually: parallelize replication over chunks of groups 
+     - and then over chunks of roots that are not in groups.
+- 2. update prediction to work with different ticks
+- 3. find a replacement for replication groups.
+
+
+# Replication where we serialize once
 
 - currently each sender operates in parallel on all replicable entities
   - that means we might be replicating every entity/component multiple times
@@ -125,6 +184,7 @@ What about entity mapping with authority changes?
   When sending to other clients: send normally.
   When sending to C1, include ES/EC1 in the first message. Raw bytes are still sent normally (with no mapping).
   Any non-replication message referring to ES can pre-map it on sender size.
+
 
 
 

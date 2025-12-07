@@ -3,33 +3,53 @@ use crate::control::{Controlled, ControlledBy};
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
-use crate::prelude::{NetworkVisibility, ReplicationState};
+use crate::messages::actions::SpawnAction;
+use crate::messages::serialized_data::{
+    ByteRange, MessageWrite, SerializedData, WritableComponent,
+};
+use crate::prelude::{NetworkVisibility, ReplicationFrequency, ReplicationState};
 use crate::prespawn::PreSpawned;
 use crate::registry::ComponentKind;
+use crate::registry::component_mask::ComponentMask;
 use crate::registry::registry::ComponentRegistry;
-use crate::send::archetypes::{ReplicatedArchetypes, ReplicatedComponent};
+use crate::send::archetypes::{ReplicatedArchetype, ReplicatedArchetypes, ReplicatedComponent};
+use crate::send::client_pools::ClientPools;
 #[cfg(feature = "interpolation")]
 use crate::send::components::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::send::components::PredictionTarget;
-use crate::send::components::{Replicate, Replicating, ReplicationGroup, ReplicationGroupId};
+use crate::send::components::{Replicate, Replicating, ReplicationGroup};
 use crate::send::plugin::ReplicableRootEntities;
+use crate::send::query::ReplicationQuery;
 use crate::send::sender::ReplicationSender;
+use crate::send::sender_ticks::EntityTicks;
 use crate::visibility::immediate::VisibilityState;
+use alloc::vec::Vec;
+use bevy_ecs::archetype::{Archetype, ArchetypeEntity};
 use bevy_ecs::component::Components;
+use bevy_ecs::component::Tick as BevyTick;
+use bevy_ecs::entity::{EntityHash, UniqueEntitySlice};
 use bevy_ecs::prelude::*;
+use bevy_ecs::storage::TableRow;
+use bevy_ecs::world::FilteredEntityMut;
+use bevy_ecs::world::unsafe_world_cell::UnsafeEntityCell;
 use bevy_ecs::{
     archetype::Archetypes, component::ComponentTicks, relationship::RelationshipTarget,
     system::SystemChangeTick, world::FilteredEntityRef,
 };
+use bevy_platform::collections::hash_map::Entry;
 use bevy_ptr::Ptr;
+use bevy_time::{Time, Timer, TimerMode};
+use core::ops::Range;
+use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
+use lightyear_core::timeline::LocalTimeline;
 use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
+use lightyear_serde::SerializationError;
 use lightyear_serde::entity_map::RemoteEntityMap;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
@@ -38,11 +58,57 @@ use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, info_span, trace, trace_span, warn};
 
+pub const REPLICATION_PARALLELISM: usize = 10;
+// - we need the same frequency for all! Have the timer in a global resource?
+
+// for each entity chunk (10 groups)
+//    - write raw bytes in a serialize data, + information about the ranges for each client
+// then for each client in parallel:
+//    -
+
+pub(crate) fn should_run_replication(
+    time: Res<Time>,
+    mut metadata: ResMut<ReplicationMetadata>,
+    system_ticks: SystemChangeTick,
+) -> bool {
+    metadata.timer.tick(time.delta());
+    if metadata.timer.just_finished() {
+        metadata.change_tick = system_ticks.this_run();
+        true
+    } else {
+        false
+    }
+}
+
+#[derive(Resource)]
+pub struct ReplicationMetadata {
+    // change tick of the replication system (stored here so that multiple replication systems
+    // can use the exact same change_tick)
+    pub(crate) change_tick: BevyTick,
+    // timer that tracks how often we should run the replication systems
+    pub(crate) timer: Timer,
+}
+
+impl ReplicationMetadata {
+    fn new(replication_frequency: Duration) -> Self {
+        Self {
+            change_tick: BevyTick::default(),
+            timer: Timer::new(replication_frequency, TimerMode::Repeating),
+        }
+    }
+}
+
+// TODO: instead of the ranges, we could:
+// - still serialize in a single buffer
+// - then split the bytes and store them in HashMap<entity> ?
+
+/// System that buffers any kind of replication messages
+/// into each [`ReplicationSender`]'s `pending_actions` and `pending_updates`.
 pub(crate) fn replicate(
     // query &C + various replication components
     // we know that we always query Replicate from the parent
-    mut query: ParamSet<(Query<FilteredEntityRef>, Query<&mut ReplicationState>)>,
-    mut manager_query: Query<
+    mut query: ReplicationQuery,
+    mut sender_query: Query<
         (
             Entity,
             &mut ReplicationSender,
@@ -56,115 +122,94 @@ pub(crate) fn replicate(
         (With<Connected>, Without<HostClient>),
     >,
     delta_query: Query<&DeltaManager, With<Server>>,
-    replicable_entities: Res<ReplicableRootEntities>,
     component_registry: Res<ComponentRegistry>,
-    system_ticks: SystemChangeTick,
+    metadata: Res<ReplicationMetadata>,
     archetypes: &Archetypes,
     components: &Components,
+    mut serialized: ResMut<SerializedData>,
+    mut pools: ResMut<ClientPools>,
     mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
+    let tick = Tick(0);
     #[cfg(feature = "metrics")]
     let _timer = DormantTimerGauge::new("replication/buffer");
 
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
-    // NOTE: this system doesn't handle delta compression, because we need to store a shared component history
-    // for delta components, which is not possible when we start iterating through the senders first.
-    // Maybe the easiest would be to simply store the component history for every tick where the sender is ready to send?
-    // (this assumes that the senders are all sending at the same tick). Otherwise we store the component history for all
-    // past ticks where the component changes.
-    let p0 = query.p0();
-    manager_query.par_iter_mut().for_each(
-        |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
+    // we iterate through entities first to query for components only once, and
 
-            let _span = trace_span!("replicate", sender = ?sender_entity).entered();
+    // TODO: first pass in parallel inside ReplicationGroups, iterate through ReplicationGroupChildren, and then ReplicateLikeChildren
+    // components with InReplicationGroup.
 
-            // enable split borrows
-            let sender = &mut *sender;
-            if !sender.send_timer.is_finished() {
-                return;
-            }
-            #[cfg(feature = "metrics")]
-            _timer.activate();
+    // TODO: do it in parallel.
+    //  maybe get the writer for the chunk via thread_local?
+    // now replicate via ReplicateLike roots:
+    // - components with Replicate and no ReplicateLike
+    // replicable_entities.entities.iter().chunk()
+    replicated_archetypes.root_archetypes.iter().for_each(
+        |(archetype_id, replicated_archetype)| {
+            // SAFETY: we know that the archetype_id is valid
+            let archetype = unsafe { archetypes.get(*archetype_id).unwrap_unchecked() };
 
-            // delta: either the delta manager is present on the sender directly (Client)
-            // or the delta is on the server
-            let delta = delta_manager
-                .or_else(|| {
-                    link_of.and_then(|l| delta_query.get(l.server).ok())
-                });
-            let tick = timeline.tick();
-
-            // update the change ticks
-            sender.last_run = sender.this_run;
-            sender.this_run = system_ticks.this_run();
-
-            // TODO: maybe this should be in a separate system in AfterBuffer?
-            // run any possible tick cleanup
-            sender.tick_cleanup(tick);
-
-            trace!(
-                // ?replicable_entities.entities,
-                this_run = ?sender.this_run,
-                last_run = ?sender.last_run,
-                "Starting buffer replication for sender {sender_entity:?}");
-            replicable_entities.entities.iter().for_each(|&entity| {
-                let Ok(root_entity_ref) = p0.get(entity) else {
-                    trace!("Replicated Entity {:?} not found in entity_query. This could be because Replicating is not present on the entity", entity);
-                    return;
-                };
-                let _root_span = trace_span!("root", ?entity).entered();
+            for archetype_entity in archetype.entities() {
+                let entity = archetype_entity.id();
+                let _root_span = trace_span!("entity", ?entity).entered();
+                let entity_cell = query.cell(entity);
                 replicate_entity(
-                    entity,
+                    archetype,
                     tick,
-                    &root_entity_ref,
+                    entity_cell,
                     None,
-                    &mut message_manager.entity_mapper,
-                    sender,
-                    sender_entity,
-                    component_registry.as_ref(),
-                    &replicated_archetypes,
-                    delta,
+                    &query,
+                    &mut sender_query,
+                    &component_registry,
+                    &replicated_archetype,
+                    &metadata,
+                    serialized.as_mut(),
+                    pools.as_mut(),
                 );
-                if let Some(children) = root_entity_ref.get::<ReplicateLikeChildren>() {
-                    for child in children.collection() {
-                        let _child_span = trace_span!("child", ?child).entered();
-                        let child_entity_ref = p0.get(*child).unwrap();
+                if replicated_archetype.has_replicate_like_children {
+                    // SAFETY: we checked above that the entity has the component
+                    for child_entity in unsafe {
+                        entity_cell
+                            .get::<ReplicateLikeChildren>()
+                            .unwrap_unchecked()
+                    }
+                    .collection()
+                    {
+                        let _child_span = trace_span!("child", ?child_entity).entered();
+                        let child_entity_cell = query.cell(*child_entity);
+                        let child_archetype = child_entity_cell.archetype();
+                        // SAFETY: we know the archetype exists since we include all archetypes with ReplicateLike
+                        let replicated_archetype = unsafe {
+                            replicated_archetypes
+                                .child_archetypes
+                                .get(&child_archetype.id())
+                                .unwrap_unchecked()
+                        };
                         replicate_entity(
-                            *child,
+                            child_archetype,
                             tick,
-                            &root_entity_ref,
-                            Some(&(child_entity_ref, entity)),
-                            &mut message_manager.entity_mapper,
-                            sender,
-                            sender_entity,
+                            child_entity_cell,
+                            Some(entity_cell),
+                            &query,
+                            &mut sender_query,
                             component_registry.as_ref(),
-                            &replicated_archetypes,
-                            delta,
+                            &replicated_archetype,
+                            &metadata,
+                            serialized.as_mut(),
+                            pools.as_mut(),
                         );
                     }
                 }
-            });
-
-            // Drain all entities that should be despawned because Replicate changed and they are not in the new
-            // Replicate's senders list anymore
-            sender.prepare_entity_despawns();
+            }
         },
     );
 
-    // TODO: this seems really inefficient.. maybe use a concurrent map for ReplicationState such as papaya?
-    // update the metadata that tracks on which sender the entity was sent
-    manager_query
-        .iter_mut()
-        .for_each(|(sender_entity, mut sender, _, _, _, _)| {
-            sender.new_spawns.drain(..).for_each(|e| {
-                if let Ok(mut state) = query.p1().get_mut(e)
-                    && let Some(s) = state.per_sender_state.get_mut(&sender_entity)
-                {
-                    s.spawned = true;
-                }
-            })
-        })
+    // TODO:
+    // // Drain all entities that should be despawned because Replicate changed and they are not in the new
+    // // Replicate's senders list anymore
+    // sender.prepare_entity_despawns();
 }
 
 #[derive(Debug)]
@@ -185,315 +230,453 @@ pub(crate) struct StateMetadata {
 
 #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
 pub(crate) fn replicate_entity(
-    entity: Entity,
+    archetype: &Archetype,
     tick: Tick,
-    root_entity_ref: &FilteredEntityRef,
-    child_entity_ref: Option<&(FilteredEntityRef, Entity)>,
-    entity_mapper: &mut RemoteEntityMap,
-    sender: &mut ReplicationSender,
-    sender_entity: Entity,
+    entity_cell: UnsafeEntityCell,
+    root_entity_cell: Option<UnsafeEntityCell>,
+    // used to fetch replication component values from the entity
+    query: &ReplicationQuery,
+    mut sender_query: &mut Query<
+        (
+            Entity,
+            &mut ReplicationSender,
+            &mut MessageManager,
+            &LocalTimeline,
+            Option<&DeltaManager>,
+            Option<&LinkOf>,
+        ),
+        // On the Host-Client there is no replication messages to send since the entities
+        // from the sender are in the same world!
+        (With<Connected>, Without<HostClient>),
+    >,
     component_registry: &ComponentRegistry,
-    replicated_archetypes: &ReplicatedArchetypes,
-    delta: Option<&DeltaManager>,
-) {
-    // TODO: instead of FilteredEntityRef, use a custom QueryParam with no access checks
-    //  + can fetch multiple components at once
+    replicated_archetype: &ReplicatedArchetype,
+    replication_metadata: &ReplicationMetadata,
+    mut serialized: &mut SerializedData,
+    mut pools: &mut ClientPools,
+) -> Result<(), ReplicationError> {
+    let entity = entity_cell.id();
 
-    // if child:
-    // - has Replicate -> take authority from child
-    // - has PredictionTarget -> take predicted from child
-    // - has InterpolationTarget -> take interpolate from child
-    // get the value of the replication components
-    let (
-        group_id,
-        priority,
-        group_ready,
-        // TODO: fetch owned_by only if needed
-        owned_by,
-        entity_ref,
-        is_replicate_like_added,
-    ) = match child_entity_ref {
-        Some((child_entity_ref, root)) => {
-            let (group_id, priority, group_ready) =
-                child_entity_ref.get::<ReplicationGroup>().map_or_else(
-                    // if ReplicationGroup is not present, we use the root entity
-                    || {
-                        root_entity_ref
-                            .get::<ReplicationGroup>()
-                            .map(|g| (g.group_id(Some(*root)), g.priority(), g.should_send))
-                            .unwrap()
-                    },
-                    // we use the entity itself if ReplicationGroup is present
-                    |g| (g.group_id(Some(entity)), g.priority(), g.should_send),
-                );
-            (
-                group_id,
-                priority,
-                group_ready,
-                child_entity_ref
-                    .get::<ControlledBy>()
-                    .or_else(|| root_entity_ref.get::<ControlledBy>()),
-                child_entity_ref,
-                unsafe {
-                    sender.is_updated(
-                        child_entity_ref
-                            .get_change_ticks::<ReplicateLike>()
-                            .unwrap_unchecked()
-                            .changed,
-                    )
-                },
-            )
-        }
-        _ => {
-            let (group_id, priority, group_ready) = root_entity_ref
-                .get::<ReplicationGroup>()
-                .map(|g| (g.group_id(Some(entity)), g.priority(), g.should_send))
-                .unwrap();
-            (
-                group_id,
-                priority,
-                group_ready,
-                root_entity_ref.get::<ControlledBy>(),
-                root_entity_ref,
-                false,
-            )
-        }
-    };
+    let is_child = root_entity_cell.is_some();
+    let has_child = replicated_archetype.has_replicate_like_children;
+    let root_entity_cell = root_entity_cell.unwrap_or(entity_cell);
 
-    let Some(state) = root_entity_ref
-        .get::<ReplicationState>()
-        .unwrap()
+    // check if the entity needs to be replicated to any of the senders
+    // TODO: provide a re-usable vec to avoid allocation
+    let mut senders_needed = Vec::default();
+
+    // cache to make sure that we only serialize the entity once
+    let mut entity_cache: Option<ByteRange> = None;
+
+    // check if the entity should be replicated.
+    for (sender_entity, mut sender, _, _, _, _) in sender_query.iter_mut() {
+        // SAFETY: the entity is guaranteed to have this component
+        let Some(state) = unsafe {
+            root_entity_cell
+                .get::<ReplicationState>()
+                .unwrap_unchecked()
+        }
         .per_sender_state
-        .get(&sender_entity)
-    else {
-        return;
-    };
-    // TODO: cache this in ReplicatedArchetypes? since it's archetype-level
-    let has_network_visibility = root_entity_ref.contains::<NetworkVisibility>();
-    let state_metadata = if let Some(child_state) =
-        child_entity_ref.and_then(|(c, _)| c.get::<ReplicationState>())
-    {
-        let (c, _) = child_entity_ref.unwrap();
-        // this could be done (for example if parent has [1, 2] but child added PredictionTarget for [1],
-        // there is no state for 2 on the child)
-        let child_state = child_state.per_sender_state.get(&sender_entity);
-
-        // if replicate is set, then we need explicit authority on the child. (we don't delegate to the parent)
-        let authority = if c.contains::<Replicate>() {
-            child_state.is_some_and(|a| a.authority == Some(true))
-        } else {
-            // use child's if authority is not None (so it has been explicitly set either because Replicate was added
-            // explicitly on the child, or because of an authority transfer)
-            if let Some(a) = child_state.and_then(|s| s.authority) {
-                a
-            } else {
-                state.authority == Some(true)
-            }
+        .get(&sender_entity) else {
+            return Ok(());
         };
-        if !authority {
-            return;
-        }
-        // if NetworkVisibility was added directly on the child, we use the child's values
-        let (should_spawn, visible, lost_visibility) = if c.contains::<NetworkVisibility>() {
-            // replicate-like was added and the entity is visible for this sender
-            // (this is important in cases where the parent was already spawned so should_spawn is false, but we just
-            //  added a child entity)
-            let raw = child_state.map_or(VisibilityState::Default, |s| s.visibility);
-            let visible = raw.is_visible(true);
-            (
-                (visible && is_replicate_like_added) || (raw == VisibilityState::Gained),
+        // TODO: fill this
+        let is_replicate_like_added = False;
+        let has_network_visibility = replicated_archetype.has_network_visibility;
+        let state_metadata = if let Some(child_state) =
+            // SAFETY: we have added read access to this component
+            is_child
+                .then(|| unsafe { entity_cell.get::<ReplicationState>() })
+                .flatten()
+        {
+            // this could be done (for example if parent has [1, 2] but child added PredictionTarget for [1],
+            // there is no state for 2 on the child)
+            let child_state = child_state.per_sender_state.get(&sender_entity);
+
+            // if replicate is set, then we need explicit authority on the child. (we don't delegate to the parent)
+            let authority = if entity_cell.contains::<Replicate>() {
+                child_state.is_some_and(|a| a.authority == Some(true))
+            } else {
+                // use child's if authority is not None (so it has been explicitly set either because Replicate was added
+                // explicitly on the child, or because of an authority transfer)
+                if let Some(a) = child_state.and_then(|s| s.authority) {
+                    a
+                } else {
+                    state.authority == Some(true)
+                }
+            };
+            if !authority {
+                return Ok(());
+            }
+
+            // if NetworkVisibility was added directly on the child, we use the child's values
+            let (should_spawn, visible, lost_visibility) =
+                if entity_cell.contains::<NetworkVisibility>() {
+                    // replicate-like was added and the entity is visible for this sender
+                    // (this is important in cases where the parent was already spawned so should_spawn is false, but we just
+                    //  added a child entity)
+                    let raw = child_state.map_or(VisibilityState::Default, |s| s.visibility);
+                    let visible = raw.is_visible(true);
+                    (
+                        (visible && is_replicate_like_added) || (raw == VisibilityState::Gained),
+                        visible,
+                        raw == VisibilityState::Lost,
+                    )
+                } else {
+                    let visible = state.visibility.is_visible(has_network_visibility);
+                    (
+                        (visible && is_replicate_like_added)
+                            || state.visibility == VisibilityState::Gained,
+                        visible,
+                        state.visibility == VisibilityState::Lost,
+                    )
+                };
+            StateMetadata {
+                should_spawn,
                 visible,
-                raw == VisibilityState::Lost,
-            )
+                lost_visibility,
+                // TODO: provide the component_id to avoid an extra check?
+                #[cfg(feature = "prediction")]
+                predicted: if entity_cell.contains::<PredictionTarget>() {
+                    child_state.is_some_and(|c| c.predicted)
+                } else {
+                    state.predicted
+                },
+                #[cfg(feature = "interpolation")]
+                interpolated: if entity_cell.contains::<InterpolationTarget>() {
+                    child_state.is_some_and(|c| c.interpolated)
+                } else {
+                    state.interpolated
+                },
+            }
         } else {
+            if state.authority.is_none_or(|a| !a) {
+                return Ok(());
+            }
             let visible = state.visibility.is_visible(has_network_visibility);
-            (
-                (visible && is_replicate_like_added) || state.visibility == VisibilityState::Gained,
+            // 1. the sender got added to the list of senders for this entity's Replicate but we haven't spawned the entity
+            //    yet for this sender
+            //    Checking if `Replicate` is changed is not enough, because we don't to re-send Spawn for entities we have
+            //    already replicated.
+            // 2. If VisibilityState::Gained, we ignore state.spawned (since we need to re-send a spawn)
+            // 3. replicate-like was added and the entity is visible for this sender
+            //    (this is important in cases where the parent was already spawned so should_spawn is false, but we just
+            //    added a child entity)
+            let should_spawn = (visible && (!state.spawned || is_replicate_like_added))
+                || state.visibility == VisibilityState::Gained;
+            StateMetadata {
+                should_spawn,
                 visible,
-                state.visibility == VisibilityState::Lost,
-            )
+                // only send a despawn if we previously sent a spawn
+                lost_visibility: (state.visibility == VisibilityState::Lost) && state.spawned,
+                #[cfg(feature = "prediction")]
+                predicted: state.predicted,
+                #[cfg(feature = "interpolation")]
+                interpolated: state.interpolated,
+            }
         };
-        StateMetadata {
-            should_spawn,
-            visible,
-            lost_visibility,
-            #[cfg(feature = "prediction")]
-            predicted: if c.contains::<PredictionTarget>() {
-                child_state.is_some_and(|c| c.predicted)
-            } else {
-                state.predicted
-            },
-            #[cfg(feature = "interpolation")]
-            interpolated: if c.contains::<InterpolationTarget>() {
-                child_state.is_some_and(|c| c.interpolated)
-            } else {
-                state.interpolated
-            },
-        }
-    } else {
-        if state.authority.is_none_or(|a| !a) {
-            return;
-        }
-        let visible = state.visibility.is_visible(has_network_visibility);
-        // 1. the sender got added to the list of senders for this entity's Replicate but we haven't spawned the entity
-        //    yet for this sender
-        //    Checking if `Replicate` is changed is not enough, because we don't to re-send Spawn for entities we have
-        //    already replicated.
-        // 2. If VisibilityState::Gained, we ignore state.spawned (since we need to re-send a spawn)
-        // 3. replicate-like was added and the entity is visible for this sender
-        //    (this is important in cases where the parent was already spawned so should_spawn is false, but we just
-        //    added a child entity)
-        let should_spawn = (visible && (!state.spawned || is_replicate_like_added))
-            || state.visibility == VisibilityState::Gained;
-        StateMetadata {
-            should_spawn,
-            visible,
-            // only send a despawn if we previously sent a spawn
-            lost_visibility: (state.visibility == VisibilityState::Lost) && state.spawned,
-            #[cfg(feature = "prediction")]
-            predicted: state.predicted,
-            #[cfg(feature = "interpolation")]
-            interpolated: state.interpolated,
-        }
-    };
 
-    // b. add entity despawns from Visibility lost
-    if state_metadata.lost_visibility {
-        replicate_entity_despawn(entity, group_id, entity_mapper, sender, sender_entity);
+        // add entity despawns from Visibility lost
+        if state_metadata.lost_visibility
+            && let Some(entity_ticks) = sender.sender_ticks.entities.remove(&entity)
+        {
+            // Write despawn only if the entity was previously sent because
+            // spawn and despawn could happen during the same tick.
+            trace!("writing despawn for `{entity}` for client `{sender_entity}`");
+            let entity_range = entity.write(&mut serialized)?;
+            sender.pending_actions.add_despawn(entity_range.clone());
+            pools.recycle_components(entity_ticks.components);
+            return Ok(());
+        }
+
+        if !state_metadata.visible {
+            return Ok(());
+        }
+
+        // add entity spawns (Replicate changed, NetworkVisibility::Gained, ReplicateLike added)
+        if state_metadata.should_spawn {
+            replicate_entity_spawn(
+                entity,
+                &state_metadata,
+                prespawned,
+                owned_by,
+                sender.as_mut(),
+                sender_entity,
+                serialized,
+                &mut entity_cache,
+            )?;
+        }
+
+        senders_needed.push(sender_entity);
+        // TODO: here all actions are sent in the same message. do we want that?
+        sender.pending_actions.start_entity_changes();
+        sender.pending_updates.start_entity();
     }
 
-    if !state_metadata.visible {
-        return;
+    // stop now if the entity isn't relevant to any sender
+    if senders_needed.is_empty() {
+        // TODO: or do we need to finalize the write in any way??
+        return Ok(());
     }
 
-    // we use the entity's PreSpawned component (we cannot re-use the root's)
-    let prespawned = entity_ref.get::<PreSpawned>();
+    // TODO: re-use a vec for this! also maybe use a vec with all senders, not just the needed ones!
+    // cache the query results to avoid re-running it multiple times
+    // SAFETY: the senders are guaranteed to be unique
+    let senders_unique = unsafe { UniqueEntitySlice::from_slice_unchecked(&senders_needed) };
+    let mut senders_data: Vec<_> = sender_query.iter_many_unique_mut(senders_unique).collect();
 
-    // c. add entity spawns for Replicate changing
-    if state_metadata.should_spawn {
-        replicate_entity_spawn(
+    for component in replicated_archetype.components {
+        replicate_component(
+            component,
             entity,
-            group_id,
-            priority,
-            &state_metadata,
-            prespawned,
-            owned_by,
+            entity_cell,
+            is_child,
+            has_child,
+            archetype,
+            query,
             component_registry,
-            sender,
-            sender_entity,
-        );
+            replication_metadata,
+            serialized,
+            pools,
+            &mut senders_data,
+            &mut entity_cache,
+        )?;
     }
 
-    // If the group is not set to send, skip this entity
-    if !group_ready {
-        return;
+    for (sender_entity, sender, _, _, _, _) in senders_data.iter_mut() {
+        let entity_ticks = sender.sender_ticks.entities.entry(entity);
+        let new_for_client = matches!(entity_ticks, Entry::Vacant(_));
+        if new_for_client || sender.pending_actions.changed_entity_added()
+        // TODO: how do we check that there is a removal for this entity?
+        // || removal_buffer.contains_key(&entity.id())
+        {
+            // If there is any insertion, removal, or it's a new entity for a client, include all mutations
+            // into update message and bump the last acknowledged tick to keep entity updates atomic.
+            if sender.pending_updates.entity_added() {
+                trace!(
+                    "merging updates for `{}` with actions for client `{sender_entity}`",
+                    entity
+                );
+                sender
+                    .pending_actions
+                    .take_added_entity(&mut pools, &mut sender.pending_updates);
+            }
+
+            update_ticks(
+                entity_ticks,
+                &mut pools,
+                replication_metadata.change_tick,
+                tick,
+                sender.pending_actions.take_changed_components(),
+            );
+        }
+
+        if new_for_client && !sender.pending_actions.changed_entity_added() {
+            trace!("writing empty `{}` for client `{sender_entity}`", entity);
+
+            // Force-write new entity even if it doesn't have any components.
+            let entity_range = entity.write_cached(&mut serialized, &mut entity_cache)?;
+            sender
+                .pending_actions
+                .add_changed_entity(&mut pools, entity_range);
+        }
     }
 
-    // d. all components that were added or changed and that are not disabled
+    Ok(())
+}
 
-    // convert the entity to a network entity (possibly mapped)
-    // NOTE: we have to apply the entity mapping here because we are sending the message directly to the Transport
-    //  instead of relying on the MessageManagers' remote_entity_map. This is because using the MessageManager
-    //  wouldn't give us back a MessageId.
-    let mapped_entity = entity_mapper.to_remote(entity);
+struct ComponentOverrides {
+    // index of the component in the ComponentRegistry
+    component_index: usize,
+    disable: bool,
+    replicate_once: bool,
+}
 
-    let replicated_components = replicated_archetypes
-        .archetypes
-        .get(&entity_ref.archetype().id())
+pub(crate) fn get_component_overrides(
+    component_registry: &ComponentRegistry,
+    component: &ReplicatedComponent,
+    entity_cell: UnsafeEntityCell,
+    sender_entity: Entity,
+) -> ComponentOverrides {
+    let component_metadata = component_registry
+        .component_metadata_map
+        .get(&component.kind)
         .unwrap();
-
-    // NOTE: we pre-cache the list of components for each archetype to not iterate through
-    //  all replicated components every time
-    for ReplicatedComponent {
-        id,
-        kind,
-        has_overrides,
-    } in replicated_components
-    {
-        let replication_metadata = component_registry
-            .component_metadata_map
-            .get(kind)
-            .unwrap()
-            .replication
-            .as_ref()
-            .unwrap();
-        let mut disable = replication_metadata.config.disable;
-        let mut replicate_once = replication_metadata.config.replicate_once;
-        let delta_compression = replication_metadata.config.delta_compression;
-        if *has_overrides {
-            // TODO: get ComponentReplicationOverrides using root entity
-            // SAFETY: we know that all overrides have the same shape
-            if let Some(overrides) = unsafe {
-                entity_ref
-                    .get_by_id(replication_metadata.overrides_component_id)
-                    .unwrap()
-                    .deref::<ComponentReplicationOverrides<Replicate>>()
+    let replication_metadata = component_metadata.replication.as_ref().unwrap();
+    let mut disable = replication_metadata.config.disable;
+    let mut replicate_once = replication_metadata.config.replicate_once;
+    if component.has_overrides {
+        // TODO: get ComponentReplicationOverrides using root entity
+        // SAFETY: see below
+        if let Some(overrides) = unsafe {
+            // SAFETY: we granted read access to the overrides for this entity
+            entity_cell
+                .get_by_id(replication_metadata.overrides_component_id)
+                .unwrap()
+                // SAFETY: we know that all overrides have the same shape
+                .deref::<ComponentReplicationOverrides<Replicate>>()
+        }
+        .get_overrides(sender_entity)
+        {
+            if disable && overrides.enable {
+                disable = false;
             }
-            .get_overrides(sender_entity)
-            {
-                if disable && overrides.enable {
-                    disable = false;
-                }
-                if !disable && overrides.disable {
-                    disable = true;
-                }
-                if replicate_once && overrides.replicate_always {
-                    replicate_once = false;
-                }
-                if !replicate_once && overrides.replicate_once {
-                    replicate_once = true;
-                }
+            if !disable && overrides.disable {
+                disable = true;
+            }
+            if replicate_once && overrides.replicate_always {
+                replicate_once = false;
+            }
+            if !replicate_once && overrides.replicate_once {
+                replicate_once = true;
             }
         }
-        if disable {
-            continue;
-        }
-        let Some(data) = entity_ref.get_by_id(*id) else {
-            // component not present on entity, skip
-            return;
-        };
-        let component_ticks = entity_ref.get_change_ticks_by_id(*id).unwrap();
-        let _ = replicate_component_update(
-            tick,
-            component_registry,
-            entity,
-            mapped_entity,
-            *kind,
-            data,
-            component_ticks,
-            group_id,
-            delta_compression,
-            replicate_once,
-            entity_mapper,
-            sender,
-            delta,
-            state_metadata.should_spawn,
-        )
-        .inspect_err(|e| {
-            error!(
-                "Error replicating component {:?} update for entity {:?}: {:?}",
-                kind, entity, e
-            )
-        });
+    }
+    let net_id = *unsafe {
+        component_registry
+            .kind_map
+            .net_id(&component.kind)
+            .unwrap_unchecked()
+    };
+    ComponentOverrides {
+        component_index: net_id as usize,
+        disable,
+        replicate_once,
     }
 }
 
-/// Send entity despawn is:
-/// 1) the client lost visibility of the entity
-pub(crate) fn replicate_entity_despawn(
+pub(crate) fn replicate_component(
+    component: ReplicatedComponent,
     entity: Entity,
-    group_id: ReplicationGroupId,
-    entity_map: &mut RemoteEntityMap,
-    sender: &mut ReplicationSender,
-    sender_entity: Entity,
+    entity_cell: UnsafeEntityCell,
+    is_child: bool,
+    has_child: bool,
+    archetype: &Archetype,
+    query: &ReplicationQuery,
+    component_registry: &ComponentRegistry,
+    replication_metadata: &ReplicationMetadata,
+    serialized: &mut SerializedData,
+    pools: &mut ClientPools,
+    mut senders: &mut Vec<(
+        Entity,
+        Mut<ReplicationSender>,
+        Mut<MessageManager>,
+        &LocalTimeline,
+        Option<&DeltaManager>,
+        Option<&LinkOf>,
+    )>,
+    entity_cache: &mut Option<ByteRange>,
+) -> Result<(), ReplicationError> {
+    let system_tick = replication_metadata.change_tick;
+    let table_row = entity_cell.location().table_row;
+    // SAFETY: component and storage were obtained from this archetype.
+    let (ptr, component_ticks) = unsafe {
+        query.get_component_unchecked(
+            entity,
+            table_row,
+            archetype.table_id(),
+            component.storage_type,
+            component.id,
+        )
+    };
+
+    // SAFETY: `fns` and `ptr` were created for the same component type.
+    let writable_component = WritableComponent {
+        ptr,
+        kind: &component.kind,
+        registry: component_registry,
+    };
+
+    let mut component_cache = None;
+    senders.iter_mut().try_for_each(
+        |(sender_entity, sender, message_manager, local_timeline, delta_manager, link_of)| {
+            let ComponentOverrides {
+                component_index,
+                disable,
+                replicate_once,
+            } = get_component_overrides(
+                component_registry,
+                &component,
+                entity_cell,
+                *sender_entity,
+            );
+            if disable {
+                return Ok(());
+            }
+
+            if let Some(entity_ticks) = sender.sender_ticks.entities.get(&entity)
+                && entity_ticks.components.contains(component_index)
+            {
+                // update
+                if !replicate_once
+                // TODO: need to change this to either ack_tick or send_tick!
+                && component_ticks.is_changed(entity_ticks.system_tick, system_tick)
+                {
+                    trace!(
+                        "writing `{:?}` update for {:?} for sender `{sender_entity}`",
+                        entity, component.kind,
+                    );
+
+                    if !sender.pending_updates.entity_added() {
+                        let entity_range = entity.write_cached(serialized, entity_cache)?;
+                        sender.pending_updates.add_entity(
+                            pools,
+                            entity,
+                            is_child,
+                            has_child,
+                            entity_range,
+                        );
+                    }
+                    let component_range =
+                        writable_component.write_cached(serialized, &mut component_cache)?;
+                    sender.pending_updates.add_component(component_range);
+                }
+            } else {
+                trace!(
+                    "writing `{:?}` insert for `{:?}` for sender `{sender_entity}`",
+                    entity, component.kind
+                );
+
+                if !sender.pending_actions.changed_entity_added() {
+                    let entity_range = entity.write_cached(serialized, entity_cache)?;
+                    sender
+                        .pending_actions
+                        .add_changed_entity(pools, entity_range);
+                }
+                let component_range =
+                    writable_component.write_cached(serialized, &mut component_cache)?;
+                sender
+                    .pending_actions
+                    .add_inserted_component(component_range, component_index);
+            }
+            Ok::<(), ReplicationError>(())
+        },
+    )
+}
+
+fn update_ticks(
+    entity_ticks: Entry<Entity, EntityTicks, EntityHash>,
+    pools: &mut ClientPools,
+    system_tick: BevyTick,
+    server_tick: Tick,
+    components: ComponentMask,
 ) {
-    debug!(
-        ?entity,
-        ?sender_entity,
-        "Replicate entity despawn because visibility lost"
-    );
-    let entity = entity_map.to_remote(entity);
-    sender.prepare_entity_despawn(entity, group_id);
+    match entity_ticks {
+        Entry::Occupied(entry) => {
+            let entity_ticks = entry.into_mut();
+            entity_ticks.system_tick = system_tick;
+            entity_ticks.server_tick = server_tick;
+            entity_ticks.components |= &components;
+            pools.recycle_components(components);
+        }
+        Entry::Vacant(entry) => {
+            entry.insert(EntityTicks {
+                server_tick,
+                system_tick,
+                components,
+            });
+        }
+    }
 }
 
 /// Send entity spawn if either of:
@@ -505,38 +688,52 @@ pub(crate) fn replicate_entity_despawn(
 #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
 pub(crate) fn replicate_entity_spawn(
     entity: Entity,
-    group_id: ReplicationGroupId,
-    priority: f32,
     state: &StateMetadata,
     #[allow(unused_mut)] mut prespawned: Option<&PreSpawned>,
     controlled_by: Option<&ControlledBy>,
-    component_registry: &ComponentRegistry,
     sender: &mut ReplicationSender,
     sender_entity: Entity,
-) {
-    // mark that this entity has been spawned to this sender!
-    sender.new_spawns.push(entity);
-    debug!(?entity, ?group_id, ?state, "Sending Spawn");
+    mut serialized: &mut SerializedData,
+    mut entity_cache: &mut Option<ByteRange>,
+) -> Result<(), ReplicationError> {
+    // normal-case: server sends to client. just include server entity (client will
+    //   spawn and map on receiver side)
+    // pre-spawned: server sends with signature. client will find corresponding entity
+    //   and map on receiver side)
+    // authority-change: client spawned and sent to server. Server spawned and has the
+    //   mapping. Authority transferred to server. Server will send all other components with non-mapped entities (so we can
+    //   serialize only once), so server needs to only include its local entity. On the receiver side the client will find that it already has the entity in its entity map, and should apply the
+    // mapping there.
+
+    // make sure to not send again if we already did
+    if sender.sender_ticks.entities.contains_key(&entity) {
+        return Ok(());
+    }
     #[cfg(feature = "interpolation")]
     if state.interpolated {
         // if the entity is interpolated, we don't want to Prespawn it
         prespawned = None;
     }
-    sender.prepare_entity_spawn(
-        entity,
-        group_id,
-        priority,
+    let action = SpawnAction {
         #[cfg(feature = "prediction")]
-        state.predicted,
+        predicted,
         #[cfg(feature = "interpolation")]
-        state.interpolated,
-        prespawned,
-    );
-    if controlled_by.is_some_and(|c| c.owner == sender_entity) {
-        sender
-            .prepare_typed_component_insert(entity, group_id, component_registry, &Controlled)
-            .unwrap();
-    }
+        interpolated,
+        // TODO: handle controlled on receiver side
+        controlled: controlled_by.is_some_and(|c| c.owner == sender_entity),
+        prespawn: prespawned.and_then(|p| p.hash),
+    };
+    // TODO: maybe only send PreSpawned to some clients.
+    // TODO: can we cache the entity at least?
+    let entity_range = action.write_cached(&mut serialized, entity_cache)?;
+    let spawn_range = action.write(&mut serialized)?;
+
+    // TODO: add entity in pending_actions!
+    sender.pending_actions.add_mapping(spawn_range);
+
+    // TODO: mark that this entity has been spawned to this sender!
+    debug!(?entity, ?state, "Sending Spawn");
+    Ok(())
 }
 
 /// Buffer entity despawn if an entity had [`Replicating`] and either:
@@ -544,10 +741,8 @@ pub(crate) fn replicate_entity_spawn(
 /// - is despawned
 /// - [`ReplicateLike`] is removed
 ///
-/// We handle this in an observer because we need to access some information about the entity before it's despawned,
-/// such as the [`ReplicationGroupId`].
 /// TODO: we do not currently handle the case where an entity is [`ReplicateLike`] another entity
-///   and that root entity is despawned? Maybe [`ReplicateLike`] should be a relationship?
+///   and that root entity is despawned?
 ///
 /// Note that if the entity does not have [`Replicating`], we do not replicate the despawn
 ///
@@ -557,18 +752,16 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
     trigger: On<Remove, (Replicate, ReplicationState, ReplicateLike)>,
     root_query: Query<&ReplicateLike>,
     // only replicate the despawn event if the entity still has Replicating at the time of despawn
-    entity_query: Query<
-        (&ReplicationGroup, &ReplicationState, Has<NetworkVisibility>),
-        With<Replicating>,
-    >,
+    entity_query: Query<(&ReplicationState, Has<NetworkVisibility>), With<Replicating>>,
     mut query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
     mut replicable_entities: ResMut<ReplicableRootEntities>,
-) {
+    mut serialized: ResMut<SerializedData>,
+    mut pools: ResMut<ClientPools>,
+) -> Result<(), BevyError> {
     let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
-    // TODO: use the child's ReplicationGroup if there is one that overrides the root's
-    let Ok((group, replicate, has_network_visibility)) = entity_query.get(root) else {
-        return;
+    let Ok((replicate, has_network_visibility)) = entity_query.get(root) else {
+        return Ok(());
     };
     replicable_entities.entities.swap_remove(&entity);
     debug!(?entity, ?replicate, "Buffering entity despawn");
@@ -583,142 +776,18 @@ pub(crate) fn buffer_entity_despawn_replicate_remove(
             .get(*sender_entity)
             .is_some_and(|s| s.visibility.is_visible(has_network_visibility))
     });
+    let entity_range = entity.write(&mut serialized)?;
     query
-        .par_iter_many_unique_mut(senders)
+        .iter_many_unique_mut(senders)
         .for_each(|(sender_entity, mut sender, manager)| {
-            // convert the entity to a network entity (possibly mapped)
-            let entity = manager.entity_mapper.to_remote(entity);
-            // TODO: should we just buffer the despawn instead of sending it immediately, by adding the entity
-            //  to sender.entities_to_despawn?
-            sender.prepare_entity_despawn(entity, group.group_id(Some(entity)));
-            trace!("preparing despawn to sender");
-        });
-}
-
-/// This system sends updates for all components that were added or changed
-/// Sends both ComponentInsert for newly added components and ComponentUpdates otherwise
-///
-/// Updates are sent only for any components that were changed since the most recent of:
-/// - last time we sent an update for that group which got acked.
-///
-/// NOTE: cannot use ConnectEvents because they are reset every frame
-#[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-fn replicate_component_update(
-    current_tick: Tick,
-    component_registry: &ComponentRegistry,
-    unmapped_entity: Entity,
-    // the mapped entity
-    entity: Entity,
-    component_kind: ComponentKind,
-    component_data: Ptr,
-    component_ticks: ComponentTicks,
-    group_id: ReplicationGroupId,
-    delta_compression: bool,
-    replicate_once: bool,
-    entity_map: &mut RemoteEntityMap,
-    sender: &mut ReplicationSender,
-    delta: Option<&DeltaManager>,
-    spawn: bool,
-) -> Result<(), ReplicationError> {
-    let (mut insert, mut update) = (false, false);
-
-    // send a component_insert for components that were newly added
-    // or if the entity is newly replicated (for example for a new connection or if the entity
-    // becomes visible)
-    if spawn || sender.is_updated(component_ticks.added) {
-        insert = true;
-    } else {
-        // do not send updates for these components, only inserts/removes
-        if replicate_once {
-            return Ok(());
-        }
-        // otherwise send an update for all components that changed since the
-        // last update we have ack-ed
-        update = true;
-    }
-    if insert || update {
-        if insert {
-            let writer = &mut sender.writer;
-            trace!(?component_kind, ?entity, "Try to buffer component insert");
-            if delta_compression {
-                let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
-                delta.store(
-                    unmapped_entity,
-                    current_tick,
-                    component_kind,
-                    component_data,
-                    component_registry,
-                );
-                // SAFETY: the component_data corresponds to the kind
-                unsafe {
-                    component_registry.serialize_diff_from_base_value(
-                        component_data,
-                        writer,
-                        component_kind,
-                        &mut entity_map.local_to_remote,
-                    )?
-                }
-            } else {
-                component_registry.erased_serialize(
-                    component_data,
-                    writer,
-                    component_kind,
-                    &mut entity_map.local_to_remote,
-                )?;
-            };
-            let raw_data = writer.split();
-            sender.prepare_component_insert(entity, group_id, raw_data);
-        } else {
-            // trace!(?component_kind, ?entity, "Try to buffer component update");
-            // check the send_tick, i.e. we will send all updates more recent than this tick
-            let send_tick = sender.get_send_tick(group_id);
-
-            // send the update for all changes newer than the last send bevy tick for the group
-            if send_tick
-                .is_none_or(|send_tick| component_ticks.is_changed(send_tick, sender.this_run))
-            {
-                trace!(
-                    ?entity,
-                    component = ?component_kind,
-                    change_tick = ?component_ticks.changed,
-                    ?send_tick,
-                    current_tick = ?sender.this_run,
-                    "prepare entity update changed"
-                );
-                if delta_compression {
-                    let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
-                    delta.store(
-                        unmapped_entity,
-                        current_tick,
-                        component_kind,
-                        component_data,
-                        component_registry,
-                    );
-                    sender.prepare_delta_component_update(
-                        unmapped_entity,
-                        entity,
-                        group_id,
-                        component_kind,
-                        component_data,
-                        component_registry,
-                        delta,
-                        current_tick,
-                        entity_map,
-                    )?;
-                } else {
-                    let writer = &mut sender.writer;
-                    component_registry.erased_serialize(
-                        component_data,
-                        writer,
-                        component_kind,
-                        &mut entity_map.local_to_remote,
-                    )?;
-                    let raw_data = writer.split();
-                    sender.prepare_component_update(entity, group_id, raw_data);
-                }
+            if let Some(entity_ticks) = sender.sender_ticks.entities.remove(&entity) {
+                // Write despawn only if the entity was previously sent because
+                // spawn and despawn could happen during the same tick.
+                trace!("writing despawn for `{entity}` for sender `{sender_entity}`");
+                sender.pending_actions.add_despawn(entity_range.clone());
+                pools.recycle_components(entity_ticks.components);
             }
-        }
-    }
+        });
     Ok(())
 }
 
@@ -731,22 +800,17 @@ fn replicate_component_update(
 pub(crate) fn buffer_component_removed(
     trigger: On<Remove>,
     // Query<&C, Or<With<ReplicateLike>, (With<Replicate>, With<ReplicationGroup>)>>
-    query: Query<(
-        &ReplicationGroup,
-        &ReplicationState,
-        Has<NetworkVisibility>,
-        FilteredEntityRef,
-    )>,
+    query: Query<(&ReplicationState, Has<NetworkVisibility>, FilteredEntityRef)>,
     registry: Res<ComponentRegistry>,
     root_query: Query<&ReplicateLike>,
     mut manager_query: Query<(Entity, &mut ReplicationSender, &mut MessageManager)>,
+    mut pools: ResMut<ClientPools>,
 ) {
     let entity = trigger.entity;
     let root = root_query.get(entity).map_or(entity, |r| r.root);
-    let Ok((group, replicate, has_network_visibility, entity_ref)) = query.get(root) else {
+    let Ok((replicate, has_network_visibility, entity_ref)) = query.get(root) else {
         return;
     };
-    let group_id = group.group_id(Some(root));
 
     // Note: this is not needed because the SystemParamBuilder already makes sure that the entity
     //  must have both Replicate and Replicating
@@ -761,10 +825,9 @@ pub(crate) fn buffer_component_removed(
             .get(*sender_entity)
             .is_some_and(|s| s.visibility.is_visible(has_network_visibility))
     });
-    manager_query.par_iter_many_unique_mut(senders).for_each(
-        |(sender_entity, mut sender, manager)| {
-            // convert the entity to a network entity (possibly mapped)
-            let entity = manager.entity_mapper.to_remote(entity);
+    manager_query
+        .iter_many_unique_mut(senders)
+        .for_each(|(sender_entity, mut sender, manager)| {
             for component_id in trigger.trigger().components {
                 // TODO: there is a bug in bevy where trigger.components() returns all the componnets that triggered
                 //  Remove, not only the components that the observer is watching. This means that this could contain
@@ -798,10 +861,20 @@ pub(crate) fn buffer_component_removed(
                 if disable {
                     continue;
                 }
-                trace!(?entity, ?kind, "Sending RemoveComponent");
+                // Only send removals for components that were previously sent.
+                let Some(entity_ticks) = sender.sender_ticks.entities.get_mut(&entity) else {
+                    continue;
+                };
                 let net_id = *registry.kind_map.net_id(kind).unwrap();
-                sender.prepare_component_remove(entity, group_id, net_id);
+                let component_index = net_id as usize;
+                if !entity_ticks.components.contains(component_index) {
+                    continue;
+                }
+                trace!(?entity, ?kind, "Sending RemoveComponent");
+                entity_ticks.components.remove(component_index);
+                sender
+                    .pending_actions
+                    .add_removals(&mut pools, entity, net_id);
             }
-        },
-    );
+        });
 }

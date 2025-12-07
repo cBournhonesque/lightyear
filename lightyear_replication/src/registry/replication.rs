@@ -8,7 +8,6 @@ use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use alloc::format;
 use bevy_ecs::component::{Component, ComponentId, Immutable, Mutable};
 use bevy_utils::prelude::DebugName;
-use bytes::Bytes;
 use lightyear_core::prelude::Tick;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -115,15 +114,14 @@ impl ComponentRegistry {
     /// If any component already existed on the entity, it will be updated instead of inserted.
     pub(crate) fn buffer(
         &self,
-        bytes: Bytes,
+        reader: &mut Reader,
         entity_mut: &mut BufferedEntity,
         tick: Tick,
         entity_map: &mut ReceiveEntityMap,
         predicted: bool,
         interpolated: bool,
     ) -> Result<(), ComponentError> {
-        let mut reader = Reader::from(bytes);
-        let net_id = ComponentNetId::from_bytes(&mut reader)?;
+        let net_id = ComponentNetId::from_bytes(reader)?;
         let kind = self
             .kind_map
             .kind(net_id)
@@ -148,7 +146,7 @@ impl ComponentRegistry {
         (replication_metadata.buffer)(
             replication_metadata,
             erased_serialize_fns,
-            &mut reader,
+            reader,
             tick,
             entity_mut,
             entity_map,

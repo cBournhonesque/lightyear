@@ -34,14 +34,13 @@ pub mod send;
 
 pub mod delta;
 
-/// Defines the structure of messages used for replication.
-pub mod message;
-
 /// Manages entity control and ownership.
 pub mod control;
 pub mod host;
 mod impls;
 
+/// Defines how to serialize replication data into Updates and Actions messages
+pub(crate) mod messages;
 pub mod prespawn;
 /// Manages entity visibility for replication (e.g., interest management, rooms).
 pub mod visibility;
@@ -58,7 +57,6 @@ pub mod prelude {
     pub use crate::hierarchy::{
         DisableReplicateHierarchy, HierarchySendPlugin, ReplicateLike, ReplicateLikeChildren,
     };
-    pub use crate::message::*;
     pub use crate::plugin::ReplicationSystems;
     pub use crate::prespawn::PreSpawned;
     pub use crate::receive::{ReplicationReceivePlugin, ReplicationReceiver};

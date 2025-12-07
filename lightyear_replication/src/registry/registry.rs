@@ -128,6 +128,9 @@ pub struct ComponentRegistry {
     hasher: RegistryHasher,
 }
 
+/// Index of the component in the `kind_map` of the [`ComponentRegistry`]
+pub(crate) type ComponentIndex = NetId;
+
 #[derive(Debug, Clone)]
 pub struct ComponentMetadata {
     pub confirmed_component_id: ComponentId,

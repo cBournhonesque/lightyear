@@ -8,6 +8,7 @@
 
 use crate::SerializationError;
 use crate::varint::varint_len;
+use alloc::vec::Vec;
 use bytes::{BufMut, Bytes, BytesMut};
 use no_std_io2::io;
 use no_std_io2::io::{Result, Write};
@@ -27,6 +28,12 @@ pub(crate) mod std {
     impl From<BytesMut> for Writer {
         fn from(value: BytesMut) -> Self {
             Self(value.writer())
+        }
+    }
+
+    impl From<&Vec<u8>> for Writer {
+        fn from(value: &Vec<u8>) -> Self {
+            Self(BytesMut::from(value.as_slice()).writer())
         }
     }
 

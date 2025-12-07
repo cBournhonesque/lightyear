@@ -21,4 +21,7 @@ pub enum ReplicationError {
     ComponentProtocolError(#[from] ComponentError),
     #[error(transparent)]
     TransportError(#[from] TransportError),
+    #[cfg(feature = "std")]
+    #[error(transparent)]
+    IoError(#[from] std::io::Error),
 }

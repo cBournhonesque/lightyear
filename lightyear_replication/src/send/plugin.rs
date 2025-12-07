@@ -1,15 +1,19 @@
 use crate::control::ControlledBy;
 use crate::delta::DeltaManager;
+use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
-use crate::message::{
-    ActionsMessage, MetadataChannel, SenderMetadata, UpdatesChannel, UpdatesMessage,
-};
+use crate::messages::actions::{ActionsChannel, ActionsMessageSend};
+use crate::messages::metadata::{MetadataChannel, SenderMetadata};
+use crate::messages::serialized_data::SerializedData;
+use crate::messages::updates::UpdatesChannel;
 use crate::plugin::ReplicationSystems;
 use crate::prelude::{NetworkVisibility, ReplicationState};
 use crate::prespawn;
 use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
+use crate::send::buffer::ReplicationMetadata;
+use crate::send::client_pools::ClientPools;
 use crate::send::components::{Replicate, Replicating, ReplicationGroup};
 use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
@@ -21,13 +25,14 @@ use bevy_ecs::system::{
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::tick::TickDuration;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::TickDelta;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
-use lightyear_messages::prelude::EventSender;
+use lightyear_messages::prelude::{EventSender, MessageSender};
 use lightyear_messages::registry::{MessageKind, MessageRegistry};
+use lightyear_serde::ToBytes;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
@@ -81,57 +86,51 @@ impl ReplicationSendPlugin {
             });
     }
 
-    fn send_replication_messages(
-        time: Res<Time<Real>>,
-        message_registry: Res<MessageRegistry>,
-        change_tick: SystemChangeTick,
-        // We send messages directly through the transport instead of MessageSender<EntityActionsMessage>
-        // but I don't remember why
-        mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
-    ) {
-        #[cfg(feature = "metrics")]
-        let _timer = DormantTimerGauge::new("replication/send");
-
-        let actions_net_id = *message_registry
-            .kind_map
-            .net_id(&MessageKind::of::<ActionsMessage>())
-            .unwrap();
-        let updates_net_id = *message_registry
-            .kind_map
-            .net_id(&MessageKind::of::<UpdatesMessage>())
-            .unwrap();
-        query
-            .par_iter_mut()
-            .for_each(|(mut sender, mut transport, timeline)| {
-                if !sender.send_timer.is_finished() {
-                    return;
+    /// Sends pending [`Updates`] and [`Actions`] for each [`ReplicationSender`].
+    fn send_messages(
+        time: Res<Time>,
+        metadata: Res<ReplicationMetadata>,
+        mut serialized: ResMut<SerializedData>,
+        mut pools: ResMut<ClientPools>,
+        mut senders: Query<(Entity, &mut ReplicationSender, &mut Transport)>,
+    ) -> Result<(), BevyError> {
+        // TODO: get the local tick
+        let tick = Tick(0);
+        senders
+            .iter_mut()
+            .try_for_each(|(sender_entity, mut sender, mut transport)| {
+                if !sender.pending_actions.is_empty() {
+                    // TODO: should the tick be included in the message?
+                    //  normally it's added by the Transport plugin, but what if the message is not sent
+                    //  because of priority?
+                    let actions = ActionsMessageSend::new(&sender.pending_actions, &serialized);
+                    sender.sender_ticks.action_tick = tick;
+                    actions.to_bytes(&mut sender.writer)?;
+                    let message_bytes = sender.writer.split();
+                    transport
+                        .send_mut_with_priority::<ActionsChannel>(message_bytes, priority)?
+                        .expect("The entity actions channels should always return a message_id");
                 }
-                #[cfg(feature = "metrics")]
-                _timer.activate();
 
-                let bevy_tick = change_tick.this_run();
-                sender.send_timer.reset();
-                // TODO: also tick ReplicationGroups?
-                sender.accumulate_priority(&time);
-                sender
-                    .send_actions_messages(
-                        timeline.tick(),
-                        bevy_tick,
-                        &mut transport,
-                        actions_net_id,
-                    )
-                    .inspect_err(|e| error!("Error buffering ActionsMessage: {e:?}"))
-                    .ok();
-                sender
-                    .send_updates_messages(
-                        timeline.tick(),
-                        bevy_tick,
-                        &mut transport,
-                        updates_net_id,
-                    )
-                    .inspect_err(|e| error!("Error buffering UpdatesMessage: {e:?}"))
-                    .ok();
-            });
+                // TODO: what is track_mutate_message?
+                if !sender.pending_updates.is_empty() {
+                    // let server_tick_range =
+                    //     server_tick.write_cached(&mut serialized, &mut server_tick_range)?;
+
+                    sender.pending_updates.send(
+                        &mut sender.writer,
+                        transport.as_mut(),
+                        &mut sender.sender_ticks,
+                        &mut pools,
+                        &serialized,
+                        tick,
+                        metadata.change_tick,
+                    )?;
+                }
+                Ok(())
+            })?;
+
+        Ok(())
     }
 
     /// Check which replication messages were actually sent, and update the
@@ -193,33 +192,6 @@ impl ReplicationSendPlugin {
             r.per_sender_state.swap_remove(&trigger.entity);
         });
     }
-
-    // /// Tick the internal timers of all replication groups.
-    // fn tick_replication_group_timers(
-    //     time_manager: Res<TimeManager>,
-    //     mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
-    // ) {
-    //     for mut replication_group in replication_groups.iter_mut() {
-    //         if let Some(send_frequency) = &mut replication_group.send_frequency {
-    //             send_frequency.tick(time_manager.delta());
-    //             if send_frequency.finished() {
-    //                 replication_group.should_send = true;
-    //             }
-    //         }
-    //     }
-    // }
-
-    // /// After we buffer updates, reset all the `should_send` to false
-    // /// for the replication groups that have a `send_frequency`
-    // fn update_replication_group_should_send(
-    //     mut replication_groups: Query<&mut ReplicationGroup, With<Replicating>>,
-    // ) {
-    //     for mut replication_group in replication_groups.iter_mut() {
-    //         if replication_group.send_frequency.is_some() {
-    //             replication_group.should_send = false;
-    //         }
-    //     }
-    // }
 }
 
 impl Plugin for ReplicationSendPlugin {
@@ -256,10 +228,6 @@ impl Plugin for ReplicationSendPlugin {
         app.add_observer(buffer::buffer_entity_despawn_replicate_remove);
         app.add_observer(Self::send_sender_metadata);
         app.add_observer(Replicate::handle_connection);
-        #[cfg(feature = "prediction")]
-        {
-            app.add_observer(crate::prelude::PredictionTarget::add_replication_group);
-        }
         app.add_observer(Self::handle_disconnection);
         app.add_observer(ControlledBy::handle_disconnection);
 
@@ -271,9 +239,14 @@ impl Plugin for ReplicationSendPlugin {
             PostUpdate,
             Self::update_priority.after(TransportSystems::Send),
         );
+
+        // TODO:
+        // - change actions channel to sequenced reliable
+        // - update priority before buffering messages
+        // -
         app.add_systems(
             PostUpdate,
-            Self::send_replication_messages.in_set(ReplicationBufferSystems::Flush),
+            Self::send_messages.in_set(ReplicationBufferSystems::Flush),
         );
 
         // app.add_systems(
@@ -298,58 +271,6 @@ impl Plugin for ReplicationSendPlugin {
             .world_mut()
             .remove_resource::<ComponentRegistry>()
             .unwrap();
-
-        let replicate = (
-            ParamSetBuilder((
-                QueryParamBuilder::new(|builder| {
-                    // Or<(With<ReplicateLike>, (With<Replicating>, With<Replicate>))>
-                    builder.or(|b| {
-                        b.with::<ReplicateLikeChildren>();
-                        b.with::<ReplicateLike>();
-                        b.and(|b| {
-                            b.with::<Replicating>();
-                            b.with::<Replicate>();
-                            b.with::<ReplicationState>();
-                        });
-                    });
-                    builder.optional(|b| {
-                        b.data::<(
-                            &Replicate,
-                            &ReplicationState,
-                            &ReplicationGroup,
-                            &NetworkVisibility,
-                            &ReplicateLikeChildren,
-                            &ReplicateLike,
-                            &ControlledBy,
-                            &PreSpawned,
-                        )>();
-                        // include access to &C and &ComponentReplicationOverrides<C> for all replication components with the right direction
-                        component_registry
-                            .component_metadata_map
-                            .iter()
-                            .for_each(|(kind, m)| {
-                                let id = m.component_id;
-                                b.ref_id(id);
-                                if let Some(r) = &m.replication {
-                                    b.ref_id(r.overrides_component_id);
-                                }
-                            });
-                    });
-                }),
-                ParamBuilder,
-            )),
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-            ParamBuilder,
-        )
-            .build_state(app.world_mut())
-            .build_system(buffer::replicate)
-            .with_name("ReplicationSendPlugin::replicate");
 
         let buffer_component_remove = (
             QueryParamBuilder::new(|builder| {
@@ -386,6 +307,7 @@ impl Plugin for ReplicationSendPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system_with_input(buffer::buffer_component_removed)
@@ -401,7 +323,7 @@ impl Plugin for ReplicationSendPlugin {
         app.add_systems(
             PostUpdate,
             // TODO: putting it here means we might miss entities that are spawned and despawned within the send_interval? bug or feature?
-            replicate.in_set(ReplicationBufferSystems::Buffer),
+            buffer::replicate.in_set(ReplicationBufferSystems::Buffer),
         );
 
         app.world_mut().insert_resource(component_registry);
