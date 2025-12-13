@@ -19,7 +19,6 @@ use crate::channel::Channel;
 use crate::error::TransportError;
 use crate::prelude::{ChannelRegistry, PriorityConfig};
 use crossbeam_channel::{Receiver, Sender};
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::SendPayload;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 

@@ -1,5 +1,5 @@
 use crate::components::ComponentReplicationOverrides;
-use crate::control::{Controlled, ControlledBy};
+use crate::control::ControlledBy;
 use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
@@ -7,9 +7,8 @@ use crate::messages::actions::SpawnAction;
 use crate::messages::serialized_data::{
     ByteRange, MessageWrite, SerializedData, WritableComponent,
 };
-use crate::prelude::{NetworkVisibility, ReplicationFrequency, ReplicationState};
+use crate::prelude::{NetworkVisibility, ReplicationState};
 use crate::prespawn::PreSpawned;
-use crate::registry::ComponentKind;
 use crate::registry::component_mask::ComponentMask;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::archetypes::{ReplicatedArchetype, ReplicatedArchetypes, ReplicatedComponent};
@@ -18,29 +17,25 @@ use crate::send::client_pools::ClientPools;
 use crate::send::components::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::send::components::PredictionTarget;
-use crate::send::components::{Replicate, Replicating, ReplicationGroup};
+use crate::send::components::{Replicate, Replicating};
 use crate::send::plugin::ReplicableRootEntities;
 use crate::send::query::ReplicationQuery;
 use crate::send::sender::ReplicationSender;
 use crate::send::sender_ticks::EntityTicks;
 use crate::visibility::immediate::VisibilityState;
 use alloc::vec::Vec;
-use bevy_ecs::archetype::{Archetype, ArchetypeEntity};
+use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::Components;
 use bevy_ecs::component::Tick as BevyTick;
 use bevy_ecs::entity::{EntityHash, UniqueEntitySlice};
 use bevy_ecs::prelude::*;
-use bevy_ecs::storage::TableRow;
-use bevy_ecs::world::FilteredEntityMut;
 use bevy_ecs::world::unsafe_world_cell::UnsafeEntityCell;
 use bevy_ecs::{
-    archetype::Archetypes, component::ComponentTicks, relationship::RelationshipTarget,
-    system::SystemChangeTick, world::FilteredEntityRef,
+    archetype::Archetypes, relationship::RelationshipTarget, system::SystemChangeTick,
+    world::FilteredEntityRef,
 };
 use bevy_platform::collections::hash_map::Entry;
-use bevy_ptr::Ptr;
 use bevy_time::{Time, Timer, TimerMode};
-use core::ops::Range;
 use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
@@ -49,7 +44,6 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
-use lightyear_serde::SerializationError;
 use lightyear_serde::entity_map::RemoteEntityMap;
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::DormantTimerGauge;
@@ -107,7 +101,7 @@ impl ReplicationMetadata {
 pub(crate) fn replicate(
     // query &C + various replication components
     // we know that we always query Replicate from the parent
-    mut query: ReplicationQuery,
+    query: ReplicationQuery,
     local: Res<LocalTimeline>,
     mut sender_query: Query<
         (
@@ -236,7 +230,7 @@ pub(crate) fn replicate_entity(
     root_entity_cell: Option<UnsafeEntityCell>,
     // used to fetch replication component values from the entity
     query: &ReplicationQuery,
-    mut sender_query: &mut Query<
+    sender_query: &mut Query<
         (
             Entity,
             &mut ReplicationSender,
@@ -268,7 +262,12 @@ pub(crate) fn replicate_entity(
     let mut entity_cache: Option<ByteRange> = None;
 
     // SAFETY: we have read access
-    let is_replicate_like_added = is_child && unsafe { entity_cell.get_ref::<ReplicateLike>().is_some_and(|r| r.is_added()) };
+    let is_replicate_like_added = is_child
+        && unsafe {
+            entity_cell
+                .get_ref::<ReplicateLike>()
+                .is_some_and(|r| r.is_added())
+        };
 
     // check if the entity should be replicated.
     for (sender_entity, mut sender, _, _, _) in sender_query.iter_mut() {
@@ -394,7 +393,11 @@ pub(crate) fn replicate_entity(
         }
 
         // SAFETY: we have read access
-        let owned_by = unsafe { entity_cell.get::<ControlledBy>().or_else(|| root_entity_cell.get::<ControlledBy>()) };
+        let owned_by = unsafe {
+            entity_cell
+                .get::<ControlledBy>()
+                .or_else(|| root_entity_cell.get::<ControlledBy>())
+        };
 
         // add entity spawns (Replicate changed, NetworkVisibility::Gained, ReplicateLike added)
         if state_metadata.should_spawn {
@@ -403,7 +406,7 @@ pub(crate) fn replicate_entity(
                 &state_metadata,
                 // we cannot re-use the root's component
                 // SAFETY: we have read access
-                unsafe{ entity_cell.get::<PreSpawned>() } ,
+                unsafe { entity_cell.get::<PreSpawned>() },
                 owned_by,
                 sender.as_mut(),
                 sender_entity,
@@ -430,7 +433,7 @@ pub(crate) fn replicate_entity(
     let senders_unique = unsafe { UniqueEntitySlice::from_slice_unchecked(&senders_needed) };
     let mut senders_data: Vec<_> = sender_query.iter_many_unique_mut(senders_unique).collect();
 
-    for component in replicated_archetype.components {
+    for component in &replicated_archetype.components {
         replicate_component(
             component,
             entity,
@@ -449,6 +452,8 @@ pub(crate) fn replicate_entity(
     }
 
     for (sender_entity, sender, _, _, _) in senders_data.iter_mut() {
+        // allow split borrows
+        let sender = sender.as_mut();
         let entity_ticks = sender.sender_ticks.entities.entry(entity);
         let new_for_client = matches!(entity_ticks, Entry::Vacant(_));
         if new_for_client || sender.pending_actions.changed_entity_added()
@@ -551,7 +556,7 @@ pub(crate) fn get_component_overrides(
 }
 
 pub(crate) fn replicate_component(
-    component: ReplicatedComponent,
+    component: &ReplicatedComponent,
     entity: Entity,
     entity_cell: UnsafeEntityCell,
     is_child: bool,
@@ -562,7 +567,7 @@ pub(crate) fn replicate_component(
     replication_metadata: &ReplicationMetadata,
     serialized: &mut SerializedData,
     pools: &mut ClientPools,
-    mut senders: &mut Vec<(
+    senders: &mut Vec<(
         Entity,
         Mut<ReplicationSender>,
         Mut<MessageManager>,
@@ -698,7 +703,7 @@ pub(crate) fn replicate_entity_spawn(
     sender: &mut ReplicationSender,
     sender_entity: Entity,
     mut serialized: &mut SerializedData,
-    mut entity_cache: &mut Option<ByteRange>,
+    entity_cache: &mut Option<ByteRange>,
 ) -> Result<(), ReplicationError> {
     // normal-case: server sends to client. just include server entity (client will
     //   spawn and map on receiver side)
@@ -720,9 +725,9 @@ pub(crate) fn replicate_entity_spawn(
     }
     let action = SpawnAction {
         #[cfg(feature = "prediction")]
-        predicted,
+        predicted: state.predicted,
         #[cfg(feature = "interpolation")]
-        interpolated,
+        interpolated: state.interpolated,
         // TODO: handle controlled on receiver side
         controlled: controlled_by.is_some_and(|c| c.owner == sender_entity),
         prespawn: prespawned.and_then(|p| p.hash),

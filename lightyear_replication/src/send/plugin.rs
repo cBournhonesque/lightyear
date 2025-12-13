@@ -1,7 +1,6 @@
 use crate::control::ControlledBy;
 use crate::delta::DeltaManager;
-use crate::error::ReplicationError;
-use crate::hierarchy::{ReplicateLike, ReplicateLikeChildren};
+use crate::hierarchy::ReplicateLike;
 use crate::messages::actions::{ActionsChannel, ActionsMessageSend};
 use crate::messages::metadata::{MetadataChannel, SenderMetadata};
 use crate::messages::serialized_data::SerializedData;
@@ -9,7 +8,6 @@ use crate::messages::updates::UpdatesChannel;
 use crate::plugin::ReplicationSystems;
 use crate::prelude::{NetworkVisibility, ReplicationState};
 use crate::prespawn;
-use crate::prespawn::PreSpawned;
 use crate::registry::registry::ComponentRegistry;
 use crate::send::buffer;
 use crate::send::buffer::ReplicationMetadata;
@@ -19,19 +17,14 @@ use crate::send::sender::ReplicationSender;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::entity::EntityIndexSet;
 use bevy_ecs::prelude::*;
-use bevy_ecs::system::{
-    ParamBuilder, ParamSetBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder,
-};
+use bevy_ecs::system::{ParamBuilder, QueryParamBuilder, SystemChangeTick, SystemParamBuilder};
 use bevy_time::{Real, Time};
 use lightyear_connection::client::{Connected, Disconnected};
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::NetworkTimeline;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
-use lightyear_messages::prelude::{EventSender, MessageSender};
-use lightyear_messages::registry::{MessageKind, MessageRegistry};
+use lightyear_messages::prelude::EventSender;
 use lightyear_serde::ToBytes;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::plugin::TransportSystems;

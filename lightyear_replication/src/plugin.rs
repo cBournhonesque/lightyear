@@ -4,7 +4,7 @@
 
 use crate::control::Controlled;
 use crate::messages::actions::{ActionsChannel, ActionsMessage};
-use crate::messages::metadata::MetadataChannel;
+use crate::messages::metadata::{MetadataChannel, SenderMetadata};
 use crate::messages::updates::{UpdatesChannel, UpdatesMessage};
 use crate::prelude::*;
 use bevy_app::{App, Plugin};
@@ -34,8 +34,6 @@ pub(crate) struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.register_component::<Controlled>();
-
-        app.add_observer(ConfirmedTick::add_confirmed_tick_hook);
 
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),

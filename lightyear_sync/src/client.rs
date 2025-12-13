@@ -9,8 +9,7 @@ use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use lightyear_connection::client::Client;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
-use lightyear_core::time::TickDelta;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::timeline::SyncEvent;
 use tracing::info;
 

@@ -2,8 +2,8 @@ use crate::delta::DeltaManager;
 use crate::error::ReplicationError;
 use crate::messages::actions::Actions;
 use crate::messages::updates::Updates;
+use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
-use crate::registry::{ComponentKind, ComponentNetId};
 use crate::send::sender_ticks::SenderTicks;
 use alloc::{string::ToString, vec::Vec};
 use bevy_ecs::{
@@ -18,7 +18,7 @@ use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
-use lightyear_serde::entity_map::{RemoteEntityMap, SendEntityMap};
+use lightyear_serde::entity_map::RemoteEntityMap;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::prelude::Transport;
@@ -52,7 +52,6 @@ pub enum SendUpdatesMode {
 
 #[derive(Component)]
 #[require(Transport)]
-#[require(LocalTimeline)]
 pub struct ReplicationSender {
     // track entities that were recently spawned on this sender, so that we can update ReplicationState after `replicate`
     // this would not be needed if we used DashMap within ReplicationState

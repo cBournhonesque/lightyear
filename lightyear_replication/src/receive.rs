@@ -26,15 +26,12 @@ use crate::prelude::{
     PerSenderReplicationState, Persistent, PreSpawned, ReplicationSender, ReplicationState,
 };
 use crate::prespawn::PreSpawnedReceiver;
-use crate::registry::buffered::{BufferedChanges, BufferedEntity, TempWriteBuffer};
-use crate::registry::replication::ReplicationMetadata;
+use crate::registry::buffered::{BufferedChanges, BufferedEntity};
 use crate::{plugin, prespawn};
 use lightyear_connection::client::{Connected, Disconnected, PeerMetadata};
-use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted};
-use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
@@ -107,13 +104,13 @@ impl ReplicationReceivePlugin {
                 With<MessageReceiver<ActionsMessage>>,
                 With<MessageReceiver<UpdatesMessage>>,
                 With<MessageManager>,
-                With<LocalTimeline>,
             ),
         >,
         authority: &mut QueryState<Entity, With<AuthorityBroker>>,
         // buffer to avoid allocations
         mut receiver_entities: Local<Vec<(Entity, PeerId)>>,
     ) {
+        let tick = world.resource::<LocalTimeline>().tick();
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("replication/apply");
 
@@ -150,7 +147,6 @@ impl ReplicationReceivePlugin {
                     mut updates_receiver,
                     mut receiver,
                     mut manager,
-                    local_timeline,
                 ) = unsafe {
                     entity_mut
                         .get_components_mut_unchecked::<(
@@ -159,7 +155,6 @@ impl ReplicationReceivePlugin {
                             &mut MessageReceiver<UpdatesMessage>,
                             &mut ReplicationReceiver,
                             &mut MessageManager,
-                            &LocalTimeline,
                         )>()
                         .unwrap()
                 };
@@ -167,7 +162,6 @@ impl ReplicationReceivePlugin {
                 // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
                 let world = unsafe { unsafe_world.world_mut() };
 
-                let tick = local_timeline.tick();
                 let mut params = ReceiverParams {
                     receiver_entity: entity,
                     local_tick: tick,
@@ -692,9 +686,9 @@ fn apply_removals(
         error!(?remote_entity, "cannot find entity");
         return Ok(());
     };
-    // SAFETY: these components don't alias
-    let Some((confirmed, predicted, interpolated)) = unsafe {
-        local_entity_mut.get_components_mut_unchecked::<(&mut ConfirmedTick, Has<Predicted>, Has<Interpolated>)>()
+    // SAFETY: these components don't alias and are always present
+    let (confirmed, predicted, interpolated) = unsafe {
+        local_entity_mut.get_components_mut_unchecked::<(&mut ConfirmedTick, Has<Predicted>, Has<Interpolated>)>().unwrap_unchecked()
     };
 
     let local_entity = local_entity_mut.id();
@@ -720,7 +714,7 @@ fn apply_removals(
 
 fn apply_updates(
     world: &mut World,
-    mut reader: &mut Reader,
+    reader: &mut Reader,
     remote_tick: Tick,
     params: &mut ReceiverParams<'_>,
     // True if this comes from an update message (as opposed to an action message)
@@ -732,13 +726,7 @@ fn apply_updates(
         error!(?remote_entity, "cannot find entity");
         return Ok(());
     };
-
-    // SAFETY: these components don't alias
-    let Some((confirmed, predicted, interpolated)) = unsafe {
-        local_entity_mut.get_components_mut_unchecked::<(&mut ConfirmedTick, Has<Predicted>, Has<Interpolated>)>()
-    };
     let local_entity = local_entity_mut.id();
-
     // TODO: handle authority
     // the local Sender has authority over the entity, so we don't want to accept the updates
     if local_entity_mut
@@ -752,6 +740,12 @@ fn apply_updates(
         );
         return Ok(());
     }
+
+    // SAFETY: these components don't alias and area always present
+    let (confirmed, predicted, interpolated) = unsafe {
+        local_entity_mut.get_components_mut_unchecked::<(&mut ConfirmedTick, Has<Predicted>, Has<Interpolated>)>()
+    .unwrap_unchecked()
+    };
 
     // ignore old updates
     // TODO: this needs tick-wrapping! or just use u32 for ticks

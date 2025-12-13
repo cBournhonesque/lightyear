@@ -2,20 +2,19 @@ use crate::ping::manager::PingManager;
 use crate::plugin::SyncSystems;
 use bevy_app::{App, Last, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QuerySingleError;
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::time::Duration;
-use bevy_ecs::query::QuerySingleError;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
-use lightyear_core::time::{Overstep, TickDelta, TickInstant};
+use lightyear_core::time::{Overstep, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent};
 #[allow(unused_imports)]
-use tracing::{debug, info, trace};
-use tracing::error;
+use tracing::{debug, error, info, trace};
 
 /// Marker component to indicate that the timeline has been synced
 #[derive(Component, Debug)]

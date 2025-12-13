@@ -4,7 +4,10 @@ use crate::send::components::ComponentReplicationOverride;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use lightyear_core::prelude::{Interpolated, LocalTimeline, NetworkTimeline, Predicted};
+#[cfg(feature = "interpolation")]
+use lightyear_core::prelude::Interpolated;
+#[cfg(feature = "prediction")]
+use lightyear_core::prelude::Predicted;
 use lightyear_core::tick::Tick;
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
@@ -69,30 +72,9 @@ pub struct Persistent;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 #[reflect(Component)]
 pub struct ConfirmedTick {
-    /// For entities that are synced (predicted or interpolated), this tick indicates
+    /// For replicated entities, this tick indicates
     /// the most recent tick where we applied a remote update to the entity
     pub tick: Tick,
-}
-
-impl ConfirmedTick {
-    /// If the client manually inserted [`Predicted`] or [`Interpolated`] on an existing [`Replicated`] entity,
-    /// (i.e. they were not added via replication)
-    /// we need to initialize the [`ConfirmedTick`] so that future replication receives can update it
-    pub(crate) fn add_confirmed_tick_hook(
-        trigger: On<Add, (Predicted, Interpolated)>,
-        query: Query<&Replicated, Without<ConfirmedTick>>,
-        receiver: Query<&LocalTimeline>,
-        mut commands: Commands,
-    ) {
-        if let Ok(replicated) = query.get(trigger.entity)
-            && let Ok(timeline) = receiver.get(replicated.receiver)
-        {
-            let tick = timeline.tick();
-            commands
-                .entity(trigger.entity)
-                .insert(ConfirmedTick { tick });
-        }
-    }
 }
 
 // TODO: we need a ReplicateConfig similar to ComponentReplicationConfig

@@ -100,7 +100,6 @@ impl<T: TimelineConfig> DerefMut for Timeline<T> {
     }
 }
 
-
 /// The local timeline that matches [`Time<Virtual>`]
 /// - the Tick is incremented every FixedUpdate
 /// - the overstep is set by the overstep of [`Time<Fixed>`]
@@ -117,7 +116,6 @@ impl LocalTimeline {
         self.tick = self.tick + delta;
     }
 }
-
 
 /// Increment the local tick at each FixedUpdate
 pub(crate) fn increment_local_tick(mut local: ResMut<LocalTimeline>) {

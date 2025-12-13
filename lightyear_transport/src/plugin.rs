@@ -19,7 +19,7 @@ use bytes::Bytes;
 use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::prelude::client::Disconnected;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -262,14 +262,7 @@ impl TransportPlugin {
     fn buffer_send(
         real_time: Res<Time<Real>>,
         local_time: Res<LocalTimeline>,
-        mut query: Query<
-            (
-                &mut Link,
-                &mut Transport,
-                Option<&mut HostClient>,
-            ),
-            With<Linked>,
-        >,
+        mut query: Query<(&mut Link, &mut Transport, Option<&mut HostClient>), With<Linked>>,
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]

@@ -467,7 +467,7 @@ impl<'a> ToBytes for ActionsMessageSend<'a> {
         if self.flags.has_updates {
             // Changes are always last, don't write len for it.
             for changes in &self.actions.changes {
-                buffer.write(&self.serialized[changes.entity])?;
+                buffer.write(&self.serialized[changes.entity.clone()])?;
                 buffer.write_varint(changes.components_len as u64)?;
                 for component in &changes.components {
                     buffer.write(&self.serialized[component.clone()])?;
