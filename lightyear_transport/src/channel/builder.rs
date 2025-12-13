@@ -56,7 +56,6 @@ impl Default for ChannelSettings {
 
 /// Holds information about all the channels present on the entity.
 #[derive(Component)]
-#[require(LocalTimeline)]
 #[require(Link)]
 pub struct Transport {
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,

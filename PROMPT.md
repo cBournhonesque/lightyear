@@ -155,9 +155,10 @@ EASY REPLACEMENT FOR REPLACEMENT GROUP
 - 1. remove existing replication group
 - 2. eventually: parallelize replication over chunks of groups 
      - and then over chunks of roots that are not in groups.
-- 2. update prediction to work with different ticks
+- 2. update prediction to work with different ticks (like Unity)
 - 3. find a replacement for replication groups.
 
+- Where do we store the LocalTick ? in a resource since it has to be shared by all.
 
 # Replication where we serialize once
 

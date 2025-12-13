@@ -25,15 +25,13 @@ pub struct ClientPlugin;
 impl ClientPlugin {
     pub fn update_local_timeline(
         trigger: On<SyncEvent<InputTimelineConfig>>,
-        mut query: Query<&mut LocalTimeline>,
+        mut local_timeline: ResMut<LocalTimeline>,
     ) {
-        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
-            info!(
-                "TickDelta: {:?} applied to local timeline",
-                trigger.tick_delta
-            );
-            timeline.apply_delta(TickDelta::from_i16(trigger.tick_delta));
-        }
+        info!(
+            "TickDelta: {:?} applied to local timeline",
+            trigger.tick_delta
+        );
+        local_timeline.apply_delta(trigger.tick_delta);
     }
 }
 

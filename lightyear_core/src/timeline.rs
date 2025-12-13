@@ -6,7 +6,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::component::{Component, Mutable};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::event::{EntityEvent, Event};
-use bevy_ecs::prelude::On;
+use bevy_ecs::prelude::{On, Resource};
 use bevy_ecs::query::With;
 use bevy_ecs::system::{Query, ResMut};
 use bevy_reflect::Reflect;
@@ -100,27 +100,28 @@ impl<T: TimelineConfig> DerefMut for Timeline<T> {
     }
 }
 
-/// The local timeline that matches [`Time<Virtual>`]
-/// - the Tick is incremented every FixedUpdate (including during rollback)
-/// - the overstep is set by the overstep of [`Time<Fixed>`]
-#[derive(Default, Component, Clone, Reflect)]
-#[require(LocalTimeline)]
-pub struct Local;
 
-impl TimelineConfig for Local {
-    type Context = ();
-    type Timeline = LocalTimeline;
+/// The local timeline that matches [`Time<Virtual>`]
+/// - the Tick is incremented every FixedUpdate
+/// - the overstep is set by the overstep of [`Time<Fixed>`]
+#[derive(Resource, Deref, DerefMut, Default, Clone, Reflect)]
+pub struct LocalTimeline {
+    tick: Tick,
 }
 
-#[derive(Component, Deref, DerefMut, Default, Clone, Reflect)]
-pub struct LocalTimeline(Timeline<Local>);
+impl LocalTimeline {
+    pub fn tick(&self) -> Tick {
+        self.tick
+    }
+    pub fn apply_delta(&mut self, delta: i16) {
+        self.tick = self.tick + delta;
+    }
+}
+
 
 /// Increment the local tick at each FixedUpdate
-pub(crate) fn increment_local_tick(mut query: Query<&mut LocalTimeline>) {
-    query.iter_mut().for_each(|mut t| {
-        t.apply_delta(TickDelta::from_i16(1));
-        // trace!("Timeline::advance: now: {:?}, duration: {:?}", t.now(), duration);
-    })
+pub(crate) fn increment_local_tick(mut local: ResMut<LocalTimeline>) {
+    local.tick += 1;
 }
 
 pub struct NetworkTimelinePlugin<T> {
@@ -161,13 +162,13 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<LocalTimeline>();
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut()
             .resource_mut::<Time<Fixed>>()
             .set_timestep(self.tick_duration);
         app.add_observer(Self::update_tick_duration);
 
-        app.add_plugins(NetworkTimelinePlugin::<LocalTimeline>::default());
         app.add_systems(FixedFirst, increment_local_tick);
     }
 

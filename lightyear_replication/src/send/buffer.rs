@@ -108,12 +108,12 @@ pub(crate) fn replicate(
     // query &C + various replication components
     // we know that we always query Replicate from the parent
     mut query: ReplicationQuery,
+    local: Res<LocalTimeline>,
     mut sender_query: Query<
         (
             Entity,
             &mut ReplicationSender,
             &mut MessageManager,
-            &LocalTimeline,
             Option<&DeltaManager>,
             Option<&LinkOf>,
         ),
@@ -130,7 +130,7 @@ pub(crate) fn replicate(
     mut pools: ResMut<ClientPools>,
     mut replicated_archetypes: Local<ReplicatedArchetypes>,
 ) {
-    let tick = Tick(0);
+    let tick = local.tick();
     #[cfg(feature = "metrics")]
     let _timer = DormantTimerGauge::new("replication/buffer");
 
@@ -241,7 +241,6 @@ pub(crate) fn replicate_entity(
             Entity,
             &mut ReplicationSender,
             &mut MessageManager,
-            &LocalTimeline,
             Option<&DeltaManager>,
             Option<&LinkOf>,
         ),
@@ -268,8 +267,11 @@ pub(crate) fn replicate_entity(
     // cache to make sure that we only serialize the entity once
     let mut entity_cache: Option<ByteRange> = None;
 
+    // SAFETY: we have read access
+    let is_replicate_like_added = is_child && unsafe { entity_cell.get_ref::<ReplicateLike>().is_some_and(|r| r.is_added()) };
+
     // check if the entity should be replicated.
-    for (sender_entity, mut sender, _, _, _, _) in sender_query.iter_mut() {
+    for (sender_entity, mut sender, _, _, _) in sender_query.iter_mut() {
         // SAFETY: the entity is guaranteed to have this component
         let Some(state) = unsafe {
             root_entity_cell
@@ -280,8 +282,6 @@ pub(crate) fn replicate_entity(
         .get(&sender_entity) else {
             return Ok(());
         };
-        // TODO: fill this
-        let is_replicate_like_added = False;
         let has_network_visibility = replicated_archetype.has_network_visibility;
         let state_metadata = if let Some(child_state) =
             // SAFETY: we have added read access to this component
@@ -393,12 +393,17 @@ pub(crate) fn replicate_entity(
             return Ok(());
         }
 
+        // SAFETY: we have read access
+        let owned_by = unsafe { entity_cell.get::<ControlledBy>().or_else(|| root_entity_cell.get::<ControlledBy>()) };
+
         // add entity spawns (Replicate changed, NetworkVisibility::Gained, ReplicateLike added)
         if state_metadata.should_spawn {
             replicate_entity_spawn(
                 entity,
                 &state_metadata,
-                prespawned,
+                // we cannot re-use the root's component
+                // SAFETY: we have read access
+                unsafe{ entity_cell.get::<PreSpawned>() } ,
                 owned_by,
                 sender.as_mut(),
                 sender_entity,
@@ -443,7 +448,7 @@ pub(crate) fn replicate_entity(
         )?;
     }
 
-    for (sender_entity, sender, _, _, _, _) in senders_data.iter_mut() {
+    for (sender_entity, sender, _, _, _) in senders_data.iter_mut() {
         let entity_ticks = sender.sender_ticks.entities.entry(entity);
         let new_for_client = matches!(entity_ticks, Entry::Vacant(_));
         if new_for_client || sender.pending_actions.changed_entity_added()
@@ -561,7 +566,6 @@ pub(crate) fn replicate_component(
         Entity,
         Mut<ReplicationSender>,
         Mut<MessageManager>,
-        &LocalTimeline,
         Option<&DeltaManager>,
         Option<&LinkOf>,
     )>,
@@ -589,7 +593,7 @@ pub(crate) fn replicate_component(
 
     let mut component_cache = None;
     senders.iter_mut().try_for_each(
-        |(sender_entity, sender, message_manager, local_timeline, delta_manager, link_of)| {
+        |(sender_entity, sender, message_manager, delta_manager, link_of)| {
             let ComponentOverrides {
                 component_index,
                 disable,

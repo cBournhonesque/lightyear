@@ -6,6 +6,7 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::time::Duration;
+use bevy_ecs::query::QuerySingleError;
 use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
@@ -14,6 +15,7 @@ use lightyear_core::time::{Overstep, TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
+use tracing::error;
 
 /// Marker component to indicate that the timeline has been synced
 #[derive(Component, Debug)]
@@ -198,7 +200,8 @@ impl SyncContext {
 
 /// Plugin to sync the Synced timeline to the Remote timeline
 ///
-/// The const generic is used to indicate if the timeline is driving/updating the [`Time<Virtual>`] and [`LocalTimeline`].
+/// The const generic is used to indicate if the timeline is driving/updating the [`Time<Virtual>`]
+/// (i.e updating the speed of the simulation to stay in sync with the remote timeline)
 pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false> {
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
@@ -209,9 +212,10 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     /// On connection, reset the Synced timeline.
     pub(crate) fn handle_connect(
         trigger: On<Add, Connected>,
-        mut query: Query<(&mut Synced, &LocalTimeline)>,
+        local_timeline: Res<LocalTimeline>,
+        mut query: Query<&mut Synced>,
     ) {
-        if let Ok((mut timeline, local_timeline)) = query.get_mut(trigger.entity) {
+        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
             timeline.reset();
             if DRIVING {
                 trace!("Set Driving timeline tick to LocalTimeline");
@@ -239,31 +243,43 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     ///
     /// This runs once per frame before `sync_timelines` for driving timelines.
     pub(crate) fn sync_from_local_timeline(
+        local_timeline: Res<LocalTimeline>,
         fixed_time: Res<Time<Fixed>>,
-        mut query: Query<(&LocalTimeline, &mut Synced)>,
+        mut query: Query<&mut Synced>,
     ) {
+        let tick = local_timeline.tick();
         let overstep = fixed_time.overstep_fraction();
-        query.iter_mut().for_each(|(local_timeline, mut synced)| {
+        query.iter_mut().for_each(|mut synced| {
             // Desired phase: LocalTimeline.tick + Time<Fixed> overstep.
             synced.set_now(TickInstant::from_tick_and_overstep(
-                local_timeline.tick(),
+                tick,
                 Overstep::from_f32(overstep),
             ));
         });
     }
 
+    /// Update the speed of the simulation to help stay in sync with the remote timeline.
+    ///
+    /// NOTE: since we modify the unique Time<Virtual>, we cannot have multiple driving timelines
+    /// at the same time!
     pub(crate) fn update_virtual_time(
         mut virtual_time: ResMut<Time<Virtual>>,
         query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>, Without<HostClient>)>,
     ) {
-        if let Ok(timeline) = query.single() {
-            trace!(
-                "Timeline {} sets the virtual time relative speed to {}",
-                DebugName::type_name::<Synced>(),
-                timeline.relative_speed()
-            );
-            // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
-            virtual_time.set_relative_speed(timeline.relative_speed());
+        match query.single() {
+            Ok(timeline) => {
+                trace!(
+                    "Timeline {} sets the virtual time relative speed to {}",
+                    DebugName::type_name::<Synced>(),
+                    timeline.relative_speed()
+                );
+                // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
+                virtual_time.set_relative_speed(timeline.relative_speed());
+            }
+            Err(QuerySingleError::MultipleEntities(_)) => {
+                panic!("Found multiple driving timelines, this is not allowed!")
+            }
+            _ => {}
         }
     }
 
@@ -271,6 +287,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     /// - speeding up/slowing down the timeline T to match timeline Remote
     /// - emitting a [`SyncEvent<T>`]
     pub(crate) fn sync_timelines(
+        mut local_timeline: ResMut<LocalTimeline>,
         tick_duration: Res<TickDuration>,
         mut commands: Commands,
         mut query: Query<
@@ -279,7 +296,6 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 &mut Synced,
                 &Synced::Config,
                 &Remote,
-                &mut LocalTimeline,
                 &PingManager,
                 Has<IsSynced<Synced>>,
             ),
@@ -287,7 +303,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         >,
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
-        query.iter_mut().for_each(|(entity, mut sync_timeline, config, main_timeline, mut local_timeline, ping_manager, has_is_synced)| {
+        query.iter_mut().for_each(|(entity, mut sync_timeline, config, main_timeline, ping_manager, has_is_synced)| {
             trace!(?entity, ?has_is_synced, "In SyncTimelines from {:?} to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
             // return early if the remote timeline hasn't received any packets
             if !main_timeline.received_packet() {
@@ -302,7 +318,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 if DRIVING {
                     let local_tick = local_timeline.tick();
                     let synced_tick = sync_timeline.tick();
-                    local_timeline.apply_delta(TickDelta::from_i16(tick_delta));
+                    local_timeline.apply_delta(tick_delta);
                     debug!(
                         ?local_tick, ?synced_tick, ?tick_delta, new_local_tick = ?local_timeline.tick(),
                         "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", DebugName::type_name::<Synced>());
