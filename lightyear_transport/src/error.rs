@@ -3,6 +3,7 @@ use crate::channel::receivers::error::ChannelReceiveError;
 use crate::packet::error::PacketError;
 use bytes::Bytes;
 use crossbeam_channel::TrySendError;
+use crate::channel::registry::ChannelId;
 
 pub type Result<T> = core::result::Result<T, TransportError>;
 #[derive(thiserror::Error, Debug)]
@@ -13,6 +14,8 @@ pub enum TransportError {
     PacketError(#[from] PacketError),
     #[error("channel {0:?} was not found")]
     ChannelNotFound(ChannelKind),
+    #[error("channel {0:?} was not found")]
+    ChannelIdNotFound(ChannelId),
     #[error("receiver channel error: {0}")]
     ChannelReceiveError(#[from] ChannelReceiveError),
     #[error("error sending data: {0}")]

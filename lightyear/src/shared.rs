@@ -32,6 +32,10 @@ impl Plugin for SharedPlugins {
             .add_plugins(lightyear_replication::prelude::AuthorityPlugin)
             .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
 
+        // Replicon
+        #[cfg(feature = "replication")]
+        app.add_plugins(lightyear_replicon::LightyearRepliconBackend);
+
         // IO
         #[cfg(feature = "crossbeam")]
         app.add_plugins(lightyear_crossbeam::CrossbeamPlugin);

@@ -1,0 +1,62 @@
+[package]
+name = "lightyear_replicon"
+version = "0.25.5"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Integration with Replicon as the replication and messaging layer for Lightyear"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+std = ["lightyear_transport/std"]
+client = []
+server = ["lightyear_connection/server"]
+prediction = []
+interpolation = []
+deterministic = []
+trace = []
+metrics = ["dep:metrics", "std", "lightyear_utils/metrics"]
+test_utils = []
+avian2d = ["dep:avian2d"]
+avian3d = ["dep:avian3d"]
+
+[dependencies]
+lightyear_utils.workspace = true
+lightyear_core.workspace = true
+lightyear_connection.workspace = true
+lightyear_link.workspace = true
+lightyear_replication.workspace = true
+lightyear_transport.workspace = true
+lightyear_serde.workspace = true
+
+# utils
+metrics = { workspace = true, optional = true }
+serde.workspace = true
+tracing.workspace = true
+
+# bevy
+bevy_app.workspace = true
+bevy_ecs = { workspace = true, features = ["bevy_reflect"] }
+bevy_reflect.workspace = true
+bevy_time.workspace = true
+bevy_utils.workspace = true
+
+
+# replication
+bevy_replicon.workspace = true
+
+# avian
+avian2d = { workspace = true, optional = true }
+avian3d = { workspace = true, optional = true }
+
+
+[dev-dependencies]
+test-log.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

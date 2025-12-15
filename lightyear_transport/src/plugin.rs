@@ -19,7 +19,7 @@ use bytes::Bytes;
 use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::prelude::client::Disconnected;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
@@ -261,11 +261,11 @@ impl TransportPlugin {
     /// Upload the packets to the [`Link`]
     fn buffer_send(
         real_time: Res<Time<Real>>,
+        timeline: Res<LocalTimeline>,
         mut query: Query<
             (
                 &mut Link,
                 &mut Transport,
-                &LocalTimeline,
                 Option<&mut HostClient>,
             ),
             With<Linked>,
@@ -274,9 +274,8 @@ impl TransportPlugin {
     ) {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("transport/send");
-
-        query.par_iter_mut().for_each(|(mut link, mut transport, timeline, host_client)| {
-            let tick = timeline.tick();
+        let tick = timeline.tick();
+        query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
 

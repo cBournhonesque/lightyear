@@ -57,6 +57,7 @@ client = [
   "lightyear_netcode?/client",
   "lightyear_raw_connection?/client",
   "lightyear_replication?/client",
+  "lightyear_replicon?/client",
   "lightyear_steam?/client",
   "lightyear_sync/client",
   "lightyear_transport/client",
@@ -75,6 +76,7 @@ server = [
   "lightyear_prediction?/server",
   "lightyear_raw_connection?/server",
   "lightyear_replication?/server",
+  "lightyear_replicon?/server",
   "lightyear_steam?/server",
   "lightyear_sync/server",
   "lightyear_transport/server",
@@ -91,7 +93,7 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables replicating entities between two peers
-replication = ["dep:lightyear_replication"]
+replication = ["dep:lightyear_replication", "dep:lightyear_replicon"]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
@@ -188,6 +190,7 @@ lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
 lightyear_metrics = { workspace = true, optional = true }
 lightyear_replication = { workspace = true, optional = true }
+lightyear_replicon = { workspace = true, optional = true }
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true
 lightyear_serde.workspace = true
