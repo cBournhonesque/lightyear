@@ -13,7 +13,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use lightyear_core::history_buffer::HistoryBuffer;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::prelude::Server;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
@@ -163,7 +163,8 @@ fn update_collision_layers(
 /// The Position and Rotation will be used to compute an interpolated collider in the narrow-phase.
 fn update_collider_history(
     // TODO: check the Replicate component to only affect entities that are replicated on a Server
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
+    server: Single<(), With<Server>>,
     config: Res<LagCompensationConfig>,
     mut parent_query: Query<
         (

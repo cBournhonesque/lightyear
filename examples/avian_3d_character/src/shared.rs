@@ -185,7 +185,7 @@ pub fn apply_character_action(
 }
 
 pub(crate) fn fixed_last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -197,14 +197,12 @@ pub(crate) fn fixed_last_log(
         With<CharacterMarker>,
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
     for (entity, position, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.axis_pair(&CharacterAction::Move));
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,
@@ -217,7 +215,7 @@ pub(crate) fn fixed_last_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -229,12 +227,10 @@ pub(crate) fn last_log(
         With<CharacterMarker>,
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
     for (entity, position, transform, interpolate, correction) in players.iter() {
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,

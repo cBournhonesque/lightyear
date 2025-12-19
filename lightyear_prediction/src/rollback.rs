@@ -21,7 +21,7 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
@@ -159,6 +159,7 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -206,16 +207,13 @@ impl DeterministicPredicted {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         // TODO: avoid fetching DeterministicPredicted twice when we can convert DeferredWorld to UnsafeWorldCell (0.17.3)
         let deterministic_predicted = *world.get::<DeterministicPredicted>(context.entity).unwrap();
+        let tick = world.resource::<LocalTimeline>().tick();
         let Some(prediction_manager_entity) = world
             .get_resource::<PredictionResource>()
             .map(|r| r.link_entity)
         else {
             return;
         };
-        let tick = world
-            .get::<LocalTimeline>(prediction_manager_entity)
-            .unwrap()
-            .tick();
         let Some(mut manager) = world.get_mut::<PredictionManager>(prediction_manager_entity)
         else {
             return;
@@ -249,6 +247,7 @@ fn check_rollback(
     // we want Query<(&mut PredictionHistory<C>, &Confirmed<C>), With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
+    timeline: Res<LocalTimeline>,
     receiver_query: Single<
         (
             Entity,
@@ -256,7 +255,6 @@ fn check_rollback(
             Option<&LastConfirmedInput>,
             &mut PredictionManager,
             &mut PreSpawnedReceiver,
-            &LocalTimeline,
         ),
         (With<IsSynced<InputTimeline>>, Without<HostClient>),
     >,
@@ -280,9 +278,8 @@ fn check_rollback(
         last_confirmed_input,
         mut prediction_manager,
         mut prespawned_receiver,
-        local_timeline,
     ) = receiver_query.into_inner();
-    let tick = local_timeline.tick();
+    let tick = timeline.tick();
     let received_state = replication_receiver.received_this_frame;
     let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
     let mut skip_state_check = false;
@@ -512,16 +509,11 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
-    client: Single<
-        (
-            &LocalTimeline,
-            AnyOf<(&LastConfirmedInput, &PredictionManager)>,
-        ),
-        With<IsSynced<InputTimeline>>,
-    >,
+    timeline: Res<LocalTimeline>,
+    client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<IsSynced<InputTimeline>>>,
 ) {
-    let (local_timeline, (last_confirmed_input, prediction_manager)) = client.into_inner();
-    let tick = local_timeline.tick();
+    let (last_confirmed_input, prediction_manager) = client.into_inner();
+    let tick = timeline.tick();
 
     // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
     if let Some(last_confirmed_input) = last_confirmed_input {
@@ -564,6 +556,7 @@ pub(crate) fn remove_prediction_disable(
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn prepare_rollback<C: SyncComponent>(
+    timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
     component_registry: Res<ComponentRegistry>,
     mut commands: Commands,
@@ -580,10 +573,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         ),
         Without<DisableRollback>,
     >,
-    manager_query: Single<(&LocalTimeline, &PredictionManager, &Rollback)>,
+    manager_query: Single<(&PredictionManager, &Rollback)>,
 ) {
     let kind = DebugName::type_name::<C>();
-    let (timeline, manager, rollback) = manager_query.into_inner();
+    let (manager, rollback) = manager_query.into_inner();
     let current_tick = timeline.tick();
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
@@ -781,22 +774,21 @@ pub(crate) fn run_rollback(world: &mut World) {
     #[cfg(feature = "metrics")]
     let _timer = TimerGauge::new("prediction::rollback");
 
-    let (mut local_timeline, prediction_manager) = world
-        .query::<(&mut LocalTimeline, &PredictionManager)>()
-        .single_mut(world)
-        .unwrap();
-
-    // NOTE: all predicted entities should be on the same tick!
-    // TODO: might not need to check the state, because we only run this system if we are in rollback
+    let local_timeline = world.resource_mut::<LocalTimeline>();
     let current_tick = local_timeline.tick();
-    let rollback_start_tick = prediction_manager
+    let rollback_start_tick = world
+        .query::<&PredictionManager>()
+        .single(world)
+        .unwrap()
         .get_rollback_start_tick()
         .expect("we should be in rollback");
 
     // NOTE: we reverted all components to the end of `current_roll
     let num_rollback_ticks = current_tick - rollback_start_tick;
     // reset the local timeline to be at the end of rollback_start_tick and we want to reach the end of current_tick
-    local_timeline.apply_delta((-num_rollback_ticks).into());
+    world
+        .resource_mut::<LocalTimeline>()
+        .apply_delta(-num_rollback_ticks);
     debug!(
         "Rollback between {:?} and {:?}",
         rollback_start_tick, current_tick

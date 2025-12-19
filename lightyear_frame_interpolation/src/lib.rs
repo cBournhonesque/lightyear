@@ -56,7 +56,6 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
@@ -191,8 +190,8 @@ pub struct SkipFrameInterpolation;
 /// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
 pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
     time: Res<Time<Fixed>>,
+    timeline: Res<LocalTimeline>,
     registry: Res<InterpolationRegistry>,
-    timeline: Single<&LocalTimeline, With<Client>>,
     mut query: Query<(
         &mut C,
         &mut FrameInterpolate<C>,
@@ -200,7 +199,7 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
     )>,
 ) {
     let kind = DebugName::type_name::<C>();
-    let tick = timeline.now.tick();
+    let tick = timeline.tick();
     // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
     //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
     let overstep = time.overstep_fraction();

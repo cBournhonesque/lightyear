@@ -7,12 +7,8 @@ use crate::timeline::input::InputTimelineConfig;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy_app::prelude::*;
-use bevy_ecs::prelude::*;
 use lightyear_connection::client::Client;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, NetworkTimelinePlugin};
-use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::SyncEvent;
-use tracing::info;
+use lightyear_core::prelude::NetworkTimelinePlugin;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?
@@ -21,21 +17,6 @@ use tracing::info;
 //      what decides
 //  - we update
 pub struct ClientPlugin;
-
-impl ClientPlugin {
-    pub fn update_local_timeline(
-        trigger: On<SyncEvent<InputTimelineConfig>>,
-        mut query: Query<&mut LocalTimeline>,
-    ) {
-        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
-            info!(
-                "TickDelta: {:?} applied to local timeline",
-                trigger.tick_delta
-            );
-            timeline.apply_delta(TickDelta::from_i16(trigger.tick_delta));
-        }
-    }
-}
 
 // TODO: we might need a separate Predicted<Virtual> and Predicted<FixedUpdate>, and Predicted<()> fetches the correct one
 //  depending on the Schedule? exactly like bevy does
@@ -72,7 +53,6 @@ impl Plugin for ClientPlugin {
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
 
-        // TODO: should the DrivingTimeline be configurable?
         // the client will use the Input timeline as the driving timeline
         app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
 

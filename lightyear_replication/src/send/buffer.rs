@@ -26,7 +26,7 @@ use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{LocalTimeline, NetworkTimeline};
+use lightyear_core::timeline::LocalTimeline;
 use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;
@@ -42,12 +42,12 @@ pub(crate) fn replicate(
     // query &C + various replication components
     // we know that we always query Replicate from the parent
     mut query: ParamSet<(Query<FilteredEntityRef>, Query<&mut ReplicationState>)>,
+    timeline: Res<LocalTimeline>,
     mut manager_query: Query<
         (
             Entity,
             &mut ReplicationSender,
             &mut MessageManager,
-            &LocalTimeline,
             Option<&DeltaManager>,
             Option<&LinkOf>,
         ),
@@ -66,6 +66,8 @@ pub(crate) fn replicate(
     #[cfg(feature = "metrics")]
     let _timer = DormantTimerGauge::new("replication/buffer");
 
+    let tick = timeline.tick();
+
     replicated_archetypes.update(archetypes, components, component_registry.as_ref());
 
     // NOTE: this system doesn't handle delta compression, because we need to store a shared component history
@@ -75,7 +77,7 @@ pub(crate) fn replicate(
     // past ticks where the component changes.
     let p0 = query.p0();
     manager_query.par_iter_mut().for_each(
-        |(sender_entity, mut sender, mut message_manager, timeline, delta_manager, link_of)| {
+        |(sender_entity, mut sender, mut message_manager, delta_manager, link_of)| {
 
             let _span = trace_span!("replicate", sender = ?sender_entity).entered();
 
@@ -93,7 +95,7 @@ pub(crate) fn replicate(
                 .or_else(|| {
                     link_of.and_then(|l| delta_query.get(l.server).ok())
                 });
-            let tick = timeline.tick();
+
 
             // update the change ticks
             sender.last_run = sender.this_run;
@@ -156,7 +158,7 @@ pub(crate) fn replicate(
     // update the metadata that tracks on which sender the entity was sent
     manager_query
         .iter_mut()
-        .for_each(|(sender_entity, mut sender, _, _, _, _)| {
+        .for_each(|(sender_entity, mut sender, _, _, _)| {
             sender.new_spawns.drain(..).for_each(|e| {
                 if let Ok(mut state) = query.p1().get_mut(e)
                     && let Some(s) = state.per_sender_state.get_mut(&sender_entity)

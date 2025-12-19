@@ -4,7 +4,7 @@ use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
 use crate::stepper::*;
 use bevy::prelude::{Name, default};
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
@@ -282,27 +282,27 @@ fn test_component_update_after_tick_wrap() {
     // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
     // systems would not run)
     stepper
-        .client_mut(0)
-        .get_mut::<LocalTimeline>()
-        .unwrap()
-        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
+        .client_app()
+        .world_mut()
+        .resource_mut::<LocalTimeline>()
+        .apply_delta((u16::MAX / 3 + 10) as i16);
     stepper
-        .client_of_mut(0)
-        .get_mut::<LocalTimeline>()
-        .unwrap()
-        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
+        .server_app
+        .world_mut()
+        .resource_mut::<LocalTimeline>()
+        .apply_delta((u16::MAX / 3 + 10) as i16);
     stepper.frame_step(1);
 
     stepper
-        .client_mut(0)
-        .get_mut::<LocalTimeline>()
-        .unwrap()
-        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
+        .client_app()
+        .world_mut()
+        .resource_mut::<LocalTimeline>()
+        .apply_delta((u16::MAX / 3 + 10) as i16);
     stepper
-        .client_of_mut(0)
-        .get_mut::<LocalTimeline>()
-        .unwrap()
-        .apply_duration(tick_duration * ((u16::MAX / 3 + 10) as u32), tick_duration);
+        .server_app
+        .world_mut()
+        .resource_mut::<LocalTimeline>()
+        .apply_delta((u16::MAX / 3 + 10) as i16);
     stepper.frame_step(1);
 
     stepper

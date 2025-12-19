@@ -37,7 +37,7 @@ fn handle_character_actions(
     // character actions and so we don't want to apply the character
     // actions twice. This excludes host-server mode since there are multiple timelines
     // when running in host-server mode.
-    timeline: Single<&LocalTimeline>,
+    timeline: Res<LocalTimeline>,
 ) {
     let tick = timeline.tick();
     for (entity, computed_mass, action_state, forces) in &mut query {

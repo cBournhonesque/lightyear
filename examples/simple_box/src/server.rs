@@ -74,7 +74,7 @@ pub(crate) fn handle_connected(
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     mut position_query: Query<
         (&mut PlayerPosition, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities

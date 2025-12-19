@@ -1114,7 +1114,7 @@ impl Replicate {
                         Entity,
                         &mut Commands,
                     )| {
-                        match &replicate.mode {
+                        match mode {
                             ReplicationMode::SingleSender => {
                                 todo!()
                             }

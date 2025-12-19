@@ -115,19 +115,17 @@ pub(crate) fn rotate_player(
 
 pub(crate) fn move_player(
     trigger: On<Fire<MovePlayer>>,
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
     mut player: Query<&mut Position, Without<Interpolated>>,
     is_bot: Query<(), With<Bot>>,
 ) {
-    let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     const PLAYER_MOVE_SPEED: f32 = 1.5;
     if let Ok(mut position) = player.get_mut(trigger.context) {
         if is_bot.get(trigger.context).is_ok() {
             debug!(
                 ?tick,
-                ?is_rollback,
                 ?position,
                 "Moving player {:?} by {:?}",
                 trigger.context,
@@ -151,14 +149,13 @@ pub(crate) fn move_player(
 }
 
 pub(crate) fn fixed_update_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>)>,
     // predicted_bullet: Query<
     //     (Entity, &Position, Option<&PredictionHistory<Position>>),
     //     (With<BulletMarker>, Without<Confirmed>),
     // >,
 ) {
-    let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, pos) in player.iter() {
         debug!(?tick, ?entity, ?pos, "Player after fixed update");
@@ -175,14 +172,8 @@ pub(crate) fn fixed_update_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<
-        (
-            &LocalTimeline,
-            Option<&InterpolationTimeline>,
-            Has<Rollback>,
-        ),
-        Without<ClientOf>,
-    >,
+    timeline: Res<LocalTimeline>,
+    interpolation_timeline: Query<&InterpolationTimeline>,
     player: Query<
         (
             Entity,
@@ -204,9 +195,8 @@ pub(crate) fn last_log(
         (With<BulletMarker>, With<Interpolated>),
     >,
 ) {
-    let (timeline, interpolation_timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
-    let interpolate_tick = interpolation_timeline.map(|t| t.tick());
+    let interpolate_tick = interpolation_timeline.iter().next().map(|t| t.tick());
     for (entity, pos, confirmed, rotation, transform) in player.iter() {
         debug!(
             ?tick,
@@ -236,7 +226,7 @@ pub(crate) fn last_log(
 pub(crate) fn shoot_weapon(
     trigger: On<Complete<Shoot>>,
     mut commands: Commands,
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     time: Res<Time>,
     tick_duration: Res<TickDuration>,
     query: SpatialQuery,
@@ -375,7 +365,7 @@ mod hit_detection {
         trigger: On<Add, HitscanVisual>,
         commands: Commands,
         server: Query<Entity, With<Server>>,
-        timeline: Query<&LocalTimeline, Without<ClientOf>>,
+        timeline: Res<LocalTimeline>,
         mode: Query<&GameReplicationMode, With<ClientContext>>,
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
         bullet: Query<(&HitscanVisual, &BulletMarker, &PlayerId)>,
@@ -387,10 +377,6 @@ mod hit_detection {
         mut hit_sender: Query<(&LocalId, &mut EventSender<HitDetected>), With<Client>>,
         mut player_query: Query<AnyOf<(&mut Score, &ControlledBy, &Predicted)>, With<PlayerMarker>>,
     ) {
-        let Ok(timeline) = timeline.single() else {
-            info!("no unique timeline");
-            return;
-        };
         let Ok(mode) = mode.single() else {
             info!("no unique mode");
             return;
@@ -509,7 +495,7 @@ mod hit_detection {
     pub(crate) fn bullet_hit_detection(
         mut commands: Commands,
         server: Query<Entity, With<Server>>,
-        timeline: Single<&LocalTimeline, Without<ClientOf>>,
+        timeline: Res<LocalTimeline>,
         mode: Single<&GameReplicationMode, With<ClientContext>>,
         mut spatial_set: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
         bullet: Query<(Entity, &Position, &LinearVelocity, &BulletMarker, &PlayerId)>,
@@ -1234,7 +1220,8 @@ pub(crate) mod direction_only {
     ///     we need to make it a system because we need to check the interpolation_tick every tick
     pub(crate) fn handle_projectile_spawn(
         mut commands: Commands,
-        timeline: Single<(&LocalTimeline, Option<&InterpolationTimeline>), Without<ClientOf>>,
+        timeline: Res<LocalTimeline>,
+        interpolation_timeline: Query<&InterpolationTimeline>,
         tick_duration: Res<TickDuration>,
         spawn_query: Query<
             (Entity, &ProjectileSpawn, Has<Interpolated>),
@@ -1242,18 +1229,18 @@ pub(crate) mod direction_only {
             Without<Bullets>,
         >,
     ) {
-        let (local_timeline, interpolated_timeline) = timeline.into_inner();
-        let current_tick = local_timeline.tick();
+        let current_tick = timeline.tick();
+        let interpolated_timeline = interpolation_timeline.iter().next().map(|t| t.tick());
         spawn_query
             .iter()
             .for_each(|(entity, spawn_info, interpolated)| {
                 // TODO: account for interpolation overstep?
                 // in the interpolated case, we wait until the interpolation tick has been reached to spawn the bullet
                 if interpolated
-                    && let Some(interpolation_tick) = interpolated_timeline.map(|t| t.tick())
-                    && interpolation_tick < spawn_info.spawn_tick
+                    && interpolated_timeline.is_some()
+                    && interpolated_timeline < Some(spawn_info.spawn_tick)
                 {
-                    info!(?interpolation_tick, "Waiting for interpolation_tick to spawn ProjectileSpawn with spawn tick {:?}", spawn_info.spawn_tick);
+                    info!(?interpolated_timeline, "Waiting for interpolation_tick to spawn ProjectileSpawn with spawn tick {:?}", spawn_info.spawn_tick);
                     return;
                 }
                 match spawn_info.weapon_type {
@@ -1556,7 +1543,7 @@ mod ring_buffer {
     /// System to process ring buffer projectiles and spawn them
     pub(crate) fn update_weapon_ring_buffer(
         mut commands: Commands,
-        timeline: Single<&LocalTimeline, Without<ClientOf>>,
+        timeline: Res<LocalTimeline>,
         mut query: Query<
             (
                 Entity,

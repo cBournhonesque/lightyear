@@ -19,7 +19,6 @@ use crate::channel::Channel;
 use crate::error::TransportError;
 use crate::prelude::{ChannelRegistry, PriorityConfig};
 use crossbeam_channel::{Receiver, Sender};
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::SendPayload;
 // TODO: hook when you insert ChannelSettings, it creates a ChannelSender and ChannelReceiver component
 
@@ -56,7 +55,6 @@ impl Default for ChannelSettings {
 
 /// Holds information about all the channels present on the entity.
 #[derive(Component)]
-#[require(LocalTimeline)]
 #[require(Link)]
 pub struct Transport {
     pub send_replicon: HashMap<ChannelId, SenderMetadata>,

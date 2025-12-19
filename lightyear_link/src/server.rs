@@ -11,7 +11,7 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
-use lightyear_core::prelude::LocalTimeline;
+#[allow(unused_imports)]
 use tracing::{trace, warn};
 // TODO: should we also have a LinkId (remote addr/etc.) that uniquely identifies the link?
 
@@ -158,18 +158,6 @@ impl LinkOf {
             );
         }
     }
-
-    pub(crate) fn on_insert(
-        trigger: On<Insert, (LinkOf, LocalTimeline)>,
-        server: Query<&LocalTimeline, (Without<LinkOf>, With<Server>)>,
-        mut query: Query<(&mut LocalTimeline, &LinkOf)>,
-    ) {
-        if let Ok((mut timeline, link_of)) = query.get_mut(trigger.entity)
-            && let Ok(server_timeline) = server.get(link_of.get())
-        {
-            *timeline = server_timeline.clone();
-        }
-    }
 }
 
 pub struct ServerLinkPlugin;
@@ -178,8 +166,6 @@ impl Plugin for ServerLinkPlugin {
         if !app.is_plugin_added::<LinkPlugin>() {
             app.add_plugins(LinkPlugin);
         }
-        app.register_required_components::<Server, LocalTimeline>();
         app.add_observer(Server::unlinked);
-        app.add_observer(LinkOf::on_insert);
     }
 }

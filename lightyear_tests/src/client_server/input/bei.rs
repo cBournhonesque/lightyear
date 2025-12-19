@@ -10,7 +10,6 @@ use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIState
 use lightyear::input::bei::prelude::BEIBuffer;
 use lightyear::input::input_message::ActionStateQueryData;
 use lightyear::input::input_message::ActionStateSequence;
-use lightyear_connection::client::Client;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::*;
 use lightyear_link::Link;
@@ -348,14 +347,13 @@ fn test_client_rollback() {
     // We rollback to client_tick - 1, because the first FixedPreUpdate will bring us to `client_tick`
     trigger_state_rollback(&mut stepper, client_tick - 1);
 
-    let assert_action_duration =
-        move |client: Single<&LocalTimeline, With<Client>>, query: Single<&ActionTime>| {
-            let tick = client.tick();
-            if tick == client_tick {
-                let action_time = query.into_inner();
-                assert_eq!(action_time.fired_secs, TICK_DURATION.as_secs_f32() * 2.0);
-            }
-        };
+    let assert_action_duration = move |timeline: Res<LocalTimeline>, query: Single<&ActionTime>| {
+        let tick = timeline.tick();
+        if tick == client_tick {
+            let action_time = query.into_inner();
+            assert_eq!(action_time.fired_secs, TICK_DURATION.as_secs_f32() * 2.0);
+        }
+    };
     stepper
         .client_app()
         .add_systems(FixedPostUpdate, assert_action_duration);

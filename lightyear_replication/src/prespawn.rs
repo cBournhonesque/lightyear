@@ -22,11 +22,9 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
-use core::ops::Deref;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
-use lightyear_link::prelude::Server;
+use lightyear_core::prelude::{LocalTimeline, Tick};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 #[cfg(feature = "client")]
@@ -69,27 +67,24 @@ impl PreSpawnedPlugin {
     /// For all newly added prespawn hashes, register them in the prediction manager
     pub(crate) fn register_prespawn_hashes(
         trigger: On<Add, PreSpawned>,
+        timeline: Res<LocalTimeline>,
         query: Query<
             &PreSpawned,
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        mut manager_query: Query<
-            (&LocalTimeline, &mut PreSpawnedReceiver),
-            (With<Connected>, Without<HostClient>),
-        >,
+        mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
     ) {
         let entity = trigger.entity;
+        let tick = timeline.tick();
         if let Ok(prespawn) = query.get(entity)
-            && let Ok((timeline, mut prespawned_receiver)) = match prespawn.receiver {
+            && let Ok(mut prespawned_receiver) = match prespawn.receiver {
                 None => manager_query.single_mut(),
                 Some(receiver) => manager_query
                     .get_mut(receiver)
                     .map_err(|_| QuerySingleError::NoEntities(DebugName::borrowed(""))),
             }
         {
-            let tick = timeline.tick();
-
             // the hash can be None when PreSpawned is inserted, but the component
             // hook will calculate it, so it can't be None here.
             let hash = prespawn
@@ -131,12 +126,12 @@ impl PreSpawnedPlugin {
     /// Cleanup the client prespawned entities for which we couldn't find a mapped server entity
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
-        manager_query: Single<(&LocalTimeline, &mut PreSpawnedReceiver)>,
+        local_timeline: Res<LocalTimeline>,
+        manager_query: Single<&mut PreSpawnedReceiver>,
     ) {
-        let (timeline, mut manager) = manager_query.into_inner();
-        // enable split borrows
+        let tick = local_timeline.tick();
+        let mut manager = manager_query.into_inner();
         let manager = &mut *manager;
-        let tick = timeline.tick();
 
         // TODO: choose a past tick based on the replication frequency received.
         let past_tick = tick - 50;
@@ -339,22 +334,7 @@ impl PreSpawned {
 
         // Compute the hash of the prespawned entity by hashing the type of all its components along with the tick at which it was created
         // ignore replicated entities, we only want to iterate through entities spawned on the client directly
-        let tick = if let Some(receiver) = prespawned_obj.receiver
-            && let Some(local_timeline) = deferred_world.get::<LocalTimeline>(receiver)
-        {
-            local_timeline.tick()
-        } else {
-            // TODO: cache the query state in a resource to avoid re-creating a QueryState every time the hook runs? (which would mean re-processing all archetypes)
-            let mut query_state = QueryState::<
-                &LocalTimeline,
-                Or<(With<Server>, With<PreSpawnedReceiver>)>,
-            >::try_new(deferred_world.deref())
-            .unwrap();
-            query_state
-                .single(deferred_world.deref())
-                .expect("No Server or Client with PreSpawnedReceiver was found")
-                .tick()
-        };
+        let tick = deferred_world.resource::<LocalTimeline>().tick();
         let components = deferred_world.components();
         let component_registry = deferred_world.resource::<ComponentRegistry>();
         let entity_ref = deferred_world.entity(entity);

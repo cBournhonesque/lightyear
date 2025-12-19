@@ -113,6 +113,11 @@ impl LocalTimeline {
     pub fn tick(&self) -> Tick {
         self.tick
     }
+
+    /// Increment the LocalTimeline by `delta`
+    pub fn apply_delta(&mut self, delta: i16) {
+        self.tick = self.tick + delta;
+    }
 }
 
 /// Increment the local tick at each FixedUpdate
@@ -158,6 +163,7 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<LocalTimeline>();
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut()
             .resource_mut::<Time<Fixed>>()

@@ -33,7 +33,7 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationSystems};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::delta::Diffable;
@@ -84,8 +84,7 @@ pub(crate) fn update_frame_interpolation_post_rollback<
     D: Debug + Send + Sync + 'static,
 >(
     time: Res<Time<Fixed>>,
-    // only run if there is a VisualCorrection<C> to do.
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    timeline: Res<LocalTimeline>,
     registry: Res<InterpolationRegistry>,
     mut query: Query<(
         Entity,

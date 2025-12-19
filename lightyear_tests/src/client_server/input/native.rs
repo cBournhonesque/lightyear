@@ -3,7 +3,6 @@ use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::input::server::InputRebroadcaster;
-use lightyear::prelude::NetworkTimeline;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, Rollback};
@@ -282,14 +281,15 @@ fn test_input_broadcasting_prediction() {
 
     // check that during rollbacks, we fetch the input value from the input buffer even for remote inputs
     let check_input =
-        move |c: Single<&LocalTimeline, With<Rollback>>,
+        move |timeline: Res<LocalTimeline>,
+              c: Single<(), With<Rollback>>,
               q: Single<&ActionState<MyInput>, Without<InputMarker<MyInput>>>| {
+            let tick = timeline.tick();
             info!(
                 "Checking input value {:?} during rollback. Tick: {:?}",
-                q.0,
-                c.tick()
+                q.0, tick
             );
-            if c.tick() == client1_tick {
+            if tick == client1_tick {
                 info!("checking that we fetch old value from the buffer");
                 assert_eq!(
                     q.0,
@@ -297,7 +297,7 @@ fn test_input_broadcasting_prediction() {
                     "During rollback, we should fetch the ActionState from the buffer",
                 );
             }
-            if c.tick() == client1_tick + 3 {
+            if tick == client1_tick + 3 {
                 info!(
                     "checking that the action state stays correct for ticks for which we don't have an input in the buffer. (we predict that it stays the same)"
                 );

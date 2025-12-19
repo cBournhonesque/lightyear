@@ -33,7 +33,6 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::{LocalTimeline, Predicted};
-use lightyear_core::timeline::NetworkTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, RemoteEvent};
@@ -131,7 +130,6 @@ impl ReplicationReceivePlugin {
                 With<Connected>,
                 With<ReplicationReceiver>,
                 With<MessageManager>,
-                With<LocalTimeline>,
             ),
         >,
         authority: &mut QueryState<Entity, With<AuthorityBroker>>,
@@ -140,6 +138,8 @@ impl ReplicationReceivePlugin {
     ) {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("replication/apply");
+
+        let tick = world.resource::<LocalTimeline>().tick();
 
         // we first collect the entities we need into a buffer
         // We cannot use query.iter() and &mut World at the same time as this would be UB because they both access Archetypes
@@ -166,13 +166,12 @@ impl ReplicationReceivePlugin {
                 // SAFETY: all these accesses don't conflict with the way we use World, which is to spawn new entities
                 //  from the replication messages
                 let mut entity_mut = unsafe { unsafe_world.world_mut() }.entity_mut(entity);
-                let (needs_authority, mut receiver, mut manager, local_timeline) = unsafe {
+                let (needs_authority, mut receiver, mut manager) = unsafe {
                     entity_mut
                         .get_components_mut_unchecked::<(
                             Has<ReplicationSender>,
                             &mut ReplicationReceiver,
                             &mut MessageManager,
-                            &LocalTimeline,
                         )>()
                         .unwrap()
                 };
@@ -180,7 +179,6 @@ impl ReplicationReceivePlugin {
                 // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
                 let world = unsafe { unsafe_world.world_mut() };
 
-                let tick = local_timeline.tick();
                 receiver.apply_world(
                     world,
                     entity,

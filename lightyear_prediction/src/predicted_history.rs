@@ -1,14 +1,12 @@
 //! Managed the history buffer, which is a buffer of the past predicted component states,
 //! so that whenever we receive an update from the server we can compare the predicted entity's history with the server update.
 use crate::Predicted;
-use crate::manager::PredictionManager;
-use crate::plugin::PredictionFilter;
 use crate::rollback::DeterministicPredicted;
 use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
 use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::prelude::{Confirmed, PreSpawned};
 use lightyear_sync::prelude::InputTimelineConfig;
@@ -22,7 +20,7 @@ pub type PredictionHistory<C> = HistoryBuffer<C>;
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
@@ -66,7 +64,7 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: On<Remove, C>,
     mut predicted_query: Query<&mut PredictionHistory<C>>,
-    timeline: Single<&LocalTimeline, PredictionFilter>,
+    timeline: Res<LocalTimeline>,
 ) {
     let tick = timeline.tick();
     // if the component was removed from the Predicted entity, add the Removal to the history

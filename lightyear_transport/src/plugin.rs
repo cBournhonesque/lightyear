@@ -266,10 +266,7 @@ impl TransportPlugin {
             (
                 &mut Link,
                 &mut Transport,
-                Option<&mut HostClient>,
-            ),
-            With<Linked>,
-        >,
+                Option<&mut HostClient>), With<Linked>>,
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]

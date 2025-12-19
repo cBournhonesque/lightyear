@@ -4,7 +4,6 @@
 //! mispredictions/rollbacks.
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::connection::client_of::ClientOf;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SharedSettings;
 
@@ -27,12 +26,12 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
 // This system defines how we update the player's positions when we receive an input
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: Vec2) {
     const MOVE_SPEED: f32 = 10.0;
-    position.y += input.y * MOVE_SPEED;
-    position.x += input.x * MOVE_SPEED;
+    position.0.y += input.y * MOVE_SPEED;
+    position.0.x += input.x * MOVE_SPEED;
 }
 
 pub(crate) fn confirmed_log(
-    timeline: Single<&LocalTimeline, With<Client>>,
+    timeline: Res<LocalTimeline>,
     players: Query<(Entity, &Confirmed<PlayerPosition>), Changed<Confirmed<PlayerPosition>>>,
 ) {
     let tick = timeline.tick();
@@ -42,36 +41,27 @@ pub(crate) fn confirmed_log(
 }
 
 pub(crate) fn interpolate_log(
-    timeline: Single<&LocalTimeline, Or<(With<Client>, Without<ClientOf>)>>,
-    players: Query<
-        (Entity, &PlayerPosition, &ConfirmedHistory<PlayerPosition>),
-        With<Interpolated>,
-    >,
+    timeline: Res<LocalTimeline>,
+    players: Query<(Entity, &PlayerPosition), With<Interpolated>>,
 ) {
     let tick = timeline.tick();
-    for status in players.iter() {
-        trace!(?tick, ?status, "Interpolation");
+    for (entity, position) in players.iter() {
+        trace!(?tick, ?entity, ?position, "Interpolation");
     }
 }
 
 pub(crate) fn fixed_post_log(
-    timeline: Single<
-        (&LocalTimeline, Has<Rollback>),
-        // Without<Client>
-        Or<(With<Client>, Without<ClientOf>)>,
-    >,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (Entity, &PlayerPosition),
         // (Entity, &PlayerPosition, &ActionState<Inputs>, &InputBuffer<ActionState<Inputs>>),
         With<PlayerId>,
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     // for (entity, position, action_state, input_buffer) in players.iter() {
     for (entity, position) in players.iter() {
         trace!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,

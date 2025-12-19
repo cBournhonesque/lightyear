@@ -16,7 +16,6 @@ fn test_setup_client_server() {
     assert!(stepper.client(0).contains::<PingManager>());
     assert!(stepper.client(0).contains::<InputTimeline>());
     assert!(stepper.client(0).contains::<RemoteTimeline>());
-    assert!(stepper.client(0).contains::<LocalTimeline>());
     assert!(stepper.client(0).contains::<InterpolationTimeline>());
     assert!(stepper.client(0).contains::<Transport>());
     assert!(stepper.client(0).contains::<MessageManager>());
@@ -36,10 +35,8 @@ fn test_setup_client_server() {
     assert!(stepper.client(0).contains::<LocalId>());
     assert!(stepper.client(0).contains::<RemoteId>());
 
-    assert!(stepper.server().contains::<LocalTimeline>());
     assert!(stepper.server().contains::<Started>());
 
-    assert!(stepper.client_of(0).contains::<LocalTimeline>());
     assert!(stepper.client_of(0).contains::<Transport>());
     assert!(stepper.client_of(0).contains::<MessageManager>());
     assert!(

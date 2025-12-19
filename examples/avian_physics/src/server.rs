@@ -74,7 +74,7 @@ fn setup(mut commands: Commands) {
 /// Read client inputs and move players
 /// NOTE: this system can now be run in both client/server!
 pub(crate) fn movement(
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     mut action_query: Query<(
         Entity,
         &Position,

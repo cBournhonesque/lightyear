@@ -69,7 +69,7 @@ fn despawn_system(
 
 fn player_shoot(
     mut commands: Commands,
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     query: Query<(&ActionState<CharacterAction>, &Position, &ControlledBy), Without<Predicted>>,
     time: Res<Time<Fixed>>,
 ) {
