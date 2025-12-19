@@ -21,7 +21,7 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
@@ -510,10 +510,7 @@ fn check_rollback(
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
     timeline: Res<LocalTimeline>,
-    client: Single<
-        AnyOf<(&LastConfirmedInput, &PredictionManager)>,
-        With<IsSynced<InputTimeline>>,
-    >,
+    client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<IsSynced<InputTimeline>>>,
 ) {
     let (last_confirmed_input, prediction_manager) = client.into_inner();
     let tick = timeline.tick();
@@ -789,7 +786,9 @@ pub(crate) fn run_rollback(world: &mut World) {
     // NOTE: we reverted all components to the end of `current_roll
     let num_rollback_ticks = current_tick - rollback_start_tick;
     // reset the local timeline to be at the end of rollback_start_tick and we want to reach the end of current_tick
-    world.resource_mut::<LocalTimeline>().apply_delta(-num_rollback_ticks);
+    world
+        .resource_mut::<LocalTimeline>()
+        .apply_delta(-num_rollback_ticks);
     debug!(
         "Rollback between {:?} and {:?}",
         rollback_start_tick, current_tick

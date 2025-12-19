@@ -304,14 +304,7 @@ fn get_action_state<S: ActionStateSequence>(
     local_timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
-    sender: Single<
-        (
-            &InputTimeline,
-            &InputTimelineConfig,
-            Has<Rollback>,
-        ),
-        Without<HostClient>,
-    >,
+    sender: Single<(&InputTimeline, &InputTimelineConfig, Has<Rollback>), Without<HostClient>>,
 
     // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -686,16 +679,13 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    last_confirmed_input: Single<
-        (&LastConfirmedInput, &InputTimelineConfig),
-        With<Client>,
-    >,
+    last_confirmed_input: Single<(&LastConfirmedInput, &InputTimelineConfig), With<Client>>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot, S::Action>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (last_confirmed_input, input_config ) = last_confirmed_input.into_inner();
+    let (last_confirmed_input, input_config) = last_confirmed_input.into_inner();
     let tick = timeline.tick();
     // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
     // we will just use the current tick as the last confirmed input tick

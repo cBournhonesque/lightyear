@@ -33,7 +33,7 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationSystems};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_replication::delta::Diffable;

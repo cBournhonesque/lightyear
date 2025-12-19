@@ -32,6 +32,5 @@ fn main() {
 // 2nd update:
 // Same, but Message::send: 5us
 
-
 // Results: after switching to ReplicateState (61e848e79f89e313f6455936ed99474c87217836)
 // Exactly the same results.

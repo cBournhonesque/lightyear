@@ -26,7 +26,7 @@ use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::TickDuration;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;

@@ -13,7 +13,7 @@ use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode};
 use lightyear_prediction::prelude::*;
@@ -618,8 +618,9 @@ fn test_input_rollback_always_mode() {
     info!("Will check rollback at tick: {input_tick:?}");
 
     let check_rollback_start =
-        move |manager: Single<(&LocalTimeline, &LastConfirmedInput, &PredictionManager)>| {
-            let (timeline, last_confirmed_input, manager) = manager.into_inner();
+        move |timeline: Res<LocalTimeline>,
+              manager: Single<(&LastConfirmedInput, &PredictionManager)>| {
+            let (last_confirmed_input, manager) = manager.into_inner();
             let tick = timeline.tick();
             if tick == input_tick {
                 assert!(last_confirmed_input.received_input());
@@ -716,17 +717,18 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
     stepper.frame_step(1);
     let input_tick = stepper.client_tick(1);
 
-    let check_rollback_start = move |manager: Single<(&LocalTimeline, &PredictionManager)>| {
-        let (timeline, manager) = manager.into_inner();
-        let tick = timeline.tick();
-        if tick == input_tick {
-            assert!(manager.earliest_mismatch_input.has_mismatches());
-            let rollback_start = manager.get_rollback_start_tick();
-            // there is a mismatch only for client 1, which is enough to trigger a rollback.
-            // we trigger a rollback to the earliest mismatch, which is `input_tick`
-            assert_eq!(rollback_start.unwrap(), input_tick - 1);
-        }
-    };
+    let check_rollback_start =
+        move |timeline: Res<LocalTimeline>, manager: Single<&PredictionManager>| {
+            let manager = manager.into_inner();
+            let tick = timeline.tick();
+            if tick == input_tick {
+                assert!(manager.earliest_mismatch_input.has_mismatches());
+                let rollback_start = manager.get_rollback_start_tick();
+                // there is a mismatch only for client 1, which is enough to trigger a rollback.
+                // we trigger a rollback to the earliest mismatch, which is `input_tick`
+                assert_eq!(rollback_start.unwrap(), input_tick - 1);
+            }
+        };
     stepper.client_apps[0].add_systems(
         PreUpdate,
         check_rollback_start
@@ -751,15 +753,16 @@ fn test_no_rollback_without_input_mismatches() {
     stepper.frame_step(1);
     let input_tick = stepper.client_tick(1);
 
-    let check_rollback_start = move |manager: Single<(&LocalTimeline, &PredictionManager)>| {
-        let (timeline, manager) = manager.into_inner();
-        let tick = timeline.tick();
-        if tick == input_tick {
-            assert!(!manager.earliest_mismatch_input.has_mismatches());
-            let rollback_start = manager.get_rollback_start_tick();
-            assert!(rollback_start.is_none());
-        }
-    };
+    let check_rollback_start =
+        move |timeline: Res<LocalTimeline>, manager: Single<&PredictionManager>| {
+            let manager = manager.into_inner();
+            let tick = timeline.tick();
+            if tick == input_tick {
+                assert!(!manager.earliest_mismatch_input.has_mismatches());
+                let rollback_start = manager.get_rollback_start_tick();
+                assert!(rollback_start.is_none());
+            }
+        };
     stepper.client_apps[0].add_systems(
         PreUpdate,
         check_rollback_start

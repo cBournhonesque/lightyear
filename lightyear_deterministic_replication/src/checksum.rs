@@ -15,7 +15,7 @@ use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_inputs::InputChannel;
 use lightyear_inputs::client::InputSystems;
@@ -58,8 +58,7 @@ impl ChecksumSendPlugin {
     ) {
         let mut checksum = 0u64;
         let current_tick = local_timeline.tick();
-        let (last_confirmed_input, message_manager, mut sender) =
-            client.into_inner();
+        let (last_confirmed_input, message_manager, mut sender) = client.into_inner();
         let tick = last_confirmed_input.tick.get();
         // only compute the checksum when we have received remote inputs
         if tick > current_tick {

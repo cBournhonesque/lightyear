@@ -289,21 +289,37 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         >,
     ) {
         // TODO: return early if we haven't received any remote packets? (nothing to sync to)
-        query.iter_mut().for_each(|(entity, mut sync_timeline, config, main_timeline, ping_manager, has_is_synced)| {
-            trace!(?entity, ?has_is_synced, "In SyncTimelines from {:?} to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
-            // return early if the remote timeline hasn't received any packets
-            if !main_timeline.received_packet() {
-                return;
-            }
-            if !has_is_synced && sync_timeline.is_synced()  {
-                debug!("Timeline {:?} is synced to {:?}", DebugName::type_name::<Synced>(), DebugName::type_name::<Remote>());
-                commands.entity(entity).insert(IsSynced::<Synced>::default());
-            }
-            if let Some(tick_delta) = sync_timeline.sync(main_timeline, config, ping_manager, tick_duration.0) {
-                // if it's the driving pipeline, also update the LocalTimeline in `handle_sync_event`
-                commands.trigger(SyncEvent::<Synced::Config>::new(entity, tick_delta));
-            }
-        })
+        query.iter_mut().for_each(
+            |(entity, mut sync_timeline, config, main_timeline, ping_manager, has_is_synced)| {
+                trace!(
+                    ?entity,
+                    ?has_is_synced,
+                    "In SyncTimelines from {:?} to {:?}",
+                    DebugName::type_name::<Synced>(),
+                    DebugName::type_name::<Remote>()
+                );
+                // return early if the remote timeline hasn't received any packets
+                if !main_timeline.received_packet() {
+                    return;
+                }
+                if !has_is_synced && sync_timeline.is_synced() {
+                    debug!(
+                        "Timeline {:?} is synced to {:?}",
+                        DebugName::type_name::<Synced>(),
+                        DebugName::type_name::<Remote>()
+                    );
+                    commands
+                        .entity(entity)
+                        .insert(IsSynced::<Synced>::default());
+                }
+                if let Some(tick_delta) =
+                    sync_timeline.sync(main_timeline, config, ping_manager, tick_duration.0)
+                {
+                    // if it's the driving pipeline, also update the LocalTimeline in `handle_sync_event`
+                    commands.trigger(SyncEvent::<Synced::Config>::new(entity, tick_delta));
+                }
+            },
+        )
     }
 
     pub(crate) fn handle_sync_event(
@@ -351,6 +367,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
                     .before(Self::sync_timelines),
             );
             app.add_systems(Last, Self::update_virtual_time);
+            app.add_observer(Self::handle_sync_event);
         }
     }
 }

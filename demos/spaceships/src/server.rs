@@ -233,10 +233,7 @@ impl ServerStallStress {
     }
 }
 
-fn server_stall_system(
-    mut stall: ResMut<ServerStallStress>,
-    local_timeline: Res<LocalTimeline>,
-) {
+fn server_stall_system(mut stall: ResMut<ServerStallStress>, local_timeline: Res<LocalTimeline>) {
     if !stall.enabled() {
         return;
     }

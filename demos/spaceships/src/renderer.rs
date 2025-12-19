@@ -130,7 +130,7 @@ fn update_player_label(
         &LeafwingBuffer<PlayerActions>,
         &Score,
     )>,
-    timeline: Res<LocalTimeline>
+    timeline: Res<LocalTimeline>,
 ) {
     let tick = timeline.tick();
     for (e, player, mut label, input_buffer, score) in q.iter_mut() {

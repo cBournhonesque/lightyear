@@ -12,7 +12,7 @@ use bevy_math::curve::{EaseFunction, EasingCurve};
 use bevy_math::{Curve, Isometry3d, Vec3};
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_transform::prelude::Transform;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_frame_interpolation::{FrameInterpolate, SkipFrameInterpolation};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::{PreviousVisual, VisualCorrection};

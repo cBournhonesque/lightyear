@@ -13,7 +13,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use lightyear_core::history_buffer::HistoryBuffer;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::prelude::Server;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};

@@ -53,7 +53,7 @@ pub(crate) fn rollback_button(mut commands: Commands) {
         .observe(
             |_: On<Pointer<Click>>,
              mut commands: Commands,
-            timeline: Res<LocalTimeline>,
+             timeline: Res<LocalTimeline>,
              client: Single<(Entity, &PredictionManager)>| {
                 let (client, prediction_manager) = client.into_inner();
 
