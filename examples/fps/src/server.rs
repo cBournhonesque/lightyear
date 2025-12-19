@@ -125,7 +125,7 @@ pub(crate) fn compute_hit_lag_compensation(
     // to apply lag-compensation (i.e. compute the collision between the bullet and the collider as it
     // was seen by the client when they fired the shot)
     mut commands: Commands,
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     query: LagCompensationSpatialQuery,
     bullets: Query<
         (Entity, &PlayerId, &Position, &LinearVelocity, &ControlledBy),
@@ -176,7 +176,7 @@ pub(crate) fn compute_hit_lag_compensation(
 
 pub(crate) fn compute_hit_prediction(
     mut commands: Commands,
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     query: SpatialQuery,
     bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
     bot_query: Query<(), With<PredictedBot>>,
@@ -218,7 +218,7 @@ pub(crate) fn compute_hit_prediction(
 }
 
 fn interpolated_bot_movement(
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     mut query: Query<&mut Position, With<InterpolatedBot>>,
 ) {
     let tick = timeline.tick();

@@ -53,7 +53,7 @@ fn add_ball_physics(
 fn player_movement(
     // In host-server mode, the players are already moved by the server system so we don't want
     // to move them twice.
-    timeline: Single<&LocalTimeline, (With<Client>, Without<HostClient>)>,
+    timeline: Res<LocalTimeline>,
     mut velocity_query: Query<
         (
             Entity,

@@ -175,15 +175,13 @@ pub(crate) fn add_global_actions(trigger: On<Add, ClientContext>, mut commands: 
 }
 
 pub fn cycle_replication_mode(
-    timeline: Single<(&LocalTimeline, Has<Rollback>)>,
+    timeline: Res<LocalTimeline>,
     action: Single<(Entity, &ActionValue, &ActionEvents), With<Action<CycleReplicationMode>>>,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     let (entity, action_value, action_events) = action.into_inner();
     trace!(
         ?tick,
-        ?rollback,
         ?entity,
         "CycleReplicationMode PreUpdate action value: {:?}, events: {:?}",
         action_value,
@@ -192,15 +190,13 @@ pub fn cycle_replication_mode(
 }
 
 pub fn cycle_replication_mode_fixed_update(
-    timeline: Single<(&LocalTimeline, Has<Rollback>)>,
+    timeline: Res<LocalTimeline>,
     action: Single<(Entity, &ActionValue, &ActionEvents), With<Action<CycleReplicationMode>>>,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     let (entity, action_value, action_events) = action.into_inner();
     trace!(
         ?tick,
-        ?rollback,
         ?entity,
         "CycleReplicationMode FixedUpdate action value: {:?}, events: {:?}",
         action_value,

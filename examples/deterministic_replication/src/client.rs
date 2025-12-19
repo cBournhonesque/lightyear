@@ -27,11 +27,12 @@ impl Plugin for ExampleClientPlugin {
 /// When we receive a new player entity
 fn handle_player_spawn(
     trigger: On<Add, PlayerId>,
-    client: Single<(&LocalId, &LocalTimeline), With<Client>>,
+    client: Single<&LocalId, With<Client>>,
+    timeline: Res<LocalTimeline>,
     mut commands: Commands,
     player_query: Query<&PlayerId>,
 ) {
-    let (local_id, timeline) = client.into_inner();
+    let local_id = client.into_inner();
     let tick = timeline.tick();
 
     // store the tick when the game started, so we can remove the DisableRollback component later

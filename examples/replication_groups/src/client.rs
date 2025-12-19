@@ -115,7 +115,7 @@ pub(crate) fn handle_interpolated_spawn(
 }
 
 pub(crate) fn debug_pre_visual_interpolation(
-    timeline: Single<&LocalTimeline>,
+    timeline: Res<LocalTimeline>,
     query: Query<(&PlayerPosition, &FrameInterpolate<PlayerPosition>)>,
 ) {
     let tick = timeline.tick();
@@ -130,7 +130,7 @@ pub(crate) fn debug_pre_visual_interpolation(
 }
 
 pub(crate) fn debug_post_visual_interpolation(
-    timeline: Single<&LocalTimeline>,
+    timeline: Res<LocalTimeline>,
     query: Query<(&PlayerPosition, &FrameInterpolate<PlayerPosition>)>,
 ) {
     let tick = timeline.tick();
@@ -145,7 +145,7 @@ pub(crate) fn debug_post_visual_interpolation(
 }
 
 pub(crate) fn debug_interpolate(
-    timeline: Single<&LocalTimeline>,
+    timeline: Res<LocalTimeline>,
     parent_query: Query<(&ConfirmedHistory<PlayerPosition>,)>,
     tail_query: Query<(&PlayerParent, &ConfirmedHistory<TailPoints>)>,
 ) {

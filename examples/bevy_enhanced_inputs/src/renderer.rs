@@ -31,7 +31,7 @@ pub(crate) fn draw_boxes(mut gizmos: Gizmos, players: Query<(&PlayerPosition, &P
 
 #[cfg(feature = "client")]
 pub(crate) fn rollback_button(mut commands: Commands) {
-    use lightyear::prelude::{LocalTimeline, NetworkTimeline, PredictionManager, Rollback};
+    use lightyear::prelude::{LocalTimeline, PredictionManager, Rollback};
     commands
         .spawn((
             Text("Rollback".to_string()),
@@ -53,11 +53,12 @@ pub(crate) fn rollback_button(mut commands: Commands) {
         .observe(
             |_: On<Pointer<Click>>,
              mut commands: Commands,
-             client: Single<(Entity, &LocalTimeline, &PredictionManager)>| {
-                let (client, local_timeline, prediction_manager) = client.into_inner();
+            timeline: Res<LocalTimeline>,
+             client: Single<(Entity, &PredictionManager)>| {
+                let (client, prediction_manager) = client.into_inner();
 
                 // rollback the client to 5 ticks before the current tick
-                let tick = local_timeline.tick();
+                let tick = timeline.tick();
                 let rollback_tick = tick - 5;
                 info!("Manual rollback to tick {rollback_tick:?}. Current tick: {tick:?}");
                 commands.entity(client).insert(Rollback::FromInputs);

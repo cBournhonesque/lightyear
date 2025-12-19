@@ -4,7 +4,7 @@ use crate::send::components::ComponentReplicationOverride;
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use lightyear_core::prelude::{Interpolated, LocalTimeline, NetworkTimeline, Predicted};
+use lightyear_core::prelude::{Interpolated, LocalTimeline, Predicted};
 use lightyear_core::tick::Tick;
 use lightyear_utils::collections::EntityHashMap;
 use serde::{Deserialize, Serialize};
@@ -80,14 +80,12 @@ impl ConfirmedTick {
     /// we need to initialize the [`ConfirmedTick`] so that future replication receives can update it
     pub(crate) fn add_confirmed_tick_hook(
         trigger: On<Add, (Predicted, Interpolated)>,
-        query: Query<&Replicated, Without<ConfirmedTick>>,
-        receiver: Query<&LocalTimeline>,
+        timeline: Res<LocalTimeline>,
+        query: Query<(), Without<ConfirmedTick>>,
         mut commands: Commands,
     ) {
-        if let Ok(replicated) = query.get(trigger.entity)
-            && let Ok(timeline) = receiver.get(replicated.receiver)
-        {
-            let tick = timeline.tick();
+        let tick = timeline.tick();
+        if query.get(trigger.entity).is_ok() {
             commands
                 .entity(trigger.entity)
                 .insert(ConfirmedTick { tick });

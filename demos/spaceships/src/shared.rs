@@ -130,7 +130,7 @@ pub(crate) fn player_movement(
         (&ActionState<PlayerActions>, &Player, Forces),
         (With<Player>, Without<Interpolated>),
     >,
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
 ) {
     let tick = timeline.tick();
     for (action_state, player, forces) in q.iter_mut() {
@@ -167,13 +167,14 @@ pub fn shared_player_firing(
         &Player,
     )>,
     mut commands: Commands,
-    timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
+    is_server: Single<Has<Server>, Without<ClientOf>>,
 ) {
+    let is_server = is_server.into_inner();
     if q.is_empty() {
         return;
     }
 
-    let (timeline, is_server) = timeline.into_inner();
     let current_tick = timeline.tick();
     for (
         player_position,
@@ -258,9 +259,10 @@ pub fn shared_player_firing(
 pub(crate) fn lifetime_despawner(
     q: Query<(Entity, &BulletLifetime)>,
     mut commands: Commands,
-    timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
+    is_server: Single<Has<Server>, Without<ClientOf>>,
 ) {
-    let (timeline, is_server) = timeline.into_inner();
+    let is_server = is_server.into_inner();
     for (e, ttl) in q.iter() {
         if (timeline.tick() - ttl.origin_tick) > ttl.lifetime {
             commands.entity(e).prediction_despawn();
@@ -310,10 +312,11 @@ pub(crate) fn process_collisions(
     bullet_q: Query<(&BulletMarker, &ColorComponent, &Position)>,
     player_q: Query<&Player>,
     mut commands: Commands,
-    timeline: Single<(&LocalTimeline, Has<Server>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
+    is_server: Single<Has<Server>, Without<ClientOf>>,
     mut hit_ev_writer: MessageWriter<BulletHitMessage>,
 ) {
-    let (timeline, is_server) = timeline.into_inner();
+    let is_server = is_server.into_inner();
     let tick = timeline.tick();
     // when A and B collide, it can be reported as one of:
     // * A collides with B

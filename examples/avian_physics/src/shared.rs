@@ -118,7 +118,7 @@ fn debug() {
 }
 
 pub(crate) fn fixed_pre_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    timeline: Res<LocalTimeline>,
     remote_client_inputs: Query<
         (
             Entity,
@@ -128,12 +128,10 @@ pub(crate) fn fixed_pre_log(
         (Without<InputMap<PlayerActions>>, With<Predicted>),
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, action_state, buffer) in remote_client_inputs.iter() {
         let pressed = action_state.get_pressed();
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?pressed,
@@ -143,7 +141,7 @@ pub(crate) fn fixed_pre_log(
 }
 
 pub(crate) fn fixed_pre_physics(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), With<Client>>,
+    timeline: Res<LocalTimeline>,
     remote_client_inputs: Query<
         (
             Entity,
@@ -154,12 +152,10 @@ pub(crate) fn fixed_pre_physics(
         With<Predicted>,
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
         let pressed = action_state.get_pressed();
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,
@@ -171,7 +167,7 @@ pub(crate) fn fixed_pre_physics(
 }
 
 pub(crate) fn fixed_last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -185,14 +181,12 @@ pub(crate) fn fixed_last_log(
     >,
     ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
     for (entity, position, velocity, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,
@@ -209,7 +203,7 @@ pub(crate) fn fixed_last_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Or<(With<Client>, Without<ClientOf>)>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -222,14 +216,12 @@ pub(crate) fn last_log(
     >,
     ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
     for (entity, position, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         trace!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,

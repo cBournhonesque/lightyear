@@ -15,7 +15,7 @@ use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_inputs::InputChannel;
 use lightyear_inputs::client::InputSystems;
@@ -46,9 +46,9 @@ impl ChecksumSendPlugin {
     /// Compute a checksum for all deterministic entities with hashable components.
     fn compute_and_send_checksum(
         mut world: ChecksumWorld<'_, '_, true>,
+        local_timeline: Res<LocalTimeline>,
         client: Single<
             (
-                &LocalTimeline,
                 &LastConfirmedInput,
                 &MessageManager,
                 &mut MessageSender<ChecksumMessage>,
@@ -57,10 +57,9 @@ impl ChecksumSendPlugin {
         >,
     ) {
         let mut checksum = 0u64;
-
-        let (local_timeline, last_confirmed_input, message_manager, mut sender) =
-            client.into_inner();
         let current_tick = local_timeline.tick();
+        let (last_confirmed_input, message_manager, mut sender) =
+            client.into_inner();
         let tick = last_confirmed_input.tick.get();
         // only compute the checksum when we have received remote inputs
         if tick > current_tick {
@@ -145,12 +144,12 @@ impl ChecksumReceivePlugin {
     /// Compute a checksum for all deterministic entities with hashable components.
     fn compute_and_store_checksum(
         mut world: ChecksumWorld<'_, '_, false>,
-        server: Single<(&LocalTimeline, &mut ChecksumHistory), With<Started>>,
+        timeline: Res<LocalTimeline>,
+        server: Single<&mut ChecksumHistory, With<Started>>,
     ) {
         let mut checksum = 0u64;
-
-        let (timeline, mut history) = server.into_inner();
         let tick = timeline.tick();
+        let mut history = server.into_inner();
 
         // SAFETY: world.update_archetypes() has been called
         world.update_archetypes();
@@ -222,10 +221,11 @@ impl ChecksumReceivePlugin {
     }
 
     fn clean_history(
-        history: Single<(&LocalTimeline, &mut ChecksumHistory), (With<Server>, With<Started>)>,
+        timeline: Res<LocalTimeline>,
+        history: Single<&mut ChecksumHistory, (With<Server>, With<Started>)>,
     ) {
-        let (timeline, mut history) = history.into_inner();
         let tick = timeline.tick();
+        let mut history = history.into_inner();
         // keep only the last 30 ticks of history
         history.history.retain(|t, _| *t >= tick - 30);
     }

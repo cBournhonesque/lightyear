@@ -130,7 +130,7 @@ fn update_player_label(
         &LeafwingBuffer<PlayerActions>,
         &Score,
     )>,
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>
 ) {
     let tick = timeline.tick();
     for (e, player, mut label, input_buffer, score) in q.iter_mut() {
@@ -197,7 +197,7 @@ fn draw_predicted_entities(
             Or<(With<PreSpawned>, With<Predicted>)>,
         ),
     >,
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
 ) {
     let tick = timeline.tick();
     for (e, position, rotation, color, collider, prespawned, opt_action, opt_ib) in &predicted {

@@ -456,7 +456,7 @@ mod bot {
     }
 
     // prevent the bot from running too fast
-    fn bot_wait(timeline: Single<&LocalTimeline>) {
+    fn bot_wait(timeline: Res<LocalTimeline>) {
         std::thread::sleep(Duration::from_millis(15));
     }
 }
