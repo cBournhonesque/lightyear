@@ -27,7 +27,7 @@ use bytes::Bytes;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{PeerId, RemoteId};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
 use tracing::{error, trace};
@@ -233,6 +233,7 @@ impl MessagePlugin {
     /// - If the message is a `RemoteOn<M>`, emit a `TriggerEvent<M>` via `Commands`.
     /// - Otherwise, buffer the message in the `MessageReceiver<M>` component.
     pub fn recv(
+        timeline: Res<LocalTimeline>,
         // NOTE: we only need the mut bound on MessageManager because EntityMapper requires mut
         mut transport_query: Query<
             // note: we still listen for messages on the Transport for the host-client, because of the way
@@ -243,7 +244,6 @@ impl MessagePlugin {
                 &mut MessageManager,
                 &mut Transport,
                 &RemoteId,
-                &LocalTimeline,
                 Option<&mut HostClient>,
             ),
             With<Connected>,
@@ -253,6 +253,7 @@ impl MessagePlugin {
         registry: Res<MessageRegistry>,
         commands: ParallelCommands,
     ) {
+        let tick = timeline.tick();
         // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
         // on potentially different entities in parallel (though the current loop isn't parallel)
         let receiver_query = Arc::new(receiver_query);
@@ -262,7 +263,6 @@ impl MessagePlugin {
                 mut message_manager,
                 mut transport,
                 remote_peer_id,
-                timeline,
                 mut host_client,
             )| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
@@ -271,7 +271,6 @@ impl MessagePlugin {
                 let transport = &mut *transport;
                 // TODO: we can run this in parallel using rayon!
                 if let Some(host_client) = host_client.as_mut() {
-                    let tick = timeline.tick();
                     // for host-clients, we might have to deserialize messages that are in the Transports' senders
                     transport
                         .senders

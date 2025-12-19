@@ -152,7 +152,7 @@ pub(crate) fn shared_movement_behaviour(
 
 /// In deterministic replication, the client and server simulates all players.
 fn player_movement(
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     mut velocity_query: Query<(
         Entity,
         &PlayerId,
@@ -178,7 +178,7 @@ fn debug() {
 }
 
 pub(crate) fn fixed_pre_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     remote_client_inputs: Query<
         (
             Entity,
@@ -188,12 +188,10 @@ pub(crate) fn fixed_pre_log(
         (Without<InputMap<PlayerActions>>, With<Predicted>),
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, action_state, buffer) in remote_client_inputs.iter() {
         let pressed = action_state.get_pressed();
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?pressed,
@@ -203,7 +201,7 @@ pub(crate) fn fixed_pre_log(
 }
 
 pub(crate) fn fixed_pre_prepare(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     remote_client_inputs: Query<
         (
             Entity,
@@ -214,12 +212,10 @@ pub(crate) fn fixed_pre_prepare(
         With<Predicted>,
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
         let pressed = action_state.get_pressed();
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,
@@ -231,7 +227,7 @@ pub(crate) fn fixed_pre_prepare(
 }
 
 pub(crate) fn fixed_pre_physics(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -244,13 +240,11 @@ pub(crate) fn fixed_pre_physics(
         (Without<BallMarker>, With<PlayerId>),
     >,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,
@@ -264,7 +258,7 @@ pub(crate) fn fixed_pre_physics(
 }
 
 pub(crate) fn fixed_last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -278,13 +272,11 @@ pub(crate) fn fixed_last_log(
     >,
     ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,
@@ -301,7 +293,7 @@ pub(crate) fn fixed_last_log(
 }
 
 pub(crate) fn last_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
@@ -316,7 +308,6 @@ pub(crate) fn last_log(
     >,
     ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
-    let (timeline, rollback) = timeline.into_inner();
     let tick = timeline.tick();
 
     for (entity, position, transform, interpolate, correction, action_state, input_buffer) in
@@ -326,7 +317,6 @@ pub(crate) fn last_log(
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         let translation = transform.translation.truncate();
         info!(
-            ?rollback,
             ?tick,
             ?entity,
             ?position,

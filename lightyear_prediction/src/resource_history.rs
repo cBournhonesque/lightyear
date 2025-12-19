@@ -3,7 +3,7 @@ use crate::manager::PredictionManager;
 use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_core::timeline::SyncEvent;
 use lightyear_sync::prelude::client::InputTimelineConfig;
 #[allow(unused_imports)]
@@ -29,7 +29,7 @@ pub(crate) fn handle_tick_event_resource_history<R: Resource>(
 /// as soon as PredictionManager is added
 pub(crate) fn update_resource_history_on_prediction_manager_added<R: Resource + Clone>(
     _: On<Add, PredictionManager>,
-    timeline: Single<&LocalTimeline>,
+    timeline: Res<LocalTimeline>,
     mut history: ResMut<ResourceHistory<R>>,
     resource: Option<Res<R>>,
 ) {
@@ -43,7 +43,7 @@ pub(crate) fn update_resource_history_on_prediction_manager_added<R: Resource + 
 pub(crate) fn update_resource_history<R: Resource + Clone>(
     resource: Option<Res<R>>,
     mut history: ResMut<ResourceHistory<R>>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();

@@ -16,7 +16,6 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bytes::Bytes;
 use core::time::Duration;
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_messages::MessageNetId;
 use lightyear_serde::ToBytes;
@@ -54,7 +53,6 @@ pub enum SendUpdatesMode {
 
 #[derive(Component, Debug)]
 #[require(Transport)]
-#[require(LocalTimeline)]
 pub struct ReplicationSender {
     // track entities that were recently spawned on this sender, so that we can update ReplicationState after `replicate`
     // this would not be needed if we used DashMap within ReplicationState

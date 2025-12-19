@@ -12,7 +12,7 @@ use bevy_math::curve::{EaseFunction, EasingCurve};
 use bevy_math::{Curve, Isometry2d, Vec3};
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_transform::prelude::Transform;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_frame_interpolation::{FrameInterpolate, SkipFrameInterpolation};
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::correction::{PreviousVisual, VisualCorrection};
@@ -33,7 +33,8 @@ use tracing::{info, trace};
 /// - adding a VisualCorrection that can be applied to Transform
 pub(crate) fn update_frame_interpolation_post_rollback(
     time: Res<Time<Fixed>>,
-    timeline: Single<&LocalTimeline, With<PredictionManager>>,
+    local_timeline: Res<LocalTimeline>,
+    predicted: Single<(), With<PredictionManager>>,
     registry: Res<InterpolationRegistry>,
     mut query: Query<(
         Entity,
@@ -50,7 +51,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
 ) {
     // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
     let overstep = time.overstep_fraction();
-    let tick = timeline.tick();
+    let tick = local_timeline.tick();
     for (
         entity,
         position,

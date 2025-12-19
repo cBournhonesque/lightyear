@@ -18,7 +18,7 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
@@ -286,8 +286,9 @@ impl MessagePlugin {
     /// and add them directly to the [`MessageReceiver<M>`] components.
     /// (the [`Transport`] is not used)
     pub fn send_local(
+        timeline: Res<LocalTimeline>,
         mut manager_query: Query<
-            (Entity, &LocalTimeline, &mut MessageManager),
+            (Entity, &mut MessageManager),
             (With<Connected>, With<HostClient>),
         >,
         // MessageSender<M>/MessageReceiver<M>/TriggerSender<M> present on that entity
@@ -297,12 +298,11 @@ impl MessagePlugin {
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M>/MessageReceiver<M> components
         // on different entities
+        let tick = timeline.tick();
         let message_components_query = Arc::new(message_components_query);
         manager_query
             .par_iter_mut()
-            .for_each(|(entity, timeline, mut message_manager)| {
-                let tick = timeline.tick();
-
+            .for_each(|(entity, mut message_manager)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query =
                     unsafe { message_components_query.reborrow_unsafe() };

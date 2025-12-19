@@ -97,7 +97,7 @@ pub(crate) fn shared_player_movement(
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     mut player_query: Query<
         (
             &mut Position,
@@ -115,7 +115,7 @@ fn player_movement(
 }
 
 fn predicted_bot_movement(
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     mut query: Query<&mut Position, With<PredictedBot>>,
 ) {
     let tick = timeline.tick();
@@ -126,10 +126,9 @@ fn predicted_bot_movement(
 }
 
 fn log_predicted_bot_transform(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     query: Query<(&Position, &Transform), With<PredictedBot>>,
 ) {
-    let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     query.iter().for_each(|(pos, transform)| {
         debug!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
@@ -137,7 +136,7 @@ fn log_predicted_bot_transform(
 }
 
 pub(crate) fn fixed_update_log(
-    timeline: Single<(&LocalTimeline, Has<Rollback>), Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>)>,
     predicted_bullet: Query<
         (
@@ -149,7 +148,6 @@ pub(crate) fn fixed_update_log(
         With<BulletMarker>,
     >,
 ) {
-    let (timeline, is_rollback) = timeline.into_inner();
     let tick = timeline.tick();
     for (entity, transform) in player.iter() {
         debug!(
@@ -177,7 +175,7 @@ pub(crate) fn fixed_update_log(
 /// as its `Predicted` entity
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
-    timeline: Single<&LocalTimeline, Without<ClientOf>>,
+    timeline: Res<LocalTimeline>,
     mut query: Query<
         (
             &PlayerId,

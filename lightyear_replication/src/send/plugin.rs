@@ -23,7 +23,6 @@ use lightyear_connection::client::{Connected, Disconnected};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::TickDelta;
-use lightyear_core::timeline::NetworkTimeline;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::EventSender;
@@ -83,14 +82,16 @@ impl ReplicationSendPlugin {
 
     fn send_replication_messages(
         time: Res<Time<Real>>,
+        timeline: Res<LocalTimeline>,
         message_registry: Res<MessageRegistry>,
         change_tick: SystemChangeTick,
         // We send messages directly through the transport instead of MessageSender<EntityActionsMessage>
         // but I don't remember why
-        mut query: Query<(&mut ReplicationSender, &mut Transport, &LocalTimeline), With<Connected>>,
+        mut query: Query<(&mut ReplicationSender, &mut Transport), With<Connected>>,
     ) {
         #[cfg(feature = "metrics")]
         let _timer = DormantTimerGauge::new("replication/send");
+        let tick = timeline.tick();
 
         let actions_net_id = *message_registry
             .kind_map
@@ -102,7 +103,7 @@ impl ReplicationSendPlugin {
             .unwrap();
         query
             .par_iter_mut()
-            .for_each(|(mut sender, mut transport, timeline)| {
+            .for_each(|(mut sender, mut transport)| {
                 if !sender.send_timer.is_finished() {
                     return;
                 }
@@ -338,6 +339,7 @@ impl Plugin for ReplicationSendPlugin {
                 }),
                 ParamBuilder,
             )),
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,

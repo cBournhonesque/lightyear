@@ -26,7 +26,7 @@ use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_core::tick::TickDuration;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
@@ -147,10 +147,10 @@ fn receive_input_message<S: ActionStateSequence>(
     mut sender: ServerMultiMessageSender<With<Connected>>,
     tick_duration: Res<TickDuration>,
     rooms: Query<&Room>,
+    timeline: Res<LocalTimeline>,
     mut receivers: Query<
         (
             Entity,
-            &LocalTimeline,
             &LinkOf,
             &mut MessageReceiver<InputMessage<S>>,
             &RemoteId,
@@ -165,7 +165,7 @@ fn receive_input_message<S: ActionStateSequence>(
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
-    receivers.iter_mut().try_for_each(|(client_entity, timeline, link_of, mut receiver, client_id, rebroadcaster)| {
+    receivers.iter_mut().try_for_each(|(client_entity, link_of, mut receiver, client_id, rebroadcaster)| {
         // TODO: this drains the messages... but the user might want to re-broadcast them?
         //  should we just read instead?
         let server_entity = link_of.server;
@@ -287,14 +287,15 @@ fn update_action_state<S: ActionStateSequence>(
     // TODO: what if there are multiple servers? maybe we can use Replicate to figure out which inputs should be replicating on which servers?
     //  and use the timeline from that connection? i.e. find from which entity we got the first InputMessage?
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
-    server: Single<(Entity, &LocalTimeline, Has<HostServer>), With<Started>>,
+    timeline: Res<LocalTimeline>,
+    server: Single<(Entity, Has<HostServer>), With<Started>>,
     mut action_state_query: Query<(
         Entity,
         StateMut<S>,
         &mut InputBuffer<S::Snapshot, S::Action>,
     )>,
 ) {
-    let (server, timeline, host_client) = server.into_inner();
+    let (server, host_client) = server.into_inner();
     let tick = timeline.tick();
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         trace!(?tick, ?server, ?input_buffer, "input buffer on server");

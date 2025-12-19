@@ -69,6 +69,7 @@ impl Plugin for MessagePlugin {
 
         let recv = (
             ParamBuilder,
+            ParamBuilder,
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
                     registry.receive_metadata.values().for_each(|metadata| {
@@ -120,6 +121,7 @@ impl Plugin for MessagePlugin {
             .with_name("MessagePlugin::send");
 
         let send_local = (
+            ParamBuilder,
             ParamBuilder,
             QueryParamBuilder::new(|builder| {
                 builder.optional(|b| {
