@@ -1,12 +1,10 @@
 use bevy_app::App;
-use bevy_ecs::change_detection::Mut;
-use bevy_ecs::component::{Component, Mutable};
-use bevy_ecs::entity::MapEntities;
+use bevy_ecs::component::{Component};
 use bevy_replicon::prelude::{AppRuleExt, RuleFns};
 use bevy_replicon::shared::replication::registry::command_fns::MutWrite;
 use bevy_replicon::shared::replication::registry::rule_fns::{DeserializeFn, SerializeFn};
 use lightyear_serde::registry::SerializeFns;
-use serde::{Serialize, DeserializeOwned};
+use serde::{Serialize, de::DeserializeOwned};
 
 /// Add a component to the list of components that can be sent
 pub trait AppComponentExt {
@@ -58,7 +56,7 @@ impl AppComponentExt for App {
         ComponentRegistration::new(self)
     }
 
-    fn non_networked_component<C: Component<Mutability: GetWriteFns<C>>>(
+    fn non_networked_component<C: Component<Mutability: MutWrite<C>>>(
         &mut self,
     ) -> ComponentRegistration<'_, C> {
         ComponentRegistration::new(self)
@@ -76,63 +74,5 @@ impl<C> ComponentRegistration<'_, C> {
             app,
             _phantom: core::marker::PhantomData,
         }
-    }
-
-    /// Specify that the component contains entities which should be mapped from the remote world to the local world
-    /// upon deserialization using the component's [`MapEntities`] implementation.
-    pub fn add_map_entities(self) -> Self
-    where
-        C: Clone + MapEntities + 'static,
-    {
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry.add_map_entities::<C>();
-        self
-    }
-
-    /// Similar to `add_map_entities`, but uses the `Component::map_entities` function instead of `MapEntities::map_entities`
-    pub fn add_component_map_entities(self) -> Self
-    where
-        C: Clone + Component + 'static,
-    {
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry.add_component_map_entities::<C>();
-        self
-    }
-
-    pub fn with_replication_config(self, config: ComponentReplicationConfig) -> Self
-    where
-        C: Component<Mutability: GetWriteFns<C>>,
-    {
-        let overrides_component_id = self
-            .app
-            .world_mut()
-            .register_component::<ComponentReplicationOverrides<C>>();
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        let kind = ComponentKind::of::<C>();
-        let metadata = registry.component_metadata_map.get_mut(&kind).unwrap_or_else(|| {
-            core::panic!(
-                "Component {} is not part of the protocol, did you forget to call register_component?",
-                DebugName::type_name::<C>()
-            );
-        });
-        metadata.replication = Some(ReplicationMetadata::default_fns::<C>(
-            config,
-            overrides_component_id,
-        ));
-        self
-    }
-
-    /// Enable delta compression when serializing this component
-    pub fn add_delta_compression<Delta>(self) -> Self
-    where
-        C: Component<Mutability = Mutable> + PartialEq + Diffable<Delta>,
-        Delta: Serialize + DeserializeOwned + Message,
-    {
-        self.app
-            .world_mut()
-            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                registry.set_delta_compression::<C, Delta>(world);
-            });
-        self
     }
 }

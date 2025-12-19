@@ -50,6 +50,10 @@ fn receive_packets(
     });
 }
 
+
+// TODO: add a ReplicationMetadata resource with a replication-timer
+//  also the TickDuration is not useful?
+#[derive(Resource)]
 struct ReplicationMetadata {
     timer: Timer,
 }
