@@ -1,13 +1,19 @@
-extern crate core;
+#![no_std]
+
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
 
 #[cfg(feature = "server")]
 mod server;
 
 #[cfg(feature = "client")]
 mod client;
-mod sync_target;
+pub mod send;
 mod registry;
 mod metadata;
+pub mod authority;
+mod control;
 
 use bevy_app::PluginGroupBuilder;
 use bevy_app::prelude::PluginGroup;
