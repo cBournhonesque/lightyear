@@ -26,7 +26,7 @@ use bevy_ptr::Ptr;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{LocalTimeline};
+use lightyear_core::timeline::LocalTimeline;
 use lightyear_link::prelude::Server;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::MessageManager;

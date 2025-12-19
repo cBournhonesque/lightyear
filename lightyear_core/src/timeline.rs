@@ -163,6 +163,7 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<LocalTimeline>();
         app.insert_resource(TickDuration(self.tick_duration));
         app.world_mut()
             .resource_mut::<Time<Fixed>>()

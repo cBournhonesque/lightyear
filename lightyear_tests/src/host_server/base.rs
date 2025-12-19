@@ -5,7 +5,6 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::host::{HostClient, HostServer};
 use lightyear_connection::server::Started;
 use lightyear_core::id::{LocalId, RemoteId};
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_messages::prelude::{EventSender, MessageReceiver, MessageSender};
 use lightyear_replication::message::SenderMetadata;
@@ -36,7 +35,6 @@ fn test_setup_host_server() {
             .host_client()
             .contains::<IsSynced<InterpolationTimeline>>()
     );
-    assert!(stepper.host_client().contains::<LocalTimeline>());
     assert!(stepper.host_client().contains::<Transport>());
     assert!(stepper.host_client().contains::<MessageManager>());
     assert!(

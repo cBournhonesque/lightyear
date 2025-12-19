@@ -179,7 +179,6 @@ impl ReplicationReceivePlugin {
                 // SAFETY: the world will only be used to apply replication updates, which doesn't conflict with other accesses
                 let world = unsafe { unsafe_world.world_mut() };
 
-
                 receiver.apply_world(
                     world,
                     entity,

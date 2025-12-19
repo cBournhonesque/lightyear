@@ -42,10 +42,7 @@ pub(crate) fn confirmed_log(
 
 pub(crate) fn interpolate_log(
     timeline: Res<LocalTimeline>,
-    players: Query<
-        (Entity, &PlayerPosition),
-        With<Interpolated>,
-    >,
+    players: Query<(Entity, &PlayerPosition), With<Interpolated>>,
 ) {
     let tick = timeline.tick();
     for (entity, position) in players.iter() {

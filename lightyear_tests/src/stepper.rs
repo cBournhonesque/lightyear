@@ -379,12 +379,11 @@ impl ClientServerStepper {
     pub fn client_tick(&self, id: usize) -> Tick {
         self.client_apps[id]
             .world()
-            .resource::<LocalTimeline>().tick()
+            .resource::<LocalTimeline>()
+            .tick()
     }
     pub fn server_tick(&self) -> Tick {
-        self.server_app
-            .world()
-            .resource::<LocalTimeline>().tick()
+        self.server_app.world().resource::<LocalTimeline>().tick()
     }
 
     pub fn host_client(&self) -> EntityRef<'_> {

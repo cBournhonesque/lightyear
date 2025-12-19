@@ -18,7 +18,6 @@ use lightyear_core::prelude::NetworkTimelinePlugin;
 //  - we update
 pub struct ClientPlugin;
 
-
 // TODO: we might need a separate Predicted<Virtual> and Predicted<FixedUpdate>, and Predicted<()> fetches the correct one
 //  depending on the Schedule? exactly like bevy does
 //  and so that the Time is updated based on whether we're in Update

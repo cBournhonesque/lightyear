@@ -73,10 +73,7 @@ impl PreSpawnedPlugin {
             // run this only when the component was added on a client-spawned entity (not server-replicated)
             Without<Replicated>,
         >,
-        mut manager_query: Query<
-            &mut PreSpawnedReceiver,
-            (With<Connected>, Without<HostClient>),
-        >,
+        mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
     ) {
         let entity = trigger.entity;
         let tick = timeline.tick();

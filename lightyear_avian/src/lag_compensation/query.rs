@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use super::history::{AabbEnvelopeHolder, LagCompensationHistory};
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
 #[allow(unused_imports)]

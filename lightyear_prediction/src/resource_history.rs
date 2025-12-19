@@ -3,7 +3,7 @@ use crate::manager::PredictionManager;
 use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
-use lightyear_core::prelude::{LocalTimeline};
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
 use lightyear_sync::prelude::client::InputTimelineConfig;
 #[allow(unused_imports)]
