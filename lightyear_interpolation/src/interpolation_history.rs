@@ -6,7 +6,7 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::Tick;
-use lightyear_replication::components::{Confirmed, ConfirmedTick};
+use lightyear_replication::prelude::{Confirmed, ConfirmHistory};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -125,7 +125,7 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
 
     // TODO: use the interpolation receiver corresponding to the Confirmed entity (via Replicated)
     mut interpolated_entities: Query<
-        (&mut ConfirmedHistory<C>, &Confirmed<C>, &ConfirmedTick),
+        (&mut ConfirmedHistory<C>, &Confirmed<C>, &ConfirmHistory),
         (With<Interpolated>, Changed<Confirmed<C>>),
     >,
 ) {
@@ -140,7 +140,7 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
         // } else {
         //     confirmed.tick
         // };
-        let tick = confirmed.tick;
+        let tick = confirmed.last_tick().get().into();
 
         // let Some(tick) = client
         //     .replication_receiver()

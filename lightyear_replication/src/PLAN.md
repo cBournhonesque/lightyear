@@ -13,6 +13,10 @@
   Instead will start the rollback from the earliest ConfirmedTick from all Predicted entities (similar to Unity)
 - maybe make replicon send updates even when nothing changed? (to avoid cases where we mispredict something but there is no correction)
 
+- make Custom replication rule so that components are inserted as Confirmed<C> or C
+
+- enable sending mutation messages every tick (even if empty) and compute ConfirmedTick correctl from ConfirmedHistory and ServerMutateTicks.
+
 ## Visibility
 
 - Maintain a mapping from PeerId to NetworkId.
