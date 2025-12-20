@@ -1,33 +1,19 @@
 use crate::SyncComponent;
 use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-use bevy_ecs::entity::Entity;
-use bevy_ecs::prelude::World;
 use bevy_ecs::{component::Component, resource::Resource};
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_platform::collections::HashMap;
-use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
-use lightyear_replication::registry::ComponentKind;
-use lightyear_replication::registry::buffered::BufferedChanges;
-use lightyear_replication::registry::registry::LerpFn;
+use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
+use lightyear_replication::registry::replication::ComponentRegistration;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
     curve.sample_unchecked(t)
 }
 
-/// Function that will sync a component value from the confirmed entity to the interpolated entity
-type SyncFn = fn(
-    &InterpolationRegistry,
-    &ComponentRegistry,
-    confirmed: Entity,
-    predicted: Entity,
-    manager: Entity,
-    &mut World,
-    &mut BufferedChanges,
-);
 
 #[derive(Debug, Clone)]
 pub struct InterpolationMetadata {

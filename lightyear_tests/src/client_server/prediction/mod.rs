@@ -1,5 +1,6 @@
 use crate::stepper::*;
 use bevy::prelude::*;
+use lightyear::prelude::ServerMutateTicks;
 use lightyear_core::prelude::{Rollback, Tick};
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::{ConfirmedTick, ReplicationReceiver};
@@ -22,11 +23,14 @@ pub(crate) struct RollbackInfo {
 /// in ReplicationSet::Receive
 pub(crate) fn trigger_rollback_system(
     mut events: MessageReader<RollbackInfo>,
-    mut receiver: Single<&mut ReplicationReceiver, With<PredictionManager>>,
+    mut timeline: Res<LocalTimeline>,
+    mut received: ResMut<ServerMutateTicks>,
     mut query: Query<&mut ConfirmedTick, With<Predicted>>,
 ) {
+    let tick = timeline.tick();
     for event in events.read() {
-        receiver.received_this_frame = true;
+        // TODO: set a new ServerMutateTicks!
+        // received.confirm(RepliconTick())
         for mut confirmed_tick in query.iter_mut() {
             confirmed_tick.tick = event.tick;
         }

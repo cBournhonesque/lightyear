@@ -14,12 +14,12 @@ use lightyear::prelude::input::native::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
-use bevy_replicon::prelude::*;
 
 pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_new_client);
@@ -35,7 +35,7 @@ impl Plugin for ExampleServerPlugin {
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender,
         Name::from("Client"),
     ));
 }
@@ -56,7 +56,7 @@ pub(crate) fn handle_connected(
     let client_id = client_id.0;
     let entity = commands
         .spawn((
-            Replicated,
+            Replicate::to_clients(NetworkTarget::All),
             PlayerBundle::new(client_id, Vec2::ZERO),
             PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
@@ -74,7 +74,7 @@ pub(crate) fn handle_connected(
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
-    timeline: Single<&LocalTimeline, With<Server>>,
+    timeline: Res<LocalTimeline>,
     mut position_query: Query<
         (&mut PlayerPosition, &ActionState<Inputs>),
         // if we run in host-server mode, we don't want to apply this system to the local client's entities

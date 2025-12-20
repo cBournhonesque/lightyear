@@ -57,7 +57,6 @@ client = [
   "lightyear_netcode?/client",
   "lightyear_raw_connection?/client",
   "lightyear_replication?/client",
-  "lightyear_replicon?/client",
   "lightyear_steam?/client",
   "lightyear_sync/client",
   "lightyear_transport/client",
@@ -76,7 +75,6 @@ server = [
   "lightyear_prediction?/server",
   "lightyear_raw_connection?/server",
   "lightyear_replication?/server",
-  "lightyear_replicon?/server",
   "lightyear_steam?/server",
   "lightyear_sync/server",
   "lightyear_transport/server",
@@ -93,11 +91,11 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables replicating entities between two peers
-replication = ["dep:lightyear_replication", "dep:lightyear_replicon"]
+replication = ["dep:lightyear_replication"]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
-  "lightyear_replication/prediction",
+  "lightyear_replication?/prediction",
   "dep:lightyear_frame_interpolation",
   "lightyear_inputs?/prediction",
 ]
@@ -107,7 +105,7 @@ frame_interpolation = ["dep:lightyear_frame_interpolation"]
 interpolation = [
   "dep:lightyear_interpolation",
   "lightyear_inputs?/interpolation",
-  "lightyear_replication/interpolation",
+  "lightyear_replication?/interpolation",
 ]
 
 ## UTILS
@@ -125,7 +123,7 @@ metrics = [
   "lightyear_interpolation?/metrics",
   "lightyear_messages/metrics",
   "lightyear_prediction?/metrics",
-  "lightyear_replication/metrics",
+  "lightyear_replication?/metrics",
   "lightyear_transport/metrics",
   "lightyear_utils/metrics",
   "lightyear_udp?/metrics",
@@ -190,7 +188,6 @@ lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
 lightyear_metrics = { workspace = true, optional = true }
 lightyear_replication = { workspace = true, optional = true }
-lightyear_replicon = { workspace = true, optional = true }
 lightyear_sync.workspace = true
 lightyear_transport.workspace = true
 lightyear_serde.workspace = true

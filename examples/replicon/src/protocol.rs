@@ -124,6 +124,7 @@ impl Plugin for ProtocolPlugin {
         app.replicate::<PlayerId>();
         app.replicate::<PlayerPosition>();
         app.replicate::<PlayerColor>();
+
         // app.register_component::<PlayerId>();
 
         app.register_component::<PlayerPosition>()

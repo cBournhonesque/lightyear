@@ -1,10 +1,11 @@
+use std::time::Duration;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_time::prelude::Timer;
 
 use bevy_replicon::{prelude::*, shared::backend::connected_client::NetworkId};
 use bevy_replicon::server::server_tick::ServerTick;
-use bevy_time::Time;
+use bevy_time::{Time, TimerMode};
 use lightyear_connection::client::Connect;
 use lightyear_core::id::{RemoteId};
 use lightyear_core::prelude::LocalTimeline;
@@ -51,11 +52,26 @@ fn receive_packets(
 }
 
 
+/// Resource that needs to be added to control the replication behaviour for the current App.
 // TODO: add a ReplicationMetadata resource with a replication-timer
 //  also the TickDuration is not useful?
 #[derive(Resource)]
-struct ReplicationMetadata {
-    timer: Timer,
+pub struct ReplicationMetadata {
+    pub(crate) timer: Timer,
+}
+
+impl ReplicationMetadata {
+    pub fn new(replication_interval: Duration) -> Self {
+        Self {
+            timer: Timer::new(replication_interval, TimerMode::Repeating)
+        }
+    }
+}
+
+impl Default for ReplicationMetadata {
+    fn default() -> Self {
+        Self::new(Duration::default())
+    }
 }
 
 
@@ -69,9 +85,10 @@ fn update_replication_tick(
 ) {
     replication_metadata.timer.tick(time.delta());
     if replication_metadata.timer.just_finished() {
-        let current_tick = replication_tick.get();
+        // as u16 wraps automatically (truncates high bits)
+        let current_tick = replication_tick.get() as u16;
         let new_tick = timeline.tick();
-        replication_tick.increment_by(new_tick - current_tick);
+        replication_tick.increment_by((new_tick - current_tick).0 as u32);
     }
 }
 

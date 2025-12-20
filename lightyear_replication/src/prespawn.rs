@@ -1,14 +1,12 @@
 //! Handles spawning entities that are predicted
 
-use crate::components::Replicated;
 use crate::control::{Controlled, ControlledBy};
-use crate::hierarchy::ReplicateLike;
 #[cfg(feature = "interpolation")]
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::prelude::PredictionTarget;
-use crate::prelude::{ComponentRegistry, Replicate};
-use crate::registry::ComponentKind;
+use crate::prelude::{Replicate};
+use crate::registry::{ComponentKind, ComponentRegistry};
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::archetype::Archetype;
@@ -22,6 +20,7 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
+use bevy_replicon::client::confirm_history::ConfirmHistory;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, Tick};
@@ -71,7 +70,7 @@ impl PreSpawnedPlugin {
         query: Query<
             &PreSpawned,
             // run this only when the component was added on a client-spawned entity (not server-replicated)
-            Without<Replicated>,
+            Without<ConfirmHistory>,
         >,
         mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
     ) {
@@ -395,7 +394,6 @@ pub(crate) fn compute_default_hash(
                 #[allow(unused_mut)]
                 let mut keep = type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<Controlled>()
-                    && type_id != TypeId::of::<ReplicateLike>()
                     && type_id != TypeId::of::<Replicate>()
                     && type_id != TypeId::of::<ControlledBy>();
                 #[cfg(feature = "prediction")]

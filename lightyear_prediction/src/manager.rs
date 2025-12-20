@@ -1,6 +1,5 @@
 //! Defines bevy resources needed for Prediction
 
-use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 
@@ -13,7 +12,6 @@ use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
-use lightyear_replication::registry::buffered::BufferedChanges;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
 
@@ -86,14 +84,10 @@ impl RollbackPolicy {
     }
 }
 
-/// Buffer the stores components that we need to sync from the Confirmed to the Predicted entity
-#[derive(Component, Default, Deref, DerefMut, Reflect)]
-pub(crate) struct PredictionSyncBuffer(BufferedChanges);
 
 #[derive(Component, Debug, Reflect)]
 #[component(on_insert = PredictionManager::on_insert)]
 #[require(InputTimelineConfig)]
-#[require(PredictionSyncBuffer)]
 #[require(PreSpawnedReceiver)]
 // TODO: ideally we would only insert LastConfirmedInput if the PredictionManager is updated to use RollbackMode::AlwaysInput
 //  because that's where we need it. In practice we don't have an OnChange observer so we cannot do this easily

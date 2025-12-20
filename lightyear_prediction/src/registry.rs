@@ -18,13 +18,12 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::tick::Tick;
-use lightyear_replication::components::Confirmed;
 use lightyear_replication::delta::Diffable;
-use lightyear_replication::prelude::ComponentRegistration;
-use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
-use lightyear_replication::registry::{ComponentError, ComponentKind};
+use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
 use tracing::{debug, trace, trace_span};
+use lightyear_replication::prelude::Confirmed;
+use lightyear_replication::registry::replication::ComponentRegistration;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -376,7 +375,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .get_mut(&ComponentKind::of::<C>())
             .unwrap();
         metadata.replication.as_mut().unwrap().set_predicted(true);
-        metadata.serialization.as_mut().unwrap().add_clone::<C>();
+        // metadata.serialization.as_mut().unwrap().add_clone::<C>();
         self
     }
 

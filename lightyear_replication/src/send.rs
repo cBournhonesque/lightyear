@@ -10,12 +10,13 @@ use bevy_ecs::entity::EntityIndexMap;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
 use bevy_replicon::prelude::{ComponentScope, FilterScope, Replicated, VisibilityFilter};
+use bevy_replicon::server::ServerSystems;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use serde::{Deserialize, Serialize};
-use lightyear_connection::client::{Client, PeerMetadata};
+use lightyear_connection::client::{PeerMetadata};
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
@@ -28,6 +29,8 @@ use tracing::{error, trace};
 pub use prediction::*;
 #[cfg(feature = "interpolation")]
 pub use interpolation::*;
+use crate::registry::ComponentRegistry;
+use crate::ReplicationSystems;
 
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
@@ -143,10 +146,6 @@ pub struct PerSenderReplicationState {
 impl PerSenderReplicationState {
     pub(crate) fn new(authority: Option<bool>) -> Self {
         Self {
-            #[cfg(feature = "prediction")]
-            predicted: false,
-            #[cfg(feature = "interpolation")]
-            interpolated: false,
             authority,
         }
     }
@@ -164,14 +163,25 @@ impl Default for PerSenderReplicationState {
     }
 }
 
+mod private {
+    pub trait Sealed {}
+    impl Sealed for () {}
+    #[cfg(feature = "prediction")]
+    impl Sealed for lightyear_core::prediction::Predicted {}
+    #[cfg(feature = "interpolation")]
+    impl Sealed for lightyear_core::interpolation::Interpolated {}
+}
+
 #[doc(hidden)]
-pub trait ReplicationTargetT: Send + Sync + 'static {
+pub trait ReplicationTargetT: private::Sealed + Send + Sync + 'static {
     type VisibilityBit: Resource + Deref<Target=FilterBit>;
     type Context: Default;
 
     fn pre_insert(world: &mut DeferredWorld, entity: Entity);
     fn post_insert(context: &Self::Context, entity_mut: &mut EntityWorldMut);
     fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool);
+
+    fn on_replace(world: DeferredWorld, context: HookContext);
 }
 
 /// Marker component that indicates that the entity was replicated
@@ -230,12 +240,30 @@ impl ReplicationTargetT for () {
                 PerSenderReplicationState::with_authority()
             });
     }
+
+    fn on_replace(mut world: DeferredWorld, context: HookContext) {
+    world.commands().queue(move |world: &mut World| {
+            world.entity_mut(context.entity).remove::<Replicated>();
+            let visibility_bit = world.resource::<ReplicateBit>().0;
+            // TODO: after `DeferredWorld::as_unsafe_world_cell` becomes pub, put that outside of commands
+            let unsafe_world = world.as_unsafe_world_cell();
+            // SAFETY: we fetch data from distinct entities so there is no aliasing
+            if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
+                state.per_sender_state.keys().for_each(|sender_entity| {
+                    if let Some(mut visibility) = unsafe{ unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
+                        visibility.set(context.entity, visibility_bit, false);
+                    }
+                });
+            }
+        });
+    }
 }
 
 
 /// Entity-level visibility for [`Replicate`]
+#[doc(hidden)]
 #[derive(Resource, Deref)]
-struct ReplicateBit(FilterBit);
+pub struct ReplicateBit(FilterBit);
 
 impl FromWorld for ReplicateBit {
     fn from_world(world: &mut World) -> Self {
@@ -251,7 +279,7 @@ impl FromWorld for ReplicateBit {
 #[cfg(feature = "prediction")]
 mod prediction {
     use super::*;
-    use lightyear_core::prediction::Predicted;
+    pub(super) use lightyear_core::prediction::Predicted;
 
     pub type PredictionTarget = ReplicationTarget<Predicted>;
     impl ReplicationTargetT for Predicted {
@@ -270,11 +298,27 @@ mod prediction {
         fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool) {
             *context = host_client;
         }
+
+        fn on_replace(mut world: DeferredWorld, context: HookContext) {
+            let visibility_bit = *world.resource::<PredictedBit>().deref();
+            world.commands().queue(move | world: &mut World| {
+                let unsafe_world = world.as_unsafe_world_cell();
+                // SAFETY: we fetch data from distinct entities so there is no aliasing
+                if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
+                    state.per_sender_state.keys().for_each(|sender_entity| {
+                        if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
+                            visibility.set(context.entity, visibility_bit, false);
+                        }
+                    });
+                }
+            });
+        }
     }
 
     /// Component-level visibility for [`PredictionTarget`]
+    #[doc(hidden)]
     #[derive(Resource, Deref)]
-    struct PredictedBit(FilterBit);
+    pub struct PredictedBit(FilterBit);
 
     impl FromWorld for PredictedBit {
         fn from_world(world: &mut World) -> Self {
@@ -286,28 +330,13 @@ mod prediction {
             Self(bit)
         }
     }
-
-    impl PredictionTarget {
-        fn on_replace(mut world: DeferredWorld, context: HookContext) {
-            let visibility_bit = *world.resource::<PredictedBit>().deref();
-            let unsafe_world = world.as_unsafe_world_cell();
-            // SAFETY: we fetch data from distinct entities so there is no aliasing
-            if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
-                state.per_sender_state.keys().for_each(|sender_entity| {
-                    if let Some(mut visibility) = unsafe{ unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
-                        visibility.set(context.entity, visibility_bit, false);
-                    }
-                });
-            }
-        }
-    }
 }
 
 
 #[cfg(feature = "interpolation")]
 mod interpolation {
     use super::*;
-    use lightyear_core::interpolation::Interpolated;
+    pub(super) use lightyear_core::interpolation::Interpolated;
 
     pub type InterpolationTarget = ReplicationTarget<Interpolated>;
     impl ReplicationTargetT for Interpolated {
@@ -325,12 +354,28 @@ mod interpolation {
         fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool) {
             *context = host_client;
         }
+
+        fn on_replace(mut world: DeferredWorld, context: HookContext) {
+            let visibility_bit = *world.resource::<InterpolatedBit>().deref();
+            world.commands().queue(move | world: &mut World| {
+                let unsafe_world = world.as_unsafe_world_cell();
+                // SAFETY: we fetch data from distinct entities so there is no aliasing
+                if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
+                    state.per_sender_state.keys().for_each(|sender_entity| {
+                        if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
+                            visibility.set(context.entity, visibility_bit, false);
+                        }
+                    });
+                }
+            });
+        }
     }
 
 
-    /// Component-level visibility for [`InterpolatedTarget`]
+    /// Component-level visibility for [`InterpolationTarget`]
+    #[doc(hidden)]
     #[derive(Resource, Deref)]
-    struct InterpolatedBit(FilterBit);
+    pub struct InterpolatedBit(FilterBit);
 
     impl FromWorld for InterpolatedBit {
         fn from_world(world: &mut World) -> Self {
@@ -342,61 +387,71 @@ mod interpolation {
             Self(bit)
         }
     }
-
-    impl InterpolationTarget {
-        fn on_replace(mut world: DeferredWorld, context: HookContext) {
-            let visibility_bit = *world.resource::<InterpolatedBit>().deref();
-            let unsafe_world = world.as_unsafe_world_cell();
-            // SAFETY: we fetch data from distinct entities so there is no aliasing
-            if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
-                state.per_sender_state.keys().for_each(|sender_entity| {
-                    if let Some(mut visibility) = unsafe{ unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
-                        visibility.set(context.entity, visibility_bit, false);
-                    }
-                });
-            }
-        }
-    }
 }
 
 
 impl<T: ReplicationTargetT> ReplicationTarget<T> {
+    pub fn new(mode: ReplicationMode) -> Self {
+        Self {
+            mode,
+            marker: core::marker::PhantomData,
+        }
+    }
+
+    #[cfg(feature = "client")]
+    pub fn to_server() -> Self {
+        Self::new(ReplicationMode::SingleClient)
+    }
+
+    #[cfg(feature = "server")]
+    pub fn to_clients(target: NetworkTarget) -> Self {
+        Self::new(ReplicationMode::SingleServer(target))
+    }
+
+    // TODO: small vec
+    pub fn manual(senders: Vec<Entity>) -> Self {
+        Self::new(ReplicationMode::Manual(senders))
+    }
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
         let visibility_bit = *world.resource::<T::VisibilityBit>().deref();
 
         T::pre_insert(&mut world, entity);
 
-        let mut context = T::Context::default();
+        // TODO: in 0.18 we don't need to put this in a command
+        world.commands().queue(move |world: &mut World| {
+            let mut context = T::Context::default();
 
-        let unsafe_world = world.as_unsafe_world_cell();
-        // SAFETY: we will use this world to access the ReplicationSender, and the other unsafe_world to access the entity
-        let world = unsafe { unsafe_world.world_mut() };
-        // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
-        // SAFETY: there is no aliasing because the `entity_mut_state` is used to get these 4 components
-        //  and `entity_mut` is used to insert some extra components
-        let mut entity_mut = unsafe { unsafe_world.world_mut().entity_mut(entity) };
-        let Some((mut state, replicate)) = (unsafe {
-            entity_mut.get_components_mut_unchecked::<(&mut ReplicationState, &Self)>
-            ()
-        }) else {
-            return
-        };
+            let unsafe_world = world.as_unsafe_world_cell();
+            // SAFETY: we will use this world to access the ReplicationSender, and the other unsafe_world to access the entity
+            let world = unsafe { unsafe_world.world_mut() };
+            // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
+            // SAFETY: there is no aliasing because the `entity_mut_state` is used to get these 4 components
+            //  and `entity_mut` is used to insert some extra components
+            let mut entity_mut = unsafe { unsafe_world.world_mut().entity_mut(entity) };
+            let Some((mut state, replicate)) = (unsafe {
+                entity_mut.get_components_mut_unchecked::<(&mut ReplicationState, &Self)>
+                ()
+            }) else {
+                return
+            };
 
-        match &replicate.mode {
-            ReplicationMode::SingleSender => {
-                let Ok((sender_entity, mut visibility, host_client)) = world
+            match &replicate.mode {
+                ReplicationMode::SingleSender => {
+                    let Ok((sender_entity, mut visibility, host_client)) = world
                         .query_filtered::<(Entity, &mut ClientVisibility, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .single_mut(world)
                     else {
                         return;
                     };
 
-                T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
-                visibility.set(entity, visibility_bit, true);
-            }
-            ReplicationMode::SingleClient => {
-                let Ok((sender_entity, mut visibility, host_client)) = world
+                    T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
+                    visibility.set(entity, visibility_bit, true);
+                }
+                #[cfg(feature = "client")]
+                ReplicationMode::SingleClient => {
+                    use lightyear_connection::client::Client;
+                    let Ok((sender_entity, mut visibility, host_client)) = world
                         .query_filtered::<
                             (Entity, &mut ClientVisibility, Has<HostClient>),
                             (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)
@@ -405,16 +460,16 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                     else {
                         return;
                     };
-                T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
-                visibility.set(entity, visibility_bit, true);
-            }
-            #[cfg(feature = "server")]
-            ReplicationMode::SingleServer(target) => {
+                    T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
+                    visibility.set(entity, visibility_bit, true);
+                }
+                #[cfg(feature = "server")]
+                ReplicationMode::SingleServer(target) => {
                     use lightyear_connection::client_of::ClientOf;
                     use lightyear_connection::host::HostClient;
                     use lightyear_connection::server::Started;
                     use lightyear_link::server::Server;
-                    use tracing::{debug, error};
+                    use tracing::{debug};
                     let unsafe_world = world.as_unsafe_world_cell();
                     // SAFETY: we will use this to access the server-entity, which does not alias with the ReplicationSenders
                     let world = unsafe { unsafe_world.world_mut() };
@@ -441,62 +496,53 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                             else {
                                 return;
                             };
-                           T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
-                    visibility.set(entity, visibility_bit, true);
+                            T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
+                            visibility.set(entity, visibility_bit, true);
                         },
                     );
-
-            }
-            ReplicationMode::Sender(sender_entity) => {
-                 let Ok((mut visibility, host_client)) = world
+                }
+                ReplicationMode::Sender(sender_entity) => {
+                    let Ok((mut visibility, host_client)) = world
                         .query_filtered::<(&mut ClientVisibility, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
                         .get_mut(world, *sender_entity)
-                else {
-                    return;
-                };
-                T::update_replicate_state(&mut context, state.as_mut(), *sender_entity, host_client);
-                visibility.set(entity, visibility_bit, true);
-            }
-            #[cfg(feature = "server")]
-            ReplicationMode::Server(_, _) => {
-                unimplemented!()
-            }
-            ReplicationMode::Target(_) => {
-                unimplemented!()
-            }
-            ReplicationMode::Manual(_) => {
-                unimplemented!()
-            }
-        }
-
-        T::post_insert(&context, &mut entity_mut);
-    }
-}
-
-
-impl ReplicationTarget<()> {
-    fn on_replace(mut world: DeferredWorld, context: HookContext) {
-        world.commands().queue(move |world: &mut World| {
-            world.entity_mut(context.entity).remove::<Replicated>();
-        });
-        let visibility_bit = world.resource::<ReplicateBit>().0;
-        // TODO: after `DeferredWorld::as_unsafe_world_cell` becomes pub, put that outside of commands
-        let unsafe_world = world.as_unsafe_world_cell();
-        // SAFETY: we fetch data from distinct entities so there is no aliasing
-        if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
-            state.per_sender_state.keys().for_each(|sender_entity| {
-                if let Some(mut visibility) = unsafe{ unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
-                    visibility.set(context.entity, visibility_bit, false);
+                    else {
+                        return;
+                    };
+                    T::update_replicate_state(&mut context, state.as_mut(), *sender_entity, host_client);
+                    visibility.set(entity, visibility_bit, true);
                 }
-            });
-        }
+                #[cfg(feature = "server")]
+                ReplicationMode::Server(_, _) => {
+                    unimplemented!()
+                }
+                ReplicationMode::Target(_) => {
+                    unimplemented!()
+                }
+                ReplicationMode::Manual(_) => {
+                    unimplemented!()
+                }
+            }
+
+            T::post_insert(&context, &mut entity_mut);
+        });
+    }
+
+    fn on_replace(world: DeferredWorld, context: HookContext) {
+        T::on_replace(world, context)
     }
 }
 
+pub type ReplicationSendSystems = ServerSystems;
 
 pub struct SendPlugin;
 impl Plugin for SendPlugin{
     fn build(&self, app: &mut App) {
+        if !app.world().contains_resource::<ComponentRegistry>() {
+            app.world_mut().init_resource::<ComponentRegistry>();
+        }
+        // make sure that any ordering relative to ReplicationSystems is also applied to ServerSystems
+        app.configure_sets(PostUpdate, ServerSystems::Send.in_set(ReplicationSystems::Send));
+
         app.register_required_components::<Replicate, Replicated>();
         app.init_resource::<ReplicateBit>();
         #[cfg(feature = "prediction")]
@@ -506,7 +552,6 @@ impl Plugin for SendPlugin{
         }
         #[cfg(feature = "interpolation")]
         {
-            use prediction::*;
             app.register_required_components::<InterpolationTarget, Interpolated>();
             app.init_resource::<InterpolatedBit>();
         }

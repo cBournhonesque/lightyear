@@ -23,6 +23,7 @@ steam = ["lightyear_examples_common/steam"]
 
 [dependencies]
 lightyear = { "workspace" = true, features = [
+  "std",
   "interpolation",
   "prediction",
   "replication",

@@ -25,11 +25,9 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_replication::components::ConfirmedTick;
-use lightyear_replication::prelude::{Confirmed, ReplicationReceiver};
+use lightyear_replication::prelude::{Confirmed, ConfirmHistory, ServerMutateTicks};
 use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
-use lightyear_replication::registry::ComponentKind;
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentRegistry;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;
@@ -128,7 +126,7 @@ impl Plugin for RollbackPlugin {
         let check_rollback = (
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Predicted>();
-                builder.data::<&ConfirmedTick>();
+                builder.data::<&ConfirmHistory>();
                 builder.without::<DeterministicPredicted>();
                 builder.without::<DisableRollback>();
                 // include PredictionDisable entities (entities that are predicted and 'despawned'
@@ -153,6 +151,7 @@ impl Plugin for RollbackPlugin {
                         });
                 });
             }),
+            ParamBuilder,
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
@@ -248,10 +247,10 @@ fn check_rollback(
     // make sure to include disabled entities
     mut predicted_entities: Query<FilteredEntityMut>,
     timeline: Res<LocalTimeline>,
+    received: Res<ServerMutateTicks>,
     receiver_query: Single<
         (
             Entity,
-            &mut ReplicationReceiver,
             Option<&LastConfirmedInput>,
             &mut PredictionManager,
             &mut PreSpawnedReceiver,
@@ -274,13 +273,13 @@ fn check_rollback(
     //  would still be in the same table
     let (
         manager_entity,
-        mut replication_receiver,
         last_confirmed_input,
         mut prediction_manager,
         mut prespawned_receiver,
     ) = receiver_query.into_inner();
     let tick = timeline.tick();
-    let received_state = replication_receiver.received_this_frame;
+    let last_received_tick: Tick = received.last_tick().get().into();
+    let received_state = last_received_tick == tick;
     let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
     let mut skip_state_check = false;
 
@@ -315,7 +314,7 @@ fn check_rollback(
                 debug!(
                     "Rollback because we have received a new confirmed state. (no mismatch check)"
                 );
-                let confirmed_tick = entity_ref.get::<ConfirmedTick>().unwrap().tick;
+                let confirmed_tick = entity_ref.get::<ConfirmHistory>().unwrap().last_tick().get().into();
                 do_rollback(
                     confirmed_tick,
                     &prediction_manager,
@@ -338,7 +337,6 @@ fn check_rollback(
             skip_state_check = true;
         }
     }
-    replication_receiver.received_this_frame = false;
 
     if !skip_state_check {
         trace!(?tick, "Checking for state-based rollback");
@@ -360,12 +358,12 @@ fn check_rollback(
             // TODO: should we send an event when an entity receives an update? so that we check rollback
             //  only for entities that receive an update?
             // skip the entity if the replication group did not receive any updates
-            let confirmed_ticks = entity_mut.get_change_ticks::<ConfirmedTick>().unwrap();
+            let confirmed_ticks = entity_mut.get_change_ticks::<ConfirmHistory>().unwrap();
             // we always want to rollback-check when Confirmed is added, to bring the entity to the correct timeline!
             if !confirmed_ticks.is_changed(system_ticks.last_run(), system_ticks.this_run()) {
                 return
             };
-            let confirmed_tick = entity_mut.get::<ConfirmedTick>().unwrap().tick;
+            let confirmed_tick: Tick = entity_mut.get::<ConfirmHistory>().unwrap().last_tick().get().into();
             trace!("Checking rollback for entity {:?} that received update at tick {:?}", entity_mut.id(), confirmed_tick);
             if confirmed_tick > tick {
                 debug!(
@@ -568,7 +566,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             Option<&Confirmed<C>>,
             Option<&mut C>,
             &mut PredictionHistory<C>,
-            Option<&ConfirmedTick>,
+            Option<&ConfirmHistory>,
             AnyOf<(&Predicted, &PreSpawned, &DeterministicPredicted)>,
         ),
         Without<DisableRollback>,
@@ -581,10 +579,12 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
 
-    let is_non_networked = component_registry
-        .component_metadata_map
-        .get(&ComponentKind::of::<C>())
-        .is_none_or(|m| m.serialization.is_none());
+    // TODO:!!!!!
+    let is_non_networked = false;
+    // let is_non_networked = component_registry
+    //     .component_metadata_map
+    //     .get(&ComponentKind::of::<C>())
+    //     .is_none_or(|m| m.serialization.is_none());
     for (
         entity,
         confirmed_component,
@@ -616,7 +616,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 // Confirm that we are in rollback, with the correct tick
                 debug_assert_eq!(
                     rollback_tick,
-                    confirmed.unwrap().tick,
+                    confirmed.unwrap().last_tick().get().into(),
                     "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {entity:?}. Are all predicted entities in the same replication group?",
                 );
                 (confirmed_component.map(|c| &c.0), false)

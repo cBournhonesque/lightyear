@@ -23,7 +23,6 @@ members = [
   "lightyear_prediction",
   "lightyear_raw_connection",
   "lightyear_replication",
-  "lightyear_replicon",
   "lightyear_serde",
   "lightyear_steam",
   "lightyear_sync",
@@ -95,8 +94,7 @@ lightyear_transport = { path = "lightyear_transport", version = "0.25.5", defaul
 lightyear_prediction = { path = "./lightyear_prediction", version = "0.25.5", default-features = false }
 lightyear_link = { path = "./lightyear_link", version = "0.25.5", default-features = false }
 lightyear_raw_connection = { path = "./lightyear_raw_connection", version = "0.25.5", default-features = false }
-lightyear_replication = { path = "./lightyear_replication", version = "0.25.5", default-features = false }
-lightyear_replicon = { path = "./lightyear_replicon", version = "0.25.5", default-features = false }
+lightyear_replication = { path = "lightyear_replication", version = "0.25.5", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.25.5", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.25.5", default-features = false }
 lightyear_sync = { path = "./lightyear_sync", version = "0.25.5", default-features = false }
