@@ -219,7 +219,7 @@ bevy_winit = { version = "0.18", default-features = false }
 tracy-client = { version = "0.18" }
 
 # replication
-bevy_replicon = { version = "0.38" }
+bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon.git",  branch = "lightyear" }
 
 # input
 bevy_enhanced_input = { version = "0.22", features = ["serialize"] }

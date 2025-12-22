@@ -10,10 +10,13 @@ use bevy_ecs::entity::EntityHash;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
-use lightyear_core::prelude::Tick;
+use bevy_derive::{Deref, DerefMut};
+use lightyear_core::prelude::{Predicted, Tick};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
+use seahash::State;
+use lightyear_replication::prelude::{ConfirmHistory, ServerMutateTicks};
 
 #[derive(Resource)]
 pub struct PredictionResource {
@@ -92,6 +95,7 @@ impl RollbackPolicy {
 // TODO: ideally we would only insert LastConfirmedInput if the PredictionManager is updated to use RollbackMode::AlwaysInput
 //  because that's where we need it. In practice we don't have an OnChange observer so we cannot do this easily
 #[require(LastConfirmedInput)]
+// TODO: ideally we would only insert LastConfirmedTick only if state rollback is enabled
 pub struct PredictionManager {
     /// If true, we always rollback whenever we receive a server update, instead of checking
     /// ff the confirmed state matches the predicted state history
@@ -139,6 +143,55 @@ impl LastConfirmedInput {
         // If we received any messages, we can assume that we have a confirmed input
         self.received_any_messages
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+
+/// Stores metadata related to state-based prediction.
+#[derive(Resource, Clone, Copy, Debug, Default, Reflect)]
+pub struct StateRollbackMetadata {
+    /// Stores the earliest confirmed tick across all [`Predicted`] entities.
+    ///
+    /// Whenever we receive a replication message for a predicted entity, we potentially rollback from this tick.
+    ///
+    /// There is some subtlety in how this is computed:
+    /// - [`ServerMutateTicks`] contains the information of whether a tick was confirmed across ALL replicated entities. In general it is possible
+    ///   that some entities have a more recent confirmed tick compared to [`ServerMutateTicks`] (if we didn't receive all mutate messages for a given tick)
+    /// - We also send an empty mutation message if there were no changes, to avoid leaving the client in a state where they mispredict an entity
+    ///   and there is no replication update to force a rollback. In these cases the entity's [`ConfirmHistory`] is not updated but the
+    ///   [`ServerMutateTicks`] is
+    last_confirmed_tick: Tick,
+    // Will be set to true if we received any replication message this frame
+    pub(crate) received_messages_this_frame: bool,
+    pub(crate) should_rollback: bool,
+}
+
+// TODO: THESE ARE REPLICON TICKS CORRESPONDING TO THE SENDER'S REPLICATION INTERVAL!!
+//  TOTALLY UNRELATED TO THE RECEIVER'S TICK! OR MAYBE THEY ARE? SINCE THE REPLICON TICK IS
+//  INCREMENTED BY LIGHTYEAR's TICK?
+
+impl StateRollbackMetadata {
+    pub fn last_confirmed_tick(&self) -> Tick {
+        self.last_confirmed_tick
+    }
+
+    pub(crate) fn update_last_confirmed_tick(
+        mut metadata: ResMut<StateRollbackMetadata>,
+        server_mutate_ticks: Res<ServerMutateTicks>,
+        confirm_history: Query<&ConfirmHistory, With<Predicted>>,
+    ) {
+        let current = metadata.last_confirmed_tick;
+        // - at minimum it's `ServerMutateTicks`.last_tick()
+        let base: Tick = server_mutate_ticks.last_tick().get().into();
+        // - if predicted entities are a subset of all replicated entities, it's the minimum of ConfirmHistory across all predicted entities
+        let mut minimum = base + 1000;
+        for history in confirm_history.iter() {
+            minimum = core::cmp::min(minimum, history.last_tick().get().into());
+        }
+        let new = core::cmp::max(base, minimum);
+        if current != new {
+            metadata.last_confirmed_tick = new;
+        }
     }
 }
 

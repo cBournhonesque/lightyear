@@ -1,6 +1,4 @@
-use super::interpolation_history::{apply_confirmed_update, insert_confirmed_history};
 use crate::SyncComponent;
-use crate::despawn::removed_components;
 use crate::interpolate::{interpolate, update_confirmed_history};
 use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
@@ -10,6 +8,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
+use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
@@ -100,11 +99,9 @@ pub enum InterpolationSystems {
 /// Add per-component systems related to interpolation
 pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_observer(removed_components::<C>);
-    app.add_observer(insert_confirmed_history::<C>);
     app.add_systems(
         Update,
-        (apply_confirmed_update::<C>, update_confirmed_history::<C>)
+        update_confirmed_history::<C>
             .chain()
             .in_set(InterpolationSystems::Prepare),
     );
@@ -122,6 +119,9 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
+
+        // REPLICON
+        app.track_mutate_messages();
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
