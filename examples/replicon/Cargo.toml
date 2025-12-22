@@ -1,0 +1,51 @@
+[package]
+name = "replicon"
+version = "0.25.5"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition = "2021"
+description = "Examples for the lightyear networking library for the Bevy game engine"
+readme = "README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = ["gui", "lightyear_examples_common/client"]
+gui = ["lightyear_examples_common/gui"]
+server = ["lightyear_examples_common/server"]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp"]
+steam = ["lightyear_examples_common/steam"]
+
+
+[dependencies]
+lightyear = { "workspace" = true, features = [
+  "std",
+  "interpolation",
+  "prediction",
+  "replication",
+  "input_native",
+] }
+lightyear_examples_common.workspace = true
+serde.workspace = true
+bevy.workspace = true
+bevy_replicon.workspace = true
+
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
+
+[lints]
+workspace = true
+
+[lib]
+doc = false
+
+[[bin]]
+name = "replicon"
+doc = false

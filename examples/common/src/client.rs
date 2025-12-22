@@ -53,7 +53,6 @@ impl ExampleClient {
                 Link::new(settings.conditioner.clone()),
                 LocalAddr(client_addr),
                 PeerAddr(settings.server_addr),
-                ReplicationReceiver::default(),
                 PredictionManager::default(),
                 Name::from("Client"),
             ));

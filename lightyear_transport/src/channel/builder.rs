@@ -57,6 +57,8 @@ impl Default for ChannelSettings {
 #[derive(Component)]
 #[require(Link)]
 pub struct Transport {
+    pub send_replicon: HashMap<ChannelId, SenderMetadata>,
+
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,
     pub senders: HashMap<ChannelKind, SenderMetadata>,
     /// PriorityManager shared between all channels of this transport
@@ -91,6 +93,7 @@ impl Transport {
     pub fn new(priority_config: PriorityConfig) -> Self {
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         Self {
+            send_replicon: Default::default(),
             receivers: Default::default(),
             senders: Default::default(),
             priority_manager: PriorityManager::new(priority_config),
@@ -234,6 +237,20 @@ impl Transport {
             .get_mut(&kind)
             .ok_or(TransportError::ChannelNotFound(kind))?;
         let message_id = sender_metadata.sender.buffer_send(bytes, priority);
+        Ok(message_id)
+    }
+
+    pub fn send_mut_replicon(
+        &mut self,
+        id: usize,
+        bytes: SendPayload,
+    ) -> Result<Option<MessageId>, TransportError> {
+        let id = id as ChannelId;
+        let sender_metadata = self
+            .send_replicon
+            .get_mut(&id)
+            .ok_or(TransportError::ChannelIdNotFound(id))?;
+        let message_id = sender_metadata.sender.buffer_send(bytes, 1.0);
         Ok(message_id)
     }
 

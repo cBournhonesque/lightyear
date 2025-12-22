@@ -8,14 +8,15 @@ use core::ops::Deref;
 use lightyear_core::history_buffer::HistoryBuffer;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::SyncEvent;
-use lightyear_replication::prelude::{Confirmed, PreSpawned};
+use lightyear_replication::prelude::{PreSpawned};
 use lightyear_sync::prelude::InputTimelineConfig;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
+/// Holds the history of the component value at every tick.
 pub type PredictionHistory<C> = HistoryBuffer<C>;
 
-/// If PredictionMode::Full, we store every update on the predicted entity in the PredictionHistory
+/// We store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
@@ -78,9 +79,9 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 ///
 /// We don't put any value in the history because the `update_history` systems will add the value.
 ///
-/// Predicted: when [`Confirmed<C>`] is added, we potentially do a rollback which will add C
+/// Predicted: when [`C`] is added, we potentially do a rollback which will add C
 /// PreSpawned:
-///   - on the client the component C is added, which should be added to the history
+///   - on the client the component `C` is added, which should be added to the history
 ///   - before matching, any rollback should bring us back to the state of C in the history
 ///   - when Predicted is added (on PreSpawn match), [`Confirmed<C>`] might be added, which shouldn't trigger a rollback
 ///     because it should match the state of C in the history. We remove PreSpawned to make sure that we rollback to
@@ -90,7 +91,6 @@ pub(crate) fn add_prediction_history<C: Component>(
     trigger: On<
         Add,
         (
-            Confirmed<C>,
             C,
             Predicted,
             PreSpawned,
@@ -103,7 +103,7 @@ pub(crate) fn add_prediction_history<C: Component>(
         (),
         (
             Without<PredictionHistory<C>>,
-            Or<(With<Confirmed<C>>, With<C>)>,
+            With<C>,
             Or<(
                 With<Predicted>,
                 With<PreSpawned>,

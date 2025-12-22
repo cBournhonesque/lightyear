@@ -11,6 +11,6 @@ use bevy_reflect::Reflect;
 /// - Rollback and re-simulate the entity when a server correction is received.
 /// - Manage the relationship between the predicted entity and its corresponding confirmed entity received from the server.
 // NOTE: we create Predicted here because it is used by multiple crates (prediction, replication)
-#[derive(Component, Debug, Reflect)]
+#[derive(Component, Debug, Default, Reflect)]
 #[reflect(Component)]
 pub struct Predicted;

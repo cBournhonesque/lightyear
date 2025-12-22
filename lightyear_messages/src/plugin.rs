@@ -212,7 +212,6 @@ mod tests {
             transport,
             MessageReceiver::<M>::default(),
             MessageSender::<M>::default(),
-            LocalTimeline::default(),
             RemoteId(PeerId::Local(0)),
             Linked,
             Connected,

@@ -14,7 +14,7 @@ use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
 use lightyear_messages::prelude::RemoteEvent;
-use lightyear_replication::message::SenderMetadata;
+use lightyear_replication::metadata::SenderMetadata;
 use lightyear_sync::prelude::PingManager;
 use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::timeline::sync::{
