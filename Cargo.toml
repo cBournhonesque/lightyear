@@ -133,7 +133,7 @@ variadics_please = "1.1.0"
 no_std_io2 = { version = "0.9", features = ["alloc"] }
 
 # serialization
-bincode = { version = "2.0.1", default-features = false, features = [
+bincode = { version = "3.0.0", default-features = false, features = [
   "serde",
   "alloc",
 ] }
