@@ -215,7 +215,7 @@ bevy_utils = { version = "0.17", default-features = false, features = [
 tracy-client = { version = "=0.18.0" }
 
 # replication
-bevy_replicon = { git = "https://github.com/simgine/bevy_replicon.git",  branch = "lightyear" }
+bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon.git",  branch = "lightyear" }
 
 # input
 bevy_enhanced_input = { version = "0.20", features = ["serialize"] }
