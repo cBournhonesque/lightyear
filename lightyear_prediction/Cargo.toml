@@ -29,6 +29,8 @@ lightyear_messages = { workspace = true, optional = true }
 lightyear_frame_interpolation.workspace = true
 lightyear_interpolation.workspace = true
 
+bevy_replicon.workspace = true
+
 # utils
 metrics = { workspace = true, optional = true }
 seahash.workspace = true

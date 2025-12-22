@@ -27,13 +27,11 @@ pub mod delta;
 pub mod prelude {
     pub use bevy_replicon::client::confirm_history::ConfirmHistory;
     pub use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
-    #[cfg(feature = "server")]
-    pub use crate::server::ReplicationMetadata;
 
     pub use crate::ReplicationSystems;
+    pub use crate::metadata::ReplicationMetadata;
     pub use crate::control::{Controlled, ControlledBy};
     pub use crate::prespawn::PreSpawned;
-    pub use crate::receive::Confirmed;
     pub use crate::send::{Replicate, ReplicationSender};
     pub use crate::registry::replication::AppComponentExt;
 
@@ -61,6 +59,7 @@ impl PluginGroup for LightyearRepliconBackend {
         let mut group = PluginGroupBuilder::start::<Self>();
 
         group = group.add(bevy_replicon::shared::RepliconSharedPlugin::default());
+        group = group.add(metadata::MetadataPlugin);
 
         #[cfg(feature = "server")]
         {
@@ -73,7 +72,7 @@ impl PluginGroup for LightyearRepliconBackend {
             // TODO: add this independently from client or server. This should be enabled on the sender side
             group = group.add(send::SendPlugin);
             group = group.add(control::ControlPlugin);
-            group = group.add(metadata::MetadataPlugin);
+
         }
 
         #[cfg(feature = "client")]

@@ -1,12 +1,11 @@
-use crate::prelude::{ComponentRegistration, ComponentRegistry};
-use crate::registry::ComponentKind;
-use crate::registry::registry::ComponentMetadata;
+use crate::registry::{ComponentKind, ComponentMetadata, ComponentRegistry};
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
 use bevy_ptr::Ptr;
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use tracing::trace;
+use crate::registry::replication::ComponentRegistration;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DeterministicFns {
@@ -66,8 +65,8 @@ impl<C: Debug> ComponentRegistration<'_, C> {
                         confirmed_component_id,
                         component_id,
                         replication: None,
-                        serialization: None,
-                        delta: None,
+                        // #[cfg(feature = "delta")]
+                        // delta: None,
                         deterministic: None,
                     })
                     .deterministic = Some(DeterministicFns::new::<C>(default_inner_hash_fn::<C>));
@@ -95,8 +94,8 @@ impl<C: Debug> ComponentRegistration<'_, C> {
                         confirmed_component_id,
                         component_id,
                         replication: None,
-                        serialization: None,
-                        delta: None,
+                        // #[cfg(feature = "delta")]
+                        // delta: None,
                         deterministic: None,
                     })
                     .deterministic = Some(DeterministicFns::new(f));

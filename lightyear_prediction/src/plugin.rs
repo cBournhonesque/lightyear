@@ -8,7 +8,7 @@ use super::rollback::{
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
-use crate::manager::PredictionManager;
+use crate::manager::{PredictionManager, StateRollbackMetadata};
 use crate::predicted_history::{
     add_prediction_history, apply_component_removal_predicted,
     handle_tick_event_prediction_history, update_prediction_history,
@@ -20,11 +20,12 @@ use alloc::format;
 use bevy_app::prelude::*;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
+use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 #[cfg(feature = "metrics")]
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
-use lightyear_replication::prelude::ReplicationSystems;
+use lightyear_replication::prelude::{ReplicationSystems};
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]
@@ -173,6 +174,9 @@ impl Plugin for PredictionPlugin {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
 
+        // REPLICON
+        app.track_mutate_messages();
+
         // Custom entity disabling
         let rollback_disable_id = app
             .world_mut()
@@ -199,6 +203,9 @@ impl Plugin for PredictionPlugin {
                 .chain(),
         );
         app.configure_sets(PreUpdate, PredictionSystems::All.run_if(should_run));
+        app.add_systems(PreUpdate, StateRollbackMetadata::update_last_confirmed_tick
+            .after(ReplicationSystems::Receive)
+            .before(PredictionSystems::Rollback));
 
         // FixedUpdate systems
         // 1. Update client tick (don't run in rollback)

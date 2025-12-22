@@ -10,11 +10,14 @@ use bevy_ecs::entity::EntityIndexMap;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
 use bevy_replicon::prelude::{ComponentScope, FilterScope, Replicated, VisibilityFilter};
+use bevy_replicon::server::server_tick::ServerTick;
 use bevy_replicon::server::ServerSystems;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
+use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
+use bevy_time::Time;
 use serde::{Deserialize, Serialize};
 use lightyear_connection::client::{PeerMetadata};
 use lightyear_connection::host::HostClient;
@@ -29,6 +32,8 @@ use tracing::{error, trace};
 pub use prediction::*;
 #[cfg(feature = "interpolation")]
 pub use interpolation::*;
+use lightyear_core::prelude::LocalTimeline;
+use crate::metadata::ReplicationMetadata;
 use crate::registry::ComponentRegistry;
 use crate::ReplicationSystems;
 
@@ -534,12 +539,41 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
 
 pub type ReplicationSendSystems = ServerSystems;
 
+/// Replication is triggered in Replicon every time the `ServerTick` is incremented, which happens every
+/// time the `Timer` in `ReplicationMetadata` finishes.
+fn update_replication_tick(
+    time: Res<Time>,
+    timeline: Res<LocalTimeline>,
+    mut replication_metadata: ResMut<ReplicationMetadata>,
+    mut replication_tick: ResMut<ServerTick>,
+) {
+    replication_metadata.timer.tick(time.delta());
+    if replication_metadata.timer.just_finished() {
+        // as u16 wraps automatically (truncates high bits)
+        let current_tick = replication_tick.get() as u16;
+        let new_tick = timeline.tick();
+        replication_tick.increment_by((new_tick - current_tick).0 as u32);
+    }
+}
+
 pub struct SendPlugin;
 impl Plugin for SendPlugin{
     fn build(&self, app: &mut App) {
         if !app.world().contains_resource::<ComponentRegistry>() {
             app.world_mut().init_resource::<ComponentRegistry>();
         }
+        
+        app.add_systems(PostUpdate, update_replication_tick.in_set(ServerSystems::IncrementTick));
+
+        #[cfg(any(feature = "prediction", feature = "interpolation"))]
+        // We enable this replicon setting that does a few things:
+        // - replication mutations are sent every RepliconTick, even if there were 0 mutations. This is to avoid
+        //   situations where a client mispredicted something, and there is no correct since the sender didn't send
+        //   any further updates
+        // - it adds a `ServerMutateTicks` resource on the receiver that keeps track of the ticks where the receiver
+        //   received any messages
+        app.track_mutate_messages();
+
         // make sure that any ordering relative to ReplicationSystems is also applied to ServerSystems
         app.configure_sets(PostUpdate, ServerSystems::Send.in_set(ReplicationSystems::Send));
 

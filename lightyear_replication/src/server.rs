@@ -1,14 +1,9 @@
-use std::time::Duration;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
-use bevy_time::prelude::Timer;
 
 use bevy_replicon::{prelude::*, shared::backend::connected_client::NetworkId};
-use bevy_replicon::server::server_tick::ServerTick;
-use bevy_time::{Time, TimerMode};
 use lightyear_connection::client::Connect;
 use lightyear_core::id::{RemoteId};
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_transport::packet::packet_builder::MAX_PACKET_SIZE;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
@@ -22,7 +17,7 @@ impl Plugin for RepliconServerPlugin {
         app.add_observer(on_connect);
         app.add_systems(PreUpdate, receive_packets.in_set(ServerSystems::ReceivePackets));
         app.add_systems(PostUpdate, send_packets.in_set(ServerSystems::SendPackets));
-        app.add_systems(PostUpdate, update_replication_tick.in_set(ServerSystems::IncrementTick));
+
     }
 }
 
@@ -49,47 +44,6 @@ fn receive_packets(
             }
         })
     });
-}
-
-
-/// Resource that needs to be added to control the replication behaviour for the current App.
-// TODO: add a ReplicationMetadata resource with a replication-timer
-//  also the TickDuration is not useful?
-#[derive(Resource)]
-pub struct ReplicationMetadata {
-    pub(crate) timer: Timer,
-}
-
-impl ReplicationMetadata {
-    pub fn new(replication_interval: Duration) -> Self {
-        Self {
-            timer: Timer::new(replication_interval, TimerMode::Repeating)
-        }
-    }
-}
-
-impl Default for ReplicationMetadata {
-    fn default() -> Self {
-        Self::new(Duration::default())
-    }
-}
-
-
-/// Replication is triggered in Replicon every time the `ServerTick` is incremented, which happens every
-/// time the `Timer` in `ReplicationMetadata` finishes.
-fn update_replication_tick(
-    time: Res<Time>,
-    timeline: Res<LocalTimeline>,
-    mut replication_metadata: ResMut<ReplicationMetadata>,
-    mut replication_tick: ResMut<ServerTick>,
-) {
-    replication_metadata.timer.tick(time.delta());
-    if replication_metadata.timer.just_finished() {
-        // as u16 wraps automatically (truncates high bits)
-        let current_tick = replication_tick.get() as u16;
-        let new_tick = timeline.tick();
-        replication_tick.increment_by((new_tick - current_tick).0 as u32);
-    }
 }
 
 

@@ -20,7 +20,6 @@ use serde::ser::Serialize;
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
-use crate::receive::Confirmed;
 use crate::registry::replication::ReplicationMetadata;
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
@@ -156,13 +155,12 @@ pub struct ComponentRegistry {
 
 #[derive(Debug, Clone)]
 pub struct ComponentMetadata {
-    pub confirmed_component_id: ComponentId,
     pub component_id: ComponentId,
     pub replication: Option<ReplicationMetadata>,
     // #[cfg(feature = "delta")]
     // pub(crate) delta: Option<ErasedDeltaFns>,
     #[cfg(feature = "deterministic")]
-    pub deterministic: Option<super::deterministic::DeterministicFns>,
+    pub deterministic: Option<deterministic::DeterministicFns>,
 }
 
 impl ComponentRegistry {
@@ -191,13 +189,11 @@ impl ComponentRegistry {
     ) {
         let component_kind = self.kind_map.add::<C>();
         let component_id = world.register_component::<C>();
-        let confirmed_component_id = world.register_component::<Confirmed<C>>();
         self.component_id_to_kind
             .insert(component_id, component_kind);
         self.component_metadata_map
             .entry(component_kind)
             .or_insert(ComponentMetadata {
-                confirmed_component_id,
                 component_id,
                 replication: Some(ReplicationMetadata {
                     predicted: false,

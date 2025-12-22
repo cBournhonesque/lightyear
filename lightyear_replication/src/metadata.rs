@@ -1,7 +1,8 @@
 use core::time::Duration;
-use bevy_app::{App, Plugin};
+use bevy_app::prelude::*;
 use lightyear_serde::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_time::{Timer, TimerMode};
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::tick::TickDuration;
@@ -12,7 +13,28 @@ use lightyear_serde::ToBytes;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_transport::prelude::*;
 use crate::prelude::ReplicationSender;
-use crate::server::ReplicationMetadata;
+
+/// Resource that needs to be added to control the replication behaviour for the current App.
+// TODO: add a ReplicationMetadata resource with a replication-timer
+//  also the TickDuration is not useful?
+#[derive(Resource)]
+pub struct ReplicationMetadata {
+    pub(crate) timer: Timer,
+}
+
+impl ReplicationMetadata {
+    pub fn new(replication_interval: Duration) -> Self {
+        Self {
+            timer: Timer::new(replication_interval, TimerMode::Repeating)
+        }
+    }
+}
+
+impl Default for ReplicationMetadata {
+    fn default() -> Self {
+        Self::new(Duration::default())
+    }
+}
 
 #[derive(Event, Debug)]
 pub struct SenderMetadata {
@@ -72,6 +94,7 @@ fn send_sender_metadata(
 }
 
 pub struct MetadataPlugin;
+
 
 impl Plugin for MetadataPlugin {
     fn build(&self, app: &mut App) {

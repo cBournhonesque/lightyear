@@ -22,6 +22,8 @@ lightyear_messages.workspace = true
 lightyear_replication = { workspace = true, features = ["interpolation"] }
 lightyear_sync = { workspace = true, features = ["client"] }
 
+bevy_replicon.workspace = true
+
 # utils
 metrics = { workspace = true, optional = true }
 tracing.workspace = true
