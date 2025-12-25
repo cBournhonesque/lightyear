@@ -14,7 +14,7 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QuerySingleError;
 use bevy_ecs::world::DeferredWorld;
-use bevy_reflect::Reflect;
+use bevy_reflect::{prelude::ReflectDefault, Reflect};
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
@@ -186,7 +186,7 @@ impl PreSpawnedPlugin {
 /// ```
 #[derive(Component)]
 #[component(on_add = PreSpawned::on_add)]
-#[reflect(Component)]
+#[reflect(Component, Default)]
 pub struct PreSpawned {
     // TODO: be able to specify for which receiver this pre-spawned entity is?
     /// The hash that will identify the spawned entity
