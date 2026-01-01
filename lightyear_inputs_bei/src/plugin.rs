@@ -22,10 +22,10 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
-use lightyear_replication::prelude::AppComponentExt;
-use lightyear_replication::registry::replication::GetWriteFns;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+use bevy_replicon::shared::replication::registry::command_fns::MutWrite;
+use bevy_replicon::prelude::AppRuleExt;
 
 /// Add BEI Input replication to your app.
 pub struct InputPlugin<C> {
@@ -47,7 +47,7 @@ impl<C> InputPlugin<C> {
 }
 
 impl<
-    C: Component<Mutability: GetWriteFns<C>>
+    C: Component<Mutability: MutWrite<C>>
         + PartialEq
         + Clone
         + Debug
@@ -64,13 +64,12 @@ impl<
 
         app.add_input_context_to::<FixedPreUpdate, C>();
         // we register the context C entity so that it can be replicated from the server to the client
-        app.register_component::<C>();
+        app.replicate::<C>();
 
         // We cannot directly replicate ActionOf<C> because it contains an entity, and we might need to do some custom mapping
         // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity
         // to be able to be mapped
-        app.register_component::<ActionOf<C>>()
-            .add_component_map_entities();
+        app.replicate::<ActionOf<C>>();
 
         #[cfg(feature = "client")]
         {

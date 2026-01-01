@@ -107,7 +107,7 @@ pub struct ReplicationState {
 
 impl ReplicationState {
     #[cfg(feature = "test_utils")]
-    pub fn state(&self) -> &EntityIndexMap<lightyear_replication::prelude::PerSenderReplicationState> {
+    pub fn state(&self) -> &EntityIndexMap<PerSenderReplicationState> {
         &self.per_sender_state
     }
 
@@ -562,7 +562,7 @@ impl Plugin for SendPlugin{
         if !app.world().contains_resource::<ComponentRegistry>() {
             app.world_mut().init_resource::<ComponentRegistry>();
         }
-        
+
         app.add_systems(PostUpdate, update_replication_tick.in_set(ServerSystems::IncrementTick));
 
         #[cfg(any(feature = "prediction", feature = "interpolation"))]
