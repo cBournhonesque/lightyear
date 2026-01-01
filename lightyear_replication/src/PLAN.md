@@ -1,11 +1,12 @@
 # Plan for integration
 
+
 ## Tick
 
 - make LocalTimeline a resource
 - will switch Tick to u32 and increment ServerTick manually when it's time to Replicate
   - TODO: replicon needs to give control over when server-tick is incremented!
-  - or maybe keep Tick u16? we just increment the RepliconTick by the difference between two ticks. And then 
+  - or maybe keep Tick u16? we just increment the RepliconTick by the difference between two ticks. And then
 
 ## Prediction
 
@@ -18,111 +19,41 @@
 - enable sending mutation messages every tick (even if empty) and compute ConfirmedTick correctl from ConfirmedHistory and ServerMutateTicks.
 - Rewind RepliconTick on rollback
 
-- we need the oldest tick that was confirmed among all predicted entities
-  - the most recent of `ServerUpdateTick` and `ServerMutateTick.last_tick()` is the OLDEST possible confirmed tick across all entities 
-  - it is possible that the Predicted entities are a subset of all replicated entities, in which case we might want to check 
-    each Predicted entity's `ConfirmedHistory` to see if the oldest confirmed tick among them is more recent 
 
-- We want to use history for prediction?
-  - for cases like:
-    - E1 has confirmed tick 7
-    - E2 receives ticks 7, 11. Without history we would just apply the tick-11 value, then when we rollback to the earliest confirmed tick
-      we would rollback to tick 7 but have an incorrect value.
+Key insight: `ServerMutateTicks.last_tick = T` guarantees that for entities not updated at tick T,
+their value is equal to the last confirmed value.
 
-- New check_rollback logic
-  - when we insert a mutation, we do the check rollback then? we compare the new value with the value in the history.
+Proof:
+Let's say we have ServerMutateTicks.last_tick = T, and we only received a message for entity A. (there is another entity B).
+Does that mean that we fully know the state of entity B? How do we determine the confirmed value for B? We know that the value of B did not change on tick T-1.
+- either we received an update for B on tick T-1, then we know that at tick T the value of B is the same
+- either we have ServerMutateTicks.T-1 is confirmed, then we know that B at tick T-1 is the same as the previous confirmed value
+- either we don't have ServerMutateTicks.T-1 confirmed. We could have:
+  - the server did not send any message with an update to B, so B is the same as the previous confirmed value
+  - the server sent a message with an update for B, but the message is lost or in-flight. But in that case the server would not have received an ack for that message, so on tick T it would have sent an update for B again! So that is not possible.
+That means that we know for sure that B did not change compared to its last confirmed value.
 
+Then the question becomes, how does that affect how we rollback?
+We need:
+- when we receive an update, we can do a rollback check and add a new confirmed value in the history
+- for entities that were not updated, we do a rollback check at ServerMutateTicks.last_tick = T only if the `ServerMutateTick.last_tick` got updated (otherwise we already did the check). When `ServerMutateTick.last_tick` gets updated, then we can set a new confirmed value for all entities that were not updated. This means that the last confirmed value is AT LEAST
+- To rollback we have 2 choices:
+  - rollback from the earliest confirmed tick across all predicted entities (predicted entities are a subset of all entities so it's possible that this is more recent than ServerMutateTicks.last_tick)
+  - rollback from ServerMutateTicks.last_tick
+  For simplicity we will do the second choice
+- When we rollback:
+  - if we do a rollback check, we rollback from the earliest mismatch tick. Subtle: if we receive an update for tick T that mismatches but ServerMutateTicks.last_tick < T (meaning we haven't received all the updates for other ticks), then we can just
+  rollback from tick T. The reason is that we can either:
+    - rollback from tick T (earliest mismatch)
+    - or rollback from earliest confirmed tick X (even among entities that haven't received an update). In which case we would resimulate between ticks X to T but we don't have more recent confirmed values than X, so there's no point in doing that! Instead we rollback from T, but we have our best predicted guess for tick T (even for the entity that didn't receive an update)
+  - if we don't do a rollback check, we rollback from ServerMutateTicks.last_tick
+- One thing to be careful of is that we could have ServerMutateTicks.last_tick = T, but have received confirmed updates for ticks > T. In which case we don't want to overwrite them when we rollback, and instead use these confirmed values!
 
-So my current plan for prediction would be:
-- I keep track of the `EarliestConfirmedTick`, which is equal to `max(ServerMutateTicks.last_tick, min(ConfirmHistory.last_tick) among all predicted entities)` (the confirmed tick is at least `ServerMutateTick.last_tick`, and it's possible that all predicted entities are at a more recent confirmed tick).
-- I check for rollback whenever the predicted component is mutated/removed, in `WriteFn<C>`/`RemoveFn<C>`.
-- The value in the prediction history for `EarliestConfirmedTick` is **always confirmed**.
-  - either the entity's `ConfirmHistory.last_tick` (meaning that it just received a replication update) is equal to `EarliestConfirmedTick`; this case was handled by `WriteFn<C>`
-  - either the entity's `ConfirmHistory.last_tick` is **more recent** than `EarliestConfirmedTick`  in which case the confirmed value was previously inserted in the history by `WriteFn<C>` and we only clear the history up to `EarliestConfirmedTick` 
-
-
-SITUATION 1
-- E1 at tick 7
-- E2 at ticks 5, 9, 12. 
-
-Tick 5: server value inserted into history at tick 5. We rollback, there is a new predicted value at tick 7.
-Tick 7: we receive an update for E1.
-  - either that was the only message for tick 7 and ServerMutateTicks.last_tick = 7, in which case we should rollback starting
-    from tick 7. The ConfirmTick for E2 is at tick 5, but ServerMutateTicks.last_tick = 7, which means that the confirmed value is
-    the same as the one from tick 5. Restore it from tick 5.
-  - either ServerMutateTicks.last_tick < 7 (because we haven't received all messages yet). The ServerMutateTick would for example be 5,
-    and we should rollback from tick 5. At tick 7, the component should be inserted on E1. 
-    -> WE SHOULD ONLY ERASE THE HISTORY UP TO THE ENTITY'S CONFIRMED TICK, NOT BEFORE!
-
-SITUATION 2
-- E1 at tick 7
-- we mispredict E1 at tick 9
-- We receive an empty ServerMutateTicks.last_tick at tick 9.
-  -> we should rollback to the last confirmed tick which was Tick 7.
-
-
-- For each predicted entity, the latest confirmed tick is `max(ConfirmHistory, ServerMutateTicks)`
- 
-- PreUpdate:
-  - we don't need to check if we received any replication message because:
-    - updates received by Predicted entities: we handle it in WriteFn
-    - empty mutate messages: these will update ServerMutateTick.last_tick
-  - When we receive an update, we update the history and we check for a mismatch. If there is, we set a bool saying that we need to rollback.
-  - when we rollback:
-    - for each predicted entity, if ConfirmTick < LastConfirmed, then the entity's value didn't change. And we know their confirmed value at LastConfirmedTick! Set their LastConfirmedTick value to the history value of ConfirmTick, and then clear from LastConfirmedTick.
-    - if LastConfirmedTick < ConfirmTick, we clear from LastConfirmedTick.
-  
-
-// E1 is at tick 4
-// E2 is at tick 6
-// ServerMutateTick is at tick 2.
-// rollback from tick 4 onwards, even though maybe we don't have a confirmed value for tick 4.
-// Or should we rollback from tick 2 which is the tick where we know for sure the correct
-//  behaviour? (in which case we would have to check if tick 4 was confirmed in E2's ConfirmHistory or not)
-// I think it might be better to be optimistic and rollback from tick 4?
-// -> YES, cuz even if we rollback from tick 2, we would still have a prediction for 4 (which we have already predicted!) so 
-
-PROBLEM:
-- since we rollback from the earliest LastConfirmedTick, then when we rollback and rewrite the history
-we lose the confirmed values! Should we separate a ConfirmedHistory from a PredictedHistory?
-Inside the PredictedHistory should we have an enum for `Removed, Confirmed, Predicted`? And the Confirmed
-value wouldn't be overwritten when we rollback.
-
-- What we could do
--> when we apply all replication updates, we check for corrections. If there are any, we rollback from the earliest correction.
--> whenever ServerMutateTick is updated (we received all updates for that entity), we know that these entities did not change (since the last time the ConfirmedHistory was updated).
-  - we optimistically assume that the entity did not change since the last confirmed tick. 
-
-What we can do is:
-- start of frame. Reset the EarliestMismatchTick.
-- for updates received, we apply them immediately and update the EarliestMismatchTick (which will be where we rollback from). We add the value as Confirmed in the history.
-- if ServerMutateTick is updated for that tick (i.e. we receive a MutateTickReceived event), then for all other entities we consider that the value did not change since the last confirmed update. 
-  We use the previous confirmed value in the history as the ground truth and consider that it did not change. Then we do a rollback check.
-  (in reality, it could have changed in the meantime, but if the replication interval is big compared to frame time, e.g ReplicationInterval = 100ms) there is low chance of that happening.
-  - or we only include non-changed updates if the previous RepliconTick was also received?
-
-Edge case:
-- ServerMutateTick is T3
-- Message with E2-update at T4, still in flight 
-- We receive Message with E1-update at T5. It's only message so ServerMutateTick-T5 is confirmed.
-  -> rollback check for E1
-    - if rollback, rollback from the last mismatch, which is T5.
-    - when we rollback, we clear from T3 onwards, T3 is the last ServerMutateTick where ALL previous ticks were confirmed.
-  -> no rollback check for E2 because T4 is not confirmed in ServerMutateTick.
-      (we only rollback check if the previous tick is also confirmed. We consider that 2 consecutive RepliconTicks should be enough. Make this configurable.
-       If we are optimistic we could consider that simply receiving the non-change makes it confirmed since replication interval is big enough.)
-    - when we rollback E2, we still start from T5, which is our optimistic prediction.
-- We could receive T4 now. If that happens:
-  -> rollback check for E2, and add T4 to history
-  -> rollback check for E1, we consider that it did not change since T3.
-- Then we could receive T6 with no changes.
-  -> rollback check for E1 and E2.
-  
 
 ## Interpolation
 
 - How would updates be applied?
-  - maybe we want to apply updates with history. Imagine we are tick 3 and we receive updates for ticks 5 and 7. Without history, we would only 
+  - maybe we want to apply updates with history. Imagine we are tick 3 and we receive updates for ticks 5 and 7. Without history, we would only
     get the tick 7 update. But to have better interpolation we want ticks 5 and 7.
   - If `Interpolated` is present, we apply the update to `ConfirmHistory<C>` directly.
 
@@ -143,13 +74,73 @@ Edge case:
 
 - Maintain a mapping from PeerId to NetworkId.
 - Make `RemoteId` a visibility filter? or simply `ReplicationSender`?
-    - then add a `ClientVisibility` component on each client entity and use that to flip the bit for `ReplicationSender` filter to make 
+    - then add a `ClientVisibility` component on each client entity and use that to flip the bit for `ReplicationSender` filter to make
       an entity visible or not depending on the `Replicate` target (and same thing for Predicted/Interpolated)
 - ReplicateLike:
   - automatically add the same visibility components as parent entity?
-     
+
 ## Protocol
 
 - By default, make `app.register_component` call Replicon's `replicate`
 - Also provide an API to start non-networked registration, so that we can customize prediction/interpolation independently from replication.
 
+
+# Asks
+- can we have something in the WriteCtx that tells us if this is from history?
+  If it is, there's no need to check for rollback no?
+
+# Prompt
+
+I am working on a networking library using bevy and replicon for replication.
+I am designing the prediction system.
+
+Here is how prediction works:
+- there are two types of messages: UpdateMessage containing archetype changes (component inserted/removed) and entity spawns/despawns and MutateMessage containing component changes
+- All updates are sent together as a single message to guarantee that they are all received on the same tick, but mutations can be sent in multiple messages (so they might not arrive on the same tick, or some messages could even be lost)
+- If an entity has both updates and mutations, the mutations are sent as part of the update message.
+- Mutations are only applied if all updates prior to the tick when it was sent were also applied
+- If there are no mutations on that tick, we still send an empty MutateMessage (to indicate that no component was modified)
+- On the receiver side we have 2 ways to track reception:
+  - each replicated entity has a ConfirmHistory which indicates the ticks where a mutation/update message was received for that entity
+  - there is a global ServerMutateTicks resource that tracks the ticks where ALL messages sent for that tick were received.
+
+
+The general idea for prediction is:
+- each predicted entity has a PredictionHistory<C> for each predicted component. That PredictionHistory would store for each tick an enum with either Predicted(C), Confirmed(C), Removed.
+Predicted(C) is the value we are predicting (whenever the value gets modified in the predicted timeline, we add the current value to the history), Confirmed(C) means we received the value from the remote and we know the value is correct.
+
+- we want to rollback to the earliest tick that has any mismatch compared to the prediction history.
+For updates that are part of update/mutate messages it is easy:
+  - whenever we receive the update, we compare the value with the predicted value stored in the PredictionHistory<C>, if there is a mismatch for that tick T, we should rollback from at least T (maybe earlier if another entity has an even earlier mismatch)
+  - when we rollback, we clear all histories and re-run the simulation from the rollback tick to the present tick, to compute a new history.
+The main subtlety is for entities that did not change, but that we predicted to change. The general idea is that `ServerMutateTicks` can tell us the ticks where we received ALL sent messages for that tick. In particular that means that entities that did not receive an update were not modified. The question is how can we know the confirmed (i.e. true server value) for these entities?
+We could consider that their last confirmed value is the new confirmed one (since the component did not change), but that might not be true. There could be a component value still in flight.
+Here is an example:
+- we received all messages sent from tick 3 and earlier, so ServerMutateTicks.last_tick = 3
+- server sent a mutate for E2 on tick 4, that we haven't received yet
+- server sent a mutate for E1 on tick 5, that we just receive. It is the only message sent for tick 5. In that case:
+  - we apply the update for tick 5 on E1, which possibly triggers a rollback. The rollback would be from tick 5, which is the earliest tick with any mismatch. When we rollback, we rollback from the
+  latest tick where we have received all previous ticks. I.e. the last tick from ServerMutateTicks
+  where there are no gaps before that.
+  - for E2, we could consider that the confirmed value is the last confirmed value that we have received, which is the one from tick 3. In this case it is not correct since we are about to receive a value for tick 4. I think what we could do is to set a parameter K that is the number of consecutive values we need to have received to consider an unchanged value confirmed. If K = 0, then we can consider the tick 5 value to be confirmed (with the confirmed value being the one previously in the history) and we check for rollback. If K = 1, we need a consecutive value: we need to have received the value on tick 4 before we can consider that the value on tick 5 is confirmed and we can check for rollback.
+  - Let's say K=1, and we did a rollback from tick 5, and cleared the histories from tick 3 onwards.
+  - Then on a different frame we receive the mutate message for E2 on tick 4:
+    - we do a rollback check for E2 and find a misprediction, which triggers a rollback from tick 4
+    - we do a rollback check for E1 on tick 4 (since we have received tick 3 and K=1, we can consider tick 4 confirmed)
+  - If we receive an empty message on tick 6, then ServerMutateTick.last_tick = 6, and we do a rollback check for E1 and E2.
+
+
+Some thoughts:
+- it could be expensive to do rollback checks. Let's say we want to trigger a rollback every frame, how would we implement it?
+  we want to rollback from the last confirmed value. For simplicity that could be ServerMutateTicks.last_tick, or we could use the earliest max(ServerMutateTicks.last_tick, ConfirmHistory.last_tick)
+  across all predicted entities.
+
+- what if we want to check for rollbacks?
+  we check for mismatch on every message received. For all entities where ServerMutateTick.last_tick > ConfirmHistory.last_tick (meaning that they were not in the latest replication message), we consider that the confirm value is equal to the previous confirmed value in the history (using K. So if K=0, we always do it, if K=1, only if have received a value 1 tick before. If K=2, only if we have received a value 2 ticks before, etc.) and do a mismatch check.
+  If there is any mismatch, we rollback from the earliest mismatch and clear the history starting
+  from the earliest tick where we have received all ticks. When we rollback, we clear the history from that tick onwards. Maybe we don't clear future values that are confirmed, and when we reach these values we just set the component value to the confirmed one? Or maybe we just clear the whole history and fully re-predict?
+
+
+- What do you think of this general design? Does it make sense to you, are there any things you would change or improve?
+- Do you recommend checking for rollback or always rollbacking? In general, an app has to be performant enough to be able to handle rollbacks, so maybe we might as well always rollback?
+- What is your plan for implementation?
