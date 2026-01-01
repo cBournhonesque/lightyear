@@ -8,16 +8,17 @@ use super::rollback::{
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
-use crate::manager::{PredictionManager, StateRollbackMetadata};
+use crate::manager::{PredictionManager};
 use crate::predicted_history::{
     add_prediction_history, apply_component_removal_predicted,
-    handle_tick_event_prediction_history, update_prediction_history,
+    handle_tick_event_prediction_history, snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::prelude::*;
+use bevy_app::FixedPreUpdate;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
@@ -39,6 +40,11 @@ pub enum PredictionSystems {
     // PreUpdate Sets
     /// System set encompassing the sets in [`RollbackSystems`]
     Rollback,
+
+    // FixedPreUpdate Sets
+    /// During rollback re-simulation, snap components to confirmed values if we have them.
+    /// This runs at the start of each FixedUpdate tick during rollback.
+    SnapToConfirmed,
 
     // FixedPostUpdate Sets
     /// Set to deal with predicted/confirmed entities getting despawned
@@ -161,6 +167,11 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         ),
     );
     app.add_systems(
+        FixedPreUpdate,
+        // During rollback re-simulation, snap to confirmed values if we have them
+        snap_to_confirmed_during_rollback::<C>.in_set(PredictionSystems::SnapToConfirmed),
+    );
+    app.add_systems(
         FixedPostUpdate,
         (
             // we need to run this during fixed update to know accurately the history for each tick
@@ -203,11 +214,16 @@ impl Plugin for PredictionPlugin {
                 .chain(),
         );
         app.configure_sets(PreUpdate, PredictionSystems::All.run_if(should_run));
-        app.add_systems(PreUpdate, StateRollbackMetadata::update_last_confirmed_tick
-            .after(ReplicationSystems::Receive)
-            .before(PredictionSystems::Rollback));
 
-        // FixedUpdate systems
+        // FixedPreUpdate systems
+        // - During rollback, snap components to confirmed values if we have them
+        app.configure_sets(
+            FixedPreUpdate,
+            PredictionSystems::SnapToConfirmed.in_set(PredictionSystems::All),
+        );
+        app.configure_sets(FixedPreUpdate, PredictionSystems::All.run_if(should_run));
+
+        // FixedPostUpdate systems
         // 1. Update client tick (don't run in rollback)
         // 2. Run main physics/game fixed-update loop
         // 3. Increment rollback tick (only run in fallback)

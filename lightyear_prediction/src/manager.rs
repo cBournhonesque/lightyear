@@ -10,13 +10,11 @@ use bevy_ecs::entity::EntityHash;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
-use bevy_derive::{Deref, DerefMut};
-use lightyear_core::prelude::{Predicted, Tick};
+use lightyear_core::prelude::{Tick};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
-use seahash::State;
-use lightyear_replication::prelude::{ConfirmHistory, ServerMutateTicks};
+use lightyear_replication::prelude::{ServerMutateTicks};
 
 #[derive(Resource)]
 pub struct PredictionResource {
@@ -70,14 +68,7 @@ impl Default for RollbackPolicy {
     }
 }
 
-// TODO: there is ambiguity on how to handle AlwaysState and AlwaysInput.
-//  Let's say we have T1 = last confirmed tick, T2 = last confirmed input tick.
-//  We could either:
-//  - store a PredictionHistory and rollback to the earliest to T1/T2
-//  - not store a prediction history, and if T2 > T1, restore to T1. (T1 > T2 should not happen)
-// I guess the simplest to just store prediction history for now.
 impl RollbackPolicy {
-    // TODO: use this to maybe not store prediction history at all!
     /// Returns true if we don't need to store a prediction history.
     ///
     /// PredictionHistory is not needed if we always rollback on new states
@@ -92,45 +83,25 @@ impl RollbackPolicy {
 #[component(on_insert = PredictionManager::on_insert)]
 #[require(InputTimelineConfig)]
 #[require(PreSpawnedReceiver)]
-// TODO: ideally we would only insert LastConfirmedInput if the PredictionManager is updated to use RollbackMode::AlwaysInput
-//  because that's where we need it. In practice we don't have an OnChange observer so we cannot do this easily
 #[require(LastConfirmedInput)]
-// TODO: ideally we would only insert LastConfirmedTick only if state rollback is enabled
 pub struct PredictionManager {
-    /// If true, we always rollback whenever we receive a server update, instead of checking
-    /// ff the confirmed state matches the predicted state history
+    /// Configuration for how rollbacks are triggered
     pub rollback_policy: RollbackPolicy,
-    /// The configuration for how to handle Correction, which is basically lerping the previously predicted state
-    /// to the corrected state over a period of time after a rollback
+    /// Configuration for smoothing the rollback error over time
     pub correction_policy: CorrectionPolicy,
+    /// For input-based rollback: tracks earliest mismatch across remote clients
     pub earliest_mismatch_input: EarliestMismatchedInput,
 
-    // NOTE: this is pub because ..Default::default() syntax needs all fields to be pub
-    // For deterministic entity that might be despawned if there is a rollback,
-    // record their tick here so we can iterate through them.
-    // The Vec is ordered by Tick.
     #[doc(hidden)]
     pub deterministic_despawn: Vec<(Tick, Entity)>,
-    // For deterministic skip despawn, at the time of rollback we iterate through them
-    // and either insert DisableRollback if has not been long, or remove it
     #[doc(hidden)]
     pub deterministic_skip_despawn: Vec<(Tick, Entity)>,
-    // // TODO: this needs to be cleaned up at regular intervals!
-    // //  do a centralized TickCleanup system in lightyear_core
-    // /// The tick when we last did a rollback. This is used to prevent rolling back multiple times to the same tick.
-    // pub last_rollback_tick: Option<Tick>,
-    /// We use a RwLock because we want to be able to update this value from multiple systems
-    /// in parallel.
     #[doc(hidden)]
     #[reflect(ignore)]
     pub rollback: RwLock<RollbackState>,
 }
 
 /// Store the most recent confirmed input across all remote clients.
-///
-/// This can be useful if we are using [`RollbackMode::Always`](RollbackMode), in which case we won't check
-/// for state or input mismatches but simply rollback to the last tick where we had a confirmed input
-/// from each remote client.
 #[derive(Component, Debug, Default, Reflect)]
 pub struct LastConfirmedInput {
     pub tick: lightyear_core::tick::AtomicTick,
@@ -138,68 +109,108 @@ pub struct LastConfirmedInput {
 }
 
 impl LastConfirmedInput {
-    /// Returns true if we have received any input messages from remote clients
     pub fn received_input(&self) -> bool {
-        // If we received any messages, we can assume that we have a confirmed input
         self.received_any_messages
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)
     }
 }
 
 
+
 /// Stores metadata related to state-based prediction.
+///
+/// Key invariant: `ServerMutateTicks.last_tick = T` guarantees that for all entities,
+/// we have complete information at tick T:
+/// - Entities that received an update at T: their confirmed value is in the message
+/// - Entities that didn't receive an update: their value at T = their last confirmed value
+///   (because if a message was lost/in-flight, the server would resend on the next tick)
 #[derive(Resource, Clone, Copy, Debug, Default, Reflect)]
 pub struct StateRollbackMetadata {
-    /// Stores the earliest confirmed tick across all [`Predicted`] entities.
-    ///
-    /// Whenever we receive a replication message for a predicted entity, we potentially rollback from this tick.
-    ///
-    /// There is some subtlety in how this is computed:
-    /// - [`ServerMutateTicks`] contains the information of whether a tick was confirmed across ALL replicated entities. In general it is possible
-    ///   that some entities have a more recent confirmed tick compared to [`ServerMutateTicks`] (if we didn't receive all mutate messages for a given tick)
-    /// - We also send an empty mutation message if there were no changes, to avoid leaving the client in a state where they mispredict an entity
-    ///   and there is no replication update to force a rollback. In these cases the entity's [`ConfirmHistory`] is not updated but the
-    ///   [`ServerMutateTicks`] is
-    last_confirmed_tick: Tick,
-    // Will be set to true if we received any replication message this frame
+    /// The last tick where we processed `ServerMutateTicks`.
+    /// Used to detect when `ServerMutateTicks.last_tick` advances.
+    last_processed_tick: Option<Tick>,
+
+    /// The earliest tick where we detected a mismatch this frame.
+    /// If set, we will trigger a rollback from this tick.
+    pub(crate) earliest_mismatch_tick: Option<Tick>,
+
+    /// Set to true if we received any replication message this frame.
+    /// Used to trigger `RollbackMode::Always`.
     pub(crate) received_messages_this_frame: bool,
+
+    /// Set to true if we detected a mismatch and should rollback (for RollbackMode::Check)
     pub(crate) should_rollback: bool,
 }
 
-// TODO: THESE ARE REPLICON TICKS CORRESPONDING TO THE SENDER'S REPLICATION INTERVAL!!
-//  TOTALLY UNRELATED TO THE RECEIVER'S TICK! OR MAYBE THEY ARE? SINCE THE REPLICON TICK IS
-//  INCREMENTED BY LIGHTYEAR's TICK?
-
 impl StateRollbackMetadata {
-    pub fn last_confirmed_tick(&self) -> Tick {
-        self.last_confirmed_tick
+    /// Record a mismatch at the given tick.
+    /// The rollback will start from the earliest mismatch tick.
+    pub fn record_mismatch(&mut self, tick: Tick) {
+        self.should_rollback = true;
+        match self.earliest_mismatch_tick {
+            None => self.earliest_mismatch_tick = Some(tick),
+            Some(existing) if tick < existing => self.earliest_mismatch_tick = Some(tick),
+            _ => {}
+        }
     }
 
-    pub(crate) fn update_last_confirmed_tick(
-        mut metadata: ResMut<StateRollbackMetadata>,
-        server_mutate_ticks: Res<ServerMutateTicks>,
-        confirm_history: Query<&ConfirmHistory, With<Predicted>>,
-    ) {
-        let current = metadata.last_confirmed_tick;
-        // - at minimum it's `ServerMutateTicks`.last_tick()
-        let base: Tick = server_mutate_ticks.last_tick().get().into();
-        // - if predicted entities are a subset of all replicated entities, it's the minimum of ConfirmHistory across all predicted entities
-        let mut minimum = base + 1000;
-        for history in confirm_history.iter() {
-            minimum = core::cmp::min(minimum, history.last_tick().get().into());
+    /// Reset the per-frame state tracking
+    pub(crate) fn reset_frame_state(&mut self) {
+        self.earliest_mismatch_tick = None;
+        self.should_rollback = false;
+        self.received_messages_this_frame = false;
+    }
+
+    /// Returns the last processed tick (for checking if ServerMutateTicks advanced)
+    pub fn last_processed_tick(&self) -> Option<Tick> {
+        self.last_processed_tick
+    }
+
+    /// Update the last processed tick after we've handled ServerMutateTicks advancement
+    pub fn set_last_processed_tick(&mut self, tick: Tick) {
+        self.last_processed_tick = Some(tick);
+    }
+
+    /// Check if ServerMutateTicks has advanced since we last processed it
+    pub fn has_server_mutate_ticks_advanced(&self, server_mutate_ticks: &ServerMutateTicks) -> bool {
+        let current_tick: Tick = server_mutate_ticks.last_tick().get().into();
+        match self.last_processed_tick {
+            None => true, // First time, always process
+            Some(last) => current_tick > last,
         }
-        let new = core::cmp::max(base, minimum);
-        if current != new {
-            metadata.last_confirmed_tick = new;
+    }
+
+    /// Get the rollback tick based on mode:
+    /// - For Check mode: earliest_mismatch_tick (if any)
+    /// - For Always mode: ServerMutateTicks.last_tick
+    pub fn get_rollback_tick(&self, mode: RollbackMode, server_mutate_ticks: &ServerMutateTicks) -> Option<Tick> {
+        match mode {
+            RollbackMode::Check => {
+                if self.should_rollback {
+                    self.earliest_mismatch_tick
+                } else {
+                    None
+                }
+            }
+            RollbackMode::Always => {
+                if self.received_messages_this_frame {
+                    Some(server_mutate_ticks.last_tick().get().into())
+                } else {
+                    None
+                }
+            }
+            RollbackMode::Disabled => None,
         }
+    }
+
+    /// Get the tick we can safely clear histories up to.
+    /// This is `ServerMutateTicks.last_tick()` since all messages for that tick were received.
+    pub fn get_safe_clear_tick(server_mutate_ticks: &ServerMutateTicks) -> Tick {
+        server_mutate_ticks.last_tick().get().into()
     }
 }
 
 /// Store the earliest mismatched input across all remote clients.
-///
-/// This is if we are using [`RollbackMode::Check`](RollbackMode), in which case we
-/// we will start the rollback from the earliest mismatched input tick across the
-/// inputs from all remote clients.
 #[derive(Debug, Default, Reflect)]
 pub struct EarliestMismatchedInput {
     pub tick: lightyear_core::tick::AtomicTick,
@@ -207,7 +218,6 @@ pub struct EarliestMismatchedInput {
 }
 
 impl EarliestMismatchedInput {
-    /// Returns true if we have any input mismatch
     pub fn has_mismatches(&self) -> bool {
         self.has_mismatches
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)
@@ -222,7 +232,6 @@ impl Default for PredictionManager {
             earliest_mismatch_input: EarliestMismatchedInput::default(),
             deterministic_skip_despawn: Vec::default(),
             deterministic_despawn: Vec::default(),
-            // last_rollback_tick: None,
             rollback: RwLock::new(RollbackState::Default),
         }
     }

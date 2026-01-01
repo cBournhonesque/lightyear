@@ -24,7 +24,7 @@ fn receive_packets(
 ) {
     if let Ok((_, mut transport)) = clients.single_mut() {
         transport.receivers.iter_mut().for_each(|(channel_id, receiver)| {
-            while let Some((_, message, _message_id)) = receiver.receiver.read_message() {
+            while let Some((remote_tick, message, _message_id)) = receiver.receiver.read_message() {
                 messages.insert_received(*channel_id, message)
             }
         });
