@@ -20,27 +20,34 @@ pub mod authority;
 pub mod control;
 pub mod receive;
 pub mod prespawn;
+pub mod hierarchy;
 
 #[cfg(feature = "delta")]
 pub mod delta;
 
+mod impls;
+
 pub mod prelude {
     pub use bevy_replicon::client::confirm_history::ConfirmHistory;
     pub use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
+    pub use bevy_replicon::prelude::Replicated;
 
     pub use crate::ReplicationSystems;
     pub use crate::metadata::ReplicationMetadata;
     pub use crate::control::{Controlled, ControlledBy};
+    pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::prespawn::PreSpawned;
     pub use crate::send::{Replicate, ReplicationSender};
     pub use crate::registry::replication::AppComponentExt;
+    pub use crate::registry::TransformLinearInterpolation;
+
+    pub use crate::delta::Diffable;
 
     #[cfg(feature = "prediction")]
     pub use crate::send::PredictionTarget;
     #[cfg(feature = "interpolation")]
     pub use crate::send::InterpolationTarget;
 }
-
 
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
@@ -74,6 +81,7 @@ impl PluginGroup for LightyearRepliconBackend {
             // TODO: add this independently from client or server. This should be enabled on the sender side
             group = group.add(send::SendPlugin);
             group = group.add(control::ControlPlugin);
+            group = group.add(hierarchy::HierarchyPlugin);
 
         }
 

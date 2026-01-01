@@ -38,6 +38,7 @@ dashmap = {workspace = true, optional = true}
 metrics = { workspace = true, optional = true }
 seahash.workspace = true
 serde.workspace = true
+smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
@@ -45,6 +46,7 @@ tracing.workspace = true
 bevy_app.workspace = true
 bevy_ecs = { workspace = true, features = ["bevy_reflect"] }
 bevy_derive.workspace = true
+bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_ptr.workspace = true
 bevy_reflect.workspace = true
