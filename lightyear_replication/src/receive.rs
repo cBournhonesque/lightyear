@@ -10,6 +10,10 @@ use crate::ReplicationSystems;
 /// replicon always adds a [`ConfirmHistory`] component on replicated entities, so we can just use that.
 pub type Replicated = ConfirmHistory;
 
+/// Marker component to indicate that this peer is allowed to receive replication messages
+#[derive(Component, Default)]
+pub struct ReplicationReceiver;
+
 
 pub struct ReceivePlugin;
 impl Plugin for ReceivePlugin {

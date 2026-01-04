@@ -184,21 +184,10 @@ impl Plugin for ProtocolPlugin {
             .add_linear_correction_fn()
             .add_linear_interpolation();
         app.register_component::<CompMap>()
-            .add_prediction()
-            .add_map_entities();
-        app.register_component::<CompDisabled>()
-            .with_replication_config(ComponentReplicationConfig {
-                disable: true,
-                ..default()
-            });
-        app.register_component::<CompReplicateOnce>()
-            .with_replication_config(ComponentReplicationConfig {
-                replicate_once: true,
-                ..default()
-            });
+            .add_prediction();
         app.add_rollback::<CompNotNetworked>();
-        app.register_component::<CompDelta>()
-            .add_delta_compression();
+        app.register_component::<CompDelta>();
+            // .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {

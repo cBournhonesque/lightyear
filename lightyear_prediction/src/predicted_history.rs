@@ -165,6 +165,12 @@ impl<C> PredictionHistory<C> {
         self.buffer.back()
     }
 
+    /// For unit tests
+    #[doc(hidden)]
+    pub fn buffer(&self) -> &VecDeque<(Tick, PredictionState<C>)> {
+        &self.buffer
+    }
+
     /// Get the value at the specified tick (returns the most recent value <= tick)
     pub fn get(&self, tick: Tick) -> Option<&C> {
         let partition = self

@@ -35,6 +35,7 @@ lightyear_sync = {workspace = true, optional = true}
 
 # utils
 dashmap = {workspace = true, optional = true}
+fixedbitset.workspace = true
 metrics = { workspace = true, optional = true }
 seahash.workspace = true
 serde.workspace = true

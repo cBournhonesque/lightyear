@@ -4,7 +4,7 @@ use bevy::prelude::Entity;
 use lightyear::prelude::*;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_prediction::Predicted;
-use lightyear_prediction::predicted_history::PredictionHistory;
+use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
 use test_log::test;
 
 #[test]
@@ -68,10 +68,7 @@ fn test_update_history() {
         .world_mut()
         .spawn((
             Predicted,
-            Replicated {
-                receiver: Entity::PLACEHOLDER,
-            },
-            ConfirmedTick { tick },
+            Replicated,
         ))
         .id();
 
@@ -99,7 +96,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(tick),
-        Some(HistoryState::Updated(CompFull(2.0))),
+        Some(PredictionState::Confirmed(CompFull(2.0))),
         "Expected component value to be updated in prediction history"
     );
 
@@ -119,7 +116,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(tick),
-        Some(HistoryState::Removed),
+        Some(PredictionState::Removed),
         "Expected component value to be removed in prediction history"
     );
 
@@ -130,7 +127,7 @@ fn test_update_history() {
         .client_app()
         .world_mut()
         .entity_mut(predicted)
-        .insert(Confirmed(CompFull(3.0)));
+        .insert(CompFull(3.0));
     info!(
         "Inserted CompFull(3.0) during rollback at tick {:?}",
         rollback_tick
@@ -144,7 +141,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(rollback_tick),
-        Some(HistoryState::Updated(CompFull(3.0))),
+        Some(PredictionState::Confirmed(CompFull(3.0))),
         "Expected component value to be updated in prediction history"
     );
     check_history_consecutive_ticks(&stepper, predicted);
@@ -157,7 +154,7 @@ fn test_update_history() {
         .client_app()
         .world_mut()
         .entity_mut(predicted)
-        .insert(Confirmed(CompFull(2.0)));
+        .insert(CompFull(2.0));
     stepper.frame_step(1);
     assert_eq!(
         stepper
@@ -167,7 +164,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(rollback_tick + 3),
-        Some(HistoryState::Updated(CompFull(2.0))),
+        Some(PredictionState::Confirmed(CompFull(2.0))),
         "Expected component value to be updated in prediction history"
     );
     check_history_consecutive_ticks(&stepper, predicted);
@@ -177,7 +174,7 @@ fn test_update_history() {
         .client_app()
         .world_mut()
         .entity_mut(predicted)
-        .remove::<Confirmed<CompFull>>();
+        .remove::<CompFull>();
     trigger_state_rollback(&mut stepper, rollback_tick);
     stepper.frame_step(1);
     assert_eq!(
@@ -188,7 +185,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(rollback_tick),
-        Some(HistoryState::Removed),
+        Some(PredictionState::ConfirmedRemoved),
         "Expected component value to be removed from prediction history"
     );
 }

@@ -22,6 +22,8 @@ pub mod receive;
 pub mod prespawn;
 pub mod hierarchy;
 
+pub mod visibility;
+
 #[cfg(feature = "delta")]
 pub mod delta;
 
@@ -38,6 +40,8 @@ pub mod prelude {
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::prespawn::PreSpawned;
     pub use crate::send::{Replicate, ReplicationSender};
+
+    pub use crate::visibility::room::{RoomAllocator, RoomPlugin, Rooms, RoomId};
     pub use crate::registry::replication::AppComponentExt;
     pub use crate::registry::TransformLinearInterpolation;
 
