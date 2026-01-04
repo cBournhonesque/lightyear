@@ -18,7 +18,7 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QuerySingleError;
 use bevy_ecs::world::DeferredWorld;
-use bevy_reflect::{prelude::ReflectDefault, Reflect};
+use bevy_reflect::{Reflect, prelude::ReflectDefault};
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
