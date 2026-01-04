@@ -627,9 +627,12 @@ impl ReplicationState {
     /// Returns `true` if the entity is visible for `sender`,
     /// and `false` if there is no [`NetworkVisibility`], no sender entry, or visibility is not `Visible`/`Gained`.
     pub fn is_visible(&self, sender: Entity) -> bool {
-        self.per_sender_state
-            .get(&sender)
-            .is_some_and(|s| matches!(s.visibility, VisibilityState::Visible | VisibilityState::Gained))
+        self.per_sender_state.get(&sender).is_some_and(|s| {
+            matches!(
+                s.visibility,
+                VisibilityState::Visible | VisibilityState::Gained
+            )
+        })
     }
 
     /// Indicate that the entity is not visible for that [`ReplicationSender`] entity.

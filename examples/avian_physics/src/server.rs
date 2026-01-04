@@ -7,7 +7,6 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use lightyear::prelude::client::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
