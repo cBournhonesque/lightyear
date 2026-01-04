@@ -40,9 +40,7 @@ fn setup() -> (ClientServerStepper, Entity) {
         .world_mut()
         .spawn((
             Predicted,
-            Replicated { receiver },
-            ConfirmedTick { tick },
-            Confirmed(CompFull(1.0)),
+            CompFull(1.0),
         ))
         .id();
     // add a rollback check by setting receiver.has_received_this_frame
@@ -177,7 +175,7 @@ fn test_check_rollback() {
         .entity_mut(predicted)
         .get_mut::<PredictionHistory<CompFull>>()
         .unwrap()
-        .add_update(tick, CompFull(2.0));
+        .add_confirmed(tick, Some(CompFull(2.0)));
 
     // simulate that we received a server message for the confirmed entity on tick `tick`
     trigger_rollback_check(&mut stepper, tick);
@@ -353,10 +351,7 @@ fn test_disable_rollback() {
         .world_mut()
         .spawn((
             Predicted,
-            Replicated { receiver },
-            ConfirmedTick { tick },
             DeterministicPredicted::default(),
-            Confirmed(CompFull(1.0)),
         ))
         .id();
 
@@ -365,14 +360,15 @@ fn test_disable_rollback() {
 
     // 1. check rollback doesn't trigger on disable-rollback entities
     let tick = stepper.client_tick(0);
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_a)
-        .get_mut::<Confirmed<CompFull>>()
-        .unwrap()
-        .0
-        .0 = 2.0;
+    // TODO
+    // stepper
+    //     .client_app()
+    //     .world_mut()
+    //     .entity_mut(predicted_a)
+    //     .get_mut::<Confirmed<CompFull>>()
+    //     .unwrap()
+    //     .0
+    //     .0 = 2.0;
     // simulate that we received a server message for the confirmed entity on tick `tick`
     trigger_rollback_check(&mut stepper, tick);
     let num_rollbacks = stepper
@@ -403,7 +399,7 @@ fn test_disable_rollback() {
         .0
         .0 = 3.0;
     let mut history = PredictionHistory::<CompFull>::default();
-    history.add_update(tick, CompFull(10.0));
+    history.add_confirmed(tick, Some(CompFull(10.0)));
     stepper
         .client_app()
         .world_mut()

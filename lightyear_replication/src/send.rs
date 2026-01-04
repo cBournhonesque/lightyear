@@ -60,7 +60,7 @@ pub enum ReplicationMode {
 }
 
 /// Marker component to indicate that this peer should be replicating to its own remote peer
-#[derive(Component)]
+#[derive(Component, Default)]
 pub struct ReplicationSender;
 
 /// Insert this component to start replicating your entity.
