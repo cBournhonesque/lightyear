@@ -18,7 +18,7 @@ lightyear_tests = { workspace = true }
 
 # enable all the bevy defaults:
 bevy = { workspace = true, default-features = true }
-tracy-client = { version = "=0.18.0" }
+tracy-client = { version = "=0.18.4" }
 
 # crates specific to benchmarks, so not in top-level Cargo workspace
 divan = { version = "0.1.21" }
