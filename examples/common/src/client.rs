@@ -8,10 +8,10 @@ use bevy::prelude::*;
 use crate::shared::SharedSettings;
 use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
-use lightyear::netcode::NetcodeClient;
 use lightyear::netcode::client_plugin::NetcodeConfig;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear::{netcode::NetcodeClient, websocket::client::WebSocketTarget};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -110,7 +110,7 @@ impl ExampleClient {
                     };
                     entity_mut.insert(WebSocketClientIo {
                         config,
-                        scheme: Default::default(),
+                        target: WebSocketTarget::Addr(Default::default()),
                     });
                 }
                 #[cfg(feature = "steam")]
