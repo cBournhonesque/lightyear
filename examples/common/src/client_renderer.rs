@@ -167,12 +167,19 @@ pub(crate) fn handle_connection(
 /// Listen for events to know when the client is disconnected, and print out the reason
 /// of the disconnection
 pub(crate) fn handle_disconnection(
-    _trigger: On<Add, Disconnected>,
+    trigger: On<Add, Disconnected>,
     mut commands: Commands,
     debug_text: Query<Entity, With<ClientIdText>>,
+    disconnected: Query<(Entity, &Disconnected)>,
 ) {
-    // TODO: add reason
-    commands.trigger(UpdateStatusMessage(String::from("Disconnected")));
+    commands.trigger(UpdateStatusMessage(format!(
+        "Disconnected ({})",
+        disconnected
+            .get(trigger.entity)
+            .map(|d| d.1.reason.as_ref())
+            .unwrap_or(None)
+            .unwrap_or(&"Unknown".to_string())
+    )));
     for entity in debug_text.iter() {
         commands.entity(entity).despawn();
     }
