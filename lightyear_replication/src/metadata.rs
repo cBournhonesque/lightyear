@@ -15,6 +15,9 @@ use lightyear_transport::prelude::*;
 use crate::prelude::ReplicationSender;
 
 /// Resource that needs to be added to control the replication behaviour for the current App.
+///
+/// This is a resource since the replication interval has to be shared
+/// across all senders.
 // TODO: add a ReplicationMetadata resource with a replication-timer
 //  also the TickDuration is not useful?
 #[derive(Resource)]

@@ -21,10 +21,10 @@ fn test_spawn() {
         .world_mut()
         .spawn((Replicate::to_server(),))
         .id();
-    let state = stepper
-        .client_app()
-        .world()
-        .get::<ReplicationState>(client_entity);
+    // let state = stepper
+    //     .client_app()
+    //     .world()
+    //     .get::<ReplicationState>(client_entity);
     // TODO: might need to step more when syncing to avoid receiving updates from the past?
     stepper.frame_step(1);
     stepper
@@ -399,7 +399,8 @@ fn test_component_remove_not_replicating() {
         .client_app()
         .world_mut()
         .entity_mut(client_entity)
-        .remove::<Replicating>();
+        // TODO: removing Replicated will pause the replication instead of sending a despawn
+        .remove::<Replicated>();
     stepper
         .client_app()
         .world_mut()

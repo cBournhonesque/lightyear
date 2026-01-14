@@ -1,7 +1,6 @@
 //! Check various replication scenarios between 2 peers only
 
 use crate::protocol::*;
-use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear_connection::network_target::NetworkTarget;
