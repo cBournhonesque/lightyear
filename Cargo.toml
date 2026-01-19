@@ -207,7 +207,7 @@ bevy_ptr = { version = "0.17", default-features = false }
 bevy_reflect = { version = "0.17", default-features = false }
 bevy_text = { version = "0.17", default-features = false }
 bevy_time = { version = "0.17", default-features = false }
-bevy_transform = { version = "0.17", default-features = false }
+bevy_transform = { version = "0.18", default-features = false }
 bevy_ui = { version = "0.17", default-features = false }
 bevy_utils = { version = "0.17", default-features = false, features = [
   "debug",
