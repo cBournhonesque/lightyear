@@ -231,7 +231,7 @@ bevy-inspector-egui = { version = "0.35", default-features = false, features = [
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.38", default-features = false, features = [
+bevy_egui = { version = "0.39", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
