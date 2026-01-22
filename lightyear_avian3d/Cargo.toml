@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_avian3d"
-version = "0.26.0-rc1"
+version = "0.26.0-rc2"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -19,7 +19,7 @@ required-features = ["3d"]
 bench = false
 
 [features]
-default = ["std", "3d"]
+default = ["std", "3d", "avian3d/f32"]
 3d = ["avian3d/3d"]
 std = ["lightyear_prediction/std"]
 deterministic = ["dep:seahash"]
