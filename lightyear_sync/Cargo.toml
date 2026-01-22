@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_sync"
-version = "0.25.5"
+version = "0.26.0"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true

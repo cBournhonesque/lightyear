@@ -1,0 +1,4 @@
+rate-limit.existing-packages = 50
+allow-branch = ["*"]
+tag = false
+push = false

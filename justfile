@@ -439,22 +439,12 @@ remove_avian_symlinks:
     rm lightyear_avian2d/src
     rm lightyear_avian3d/src
 
-release_dryrun_no_changelog:
-    @just add_avian_symlinks
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --dry-run-cargo-publish -b keep -d keep
-    @just remove_avian_symlinks
-
 release_dryrun:
     @just add_avian_symlinks
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --dry-run-cargo-publish -b keep -d keep
-    @just remove_avian_symlinks
-
-release_no_changelog:
-    @just add_avian_symlinks
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog --no-tag --no-push --execute -b keep -d keep --no-bump-on-demand
+    cargo release --no-tag --no-push --workspace --config .release.toml -vvv VERSION
     @just remove_avian_symlinks
 
 release:
     @just add_avian_symlinks
-    cargo smart-release lightyear --allow-dirty -v -u --no-changelog-github-release --no-push --execute -b keep -d keep
+    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv VERSION
     @just remove_avian_symlinks

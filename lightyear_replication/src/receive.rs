@@ -749,7 +749,17 @@ impl GroupChannel {
                                       entity: &mut EntityWorldMut,
                                       remote_tick: Tick| {
             #[cfg(any(feature = "interpolation", feature = "prediction"))]
-            if interpolated || predicted {
+            let mut add_confirmed = false;
+            #[cfg(feature = "interpolation")]
+            if interpolated {
+                add_confirmed = true;
+            }
+            #[cfg(feature = "prediction")]
+            if predicted {
+                add_confirmed = true;
+            }
+            #[cfg(any(feature = "interpolation", feature = "prediction"))]
+            if add_confirmed {
                 entity.insert(ConfirmedTick { tick: remote_tick });
             }
             #[cfg(feature = "interpolation")]
