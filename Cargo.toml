@@ -33,9 +33,9 @@ members = [
   "lightyear_webtransport",
   "lightyear_websocket",
   # internal
-  "benches/*",
-  "demos/*",
-  "examples/*",
+#  "benches/*",
+#  "demos/*",
+  #  "examples/*",
 ]
 default-members = ["lightyear"]
 exclude = []
