@@ -19,7 +19,7 @@ use crate::visibility::immediate::VisibilityState;
 use bevy_ecs::component::Components;
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
-    archetype::Archetypes, component::ComponentTicks, relationship::RelationshipTarget,
+    archetype::Archetypes, change_detection::ComponentTicks, relationship::RelationshipTarget,
     system::SystemChangeTick, world::FilteredEntityRef,
 };
 use bevy_ptr::Ptr;
@@ -542,7 +542,7 @@ pub(crate) fn replicate_entity_spawn(
 }
 
 /// Buffer entity despawn if an entity had [`Replicating`] and either:
-/// - the [`Replicate`]/[`ReplicateState`] component is removed
+/// - the [`Replicate`]/[`ReplicationState`] component is removed
 /// - is despawned
 /// - [`ReplicateLike`] is removed
 ///

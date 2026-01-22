@@ -426,7 +426,7 @@ pub enum ReplicationBufferSystems {
 
 /// Global list of root entities that should be considered for replication
 ///
-/// Equivalent to Query<(), (With<Replicate>, With<Replicating>)> but we cache the result
+/// Equivalent to `Query<(), (With<Replicate>, With<Replicating>)>` but we cache the result
 #[derive(Resource, Default)]
 pub(crate) struct ReplicableRootEntities {
     pub(crate) entities: EntityIndexSet,

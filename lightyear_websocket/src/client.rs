@@ -56,12 +56,18 @@ pub enum WebSocketTarget {
 impl WebSocketClientIo {
     /// Connect to a full URL.
     pub fn from_url(config: ClientConfig, url: impl Into<String>) -> Self {
-        Self { config, target: WebSocketTarget::Url(url.into()) }
+        Self {
+            config,
+            target: WebSocketTarget::Url(url.into()),
+        }
     }
 
     /// Construct URL from scheme and [`PeerAddr`].
     pub fn from_addr(config: ClientConfig, scheme: WebSocketScheme) -> Self {
-        Self { config, target: WebSocketTarget::Addr(scheme) }
+        Self {
+            config,
+            target: WebSocketTarget::Addr(scheme),
+        }
     }
 }
 

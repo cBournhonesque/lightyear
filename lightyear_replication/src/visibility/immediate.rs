@@ -63,7 +63,7 @@ impl VisibilityState {
 /// We will replicate this entity to the clients specified in the `Replicate` component.
 /// On top of that, we will apply interest management logic to determine which peers should receive the entity
 ///
-/// You can use [`gain_visibility`](ReplicationState::gain_visibility) and [`lose_visibility`](NetworkVisibility::lose_visibility)
+/// You can use [`gain_visibility`](ReplicationState::gain_visibility) and [`lose_visibility`](ReplicationState::lose_visibility)
 /// to control the network visibility of entities.
 ///
 /// You can also use [`Room`](super::room::Room)s for a more stateful approach to network visibility

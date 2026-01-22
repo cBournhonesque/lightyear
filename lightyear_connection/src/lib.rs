@@ -26,7 +26,6 @@ use bevy_ecs::schedule::SystemSet;
 
 pub mod client;
 
-#[cfg(feature = "server")]
 pub mod server;
 
 pub mod direction;

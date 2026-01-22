@@ -81,10 +81,10 @@ compile_error!("steam feature is not supported in wasm");
 #[cfg(all(feature = "server", target_family = "wasm"))]
 compile_error!("server feature is not supported in wasm");
 
-#[cfg(all(feature = "gui", feature = "client"))]
+#[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "client"))]
 pub mod client_renderer;
 
-#[cfg(all(feature = "gui", feature = "server"))]
+#[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "server"))]
 pub mod server_renderer;
 pub mod shared;
 

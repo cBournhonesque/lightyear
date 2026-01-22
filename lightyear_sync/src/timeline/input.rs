@@ -385,6 +385,7 @@ impl SyncedTimeline for InputTimeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_utils::default;
     #[test]
     fn test_input_delay_config() {
         let sync_config = SyncConfig::default();

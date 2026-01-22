@@ -325,7 +325,7 @@ pub(crate) struct UpdatesMessage {
     /// that there is no ordering constraint with respect to Actions for this group (i.e. the Update can be applied immediately)
     pub(crate) last_action_tick: Option<Tick>,
     pub(crate) entity_count: usize,
-    /// Updates containing the full component data, equivalent to Vec<(Entity, Vec<Bytes>)>
+    /// Updates containing the full component data, equivalent to `Vec<(Entity, Vec<Bytes>)>`
     pub(crate) data: Bytes,
 }
 

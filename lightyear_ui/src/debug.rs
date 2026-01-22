@@ -584,10 +584,10 @@ fn setup_metrics_panel(
                 },
                 flex_direction: FlexDirection::Column,
                 row_gap: Val::Px(6.0),
+                border_radius: BorderRadius::all(Val::Px(6.0)),
                 ..default()
             },
             BackgroundColor(Color::srgba(0.0, 0.0, 0.0, settings.alpha)),
-            BorderRadius::all(Val::Px(6.0)),
         ))
         .with_children(|cmd| {
             // Top controls row

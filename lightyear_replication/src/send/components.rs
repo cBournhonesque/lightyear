@@ -625,7 +625,7 @@ impl ReplicationState {
     }
 
     /// Returns `true` if the entity is visible for `sender`,
-    /// and `false` if there is no [`NetworkVisibility`], no sender entry, or visibility is not `Visible`/`Gained`.
+    /// and `false` if there is no [`NetworkVisibility`](crate::visibility::immediate::NetworkVisibility), no sender entry, or visibility is not `Visible`/`Gained`.
     pub fn is_visible(&self, sender: Entity) -> bool {
         self.per_sender_state.get(&sender).is_some_and(|s| {
             matches!(
@@ -814,7 +814,7 @@ impl Replicate {
 
             // SAFETY: there is no aliasing because the `entity_mut_state` is used to get these 4 components
             //  and `entity_mut` is used to insert some extra components
-            let Some((mut state, replicate, group)) = (unsafe {
+            let Ok((mut state, replicate, group)) = (unsafe {
                 entity_mut.get_components_mut_unchecked::<(&mut ReplicationState, &Replicate, &ReplicationGroup)>
                 ()
             }) else {

@@ -26,8 +26,8 @@ lightyear = { path = "../../lightyear", features = [
 lightyear_examples_common = { path = "../common", features = [
   "client",
   "server",
-  "gui",
-] } # Added common
+  "gui2d",
+] }
 
 # utils
 rand.workspace = true
