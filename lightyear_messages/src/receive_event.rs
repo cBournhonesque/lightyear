@@ -26,10 +26,6 @@ impl<M: EntityEvent> EntityEvent for RemoteEvent<M> {
     fn event_target(&self) -> Entity {
         self.trigger.event_target()
     }
-
-    fn event_target_mut(&mut self) -> &mut Entity {
-        self.trigger.event_target_mut()
-    }
 }
 
 pub(crate) type ReceiveTriggerFn = unsafe fn(

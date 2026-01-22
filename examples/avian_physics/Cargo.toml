@@ -8,7 +8,7 @@ publish = false
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
 client = ["lightyear_examples_common/client", "gui"]
-gui = ["lightyear_examples_common/gui"]
+gui = ["lightyear_examples_common/gui2d"]
 server = ["lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
 udp = ["lightyear_examples_common/udp"]

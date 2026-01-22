@@ -28,7 +28,7 @@ pub mod message;
 pub mod packet;
 
 pub mod error;
-/// Manages building a single [`Packet`](packet::Packet) from multiple messages
+/// Manages building a single `Packet` from multiple messages
 pub mod packet_builder;
 /// Defines the [`PacketType`](packet_type::PacketType) enum
 pub(crate) mod packet_type;

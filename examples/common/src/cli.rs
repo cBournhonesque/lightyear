@@ -16,18 +16,18 @@ use clap::{Parser, Subcommand};
 
 #[cfg(feature = "client")]
 use crate::client::{ClientTransports, ExampleClient, connect};
-#[cfg(all(feature = "gui", feature = "client"))]
+#[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "server")]
 use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
-#[cfg(all(feature = "gui", feature = "server"))]
+#[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEAM_APP_ID};
 use lightyear::link::RecvLinkConditioner;
 #[cfg(feature = "client")]
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-#[cfg(feature = "gui")]
+#[cfg(any(feature = "gui2d", feature = "gui3d"))]
 use {
     bevy::window::PresentMode,
     bevy::winit::{UpdateMode, WinitSettings},
@@ -56,9 +56,9 @@ impl Cli {
     }
 
     pub fn create_app(add_inspector: bool) -> App {
-        #[cfg(feature = "gui")]
+        #[cfg(any(feature = "gui2d", feature = "gui3d"))]
         let app = new_gui_app(add_inspector);
-        #[cfg(not(feature = "gui"))]
+        #[cfg(not(any(feature = "gui2d", feature = "gui3d")))]
         let app = new_headless_app();
 
         app
@@ -73,7 +73,7 @@ impl Cli {
                 app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
-                    #[cfg(feature = "gui")]
+                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
                     ExampleClientRendererPlugin::new(format!("Client {client_id:?}")),
                 ));
                 app
@@ -84,7 +84,7 @@ impl Cli {
                 app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
                     lightyear::prelude::server::ServerPlugins { tick_duration },
-                    #[cfg(feature = "gui")]
+                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
                     ExampleServerRendererPlugin::new("Server".to_string()),
                 ));
                 app
@@ -96,9 +96,9 @@ impl Cli {
                 app.add_plugins((
                     lightyear::prelude::client::ClientPlugins { tick_duration },
                     lightyear::prelude::server::ServerPlugins { tick_duration },
-                    #[cfg(feature = "gui")]
+                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
                     ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
-                    #[cfg(feature = "gui")]
+                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
                     ExampleServerRendererPlugin::new("Host-Server".to_string()),
                 ));
                 app
@@ -280,7 +280,7 @@ pub fn cli() -> Cli {
     }
 }
 
-#[cfg(feature = "gui")]
+#[cfg(any(feature = "gui2d", feature = "gui3d"))]
 pub fn window_plugin() -> WindowPlugin {
     WindowPlugin {
         primary_window: Some(Window {
@@ -303,7 +303,7 @@ pub fn log_plugin() -> LogPlugin {
     }
 }
 
-#[cfg(feature = "gui")]
+#[cfg(any(feature = "gui2d", feature = "gui3d"))]
 pub fn new_gui_app(add_inspector: bool) -> App {
     let mut app = App::new();
     app.add_plugins(

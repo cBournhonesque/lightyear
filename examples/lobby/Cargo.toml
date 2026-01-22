@@ -21,7 +21,7 @@ client = [
   "lightyear/server",
   "lightyear_examples_common/server",
 ]
-gui = ["lightyear_examples_common/gui"]
+gui = ["lightyear_examples_common/gui2d"]
 server = ["lightyear/server", "lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
 udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]

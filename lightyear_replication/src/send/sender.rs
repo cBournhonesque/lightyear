@@ -7,7 +7,8 @@ use crate::registry::{ComponentError, ComponentKind, ComponentNetId};
 use crate::send::components::ReplicationGroupId;
 use alloc::{string::ToString, vec::Vec};
 use bevy_ecs::{
-    component::{Component, Tick as BevyTick},
+    change_detection::Tick as BevyTick,
+    component::Component,
     entity::{Entity, EntityHash},
 };
 use bevy_platform::collections::{HashMap, HashSet};

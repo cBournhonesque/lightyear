@@ -47,7 +47,7 @@ jobs:
           taplo fmt --check
 
       - name: Clippy lightyear
-        run: cargo clippy --features=lightyear_core/not_mock --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
+        run: cargo clippy --features=lightyear_core/not_mock,avian3d/f32 --workspace --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes
 
   docs:
     name: Doc

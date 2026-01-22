@@ -5,7 +5,7 @@ use crate::varint::varint_len;
 use crate::writer::WriteInteger;
 use crate::{SerializationError, ToBytes};
 use bevy_derive::{Deref, DerefMut};
-use bevy_ecs::entity::{Entity, EntityGeneration, EntityRow};
+use bevy_ecs::entity::{Entity, EntityGeneration, EntityIndex};
 use bevy_ecs::entity::{EntityMapper, hash_map::EntityHashMap};
 use bevy_ecs::world::{EntityWorldMut, World};
 use bevy_reflect::Reflect;
@@ -203,7 +203,7 @@ impl RemoteEntityMap {
 impl ToBytes for Entity {
     // see details in `to_bytes`
     fn bytes_len(&self) -> usize {
-        let mut index = self.index() << 2;
+        let mut index = self.index_u32() << 2;
         let is_mapped = RemoteEntityMap::is_mapped(*self);
         let unmarked = RemoteEntityMap::mark_unmapped(*self);
 
@@ -228,7 +228,7 @@ impl ToBytes for Entity {
         // - bit 1: if the generation is EntityGeneration::FIRST or not
         // - bit 2: if the entity generation has been
         // we put these bits at the end (low bits) since we use var int encoding
-        let mut index = self.index() << 2;
+        let mut index = self.index_u32() << 2;
         let is_mapped = RemoteEntityMap::is_mapped(*self);
         let unmarked = RemoteEntityMap::mark_unmapped(*self);
 
@@ -258,9 +258,9 @@ impl ToBytes for Entity {
         } else {
             0
         };
-        let row = unsafe { EntityRow::from_raw_u32(index >> 2).unwrap_unchecked() };
+        let row = unsafe { EntityIndex::from_raw_u32(index >> 2).unwrap_unchecked() };
         let generation = EntityGeneration::from_bits(generation);
-        let entity = Entity::from_row_and_generation(row, generation);
+        let entity = Entity::from_index_and_generation(row, generation);
         if is_mapped {
             Ok(RemoteEntityMap::mark_mapped(entity))
         } else {
@@ -275,13 +275,13 @@ mod tests {
     use crate::entity_map::RemoteEntityMap;
     use crate::reader::Reader;
     use crate::writer::Writer;
-    use bevy_ecs::entity::{Entity, EntityGeneration, EntityRow};
+    use bevy_ecs::entity::{Entity, EntityGeneration, EntityIndex};
     use test_log::test;
 
     #[test]
     fn test_entity_serde_first_generation() {
-        let e = Entity::from_row_and_generation(
-            EntityRow::from_raw_u32(1).unwrap(),
+        let e = Entity::from_index_and_generation(
+            EntityIndex::from_raw_u32(1).unwrap(),
             EntityGeneration::FIRST,
         );
 
@@ -296,8 +296,8 @@ mod tests {
 
     #[test]
     fn test_entity_serde_non_first_generation() {
-        let e = Entity::from_row_and_generation(
-            EntityRow::from_raw_u32(1).unwrap(),
+        let e = Entity::from_index_and_generation(
+            EntityIndex::from_raw_u32(1).unwrap(),
             EntityGeneration::from_bits(1),
         );
 
@@ -328,8 +328,8 @@ mod tests {
 
     #[test]
     fn test_entity_serde_mapped_non_first_generation() {
-        let entity = Entity::from_row_and_generation(
-            EntityRow::from_raw_u32(10).unwrap(),
+        let entity = Entity::from_index_and_generation(
+            EntityIndex::from_raw_u32(10).unwrap(),
             EntityGeneration::from_bits(1),
         );
         assert!(!RemoteEntityMap::is_mapped(entity));

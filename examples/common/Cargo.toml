@@ -18,36 +18,18 @@ server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
 udp = ["lightyear/udp"]
 steam = ["lightyear/steam"]
-debug = ["gui", "lightyear/debug"]
-
-# this serves as a bit of "workspace-hack" crate by enabling all bevy features needed by examples.
-# you can read about workspace-hack crates here: https://docs.rs/cargo-hakari/latest/cargo_hakari/about/index.html
-# even though we're not using cargo-hakari.
-
-gui = [
+debug = ["gui2d", "lightyear/debug"]
+gui2d = [
   "dep:bevy-inspector-egui",
-  "bevy/bevy_asset",
-  "bevy/bevy_render",
-  "bevy/bevy_pbr",
-  "bevy/bevy_scene",
-  "bevy/bevy_core_pipeline",
-  "bevy/bevy_gizmos",
-  "bevy/tonemapping_luts",
-  "bevy/smaa_luts",
-  "bevy/default_font",
-  "bevy/png",
-  "bevy/hdr",
-  "bevy/x11",
-  "bevy/webgl2",
-  "bevy/bevy_winit",
-  "bevy/bevy_picking",
-  "bevy/bevy_sprite",
-  "bevy/bevy_sprite_render",
-  "bevy/bevy_text",
-  "bevy/bevy_ui",
-  "bevy/bevy_ui_picking_backend",
-  "bevy/bevy_ui_render",
-  "bevy/bevy_window",
+  "bevy/2d",
+  "bevy/2d_bevy_render",
+  "bevy/2d_api",
+]
+gui3d = [
+  "dep:bevy-inspector-egui",
+  "bevy/3d",
+  "bevy/3d_bevy_render",
+  "bevy/3d_api",
 ]
 
 [dependencies]
@@ -74,6 +56,7 @@ bevy = { workspace = true, features = [
 bevy-inspector-egui = { workspace = true, optional = true }
 bevy_egui = { workspace = true, optional = true }
 tracing.workspace = true
+ron = { version = "0.12.0" }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true

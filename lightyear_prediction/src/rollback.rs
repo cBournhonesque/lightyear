@@ -221,7 +221,6 @@ impl DeterministicPredicted {
         if !deterministic_predicted.skip_despawn {
             manager.deterministic_despawn.push((tick, context.entity));
         } else {
-            info!(entity = ?context.entity, "ADDING SKIP DESPAWN");
             manager.deterministic_skip_despawn.push((
                 tick + (deterministic_predicted.enable_rollback_after as i16),
                 context.entity,

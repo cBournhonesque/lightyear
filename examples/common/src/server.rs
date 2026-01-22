@@ -3,9 +3,9 @@
 #![allow(unused_variables)]
 use core::net::{Ipv4Addr, SocketAddr};
 
-use bevy::asset::ron;
 use bevy::prelude::*;
 use core::time::Duration;
+use ron;
 
 use crate::shared::SharedSettings;
 #[cfg(not(target_family = "wasm"))]
