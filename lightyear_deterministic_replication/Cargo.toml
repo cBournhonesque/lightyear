@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_deterministic_replication"
-version = "0.25.5"
+version = "0.26.0-rc1"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
