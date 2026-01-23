@@ -106,7 +106,7 @@ lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.26.0"
 lightyear_websocket = { path = "./lightyear_websocket", version = "0.26.0", default-features = false }
 
 # examples
-lightyear_examples_common = { path = "./examples/common", version = "0.25.5", default-features = false }
+lightyear_examples_common = { path = "./examples/common", version = "0.26.0", default-features = false }
 
 # utils
 anyhow = { version = "1.0.75", features = [] }
