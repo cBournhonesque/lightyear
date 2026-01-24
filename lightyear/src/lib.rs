@@ -239,8 +239,6 @@ mod shared;
 
 #[cfg(feature = "replication")]
 mod protocol;
-#[cfg(target_family = "wasm")]
-mod web;
 
 pub mod core {
     pub use lightyear_core::*;

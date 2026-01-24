@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.26.0"
+version = "0.26.1"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -224,7 +224,7 @@ lightyear_udp = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true
-bevy_web_keepalive.workspace = true
+lightyear_web.workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
