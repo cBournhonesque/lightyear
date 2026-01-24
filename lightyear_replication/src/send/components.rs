@@ -601,7 +601,7 @@ pub enum ReplicationMode {
 /// # use bevy_ecs::prelude::*;
 /// # use lightyear_replication::prelude::{NetworkVisibility, Replicate, ReplicationState};
 /// # let mut world = World::new();
-/// # let entity = world.spawn((ReplicationState::default(), NetworkVisibility));
+/// # let entity = world.spawn((ReplicationState::default(), NetworkVisibility)).id();
 /// # let mut sender = world.spawn_empty().id();
 /// let mut state = world.get_mut::<ReplicationState>(entity).unwrap();
 /// // the entity will now be visible (replicated) on that sender

@@ -30,6 +30,7 @@ members = [
   "lightyear_udp",
   "lightyear_ui",
   "lightyear_utils",
+  "lightyear_web",
   "lightyear_webtransport",
   "lightyear_websocket",
   # internal
@@ -102,6 +103,7 @@ lightyear_udp = { path = "./lightyear_udp", version = "0.26.1", default-features
 lightyear_ui = { path = "./lightyear_ui", version = "0.26.1", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.26.1", default-features = false }
 lightyear_tests = { path = "./lightyear_tests", version = "0.26.1", default-features = false }
+lightyear_web = { path = "./lightyear_web", version = "0.26.1", default-features = false }
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.26.1", default-features = false }
 lightyear_websocket = { path = "./lightyear_websocket", version = "0.26.1", default-features = false }
 
@@ -177,7 +179,7 @@ tokio = { version = "1.45", features = [
   "sync",
   "macros",
 ], default-features = false }
-async-compat = "0.2.3"
+async-compat = "0.2"
 
 # dev deps
 mock_instant = "0.6"
@@ -212,7 +214,8 @@ bevy_ui = { version = "0.18", default-features = false }
 bevy_utils = { version = "0.18", default-features = false, features = [
   "debug",
 ] }
-tracy-client = { version = "=0.18.0" }
+bevy_winit = { version = "0.18", default-features = false }
+tracy-client = { version = "0.18" }
 
 # input
 bevy_enhanced_input = { version = "0.22", features = ["serialize"] }
@@ -239,7 +242,6 @@ egui_extras = "0.33"
 # WASM things
 console_error_panic_hook = "0.1.7"
 web-time = "1.1.0"
-bevy_web_keepalive = { version = "0.4" }
 getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
