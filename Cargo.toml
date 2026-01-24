@@ -216,9 +216,7 @@ tracy-client = { version = "=0.18.0" }
 
 # input
 bevy_enhanced_input = { version = "0.22", features = ["serialize"] }
-leafwing-input-manager = { version = "0.20", default-features = false, features = [
-  "keyboard",
-] }
+leafwing-input-manager = { version = "0.20", default-features = false }
 
 # physics
 avian2d = { version = "0.5", default-features = false }

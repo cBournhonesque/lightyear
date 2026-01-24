@@ -1,6 +1,6 @@
 [package]
 name = "projectiles"
-version = "0.25.5"
+version = "0.26.0"
 rust-version.workspace = true
 edition.workspace = true
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
