@@ -47,6 +47,8 @@ fn receive_packets(
 }
 
 
+// TODO: should we only enable this for entities with ReplicationSender?
+//  since we only use replicon for replication messages
 fn send_packets(
     // mut disconnects: MessageReader<DisconnectRequest>,
     mut messages: ResMut<ServerMessages>,

@@ -6,7 +6,7 @@ The **network visibility** is used to determine which entities are replicated to
 relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
 
 
-You can add the [`NetworkVisibility`] component on an entity to indicate that this entity is using the visibility system.
+You can add the [`NetworkVisibility`] component on an entity to indicate that this entity is using the visibility ystem.
 
 The visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
 until you change the setting again.
@@ -29,7 +29,7 @@ use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_app::prelude::*;
 use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
-use bevy_reflect::Reflect;
+use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 #[allow(unused_imports)]
 use tracing::{info, trace};

@@ -95,7 +95,7 @@ lightyear_transport = { path = "lightyear_transport", version = "0.26.2", defaul
 lightyear_prediction = { path = "./lightyear_prediction", version = "0.26.2", default-features = false }
 lightyear_link = { path = "./lightyear_link", version = "0.26.2", default-features = false }
 lightyear_raw_connection = { path = "./lightyear_raw_connection", version = "0.26.2", default-features = false }
-lightyear_replication = { path = "./lightyear_replication", version = "0.26.2", default-features = false }
+lightyear_replication = { path = "lightyear_replication", version = "0.26.2", default-features = false }
 lightyear_serde = { path = "./lightyear_serde", version = "0.26.2", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.26.2", default-features = false }
 lightyear_sync = { path = "./lightyear_sync", version = "0.26.2", default-features = false }
@@ -106,7 +106,6 @@ lightyear_tests = { path = "./lightyear_tests", version = "0.26.2", default-feat
 lightyear_web = { path = "./lightyear_web", version = "0.26.2", default-features = false }
 lightyear_webtransport = { path = "./lightyear_webtransport", version = "0.26.2", default-features = false }
 lightyear_websocket = { path = "./lightyear_websocket", version = "0.26.2", default-features = false }
-
 
 # examples
 lightyear_examples_common = { path = "./examples/common", version = "0.26.2", default-features = false }
@@ -218,6 +217,9 @@ bevy_utils = { version = "0.18", default-features = false, features = [
 ] }
 bevy_winit = { version = "0.18", default-features = false }
 tracy-client = { version = "0.18" }
+
+# replication
+bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon.git",  branch = "lightyear" }
 
 # replication
 bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon.git",  branch = "lightyear" }

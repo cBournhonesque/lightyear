@@ -67,7 +67,7 @@ impl HierarchyPlugin {
 
 impl Plugin for HierarchyPlugin {
     fn build(&self, app: &mut App) {
-        todo!()
+        app.add_observer(Self::propagate_when_replicate_like_added);
     }
 }
 

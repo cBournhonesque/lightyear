@@ -19,7 +19,7 @@ use bytes::Bytes;
 use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::prelude::client::Disconnected;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};

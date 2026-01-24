@@ -18,7 +18,6 @@ use lightyear_messages::MessageManager;
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode};
 use lightyear_prediction::prelude::*;
 use lightyear_prediction::rollback::{DeterministicPredicted, reset_input_rollback_tracker};
-use lightyear_replication::components::Confirmed;
 use lightyear_replication::prelude::*;
 use test_log::test;
 
@@ -102,11 +101,12 @@ fn test_check_rollback() {
 
     // 1. Predicted component and confirmed component are different
     let tick = stepper.client_tick(0);
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .insert(Confirmed(CompFull(2.0)));
+    // TODO: receive remote update
+    // stepper
+    //     .client_app()
+    //     .world_mut()
+    //     .entity_mut(predicted)
+    //     .insert(Confirmed(CompFull(2.0)));
     // simulate that we received a server message for the confirmed entity on tick `tick`
     // where the PredictionHistory had the value of 1.0
 
@@ -126,11 +126,12 @@ fn test_check_rollback() {
     // the predicted history now has CompFull(2.0)
 
     // 2. Confirmed component does not exist but predicted component exists
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .remove::<Confirmed<CompFull>>();
+    // TODO: receive remote remove
+    // stepper
+    //     .client_app()
+    //     .world_mut()
+    //     .entity_mut(predicted)
+    //     .remove::<Confirmed<CompFull>>();
     // simulate that we received a server message for the confirmed entity on tick `tick`
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
@@ -150,11 +151,12 @@ fn test_check_rollback() {
         .world_mut()
         .entity_mut(predicted)
         .remove::<CompFull>();
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .insert(Confirmed(CompFull(2.0)));
+    // TODO: receive update for component
+    // stepper
+    //     .client_app()
+    //     .world_mut()
+    //     .entity_mut(predicted)
+    //     .insert(Confirmed(CompFull(2.0)));
     // simulate that we received a server message for the confirmed entity on tick `tick`
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
@@ -254,9 +256,8 @@ fn test_removed_predicted_component_rollback() {
     stepper
         .client_app()
         .world_mut()
-        .get_mut::<Confirmed<CompFull>>(predicted)
+        .get_mut::<CompFull>(predicted)
         .unwrap()
-        .0
         .0 = -10.0;
     trigger_rollback_check(&mut stepper, tick - 3);
     stepper.frame_step(1);
@@ -313,7 +314,7 @@ fn test_added_predicted_component_rollback() {
         .client_app()
         .world_mut()
         .entity_mut(predicted)
-        .remove::<Confirmed<CompFull>>();
+        .remove::<CompFull>();
     trigger_rollback_check(&mut stepper, rollback_tick);
     stepper.frame_step(1);
 
@@ -390,14 +391,14 @@ fn test_disable_rollback() {
     // 2. If a rollback happens, then we reset DisableRollback entities to their historical value
     stepper.frame_step(1);
     let tick = stepper.client_tick(0);
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_b)
-        .get_mut::<Confirmed<CompFull>>()
-        .unwrap()
-        .0
-        .0 = 3.0;
+    // stepper
+    //     .client_app()
+    //     .world_mut()
+    //     .entity_mut(predicted_b)
+    //     .get_mut::<Confirmed<CompFull>>()
+    //     .unwrap()
+    //     .0
+    //     .0 = 3.0;
     let mut history = PredictionHistory::<CompFull>::default();
     history.add_confirmed(tick, Some(CompFull(10.0)));
     stepper

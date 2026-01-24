@@ -2,7 +2,7 @@ use super::*;
 use crate::protocol::CompFull;
 use bevy::prelude::Entity;
 use lightyear::prelude::*;
-use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
+use lightyear_core::history_buffer::{HistoryBuffer};
 use lightyear_prediction::Predicted;
 use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
 use test_log::test;

@@ -10,7 +10,7 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::prelude::{PredictionTarget, Replicate, Room, RoomEvent, RoomTarget};
+use lightyear_replication::prelude::{PredictionTarget, Replicate, RoomAllocator, Rooms};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use test_log::test;
@@ -354,21 +354,13 @@ fn test_input_custom_rebroadcast() {
     stepper.frame_step_server_first(1);
 
     // Add rooms only for clients 0 and 1
-    let room = stepper.server_app.world_mut().spawn(Room::default()).id();
-    stepper.server_app.world_mut().trigger(RoomEvent {
-        target: RoomTarget::AddEntity(server_entity),
-        room,
-    });
+    let room = stepper.server_app.world_mut().resource_mut::<RoomAllocator>().allocate();
+
+    stepper.server_app.world_mut().entity_mut(server_entity).insert(Rooms::single(room));
     let client_of0 = stepper.client_of(0).id();
     let client_of1 = stepper.client_of(1).id();
-    stepper.server_app.world_mut().trigger(RoomEvent {
-        target: RoomTarget::AddSender(client_of0),
-        room,
-    });
-    stepper.server_app.world_mut().trigger(RoomEvent {
-        target: RoomTarget::AddSender(client_of1),
-        room,
-    });
+    stepper.server_app.world_mut().entity_mut(client_of0).insert(Rooms::single(room));
+    stepper.server_app.world_mut().entity_mut(client_of1).insert(Rooms::single(room));
     stepper.frame_step_server_first(1);
 
     // make sure that ClientOf 0 only rebroadcasts inputs to the room (so to client 1)

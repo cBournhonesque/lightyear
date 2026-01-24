@@ -5,6 +5,8 @@ use lightyear::prelude::*;
 use lightyear_connection::server::Started;
 use lightyear_crossbeam::CrossbeamIo;
 use test_log::test;
+use lightyear_replication::metadata::SenderMetadata;
+use lightyear_replication::receive::ReplicationReceiver;
 
 /// Check that the client/server setup is correct:
 /// - the various components we expect are present

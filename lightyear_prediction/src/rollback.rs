@@ -109,6 +109,9 @@ pub struct RollbackPlugin;
 
 impl Plugin for RollbackPlugin {
     fn build(&self, app: &mut App) {
+        // RESOURCES
+        app.init_resource::<StateRollbackMetadata>();
+
         // SETS
         app.configure_sets(
             PreUpdate,

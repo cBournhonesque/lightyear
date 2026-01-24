@@ -35,10 +35,11 @@ pub mod prelude {
     pub use bevy_replicon::prelude::Replicated;
 
     pub use crate::ReplicationSystems;
-    pub use crate::metadata::ReplicationMetadata;
+    pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::control::{Controlled, ControlledBy};
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::prespawn::PreSpawned;
+    pub use crate::receive::ReplicationReceiver;
     pub use crate::send::{Replicate, ReplicationSender};
 
     pub use crate::visibility::room::{RoomAllocator, RoomPlugin, Rooms, RoomId};
