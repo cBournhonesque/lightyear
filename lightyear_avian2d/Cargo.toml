@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_avian2d"
-version = "0.26.0"
+version = "0.26.1"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -14,7 +14,7 @@ publish = true
 
 [lib]
 name = "lightyear_avian2d"
-#path = "../lightyear_avian/src/lib.rs"
+path = "../lightyear_avian/src/lib.rs"
 required-features = ["2d"]
 bench = false
 

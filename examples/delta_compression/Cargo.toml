@@ -1,6 +1,6 @@
 [package]
 name = "delta_compression"
-version = "0.25.5"
+version = "0.26.1"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 description = "Examples for the lightyearServer-client networking library for the Bevy game engine"
