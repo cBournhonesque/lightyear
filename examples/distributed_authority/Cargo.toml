@@ -1,6 +1,6 @@
 [package]
 name = "distributed_authority"
-version = "0.26.1"
+version = "0.26.2"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 description = "Examples for the lightyearServer-client networking library for the Bevy game engine"

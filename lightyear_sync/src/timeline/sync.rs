@@ -212,11 +212,12 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         local_timeline: Res<LocalTimeline>,
         mut query: Query<&mut Synced>,
     ) {
+        let local_tick = local_timeline.tick();
         if let Ok(mut timeline) = query.get_mut(trigger.entity) {
             timeline.reset();
             if DRIVING {
                 trace!("Set Driving timeline tick to LocalTimeline");
-                let delta = local_timeline.tick() - timeline.tick();
+                let delta = local_tick - timeline.tick();
                 timeline.apply_delta(delta.into());
             }
         }
@@ -244,12 +245,12 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         fixed_time: Res<Time<Fixed>>,
         mut query: Query<&mut Synced>,
     ) {
-        let tick = local_timeline.tick();
+        let local_tick = local_timeline.tick();
         let overstep = fixed_time.overstep_fraction();
         query.iter_mut().for_each(|mut synced| {
             // Desired phase: LocalTimeline.tick + Time<Fixed> overstep.
             synced.set_now(TickInstant::from_tick_and_overstep(
-                tick,
+                local_tick,
                 Overstep::from_f32(overstep),
             ));
         });

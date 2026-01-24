@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_inputs_native"
-version = "0.26.1"
+version = "0.26.2"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true

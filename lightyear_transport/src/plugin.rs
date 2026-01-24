@@ -262,12 +262,15 @@ impl TransportPlugin {
     fn buffer_send(
         real_time: Res<Time<Real>>,
         timeline: Res<LocalTimeline>,
-        mut query: Query<(&mut Link, &mut Transport, Option<&mut HostClient>), With<Linked>>,
+        mut query: Query<
+            (
+                &mut Link,
+                &mut Transport,
+                Option<&mut HostClient>), With<Linked>>,
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]
         let _timer = TimerGauge::new("transport/send");
-
         let tick = timeline.tick();
         query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
