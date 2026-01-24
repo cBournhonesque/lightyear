@@ -58,7 +58,10 @@ impl PluginGroup for ClientPlugins {
         let builder = builder.add(lightyear_raw_connection::client::RawConnectionPlugin);
 
         #[cfg(target_family = "wasm")]
-        let builder = builder.add(crate::web::WebPlugin);
+        let builder = builder.add(lightyear_web::WebKeepalivePlugin {
+            // The interval is in milliseconds. We can run app.update() infrequently when in the background
+            wake_delay: 100.0,
+        });
 
         builder
     }

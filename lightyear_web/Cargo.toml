@@ -1,0 +1,30 @@
+[package]
+name = "lightyear_web"
+version = "0.26.0"
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+description = "Utilities to run a bevy app on the web"
+readme = "../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license.workspace = true
+exclude = ["/tests"]
+publish = true
+
+[dependencies]
+bevy_winit.workspace = true
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+wasm-bindgen = "0.2.106"
+web-sys = { version = "0.3.81", features = [
+  "Window",
+  "Document",
+  "Worker",
+  "Blob",
+  "Url",
+] }
+
+[package.metadata.docs.rs]
+all-features = true
