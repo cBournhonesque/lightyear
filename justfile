@@ -440,7 +440,11 @@ remove_avian_symlinks:
     rm lightyear_avian3d/src
 
 release_dryrun:
-    cargo release --no-tag --no-push --workspace --config .release.toml -vvv 0.26.1
+    @just add_avian_symlinks
+    cargo release --no-tag --no-push --workspace --config .release.toml -vvv VERSION
+    @just remove_avian_symlinks
 
 release:
-    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv 0.26.1
+    @just add_avian_symlinks
+    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv VERSION
+    @just remove_avian_symlinks
