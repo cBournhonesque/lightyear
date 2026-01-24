@@ -2,6 +2,8 @@
 
 This is an example of a server containing server-authoritative, physics-based, 3D characters simulated with `avian3d` and clients controlling those characters and predicting their movement.
 
+https://github.com/user-attachments/assets/4e0eb373-2f46-4c48-8157-46e1e5085097
+
 ## Features
 
 * The client will immediately try to connect to the server on start.
@@ -13,6 +15,7 @@ This is an example of a server containing server-authoritative, physics-based, 3
 * The serve will spawn some dynamic blocks and a static floor on start.
   * All clients will predict the position, rotation, and velocity of all blocks.
   * The floor is only replicated and not predicted because we do not expect it to move.
+
 
 ## Running an example
 
