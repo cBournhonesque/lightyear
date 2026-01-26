@@ -1,0 +1,50 @@
+[package]
+name = "tnua"
+version = "0.25.5"
+authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
+edition.workspace = true
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = ["lightyear_examples_common/client", "gui"]
+gui = ["lightyear_examples_common/gui"]
+server = ["lightyear_examples_common/server"]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp"]
+
+[dependencies]
+lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "input_bei",
+] }
+lightyear_examples_common.workspace = true
+lightyear_frame_interpolation.workspace = true
+bevy_enhanced_input.workspace = true
+# add avian2d directly to customize the plugin 
+lightyear_avian2d = { workspace = true, features = ["deterministic", "2d"] }
+avian2d = { workspace = true, features = [
+  "2d",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+  "enhanced-determinism",
+] }
+
+bevy-tnua = { version = "0.28", features = ["serialize"] }
+bevy-tnua-physics-integration-layer = { version = "0.11" }
+bevy-tnua-avian2d = { version = "0.9"  }
+
+serde.workspace = true
+bevy.workspace = true
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
+
+[lints]
+workspace = true
