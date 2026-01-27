@@ -110,13 +110,15 @@ impl NetworkVisibilityPlugin {
                     state.visibility = VisibilityState::Visible;
                 }
 
-                // TODO: is it safe to discard the PerSenderReplicationState information?
-                //  what if we knew that we don't have authority over the entity
-                //  so even if we call `gain_visibility` we want to keep that information?
-                //  The issue is that keeping the data around forever could be expensive...
-                // discard these entities since we already sent a despawn message for it
+                // TODO: keeping this data around forever could be expensive...
                 if state.visibility == VisibilityState::Lost {
-                    return false;
+                    // We already sent DESPAWN, but keep the entry so we don't lose metadata
+                    state.visibility = VisibilityState::Default;
+
+                    // We want a future gain_visibility() to cause a SPAWN again.
+                    state.spawned = false;
+
+                    return true;
                 }
                 true
             })
@@ -220,8 +222,10 @@ mod tests {
             VisibilityState::Lost
         );
 
-        // after an update: Lost -> Cleared
         app.update();
+
+        // we no longer clear PerSenderReplicationState on Lost
+        /*
         assert!(
             app.world_mut()
                 .get_mut::<ReplicationState>(entity)
@@ -230,6 +234,7 @@ mod tests {
                 .get(&sender)
                 .is_none()
         );
+         */
 
         // if we Gain/Lose visibility in the same tick, do nothing
         app.world_mut()
