@@ -64,6 +64,33 @@ impl ComponentRegistry {
         // add serialization/replication for C::Delta
         self.register_component::<DeltaMessage<Delta>>(world);
 
+        // Copy C's clone function to DeltaMessage<Delta>'s serialization metadata.
+        // The buffer_insert_delta function needs to clone C when inserting a predicted component,
+        // but it receives the serialization metadata for DeltaMessage<Delta> (looked up by NetId).
+        // Without this, the clone function is None and causes a panic in DeltaType::FromBase.
+        let c_clone_fn = self
+            .component_metadata_map
+            .get(&kind)
+            .and_then(|m| m.serialization.as_ref())
+            .and_then(|s| s.erased_clone);
+        if predicted {
+            if let Some(clone_fn) = c_clone_fn {
+                let delta_serialization = self
+                    .component_metadata_map
+                    .get_mut(&delta_kind)
+                    .and_then(|m| m.serialization.as_mut());
+                if let Some(serialization) = delta_serialization {
+                    serialization.erased_clone = Some(clone_fn);
+                }
+            } else {
+                trace!(
+                    "Delta compression for predicted component {:?} has no clone function. \
+                     Ensure add_prediction() is called before add_delta_compression().",
+                    DebugName::type_name::<C>()
+                );
+            }
+        }
+
         // add write/remove functions associated with the delta component's net_id
         // (since the serialized message will contain the delta component's net_id)
         let delta_metadata = self.component_metadata_map.get_mut(&delta_kind).unwrap();
