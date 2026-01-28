@@ -124,23 +124,24 @@ impl ReplicationSender {
     }
 
     pub(crate) fn prepare_entity_despawns(&mut self) {
-        self.pending_despawns
-            .drain(..)
-            .for_each(|(entity, group_id)| {
-                // NOTE: this is copy-pasted from `self.prepare_entity_despawn` to avoid borrow-checker issues
-                #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("replication::send::entity_despawn").increment(1);
-                }
-                self.group_with_actions.insert(group_id);
-                self.group_channels
-                    .entry(group_id)
-                    .or_default()
-                    .pending_actions
-                    .entry(entity)
-                    .or_default()
-                    .spawn = SpawnAction::Despawn;
-            })
+        // Collect despawns first to avoid borrow-checker issues with cleanup
+        let despawns: Vec<_> = self.pending_despawns.drain(..).collect();
+        for (entity, group_id) in despawns {
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("replication::send::entity_despawn").increment(1);
+            }
+            self.group_with_actions.insert(group_id);
+            self.group_channels
+                .entry(group_id)
+                .or_default()
+                .pending_actions
+                .entry(entity)
+                .or_default()
+                .spawn = SpawnAction::Despawn;
+            // Clean up delta compression state for the despawned entity
+            self.cleanup_entity_delta_state(entity, group_id);
+        }
     }
 
     pub fn send_interval(&self) -> Duration {
@@ -291,6 +292,7 @@ impl ReplicationSender {
 
     /// Do some internal bookkeeping:
     /// - handle tick wrapping
+    /// - clean up stale delta_ack_ticks
     pub(crate) fn tick_cleanup(&mut self, tick: Tick) {
         // skip cleanup if we did one recently
         if self
@@ -318,6 +320,15 @@ impl ReplicationSender {
             group_channel
                 .delta_ack_ticks
                 .retain(|_, ack_tick| tick - *ack_tick <= delta);
+        }
+    }
+
+    /// Clean up delta compression state for a despawned entity.
+    /// Called when an entity is removed from replication.
+    pub(crate) fn cleanup_entity_delta_state(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        if let Some(group_channel) = self.group_channels.get_mut(&group_id) {
+            group_channel.delta_ack_ticks.retain(|(e, _), _| *e != entity);
+            group_channel.delta_send_counters.retain(|(e, _), _| *e != entity);
         }
     }
 }
@@ -382,6 +393,8 @@ impl ReplicationSender {
             .entry(entity)
             .or_default()
             .spawn = SpawnAction::Despawn;
+        // Clean up delta compression state for the despawned entity
+        self.cleanup_entity_delta_state(entity, group_id);
     }
 
     /// Helper function to prepare component insert for components for which we know the type
