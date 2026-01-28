@@ -643,23 +643,25 @@ fn replicate_component_update(
             let writer = &mut sender.writer;
             trace!(?component_kind, ?entity, "Try to buffer component insert");
             if delta_compression {
-                let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
-                delta.store(
-                    unmapped_entity,
-                    current_tick,
-                    component_kind,
-                    component_data,
-                    component_registry,
-                );
+                let delta_manager = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
                 // SAFETY: the component_data corresponds to the kind
-                unsafe {
-                    component_registry.serialize_diff_from_base_value(
+                // Use reconstruction tracking: store base + delta (what client will have),
+                // not the true server value. This prevents quantization drift.
+                let reconstructed = unsafe {
+                    component_registry.serialize_diff_from_base_value_with_reconstruction(
                         component_data,
                         writer,
                         component_kind,
                         &mut entity_map.local_to_remote,
                     )?
-                }
+                };
+                // Store the reconstructed value (base + delta), not the true value
+                delta_manager.store_reconstructed(
+                    unmapped_entity,
+                    current_tick,
+                    component_kind,
+                    reconstructed,
+                );
             } else {
                 component_registry.erased_serialize(
                     component_data,
@@ -688,14 +690,11 @@ fn replicate_component_update(
                     "prepare entity update changed"
                 );
                 if delta_compression {
-                    let delta = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
-                    delta.store(
-                        unmapped_entity,
-                        current_tick,
-                        component_kind,
-                        component_data,
-                        component_registry,
-                    );
+                    let delta_manager = delta.expect("Delta compression on component {component_kind:?} is enabled, but no DeltaManager was provided");
+                    // Note: delta.store() is NOT called here because prepare_delta_component_update
+                    // now handles server-side reconstruction tracking internally. It stores the
+                    // reconstructed value (baseline + delta) instead of the true server value,
+                    // which prevents quantization drift.
                     sender.prepare_delta_component_update(
                         unmapped_entity,
                         entity,
@@ -703,7 +702,7 @@ fn replicate_component_update(
                         component_kind,
                         component_data,
                         component_registry,
-                        delta,
+                        delta_manager,
                         current_tick,
                         entity_map,
                     )?;

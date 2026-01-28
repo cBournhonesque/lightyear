@@ -468,7 +468,12 @@ impl ReplicationSender {
             .push(raw_data);
     }
 
-    /// Create a component update for a component that has delta compression enabled
+    /// Create a component update for a component that has delta compression enabled.
+    ///
+    /// Uses server-side reconstruction tracking to prevent quantization drift:
+    /// after computing a delta, the stored baseline is updated by applying the same
+    /// delta (simulating what the client will do). This ensures both server and client
+    /// compute future deltas from the same quantized baseline.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_delta_component_update(
@@ -480,7 +485,7 @@ impl ReplicationSender {
         component_data: Ptr,
         registry: &ComponentRegistry,
         delta_manager: &DeltaManager,
-        _tick: Tick,
+        current_tick: Tick,
         remote_entity_map: &mut RemoteEntityMap,
     ) -> Result<(), ReplicationError> {
         #[cfg(feature = "metrics")]
@@ -509,12 +514,26 @@ impl ReplicationSender {
                         );
                         error!("DeltaManager: {:?}", delta_manager);
                     })?;
-                // SAFETY: the component_data and erased_data is a pointer to a component that corresponds to kind
+
+                // Get mutable access to the stored baseline for in-place reconstruction
+                let stored_baseline = delta_manager
+                    .get_mut(entity, ack_tick, kind)
+                    .ok_or(ReplicationError::DeltaCompressionError(
+                        "could not get mutable access to stored baseline".to_string(),
+                    ))?;
+
+                // SAFETY: the component_data and old_data correspond to kind,
+                // stored_baseline is the same data as old_data
+                // serialize_diff_with_reconstruction will:
+                // 1. Compute delta from old_data to component_data
+                // 2. Serialize the delta
+                // 3. Apply the same delta to stored_baseline (server-side reconstruction)
                 unsafe {
-                    registry.serialize_diff(
+                    registry.serialize_diff_with_reconstruction(
                         ack_tick,
                         old_data,
                         component_data,
+                        stored_baseline,
                         &mut self.writer,
                         kind,
                         &mut remote_entity_map.local_to_remote,
@@ -523,16 +542,24 @@ impl ReplicationSender {
                 Ok::<Bytes, ReplicationError>(self.writer.split())
             })
             .unwrap_or_else(|| {
-                // SAFETY: the component_data is a pointer to a component that corresponds to kind
-                unsafe {
-                    // compute a diff from the base value, and serialize that
-                    registry.serialize_diff_from_base_value(
+                // No previous ack tick - compute diff from base value
+                // SAFETY: the component_data corresponds to the kind
+                // Use reconstruction tracking: store base + delta (what client will have)
+                let reconstructed = unsafe {
+                    registry.serialize_diff_from_base_value_with_reconstruction(
                         component_data,
                         &mut self.writer,
                         kind,
                         &mut remote_entity_map.local_to_remote,
-                    )?;
-                }
+                    )?
+                };
+                // Store the reconstructed value for future delta computation
+                delta_manager.store_reconstructed(
+                    entity,
+                    current_tick,
+                    kind,
+                    reconstructed,
+                );
                 Ok::<Bytes, ReplicationError>(self.writer.split())
             })?;
         trace!(?kind, "Inserting pending update!");

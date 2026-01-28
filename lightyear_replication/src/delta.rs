@@ -156,6 +156,49 @@ impl DeltaManager {
         Some(unsafe { Ptr::new(ptr.ptr) })
     }
 
+    /// Get a mutable pointer to the stored component value for in-place modification.
+    /// Used for server-side reconstruction tracking.
+    pub fn get_mut(
+        &self,
+        entity: Entity,
+        tick: Tick,
+        kind: ComponentKind,
+    ) -> Option<bevy_ptr::PtrMut<'_>> {
+        let mut tick_data = self.state.get_mut(&(kind, entity))?;
+        let per_tick = tick_data.data.get_mut(&tick)?;
+        Some(unsafe { bevy_ptr::PtrMut::new(per_tick.ptr) })
+    }
+
+    /// Store a pre-computed reconstructed value directly.
+    /// Used for server-side reconstruction tracking to prevent quantization drift.
+    ///
+    /// Unlike `store()` which clones the true component value, this stores a value
+    /// that has already had quantization applied (e.g., base + delta).
+    pub(crate) fn store_reconstructed(
+        &self,
+        entity: Entity,
+        tick: Tick,
+        kind: ComponentKind,
+        reconstructed_ptr: NonNull<u8>,
+    ) {
+        self.state
+            .entry((kind, entity))
+            .or_default()
+            .data
+            .entry(tick)
+            .or_insert_with(|| PerTickData {
+                ptr: reconstructed_ptr,
+                num_acks: 0,
+            })
+            .num_acks += 1;
+        trace!(
+            ?kind,
+            ?entity,
+            ?tick,
+            "DeltaManager: storing reconstructed component value"
+        );
+    }
+
     /// We receive an ack from a client for a specific tick.
     /// Update the ack information: if all clients have acked the data for a tick T,
     /// we can remove the data for ticks strictly older to T.

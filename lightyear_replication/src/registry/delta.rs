@@ -174,6 +174,159 @@ impl ComponentRegistry {
         unsafe { (delta_fns.drop_delta_message)(delta) };
         Ok(())
     }
+
+    /// Compute diff from base value and return both the serialized data and the reconstructed
+    /// component value (base + delta). This is used for server-side reconstruction tracking
+    /// to prevent quantization drift.
+    ///
+    /// Returns (serialized_bytes, reconstructed_component_ptr)
+    ///
+    /// # Safety
+    /// The component_data Ptr must correspond to the correct ComponentKind
+    pub unsafe fn serialize_diff_from_base_value_with_reconstruction(
+        &self,
+        component_data: Ptr,
+        writer: &mut Writer,
+        kind: ComponentKind,
+        entity_map: &mut SendEntityMap,
+    ) -> Result<NonNull<u8>, ComponentError> {
+        trace!(
+            ?kind,
+            "Serializing diff from base value with reconstruction for delta component",
+        );
+        let delta_fns = self
+            .component_metadata_map
+            .get(&kind)
+            .and_then(|m| m.delta.as_ref())
+            .ok_or(ComponentError::MissingDeltaFns)?;
+
+        // Compute the delta from base to current value
+        let delta = unsafe { (delta_fns.diff_from_base)(component_data) };
+
+        // Serialize the delta
+        self.erased_serialize(
+            unsafe { Ptr::new(delta) },
+            writer,
+            delta_fns.delta_kind,
+            entity_map,
+        )?;
+
+        // Create reconstructed value: base + delta (what client will have)
+        let reconstructed = unsafe { (delta_fns.create_base_with_delta)(Ptr::new(delta)) };
+
+        // Drop the delta message
+        unsafe { (delta_fns.drop_delta_message)(delta) };
+
+        Ok(reconstructed)
+    }
+
+    /// Compute diff from a previous value and return both the serialized data and apply the
+    /// delta to the stored baseline for server-side reconstruction tracking.
+    ///
+    /// This modifies the stored baseline in-place by applying the same delta the client will apply.
+    ///
+    /// # Safety
+    /// - start and new Ptrs must correspond to the correct ComponentKind
+    /// - stored_baseline must be a mutable pointer to a value that can be modified
+    pub unsafe fn serialize_diff_with_reconstruction(
+        &self,
+        start_tick: Tick,
+        start: Ptr,
+        new: Ptr,
+        stored_baseline: PtrMut,
+        writer: &mut Writer,
+        kind: ComponentKind,
+        entity_map: &mut SendEntityMap,
+    ) -> Result<(), ComponentError> {
+        trace!(
+            ?kind,
+            "Serializing diff with reconstruction for delta component",
+        );
+        let delta_fns = self
+            .component_metadata_map
+            .get(&kind)
+            .and_then(|m| m.delta.as_ref())
+            .ok_or(ComponentError::MissingDeltaFns)?;
+
+        // Compute the delta from old to new
+        let delta = unsafe { (delta_fns.diff)(start_tick, start, new) };
+
+        // Serialize the delta
+        self.erased_serialize(
+            unsafe { Ptr::new(delta) },
+            writer,
+            delta_fns.delta_kind,
+            entity_map,
+        )?;
+
+        // Apply the same delta to the stored baseline (server-side reconstruction)
+        // Extract just the delta part from the DeltaMessage
+        let delta_ptr = unsafe {
+            // Offset to get to the delta field within DeltaMessage
+            // DeltaMessage is repr(C), so delta_type comes first, then delta
+            let delta_message_ptr = delta.cast::<u8>().as_ptr();
+            // Size of DeltaType enum (it's a simple enum with two variants, so typically 1-8 bytes)
+            let delta_offset = core::mem::size_of::<crate::delta::DeltaType>();
+            Ptr::new(NonNull::new_unchecked(delta_message_ptr.add(delta_offset)))
+        };
+        unsafe { (delta_fns.apply_diff)(stored_baseline, delta_ptr) };
+
+        // Drop the delta message
+        unsafe { (delta_fns.drop_delta_message)(delta) };
+
+        Ok(())
+    }
+
+    /// Apply a delta to stored component data (for server-side reconstruction tracking).
+    ///
+    /// # Safety
+    /// - data must be a valid mutable pointer to a component of the given kind
+    /// - delta must be a valid pointer to the delta type for this component
+    pub unsafe fn erased_apply_diff(
+        &self,
+        data: PtrMut,
+        delta: Ptr,
+        kind: ComponentKind,
+    ) -> Result<(), ComponentError> {
+        let delta_fns = self
+            .component_metadata_map
+            .get(&kind)
+            .and_then(|m| m.delta.as_ref())
+            .ok_or(ComponentError::MissingDeltaFns)?;
+        unsafe { (delta_fns.apply_diff)(data, delta) };
+        Ok(())
+    }
+
+    /// Create a base value for a component type.
+    ///
+    /// # Safety
+    /// Caller must ensure the returned pointer is eventually dropped via erased_drop.
+    pub unsafe fn erased_create_base(&self, kind: ComponentKind) -> Result<NonNull<u8>, ComponentError> {
+        let delta_fns = self
+            .component_metadata_map
+            .get(&kind)
+            .and_then(|m| m.delta.as_ref())
+            .ok_or(ComponentError::MissingDeltaFns)?;
+        Ok(unsafe { (delta_fns.create_base)() })
+    }
+
+    /// Create a component value by applying a delta to the base value.
+    ///
+    /// # Safety
+    /// - delta must be a valid pointer to a DeltaMessage for this component's delta type
+    /// - Caller must ensure the returned pointer is eventually dropped via erased_drop.
+    pub unsafe fn erased_create_base_with_delta(
+        &self,
+        delta: Ptr,
+        kind: ComponentKind,
+    ) -> Result<NonNull<u8>, ComponentError> {
+        let delta_fns = self
+            .component_metadata_map
+            .get(&kind)
+            .and_then(|m| m.delta.as_ref())
+            .ok_or(ComponentError::MissingDeltaFns)?;
+        Ok(unsafe { (delta_fns.create_base_with_delta)(delta) })
+    }
 }
 
 /// Insert a component delta into the entity.
@@ -318,6 +471,9 @@ type ErasedDiffFn = unsafe fn(start_tick: Tick, start: Ptr, present: Ptr) -> Non
 type ErasedBaseDiffFn = unsafe fn(data: Ptr) -> NonNull<u8>;
 type ErasedApplyDiffFn = unsafe fn(data: PtrMut, delta: Ptr);
 type ErasedDropFn = unsafe fn(data: NonNull<u8>);
+type ErasedCreateBaseFn = unsafe fn() -> NonNull<u8>;
+/// Returns (component_ptr, delta_ptr) where component is base + delta
+type ErasedCreateBaseWithDeltaFn = unsafe fn(delta: Ptr) -> NonNull<u8>;
 
 /// SAFETY: the Ptr must be a valid pointer to a value of type C
 unsafe fn erased_clone<C: Clone>(data: Ptr) -> NonNull<u8> {
@@ -372,6 +528,32 @@ unsafe fn erased_drop<C>(data: NonNull<u8>) {
     let _ = unsafe { Box::from_raw(data.cast::<C>().as_ptr()) };
 }
 
+/// Create a base value for a component type.
+///
+/// SAFETY: Caller must ensure the returned pointer is eventually dropped via erased_drop.
+unsafe fn erased_create_base<C: Diffable<Delta>, Delta>() -> NonNull<u8> {
+    let base = C::base_value();
+    let leaked = Box::leak(Box::new(base));
+    NonNull::from(leaked).cast()
+}
+
+/// Create a component value by applying a delta to the base value.
+/// This is used for server-side reconstruction tracking to prevent quantization drift.
+///
+/// SAFETY:
+/// - delta must be a valid pointer to a DeltaMessage<Delta>
+/// - Caller must ensure the returned pointer is eventually dropped via erased_drop.
+unsafe fn erased_create_base_with_delta<C: Diffable<Delta>, Delta>(
+    delta: Ptr,
+) -> NonNull<u8> {
+    let mut base = C::base_value();
+    // Extract delta from DeltaMessage wrapper
+    let delta_message = unsafe { delta.deref::<DeltaMessage<Delta>>() };
+    base.apply_diff(&delta_message.delta);
+    let leaked = Box::leak(Box::new(base));
+    NonNull::from(leaked).cast()
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct ErasedDeltaFns {
     pub(crate) type_id: TypeId,
@@ -384,6 +566,10 @@ pub(crate) struct ErasedDeltaFns {
     pub apply_diff: ErasedApplyDiffFn,
     pub drop: ErasedDropFn,
     pub drop_delta_message: ErasedDropFn,
+    /// Create a base value for the component type
+    pub create_base: ErasedCreateBaseFn,
+    /// Create a component by applying delta to base (for server-side reconstruction tracking)
+    pub create_base_with_delta: ErasedCreateBaseWithDeltaFn,
 }
 
 impl ErasedDeltaFns {
@@ -398,6 +584,8 @@ impl ErasedDeltaFns {
             apply_diff: erased_apply_diff::<C, Delta>,
             drop: erased_drop::<C>,
             drop_delta_message: erased_drop::<DeltaMessage<Delta>>,
+            create_base: erased_create_base::<C, Delta>,
+            create_base_with_delta: erased_create_base_with_delta::<C, Delta>,
         }
     }
 }
@@ -527,5 +715,84 @@ mod tests {
         let diff = vec![2];
         unsafe { (erased_fns.apply_diff)(PtrMut::from(&mut old_data), Ptr::from(&diff)) };
         assert_eq!(old_data, CompDelta(vec![1, 2]));
+    }
+
+    #[test]
+    fn test_create_base() {
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
+        let base = unsafe { (erased_fns.create_base)() };
+        let casted = base.cast::<CompDelta>();
+        assert_eq!(unsafe { casted.as_ref() }, &CompDelta::base_value());
+        // free memory
+        unsafe { (erased_fns.drop)(casted.cast()) };
+    }
+
+    #[test]
+    fn test_create_base_with_delta() {
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
+
+        // Use the actual diff_from_base function to create the delta message
+        // This matches production usage exactly
+        let new_data = CompDelta(vec![1, 2, 3]);
+        let delta = unsafe { (erased_fns.diff_from_base)(Ptr::from(&new_data)) };
+
+        // Create base + delta (what client will reconstruct)
+        let reconstructed = unsafe { (erased_fns.create_base_with_delta)(Ptr::new(delta)) };
+        let casted = reconstructed.cast::<CompDelta>();
+
+        // base is vec![1], new_data is vec![1, 2, 3], so delta is vec![2, 3]
+        // Reconstructed should be base + delta = vec![1] + vec![2, 3] = vec![1, 2, 3]
+        assert_eq!(unsafe { casted.as_ref() }, &CompDelta(vec![1, 2, 3]));
+
+        // free memory
+        unsafe { (erased_fns.drop)(casted.cast()) };
+        unsafe { (erased_fns.drop_delta_message)(delta) };
+    }
+
+    /// Test that server-side reconstruction tracking prevents drift.
+    /// This simulates the scenario where:
+    /// 1. Server computes delta from stored baseline to new value
+    /// 2. Server applies that same delta to its stored baseline
+    /// 3. Client applies delta to its stored baseline
+    /// Both should end up with identical values.
+    #[test]
+    fn test_reconstruction_tracking_prevents_drift() {
+        let erased_fns = ErasedDeltaFns::new::<CompDelta, Vec<usize>>();
+
+        // Initial state: both server and client have base value
+        let mut server_baseline = CompDelta::base_value(); // vec![1]
+        let mut client_baseline = CompDelta::base_value(); // vec![1]
+
+        // Server has new true value
+        let server_true_value = CompDelta(vec![1, 2, 3]);
+
+        // Server computes delta from baseline to true value
+        let delta = server_baseline.diff(&server_true_value);
+        assert_eq!(delta, vec![2, 3]);
+
+        // Server applies delta to its baseline (reconstruction tracking)
+        server_baseline.apply_diff(&delta);
+
+        // Client applies the same delta to its baseline
+        client_baseline.apply_diff(&delta);
+
+        // Both should be identical
+        assert_eq!(server_baseline, client_baseline);
+        assert_eq!(server_baseline, CompDelta(vec![1, 2, 3]));
+
+        // Now simulate another update
+        let server_true_value_2 = CompDelta(vec![1, 2, 3, 4, 5]);
+
+        // Server computes delta from its RECONSTRUCTED baseline (not true value!)
+        let delta_2 = server_baseline.diff(&server_true_value_2);
+        assert_eq!(delta_2, vec![4, 5]);
+
+        // Both apply the delta
+        server_baseline.apply_diff(&delta_2);
+        client_baseline.apply_diff(&delta_2);
+
+        // Both should still be identical
+        assert_eq!(server_baseline, client_baseline);
+        assert_eq!(server_baseline, CompDelta(vec![1, 2, 3, 4, 5]));
     }
 }
