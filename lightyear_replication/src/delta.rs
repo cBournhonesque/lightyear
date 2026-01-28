@@ -159,38 +159,51 @@ impl DeltaManager {
     /// We receive an ack from a client for a specific tick.
     /// Update the ack information: if all clients have acked the data for a tick T,
     /// we can remove the data for ticks strictly older to T.
+    ///
+    /// WORKAROUND: Aggressive cleanup is disabled to fix a race condition where
+    /// client A's delta_ack_tick references a tick that was cleaned up due to
+    /// client B's ack completing first. The tick_cleanup() function will still
+    /// remove very old ticks to prevent unbounded memory growth.
+    /// See: https://github.com/cBournhonesque/lightyear/issues/XXX
     pub(crate) fn receive_ack(
         &self,
         entity: Entity,
         tick: Tick,
         kind: ComponentKind,
-        registry: &ComponentRegistry,
+        _registry: &ComponentRegistry,
     ) {
         if let Some(mut group_data) = self.state.get_mut(&(kind, entity))
             && let Some(per_tick_data) = group_data.data.get_mut(&tick)
         {
-            if per_tick_data.num_acks == 1 {
-                // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
-                trace!(
-                    ?kind,
-                    ?entity,
-                    "DeltaManager: removing data for ticks strictly older than {tick:?}",
-                );
+            // WORKAROUND: Just decrement the ack count without cleanup.
+            // The aggressive cleanup caused a race condition in multi-client scenarios:
+            // 1. Server sends tick T update for entity E to clients A and B
+            // 2. Client A acks tick T → num_acks becomes 1
+            // 3. Entity E stops moving (no new updates sent)
+            // 4. Client B (slow/packet loss) finally acks → num_acks becomes 0, cleanup runs
+            // 5. But client A's delta_ack_tick for entity E is still referencing T
+            // 6. When entity E moves again, server tries to compute delta from T → ERROR
+            //
+            // The proper fix requires tracking per-client ack state, not just a count.
+            // For now, rely on tick_cleanup() for memory management.
+            per_tick_data.num_acks = per_tick_data.num_acks.saturating_sub(1);
 
-                // if all clients have acked this tick, we can remove the data for all ticks strictly older than this
-                let recent_data = group_data.data.split_off(&tick);
-                // call drop on all the data that we are removing
-                group_data.data.values_mut().for_each(|tick_data| {
-                    // TODO: maybe this is not necessary, because it is extremely unlikely that the component
-                    //  will have anything to drop
-                    // SAFETY: the ptr corresponds to the correct kind
-                    unsafe { registry.erased_drop(tick_data.ptr, kind) }
-                        .expect("unable to drop component value");
-                });
-                group_data.data = recent_data;
-            } else {
-                per_tick_data.num_acks -= 1;
-            }
+            // Original cleanup logic (disabled):
+            // if per_tick_data.num_acks == 1 {
+            //     trace!(
+            //         ?kind,
+            //         ?entity,
+            //         "DeltaManager: removing data for ticks strictly older than {tick:?}",
+            //     );
+            //     let recent_data = group_data.data.split_off(&tick);
+            //     group_data.data.values_mut().for_each(|tick_data| {
+            //         unsafe { registry.erased_drop(tick_data.ptr, kind) }
+            //             .expect("unable to drop component value");
+            //     });
+            //     group_data.data = recent_data;
+            // } else {
+            //     per_tick_data.num_acks -= 1;
+            // }
         }
     }
 
@@ -283,9 +296,22 @@ mod tests {
             1
         );
 
-        // receive an ack for tick 1 again: the number of acks is now 0,
-        // so the data for ticks 1 and older should be removed, only the data for tick 2 should remain.
+        // receive an ack for tick 1 again: the number of acks is now 0.
+        // WORKAROUND: Cleanup is disabled to fix race condition with multiple clients.
+        // All ticks should still be present; tick_cleanup() handles old data removal.
         delta_manager.receive_ack(entity, tick_1, kind, registry);
+        assert_eq!(
+            delta_manager
+                .state
+                .get(&(kind, entity))
+                .expect("should have stored the component value")
+                .data
+                .get(&tick_1)
+                .unwrap()
+                .num_acks,
+            0
+        );
+        // All ticks should still be present (no cleanup on receive_ack)
         assert!(
             delta_manager
                 .state
@@ -293,7 +319,7 @@ mod tests {
                 .expect("should have stored the component value")
                 .data
                 .get(&tick_0)
-                .is_none()
+                .is_some()
         );
         assert!(
             delta_manager
