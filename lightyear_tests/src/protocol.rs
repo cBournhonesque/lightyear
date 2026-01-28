@@ -115,6 +115,24 @@ impl Diffable<usize> for CompDelta {
     }
 }
 
+/// Component that has BOTH prediction AND delta compression enabled.
+/// This tests the fix for the clone function being copied to DeltaMessage metadata.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompPredictedDelta(pub usize);
+impl Diffable<usize> for CompPredictedDelta {
+    fn base_value() -> Self {
+        Self(0)
+    }
+
+    fn diff(&self, other: &Self) -> usize {
+        other.0 - self.0
+    }
+
+    fn apply_diff(&mut self, delta: &usize) {
+        self.0 += *delta;
+    }
+}
+
 // Native Inputs
 #[derive(Serialize, Deserialize, Debug, Default, PartialEq, Eq, Clone, Copy, Reflect)]
 pub struct NativeInput(pub i16);
@@ -198,6 +216,11 @@ impl Plugin for ProtocolPlugin {
             });
         app.add_rollback::<CompNotNetworked>();
         app.register_component::<CompDelta>()
+            .add_delta_compression();
+        // Component with BOTH prediction AND delta compression
+        // Tests the fix for clone function being copied to DeltaMessage metadata
+        app.register_component::<CompPredictedDelta>()
+            .add_prediction()
             .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {

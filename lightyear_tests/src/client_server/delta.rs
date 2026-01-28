@@ -1,4 +1,4 @@
-use crate::protocol::{CompDelta, CompFull};
+use crate::protocol::{CompDelta, CompFull, CompPredictedDelta};
 use crate::stepper::*;
 use bevy::prelude::default;
 use lightyear_connection::network_target::NetworkTarget;
@@ -428,5 +428,73 @@ fn test_update_requires_per_component_entity_ack_ticks() {
             .get::<CompDelta>()
             .expect("component missing"),
         &CompDelta(2)
+    );
+}
+
+/// Test that a component with BOTH prediction AND delta compression works correctly.
+///
+/// This tests the fix for the clone function being copied from C's metadata to
+/// DeltaMessage<Delta>'s metadata. Without this fix, the client would panic when
+/// receiving a DeltaType::FromBase for a predicted entity because the clone function
+/// was None.
+///
+/// The bug occurred because:
+/// 1. add_prediction() registers the clone function on C's metadata
+/// 2. add_delta_compression() registers DeltaMessage<Delta> but didn't copy the clone fn
+/// 3. When receiving DeltaType::FromBase for a predicted entity, buffer_insert_delta
+///    needs to clone C, but the clone function was looked up from DeltaMessage<Delta>'s
+///    metadata (which was None)
+#[test]
+fn test_predicted_delta_compression() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    // Spawn an entity with a component that has both prediction and delta compression
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            CompPredictedDelta(1),
+        ))
+        .id();
+
+    // This should NOT panic when the client receives the DeltaType::FromBase message
+    stepper.frame_step_server_first(1);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+
+    // Verify the component was replicated correctly
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<CompPredictedDelta>()
+            .expect("component missing"),
+        &CompPredictedDelta(1)
+    );
+
+    // Also verify that updates work correctly
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompPredictedDelta(5));
+    stepper.frame_step_server_first(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_entity)
+            .get::<CompPredictedDelta>()
+            .expect("component missing"),
+        &CompPredictedDelta(5)
     );
 }
