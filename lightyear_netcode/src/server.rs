@@ -241,7 +241,7 @@ pub type ConnectCallback<Ctx> =
 /// use lightyear_netcode::{Server, ServerConfig};
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
-/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, _user_data, ctx| {
+/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, _, ctx| {
 ///     let mut counter = ctx.lock().unwrap();
 ///     *counter += 1;
 ///     println!("client {} connected, counter: {idx}", counter);
@@ -445,7 +445,12 @@ impl<Ctx> Server<Ctx> {
         | 1 << Packet::KEEP_ALIVE
         | 1 << Packet::PAYLOAD
         | 1 << Packet::DISCONNECT;
-    fn on_connect(&mut self, client_id: ClientId, entity: Entity, user_data: [u8; USER_DATA_BYTES]) {
+    fn on_connect(
+        &mut self,
+        client_id: ClientId,
+        entity: Entity,
+        user_data: [u8; USER_DATA_BYTES],
+    ) {
         if let Some(cb) = self.cfg.on_connect.as_mut() {
             cb(client_id, entity, user_data, &mut self.cfg.context)
         }
