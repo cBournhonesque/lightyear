@@ -69,6 +69,16 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
                 commands.entity(entity).insert(end_value.clone());
             }
             if current_interpolate_tick >= history_tick {
+                let start_tick = history.start().map(|(t, _)| t);
+                trace!(
+                    ?entity,
+                    ?current_interpolate_tick,
+                    ?start_tick,
+                    end_tick = ?history_tick,
+                    history_len = history.len(),
+                    "HISTORY POP: popping oldest entry. Kind = {:?}",
+                    DebugName::type_name::<C>()
+                );
                 history.pop();
             }
         }

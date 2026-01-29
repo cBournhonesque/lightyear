@@ -1,5 +1,5 @@
 #![allow(clippy::collapsible_else_if)]
-use crate::components::Confirmed;
+use crate::components::{Confirmed, ConfirmedTick};
 use crate::delta::{DeltaComponentHistory, DeltaMessage, DeltaType, Diffable};
 use crate::prelude::ComponentReplicationConfig;
 use crate::registry::buffered::BufferedEntity;
@@ -24,7 +24,7 @@ use lightyear_serde::registry::{CloneFn, ContextDeserializeFns};
 use lightyear_serde::writer::Writer;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use tracing::trace;
+use tracing::{trace, warn};
 
 impl ComponentRegistry {
     /// Register delta compression functions for a component
@@ -220,24 +220,26 @@ impl ComponentRegistry {
         Ok(reconstructed)
     }
 
-    /// Compute diff from a previous value and return both the serialized data and apply the
-    /// delta to the stored baseline for server-side reconstruction tracking.
+    /// Compute diff from a previous value, serialize it, and return a reconstructed baseline.
     ///
-    /// This modifies the stored baseline in-place by applying the same delta the client will apply.
+    /// This clones the start value, applies the delta, and returns the reconstructed value.
+    /// The original stored baseline is NOT modified (important for multi-connection scenarios).
     ///
     /// # Safety
     /// - start and new Ptrs must correspond to the correct ComponentKind
-    /// - stored_baseline must be a mutable pointer to a value that can be modified
+    ///
+    /// # Returns
+    /// A pointer to the reconstructed value (what the client will have after applying the delta).
+    /// Caller must store this at the appropriate tick for future delta computation.
     pub unsafe fn serialize_diff_with_reconstruction(
         &self,
         start_tick: Tick,
         start: Ptr,
         new: Ptr,
-        stored_baseline: PtrMut,
         writer: &mut Writer,
         kind: ComponentKind,
         entity_map: &mut SendEntityMap,
-    ) -> Result<(), ComponentError> {
+    ) -> Result<NonNull<u8>, ComponentError> {
         trace!(
             ?kind,
             "Serializing diff with reconstruction for delta component",
@@ -259,7 +261,11 @@ impl ComponentRegistry {
             entity_map,
         )?;
 
-        // Apply the same delta to the stored baseline (server-side reconstruction)
+        // Clone the start value to create reconstructed baseline
+        // (don't modify the original - other connections may need it)
+        let reconstructed = unsafe { (delta_fns.clone)(start) };
+
+        // Apply the delta to the cloned value (server-side reconstruction)
         // Extract just the delta part from the DeltaMessage
         let delta_ptr = unsafe {
             // Offset to get to the delta field within DeltaMessage
@@ -269,12 +275,12 @@ impl ComponentRegistry {
             let delta_offset = core::mem::size_of::<crate::delta::DeltaType>();
             Ptr::new(NonNull::new_unchecked(delta_message_ptr.add(delta_offset)))
         };
-        unsafe { (delta_fns.apply_diff)(stored_baseline, delta_ptr) };
+        unsafe { (delta_fns.apply_diff)(bevy_ptr::PtrMut::new(reconstructed), delta_ptr) };
 
         // Drop the delta message
         unsafe { (delta_fns.drop_delta_message)(delta) };
 
-        Ok(())
+        Ok(reconstructed)
     }
 
     /// Apply a delta to stored component data (for server-side reconstruction tracking).
@@ -390,7 +396,28 @@ fn buffer_insert_delta<
                         DebugName::type_name::<C>()
                     )));
                 };
+                trace!(
+                    ?entity,
+                    ?tick,
+                    "DeltaType::Normal - Updated Confirmed<C> for interpolated entity"
+                );
                 *c = Confirmed(new_value);
+                // Update ConfirmedTick so interpolation history gets the correct tick
+                if let Some(mut confirmed_tick) = entity_mut.entity.get_mut::<ConfirmedTick>() {
+                    trace!(
+                        ?entity,
+                        ?tick,
+                        old_tick = ?confirmed_tick.tick,
+                        "DeltaType::Normal - Updating ConfirmedTick"
+                    );
+                    confirmed_tick.tick = tick;
+                } else {
+                    warn!(
+                        ?entity,
+                        ?tick,
+                        "DeltaType::Normal - ConfirmedTick missing on interpolated entity!"
+                    );
+                }
             } else {
                 let Some(mut c) = entity_mut.entity.get_mut::<C>() else {
                     return Err(ComponentError::DeltaCompressionError(format!(
@@ -449,6 +476,19 @@ fn buffer_insert_delta<
                     unsafe {
                         entity_mut.buffered.insert::<C>(new_value, component_id);
                     }
+                }
+            }
+
+            // Update ConfirmedTick so interpolation history gets the correct tick
+            if predicted || interpolated {
+                if let Some(mut confirmed_tick) = entity_mut.entity.get_mut::<ConfirmedTick>() {
+                    confirmed_tick.tick = tick;
+                } else {
+                    warn!(
+                        ?entity,
+                        ?tick,
+                        "DeltaType::FromBase - ConfirmedTick missing on interpolated entity!"
+                    );
                 }
             }
 

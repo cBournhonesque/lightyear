@@ -1,4 +1,57 @@
-//! Logic related to delta compression (sending only the changes between two states, instead of the new state)
+//! Delta compression: sending changes between states instead of full values.
+//!
+//! # Overview
+//!
+//! Delta compression reduces bandwidth by sending only the difference (delta) between
+//! two component states, rather than the full component value each time.
+//!
+//! # Key Concepts
+//!
+//! ## Server-Side Reconstruction Tracking
+//!
+//! When using quantized deltas (e.g., f32 → i12 for position), the server must track
+//! what the CLIENT has after applying each delta, not what the true component value is.
+//! This is critical because:
+//!
+//! 1. Server computes delta from baseline to current value
+//! 2. Delta gets quantized (loses precision)
+//! 3. Client applies quantized delta to its baseline
+//! 4. Client's result differs slightly from server's true value
+//!
+//! If the server uses its true value for the next delta, errors accumulate rapidly.
+//! Instead, the server must "reconstruct" what the client has by applying the same
+//! quantized delta to its stored baseline.
+//!
+//! ## Multi-Connection Considerations
+//!
+//! The [`DeltaManager`] is shared across all connections from a single server. Each
+//! connection has a different `ack_tick` (the tick they last acknowledged). When
+//! computing deltas:
+//!
+//! - Connection A might need delta from tick 5 → tick 10
+//! - Connection B might need delta from tick 7 → tick 10
+//!
+//! **Critical**: Reconstruction must CLONE the baseline, not modify in-place. If we
+//! modified the baseline at tick 5 for connection A, connection B would find corrupted
+//! data when it tries to compute its delta from tick 7.
+//!
+//! ## Periodic Absolute Resyncs
+//!
+//! Even with proper reconstruction tracking, tiny quantization errors can accumulate.
+//! Periodic absolute resyncs (sending exact f32 values every N ticks) reset the baseline
+//! to exact values, bounding maximum drift.
+//!
+//! # Example
+//!
+//! ```ignore
+//! // Position delta compression with period=4:
+//! // Tick 1: Absolute (8 bytes) - exact values
+//! // Tick 2: Relative (3 bytes) - quantized delta
+//! // Tick 3: Relative (3 bytes) - quantized delta
+//! // Tick 4: Relative (3 bytes) - quantized delta
+//! // Tick 5: Absolute (8 bytes) - drift reset
+//! // Average: (8 + 3 + 3 + 3) / 4 = 4.25 bytes/tick (~47% reduction)
+//! ```
 
 use crate::registry::ComponentKind;
 use crate::registry::registry::ComponentRegistry;
@@ -101,14 +154,30 @@ unsafe impl Send for PerComponentData {}
 unsafe impl Sync for PerComponentData {}
 
 // TODO: handle TickSyncEvent
-/// Component that will manage keeping the old state of diffable components
-/// so that the sender can compute deltas between the last sent state and the current state.
+/// Manages past component values for delta compression computation.
 ///
-/// The state is shared between all ReplicationSenders that use the same DeltaManager.
+/// The sender uses this to compute deltas between the last acknowledged state and the
+/// current state. Values are stored per (entity, component, tick) tuple.
 ///
-/// You have to insert this component manually, either on:
-/// - on your Server entity, since the DeltaManager is shared across all clients that are connected to the same server
-/// - on your Client entity if you're doing client-to-server replication
+/// # Multi-Connection Architecture
+///
+/// The DeltaManager is **shared across all connections** from a single server. This is
+/// important because different connections have different `ack_ticks`:
+///
+/// - Connection A might have acked tick 5
+/// - Connection B might have acked tick 7
+///
+/// When sending to connection A, we compute delta from tick 5 → current.
+/// When sending to connection B, we compute delta from tick 7 → current.
+///
+/// **Critical invariant**: When reconstructing (storing what client will have after
+/// applying a quantized delta), we must CLONE the baseline value rather than modify
+/// it in-place. Otherwise, connection B's computation would find corrupted data.
+///
+/// # Usage
+///
+/// Insert this component on your Server entity (or Client entity for client-to-server
+/// replication). The replication systems will use it automatically.
 #[derive(Default, Component, Debug)]
 pub struct DeltaManager {
     // TODO: how to do we cleanup old keys?
@@ -197,6 +266,33 @@ impl DeltaManager {
             ?tick,
             "DeltaManager: storing reconstructed component value"
         );
+    }
+
+    /// Migrate a stored value from one tick to another.
+    /// Used after in-place reconstruction to update the tick mapping.
+    ///
+    /// This moves the entry from `from_tick` to `to_tick` without cloning,
+    /// reusing the existing pointer.
+    pub(crate) fn migrate_tick(
+        &self,
+        entity: Entity,
+        from_tick: Tick,
+        to_tick: Tick,
+        kind: ComponentKind,
+    ) {
+        let Some(mut tick_data) = self.state.get_mut(&(kind, entity)) else {
+            return;
+        };
+        if let Some(per_tick) = tick_data.data.remove(&from_tick) {
+            tick_data.data.insert(to_tick, per_tick);
+            trace!(
+                ?kind,
+                ?entity,
+                ?from_tick,
+                ?to_tick,
+                "DeltaManager: migrated reconstructed value to new tick"
+            );
+        }
     }
 
     /// We receive an ack from a client for a specific tick.

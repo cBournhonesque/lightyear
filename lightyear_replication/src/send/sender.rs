@@ -515,30 +515,25 @@ impl ReplicationSender {
                         error!("DeltaManager: {:?}", delta_manager);
                     })?;
 
-                // Get mutable access to the stored baseline for in-place reconstruction
-                let stored_baseline = delta_manager
-                    .get_mut(entity, ack_tick, kind)
-                    .ok_or(ReplicationError::DeltaCompressionError(
-                        "could not get mutable access to stored baseline".to_string(),
-                    ))?;
-
-                // SAFETY: the component_data and old_data correspond to kind,
-                // stored_baseline is the same data as old_data
+                // SAFETY: the component_data and old_data correspond to kind
                 // serialize_diff_with_reconstruction will:
                 // 1. Compute delta from old_data to component_data
                 // 2. Serialize the delta
-                // 3. Apply the same delta to stored_baseline (server-side reconstruction)
-                unsafe {
+                // 3. Clone old_data and apply delta to get reconstructed value
+                // 4. Return the reconstructed value (original NOT modified)
+                let reconstructed = unsafe {
                     registry.serialize_diff_with_reconstruction(
                         ack_tick,
                         old_data,
                         component_data,
-                        stored_baseline,
                         &mut self.writer,
                         kind,
                         &mut remote_entity_map.local_to_remote,
-                    )?;
-                }
+                    )?
+                };
+                // Store the reconstructed value at current_tick for future delta computation
+                // The original value at ack_tick is preserved for other connections
+                delta_manager.store_reconstructed(entity, current_tick, kind, reconstructed);
                 Ok::<Bytes, ReplicationError>(self.writer.split())
             })
             .unwrap_or_else(|| {
@@ -554,14 +549,10 @@ impl ReplicationSender {
                     )?
                 };
                 // Store the reconstructed value for future delta computation
-                delta_manager.store_reconstructed(
-                    entity,
-                    current_tick,
-                    kind,
-                    reconstructed,
-                );
+                delta_manager.store_reconstructed(entity, current_tick, kind, reconstructed);
                 Ok::<Bytes, ReplicationError>(self.writer.split())
             })?;
+
         trace!(?kind, "Inserting pending update!");
         // use the network entity when serializing
         group_channel

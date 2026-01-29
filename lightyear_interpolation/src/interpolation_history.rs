@@ -85,10 +85,20 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
             && let Some((end_tick, end)) = self.end()
         {
             if interpolation_tick < start_tick {
+                trace!(
+                    ?interpolation_tick,
+                    ?start_tick,
+                    "INTERPOLATE SKIP: tick before start. {:?}",
+                    DebugName::type_name::<C>()
+                );
                 return None;
             }
             let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
                 / (end_tick - start_tick) as f32;
+            // Clamp fraction to [0, 1] to prevent extrapolation when timeline outruns history.
+            // When fraction > 1.0, we're past the end of available data - clamp to end value
+            // rather than extrapolating, which would cause visual jumping.
+            let fraction = fraction.clamp(0.0, 1.0);
             trace!(
                 ?start_tick,
                 ?end_tick,
@@ -100,6 +110,27 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
             );
             return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
         }
+
+        // When we only have 1 entry (no end), hold at the start value
+        // This prevents visual jumping when updates arrive slower than the timeline advances
+        if let Some((_start_tick, start)) = self.start() {
+            trace!(
+                ?interpolation_tick,
+                ?_start_tick,
+                history_len = self.len(),
+                "INTERPOLATE HOLD: holding at last known value. {:?}",
+                DebugName::type_name::<C>()
+            );
+            return Some(start.clone());
+        }
+
+        // No history at all
+        trace!(
+            ?interpolation_tick,
+            history_len = self.len(),
+            "INTERPOLATE NONE: no history data. {:?}",
+            DebugName::type_name::<C>()
+        );
         None
     }
 }
@@ -125,12 +156,12 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
 
     // TODO: use the interpolation receiver corresponding to the Confirmed entity (via Replicated)
     mut interpolated_entities: Query<
-        (&mut ConfirmedHistory<C>, &Confirmed<C>, &ConfirmedTick),
+        (Entity, &mut ConfirmedHistory<C>, &Confirmed<C>, &ConfirmedTick),
         (With<Interpolated>, Changed<Confirmed<C>>),
     >,
 ) {
     let kind = DebugName::type_name::<C>();
-    for (mut history, confirmed_component, confirmed) in interpolated_entities.iter_mut() {
+    for (entity, mut history, confirmed_component, confirmed) in interpolated_entities.iter_mut() {
         // // if has_authority is true, we will consider the Confirmed value as the source of truth
         // // else it will be the server updates
         // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
@@ -154,7 +185,18 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
         // };
 
         let component = confirmed_component.clone();
-        trace!(?kind, tick = ?tick, "adding confirmed update to history");
+        let history_len_before = history.len();
+        let start_tick = history.start().map(|(t, _)| t);
+        let end_tick = history.end().map(|(t, _)| t);
+        trace!(
+            ?entity,
+            ?kind,
+            ?tick,
+            ?history_len_before,
+            ?start_tick,
+            ?end_tick,
+            "HISTORY PUSH: adding confirmed update to history"
+        );
         // update the history at the value that the entity currently is
         // NOTE: it is guaranteed that the confirmed update is more recent than all previous updates
         //  We enforce this invariant in replication::receive
