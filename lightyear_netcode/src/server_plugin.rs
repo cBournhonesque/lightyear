@@ -1,4 +1,4 @@
-use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig};
+use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES};
 use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
@@ -19,9 +19,14 @@ use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
 
+/// User data extracted from the client's connection token.
+/// Contains up to 256 bytes of custom data embedded by the token issuer.
+#[derive(Component, Debug, Clone)]
+pub struct TokenUserData(pub [u8; USER_DATA_BYTES]);
+
 #[derive(Default)]
 pub(crate) struct NetcodeServerContext {
-    pub(crate) connections: Vec<(ClientId, Entity)>,
+    pub(crate) connections: Vec<(ClientId, Entity, [u8; USER_DATA_BYTES])>,
     pub(crate) disconnections: Vec<(ClientId, Entity)>,
 }
 
@@ -76,8 +81,8 @@ impl NetcodeServer {
     pub fn new(config: NetcodeConfig) -> Self {
         let context = NetcodeServerContext::default();
         let mut cfg = ServerConfig::with_context(context)
-            .on_connect(|id, entity, ctx| {
-                ctx.connections.push((id, entity));
+            .on_connect(|id, entity, user_data, ctx| {
+                ctx.connections.push((id, entity, user_data));
             })
             .on_disconnect(|id, entity, ctx| {
                 ctx.disconnections.push((id, entity));
@@ -249,7 +254,7 @@ impl NetcodeServerPlugin {
                         .context
                         .connections
                         .drain(..)
-                        .for_each(|(id, entity)| {
+                        .for_each(|(id, entity, user_data)| {
                             // TODO: mention server id in case we have multiple servers
                             info!("New connection on netcode from {:?} ({:?})", id, entity);
                             trace!("Adding Connected/ClientOf with id {:?}", id);
@@ -258,6 +263,7 @@ impl NetcodeServerPlugin {
                                 LocalId(PeerId::Server),
                                 RemoteId(PeerId::Netcode(id)),
                                 ClientOf,
+                                TokenUserData(user_data),
                             ));
                         });
                     netcode_server
