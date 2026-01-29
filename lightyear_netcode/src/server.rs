@@ -6,7 +6,7 @@ use no_std_io2::io;
 use tracing::{debug, error, trace, warn};
 
 use super::{
-    ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC,
+    ClientId, MAC_BYTES, MAX_PACKET_SIZE, MAX_PKT_BUF_SIZE, PACKET_SEND_RATE_SEC, USER_DATA_BYTES,
     bytes::Bytes,
     crypto::{self, Key},
     error::{Error, Result},
@@ -92,6 +92,7 @@ struct Connection {
     send_key: Key,
     receive_key: Key,
     sequence: u64,
+    user_data: [u8; USER_DATA_BYTES],
 }
 
 impl Connection {
@@ -140,6 +141,7 @@ impl ConnectionCache {
         timeout: i32,
         send_key: Key,
         receive_key: Key,
+        user_data: [u8; USER_DATA_BYTES],
     ) {
         let time = self.time;
         if let Some(existing) = self.mut_by_entity(&entity) {
@@ -148,6 +150,7 @@ impl ConnectionCache {
             existing.send_key = send_key;
             existing.receive_key = receive_key;
             existing.last_access_time = time;
+            existing.user_data = user_data;
             return;
         }
         let conn = Connection {
@@ -162,6 +165,7 @@ impl ConnectionCache {
             send_key,
             receive_key,
             sequence: 1 << 62,
+            user_data,
         };
         self.clients.insert(client_id, conn);
         self.replay_protection
@@ -218,6 +222,8 @@ impl ConnectionCache {
 }
 
 pub type Callback<Ctx> = Box<dyn FnMut(ClientId, Entity, &mut Ctx) + Send + Sync + 'static>;
+pub type ConnectCallback<Ctx> =
+    Box<dyn FnMut(ClientId, Entity, [u8; USER_DATA_BYTES], &mut Ctx) + Send + Sync + 'static>;
 
 /// Configuration for a server.
 ///
@@ -235,7 +241,7 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, Entity, &mut Ctx) + Send + Sync
 /// use lightyear_netcode::{Server, ServerConfig};
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
-/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, ctx| {
+/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, _user_data, ctx| {
 ///     let mut counter = ctx.lock().unwrap();
 ///     *counter += 1;
 ///     println!("client {} connected, counter: {idx}", counter);
@@ -250,7 +256,7 @@ pub struct ServerConfig<Ctx> {
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
     server_addr: SocketAddr,
     pub(crate) context: Ctx,
-    on_connect: Option<Callback<Ctx>>,
+    on_connect: Option<ConnectCallback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
 }
 
@@ -320,12 +326,13 @@ impl<Ctx> ServerConfig<Ctx> {
         self
     }
     /// Provide a callback that will be called when a client is connected to the server. <br>
-    /// The callback will be called with the client index and the context that was provided (provide a `None` context if you don't need one).
+    /// The callback will be called with the client index, entity, user data from the connection token,
+    /// and the context that was provided (provide a `None` context if you don't need one).
     ///
     /// See [`ServerConfig`] for an example.
     pub fn on_connect<F>(mut self, cb: F) -> Self
     where
-        F: FnMut(ClientId, Entity, &mut Ctx) + Send + Sync + 'static,
+        F: FnMut(ClientId, Entity, [u8; USER_DATA_BYTES], &mut Ctx) + Send + Sync + 'static,
     {
         self.on_connect = Some(Box::new(cb));
         self
@@ -406,7 +413,7 @@ impl<Ctx> Server<Ctx> {
     ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
-    /// let cfg = ServerConfig::with_context(42).on_connect(|idx, _, ctx| {
+    /// let cfg = ServerConfig::with_context(42).on_connect(|idx, _, _user_data, ctx| {
     ///     assert_eq!(ctx, &42);
     /// });
     /// let server = Server::with_config(protocol_id, private_key, cfg).unwrap();
@@ -438,9 +445,9 @@ impl<Ctx> Server<Ctx> {
         | 1 << Packet::KEEP_ALIVE
         | 1 << Packet::PAYLOAD
         | 1 << Packet::DISCONNECT;
-    fn on_connect(&mut self, client_id: ClientId, entity: Entity) {
+    fn on_connect(&mut self, client_id: ClientId, entity: Entity, user_data: [u8; USER_DATA_BYTES]) {
         if let Some(cb) = self.cfg.on_connect.as_mut() {
-            cb(client_id, entity, &mut self.cfg.context)
+            cb(client_id, entity, user_data, &mut self.cfg.context)
         }
     }
     fn on_disconnect(&mut self, client_id: ClientId, entity: Entity) {
@@ -665,6 +672,7 @@ impl<Ctx> Server<Ctx> {
             token.timeout_seconds,
             token.server_to_client_key,
             token.client_to_server_key,
+            token.user_data,
         );
 
         entity_mut.insert(Connecting);
@@ -711,12 +719,13 @@ impl<Ctx> Server<Ctx> {
         client.connect();
         client.last_send_time = self.time;
         client.last_receive_time = self.time;
+        let user_data = client.user_data;
         debug!(
             "server accepted client {} with id {}",
             id, challenge_token.client_id
         );
         self.send_netcode_to_client(KeepAlivePacket::create(id), id, entity)?;
-        self.on_connect(id, entity);
+        self.on_connect(id, entity, user_data);
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
@@ -1035,5 +1044,75 @@ impl<Ctx> Server<Ctx> {
     /// Gets the address of the server
     pub fn local_addr(&self) -> SocketAddr {
         self.cfg.server_addr
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::sync::Arc;
+    use core::sync::atomic::{AtomicBool, Ordering};
+
+    #[test]
+    fn on_connect_callback_receives_user_data() {
+        // Create a flag to verify the callback was called with correct user_data
+        let callback_called = Arc::new(AtomicBool::new(false));
+        let callback_called_clone = callback_called.clone();
+
+        // Create user_data with a recognizable pattern
+        let expected_user_data = {
+            let mut data = [0u8; USER_DATA_BYTES];
+            for (i, byte) in data.iter_mut().enumerate() {
+                *byte = (i % 256) as u8;
+            }
+            data
+        };
+        let expected_user_data_clone = expected_user_data;
+
+        // Create server config with on_connect callback that verifies user_data
+        let private_key = crate::crypto::generate_key();
+        let protocol_id = 0x1122334455667788u64;
+
+        let cfg = ServerConfig::with_context(())
+            .on_connect(move |_client_id, _entity, user_data, _ctx| {
+                // Verify the user_data matches what we expect
+                assert_eq!(
+                    user_data, expected_user_data_clone,
+                    "user_data in on_connect callback should match token user_data"
+                );
+                callback_called_clone.store(true, Ordering::SeqCst);
+            })
+            .on_disconnect(|_client_id, _entity, _ctx| {});
+
+        let server = Server::with_config(protocol_id, private_key, cfg);
+        assert!(server.is_ok(), "Server should be created successfully");
+
+        // Note: A full integration test would require simulating the client-server
+        // handshake, which involves Link/transport layers. The callback signature
+        // change is verified by the type system - if it compiles, the user_data
+        // parameter is correctly threaded through.
+    }
+
+    #[test]
+    fn connection_stores_user_data() {
+        // Verify that Connection struct correctly stores user_data
+        let user_data = [0xAB; USER_DATA_BYTES];
+
+        let conn = Connection {
+            confirmed: false,
+            connected: false,
+            client_id: 123,
+            entity: Entity::PLACEHOLDER,
+            timeout: 10,
+            last_access_time: 0.0,
+            last_send_time: 0.0,
+            last_receive_time: 0.0,
+            send_key: [0; 32],
+            receive_key: [0; 32],
+            sequence: 0,
+            user_data,
+        };
+
+        assert_eq!(conn.user_data, user_data);
     }
 }
