@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.26.1"
+version = "0.26.3"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -143,8 +143,12 @@ input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 ##       enable essential features (like f32 or f64).
 ## Use avian2d
 avian2d = ["dep:lightyear_avian2d", "lightyear_replication?/avian2d"]
+# so that docsrs uses f32 to build docs
+avian2d_f32 = ["lightyear_avian2d/f32"]
 ## Use avian3d
 avian3d = ["dep:lightyear_avian3d", "lightyear_replication?/avian3d"]
+# so that docsrs uses f32 to build docs
+avian3d_f32 = ["lightyear_avian3d/f32"]
 
 # IO LAYERS
 ## Enables UDP as an IO layer
