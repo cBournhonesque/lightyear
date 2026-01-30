@@ -445,4 +445,6 @@ release_dryrun:
     @just remove_avian_symlinks
 
 release:
-    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv 0.26.4
+    @just add_avian_symlinks
+    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv VERSION
+    @just remove_avian_symlinks
