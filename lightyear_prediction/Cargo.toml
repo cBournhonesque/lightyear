@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_prediction"
-version = "0.26.1"
+version = "0.26.2"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -20,13 +20,16 @@ lightyear_utils.workspace = true
 lightyear_core = { workspace = true }
 lightyear_connection = { workspace = true }
 lightyear_replication = { workspace = true, features = [
+  "delta",
   "prediction",
-  "interpolation",
-] }
+  "interpolation"
+]}
 lightyear_sync.workspace = true
 lightyear_messages = { workspace = true, optional = true }
 lightyear_frame_interpolation.workspace = true
 lightyear_interpolation.workspace = true
+
+bevy_replicon.workspace = true
 
 # utils
 metrics = { workspace = true, optional = true }

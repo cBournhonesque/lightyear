@@ -12,6 +12,6 @@ use bevy_reflect::Reflect;
 /// - Store the component history of the confirmed entity.
 /// - Apply interpolated values to the components of this entity based on the `InterpolationTimeline`.
 // NOTE: we create Interpolated here because it is used by multiple crates (interpolation, replication)
-#[derive(Debug, Reflect, Component)]
+#[derive(Debug, Clone, Copy, Default, Reflect, Component)]
 #[reflect(Component)]
 pub struct Interpolated;

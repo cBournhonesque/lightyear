@@ -1,7 +1,7 @@
 use crate::protocol::{CompFull, CompMap, CompSimple};
 use crate::stepper::*;
 use bevy::app::PreUpdate;
-use bevy::prelude::{Entity, IntoScheduleConfigs, With};
+use bevy::prelude::{Entity, IntoScheduleConfigs, With, ChildOf};
 use bevy::utils::default;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
@@ -11,10 +11,10 @@ use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_prediction::predicted_history::PredictionHistory;
+use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
 use lightyear_prediction::prelude::RollbackSystems;
 use lightyear_replication::prelude::{
-    PreSpawned, PredictionTarget, Replicate, Replicated, ReplicationGroup,
+    PreSpawned, PredictionTarget, Replicate, Replicated,
 };
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::*;
@@ -67,8 +67,8 @@ fn test_compute_hash() {
             .entity(entity_1)
             .get::<PredictionHistory<CompFull>>()
             .unwrap()
-            .peek(),
-        Some(&(current_tick, HistoryState::Updated(CompFull(1.0)),))
+            .most_recent(),
+        Some(&(current_tick, PredictionState::Predicted(CompFull(1.0)),))
     );
 }
 
@@ -106,7 +106,6 @@ fn test_multiple_prespawn() {
             PreSpawned::new(1),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(1),
         ))
         .id();
     let server_prespawn_b = stepper
@@ -116,7 +115,7 @@ fn test_multiple_prespawn() {
             PreSpawned::new(1),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(1),
+            ChildOf(server_prespawn_a)
         ))
         .id();
     stepper.frame_step(1);
@@ -212,7 +211,6 @@ fn test_prespawn_client_missing() {
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(0),
         ))
         .id();
     stepper.frame_step(2);
@@ -231,7 +229,7 @@ fn test_prespawn_client_missing() {
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(0),
+            ChildOf(server_entity),
             PreSpawned::default(),
             CompMap(server_entity),
         ))

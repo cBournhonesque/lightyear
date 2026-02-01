@@ -18,6 +18,7 @@ use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_raw_connection::client::RawClient;
 use lightyear_raw_connection::server::RawServer;
 use lightyear_replication::delta::DeltaManager;
+use lightyear_replication::receive::ReplicationReceiver;
 
 pub const SERVER_PORT: u16 = 56789;
 pub const SERVER_ADDR: SocketAddr =

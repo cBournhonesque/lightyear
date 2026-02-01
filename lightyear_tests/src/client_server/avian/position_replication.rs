@@ -33,7 +33,6 @@ fn test_replicate_position_child_rigidbody() {
             RigidBody::Kinematic,
             Position::from_xy(1.0, 1.0),
             Rotation::default(),
-            ReplicationGroup::new_id(3),
             Collider::circle(1.0),
         ))
         .id();
@@ -45,7 +44,6 @@ fn test_replicate_position_child_rigidbody() {
             RigidBody::Kinematic,
             Position::from_xy(3.0, 3.0),
             Rotation::default(),
-            ReplicationGroup::new_id(3),
         ))
         .id();
     info!(?server_parent, ?server_child, "Spawning entities on server");

@@ -1,7 +1,11 @@
+use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_utils::prelude::DebugName;
+use bevy_replicon::prelude::*;
+use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
+use bevy_replicon::bytes::Bytes;
 #[cfg(feature = "client")]
 use {
     bevy_enhanced_input::context::ExternallyMocked, lightyear_connection::client::Client,
@@ -12,9 +16,6 @@ use bevy_enhanced_input::prelude::*;
 #[cfg(all(feature = "client", feature = "server"))]
 use lightyear_connection::host::HostServer;
 use lightyear_replication::prelude::*;
-use lightyear_serde::SerializationError;
-use lightyear_serde::registry::SerializeFns;
-use lightyear_serde::writer::Writer;
 #[allow(unused_imports)]
 use tracing::{debug, info};
 #[cfg(any(feature = "client", feature = "server"))]
@@ -154,18 +155,22 @@ impl InputRegistryPlugin {
         }
     }
 
-    // we don't care about the actual data in Action<A>, so nothing to serialize
-    fn serialize_action<A: InputAction>(
-        _: &Action<A>,
-        _: &mut Writer,
-    ) -> core::result::Result<(), SerializationError> {
-        Ok(())
-    }
-    fn deserialize_action<A: InputAction>(
-        _: &mut lightyear_serde::reader::Reader,
-    ) -> core::result::Result<Action<A>, SerializationError> {
-        Ok(Action::<A>::default())
-    }
+
+}
+
+// we don't care about the actual data in Action<A>, so nothing to serialize
+fn serialize_action<A: InputAction>(
+    _ctx: &SerializeCtx,
+    _: &Action<A>,
+    _: &mut Vec<u8>,
+) -> bevy_ecs::error::Result<()> {
+    Ok(())
+}
+fn deserialize_action<A: InputAction>(
+    _: &mut WriteCtx,
+    _: &mut Bytes,
+) -> bevy_ecs::error::Result<Action<A>> {
+    Ok(Action::<A>::default())
 }
 
 pub trait InputRegistryExt {
@@ -175,16 +180,20 @@ pub trait InputRegistryExt {
 
 impl InputRegistryExt for &mut App {
     fn register_input_action<A: InputAction>(self) -> Self {
-        // Register the Action<A> component so that it can be also added on the server
-        self.register_component_custom_serde::<Action<A>>(SerializeFns::<Action<A>> {
-            serialize: InputRegistryPlugin::serialize_action::<A>,
-            deserialize: InputRegistryPlugin::deserialize_action::<A>,
-        })
-        .with_replication_config(ComponentReplicationConfig {
-            replicate_once: true,
-            disable: false,
-            delta_compression: false,
-        });
+        self.replicate_with(
+            (RuleFns::new(serialize_action::<A>, deserialize_action::<A>), ReplicationMode::Once)
+        );
+
+        // // Register the Action<A> component so that it can be also added on the server
+        // self.register_component_custom_serde::<Action<A>>(SerializeFns::<Action<A>> {
+        //     serialize: InputRegistryPlugin::serialize_action::<A>,
+        //     deserialize: InputRegistryPlugin::deserialize_action::<A>,
+        // })
+        // .with_replication_config(ComponentReplicationConfig {
+        //     replicate_once: true,
+        //     disable: false,
+        //     delta_compression: false,
+        // });
 
         self
     }

@@ -1,6 +1,6 @@
 [package]
 name = "lightyear"
-version = "0.26.1"
+version = "0.26.2"
 authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
@@ -95,7 +95,7 @@ replication = ["dep:lightyear_replication"]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",
-  "lightyear_replication/prediction",
+  "lightyear_replication?/prediction",
   "dep:lightyear_frame_interpolation",
   "lightyear_inputs?/prediction",
 ]
@@ -105,7 +105,7 @@ frame_interpolation = ["dep:lightyear_frame_interpolation"]
 interpolation = [
   "dep:lightyear_interpolation",
   "lightyear_inputs?/interpolation",
-  "lightyear_replication/interpolation",
+  "lightyear_replication?/interpolation",
 ]
 
 ## UTILS
@@ -123,7 +123,7 @@ metrics = [
   "lightyear_interpolation?/metrics",
   "lightyear_messages/metrics",
   "lightyear_prediction?/metrics",
-  "lightyear_replication/metrics",
+  "lightyear_replication?/metrics",
   "lightyear_transport/metrics",
   "lightyear_utils/metrics",
   "lightyear_udp?/metrics",

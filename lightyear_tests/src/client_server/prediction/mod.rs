@@ -1,8 +1,8 @@
 use crate::stepper::*;
 use bevy::prelude::*;
-use lightyear_core::prelude::{Rollback, Tick};
+use lightyear::prelude::ServerMutateTicks;
+use lightyear_core::prelude::{LocalTimeline, Rollback, Tick};
 use lightyear_prediction::prelude::*;
-use lightyear_replication::prelude::{ConfirmedTick, ReplicationReceiver};
 
 mod correction;
 mod despawn;
@@ -22,14 +22,17 @@ pub(crate) struct RollbackInfo {
 /// in ReplicationSet::Receive
 pub(crate) fn trigger_rollback_system(
     mut events: MessageReader<RollbackInfo>,
-    mut receiver: Single<&mut ReplicationReceiver, With<PredictionManager>>,
-    mut query: Query<&mut ConfirmedTick, With<Predicted>>,
+    mut timeline: Res<LocalTimeline>,
+    received: ResMut<ServerMutateTicks>,
+    // mut query: Query<&mut ConfirmedTick, With<Predicted>>,
 ) {
+    let tick = timeline.tick();
     for event in events.read() {
-        receiver.received_this_frame = true;
-        for mut confirmed_tick in query.iter_mut() {
-            confirmed_tick.tick = event.tick;
-        }
+        // TODO: set a new ServerMutateTicks!
+        // received.confirm(RepliconTick())
+        // for mut confirmed_tick in query.iter_mut() {
+        //     confirmed_tick.tick = event.tick;
+        // }
     }
 }
 
@@ -48,12 +51,12 @@ pub(crate) fn trigger_state_rollback(stepper: &mut ClientServerStepper, tick: Ti
         .get_mut::<PredictionManager>()
         .unwrap()
         .set_rollback_tick(tick);
-    stepper
-        .client_app()
-        .world_mut()
-        .query::<&mut ConfirmedTick>()
-        .iter_mut(stepper.client_app().world_mut())
-        .for_each(|mut confirmed| {
-            confirmed.tick = tick;
-        })
+//     stepper
+//         .client_app()
+//         .world_mut()
+//         .query::<&mut ConfirmedTick>()
+//         .iter_mut(stepper.client_app().world_mut())
+//         .for_each(|mut confirmed| {
+//             confirmed.tick = tick;
+//         })
 }

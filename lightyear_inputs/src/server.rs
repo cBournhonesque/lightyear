@@ -32,7 +32,7 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
-use lightyear_replication::prelude::{PreSpawned, Room};
+use lightyear_replication::prelude::{PreSpawned, RoomId};
 use tracing::{debug, error, trace};
 
 pub struct ServerInputPlugin<S> {
@@ -72,7 +72,7 @@ pub enum InputSystems {
 #[derive(Component)]
 pub enum InputRebroadcaster<S> {
     // Rebroadcast to all users in the room
-    Room(Entity),
+    Room(RoomId),
     Target(NetworkTarget),
     Marker(core::marker::PhantomData<S>),
 }
@@ -80,7 +80,7 @@ pub enum InputRebroadcaster<S> {
 impl<S> Debug for InputRebroadcaster<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            InputRebroadcaster::Room(entity) => f.debug_tuple("Room").field(entity).finish(),
+            InputRebroadcaster::Room(id) => f.debug_tuple("Room").field(id).finish(),
             InputRebroadcaster::Target(target) => f.debug_tuple("Target").field(target).finish(),
             InputRebroadcaster::Marker(_) => f
                 .debug_tuple("Marker")
@@ -146,7 +146,7 @@ fn receive_input_message<S: ActionStateSequence>(
     // make sure to only rebroadcast inputs to connected clients
     mut sender: ServerMultiMessageSender<With<Connected>>,
     tick_duration: Res<TickDuration>,
-    rooms: Query<&Room>,
+    // rooms: Query<&Room>,
     timeline: Res<LocalTimeline>,
     mut receivers: Query<
         (
@@ -207,12 +207,13 @@ fn receive_input_message<S: ActionStateSequence>(
                             )?;
                         }
                         Some(InputRebroadcaster::Room(room)) => {
-                            if let Ok(room) = rooms.get(*room) {
-                                sender.send_to_entities::<_, InputChannel>(
-                                    &message,
-                                    room.clients.iter().filter(|e| **e != client_entity).copied()
-                                )?;
-                            }
+                            unimplemented!()
+                            // if let Ok(room) = rooms.get(*room) {
+                            //     sender.send_to_entities::<_, InputChannel>(
+                            //         &message,
+                            //         room.clients.iter().filter(|e| **e != client_entity).copied()
+                            //     )?;
+                            // }
                         },
                         Some(InputRebroadcaster::Target(target)) => {
                             sender.send::<_, InputChannel>(

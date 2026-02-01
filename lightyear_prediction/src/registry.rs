@@ -6,7 +6,7 @@ use crate::predicted_history::PredictionHistory;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
-use bevy_ecs::component::ComponentId;
+use bevy_ecs::component::{ComponentId};
 use bevy_ecs::prelude::*;
 use bevy_ecs::ptr::PtrMut;
 use bevy_ecs::world::FilteredEntityMut;
@@ -16,15 +16,20 @@ use bevy_math::{
 };
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_core::history_buffer::HistoryState;
+use bevy_replicon::bytes::Bytes;
+use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
+use bevy_replicon::shared::replication::command_markers::MarkerConfig;
+use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_core::tick::Tick;
-use lightyear_replication::components::Confirmed;
 use lightyear_replication::delta::Diffable;
-use lightyear_replication::prelude::ComponentRegistration;
-use lightyear_replication::registry::registry::{ComponentRegistry, LerpFn};
-use lightyear_replication::registry::{ComponentError, ComponentKind};
+use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
 use tracing::{debug, trace, trace_span};
+use lightyear_core::prediction::Predicted;
+use lightyear_replication::registry::replication::ComponentRegistration;
+use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
+use crate::prelude::PredictionManager;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -76,7 +81,7 @@ impl PredictionMetadata {
                     should_rollback,
                 )
             },
-            check_rollback: PredictionRegistry::check_rollback::<C>,
+            check_rollback: PredictionRegistry::check_rollback_empty_mutate::<C>,
             #[cfg(feature = "deterministic")]
             pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
         }
@@ -180,63 +185,26 @@ impl PredictionRegistry {
         should_rollback_fn(this, that)
     }
 
-    /// Returns true if we should rollback
-    fn check_rollback<C: SyncComponent>(
-        &self,
-        confirmed_tick: Tick,
-        entity_mut: &mut FilteredEntityMut,
-    ) -> bool {
-        let entity = entity_mut.entity();
-        let name = DebugName::type_name::<C>();
-        let _span = trace_span!(
-            "check_rollback",
-            ?name,
-            %entity,
-            ?confirmed_tick
-        )
-        .entered();
-
-        // TODO: if the history is not present on the entity, but the confirmed component is present, we need to rollback
-        //  (requires mutable aliasing)
-        // note: it should not be possible that the PredictionHistory is present but not the Confirmed component.
-        let Some(mut predicted_history) = entity_mut.get_mut::<PredictionHistory<C>>() else {
-            return false;
-        };
-        #[cfg(feature = "metrics")]
-        metrics::gauge!(format!(
-            "prediction::rollbacks::history::{:?}::num_values",
-            DebugName::type_name::<C>()
-        ))
-        .set(predicted_history.len() as f64);
-        let history_value = predicted_history.pop_until_tick(confirmed_tick);
-        let confirmed_component = entity_mut.get::<Confirmed<C>>();
-
-        debug!(?history_value, ?confirmed_component, "check");
-        match confirmed_component {
-            // TODO: history-value should not be empty here; should we panic if it is?
-            // confirm does not exist. rollback if history value is not Removed
-            None => {
-                let should = history_value
-                    .is_some_and(|history_value| history_value != HistoryState::Removed);
-
+    pub fn should_rollback_check<C: SyncComponent>(&self, confirmed: Option<&C>, predicted: Option<&C>) -> bool {
+        match (confirmed, predicted) {
+            (Some(c), Some(p)) => {
+                let should = self.should_rollback(c, p);
                 if should {
                     debug!(
-                        "Should Rollback! Confirmed component does not exist, but history value exists",
+                        "Should Rollback! Confirmed value {c:?} is different from predicted value {p:?}",
                     );
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
-                        "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                        "prediction::rollbacks::causes::{}::value_mismatch",
                         DebugName::type_name::<C>()
                     ))
-                    .increment(1)
+                    .increment(1);
                 }
                 should
             }
-            // confirm exist. rollback if history value is different
-            Some(c) => history_value.map_or_else(
-                || {
-                    debug!(
-                        "Should Rollback! Confirmed component exists, but history value does not exists",
+            (Some(c), None) => {
+                 debug!(
+                        "Should Rollback! Confirmed component exists ({c:?}), but predicted value does not exists",
                     );
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
@@ -245,38 +213,137 @@ impl PredictionRegistry {
                     ))
                     .increment(1);
                     true
-                },
-                |history_value| match history_value {
-                    HistoryState::Updated(history_value) => {
-                        let should = self.should_rollback(&c.0, &history_value);
-                        if should {
-                            debug!(
-                                "Should Rollback! Confirmed value {c:?} is different from history value {history_value:?}",
-                            );
-                            #[cfg(feature = "metrics")]
-                            metrics::counter!(format!(
-                                "prediction::rollbacks::causes::{}::value_mismatch",
-                                DebugName::type_name::<C>()
-                            ))
-                            .increment(1);
-                        }
-                        should
-                    }
-                    HistoryState::Removed => {
-                        debug!(
-                            "Should Rollback! Confirmed component exists, but history value does not exists",
-                        );
-                        #[cfg(feature = "metrics")]
-                        metrics::counter!(format!(
-                            "prediction::rollbacks::causes::{}::removed_on_predicted",
-                            DebugName::type_name::<C>()
-                        ))
-                        .increment(1);
-                        true
-                    }
-                },
-            ),
+            }
+            (None, Some(p)) => {
+                debug!(
+                    "Should Rollback! Confirmed component does not exist, but predicted value exists ({p:?})",
+                );
+                #[cfg(feature = "metrics")]
+                metrics::counter!(format!(
+                    "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                    DebugName::type_name::<C>()
+                ))
+                .increment(1);
+                true
+            }
+            (None, None) => false
         }
+    }
+
+
+    /// Check for rollback on entities that didn't receive an explicit update.
+    ///
+    /// This is called when `ServerMutateTicks.last_tick` advances and an entity didn't
+    /// receive a mutation. Since `ServerMutateTicks.last_tick = T` guarantees we have
+    /// complete information for all entities at tick T, we know this entity's value at T
+    /// equals its last confirmed value.
+    ///
+    /// This function:
+    /// 1. Compares the last confirmed value with what we predicted at `confirmed_tick`
+    /// 2. Marks the last confirmed value as confirmed at `confirmed_tick` in the history
+    ///
+    /// # Arguments
+    /// * `confirmed_tick` - Should be `ServerMutateTicks.last_tick()`
+    fn check_rollback_empty_mutate<C: SyncComponent>(
+        &self,
+        confirmed_tick: Tick,
+        entity_mut: &mut FilteredEntityMut,
+    ) -> bool {
+        let entity = entity_mut.id();
+        let name = DebugName::type_name::<C>();
+        let _span = trace_span!(
+            "check_rollback_empty_mutate",
+            ?name,
+            %entity,
+            ?confirmed_tick
+        )
+        .entered();
+        let Some(mut prediction_history) = entity_mut.get_mut::<PredictionHistory<C>>() else {
+            // No history means no predicted value to compare against
+            return false;
+        };
+
+        // Find the last confirmed value in the history.
+        // Since this entity didn't receive a mutation, its confirmed value at `confirmed_tick`
+        // is the same as its last explicitly confirmed value.
+        let Some(last_confirmed_state) = prediction_history.last_confirmed() else {
+            // No confirmed value in history - we can't check for rollback.
+            // This can happen for entities that were just spawned and haven't received
+            // any replication updates yet.
+            trace!("No confirmed value in history for entity {:?}, skipping rollback check", entity);
+            return false;
+        };
+
+        // Clone the confirmed value to use for comparison and insertion
+        let confirmed_value: Option<C> = last_confirmed_state.value().cloned();
+
+        // The predicted value at confirmed_tick
+        let predicted_value = prediction_history.get(confirmed_tick);
+        let should_rollback = self.should_rollback_check(confirmed_value.as_ref(), predicted_value);
+
+        // Mark this value as confirmed at confirmed_tick.
+        // This is safe because we know the value at confirmed_tick = last confirmed value.
+        // Use add_confirmed which will insert at the correct position (not overwriting
+        // any future confirmed values that might already exist).
+        prediction_history.add_confirmed(confirmed_tick, confirmed_value);
+        prediction_history.clear_until_tick(confirmed_tick);
+
+        should_rollback
+    }
+
+    /// Add the confirmed value to the prediction history, and optionally check for rollback.
+    ///
+    /// This function:
+    /// 1. Always adds the confirmed value to the history (needed for rollback in any mode)
+    /// 2. If `check_mismatch` is true, compares with the predicted value and returns true if there's a mismatch
+    ///
+    /// The confirmed value is stored in the history as `Confirmed`, which means it will be preserved
+    /// during rollback (we know the real server value).
+    fn add_confirmed_and_check_rollback<C: SyncComponent>(
+        &self,
+        confirmed_tick: Tick,
+        confirmed_component: Option<C>,
+        entity_mut: &mut DeferredEntity,
+        check_mismatch: bool,
+    ) -> bool {
+        let entity = entity_mut.id();
+        let name = DebugName::type_name::<C>();
+        let _span = trace_span!(
+            "add_confirmed_and_check_rollback",
+            ?name,
+            %entity,
+            ?confirmed_tick,
+            ?check_mismatch
+        )
+        .entered();
+
+        let Some(mut predicted_history) = entity_mut.get_mut::<PredictionHistory<C>>() else {
+            let mut history = PredictionHistory::<C>::default();
+            // Mark as confirmed since this came from the server
+            history.add_confirmed(confirmed_tick, confirmed_component);
+            entity_mut.insert(history);
+            // If there was no history, we can't compare, so we should rollback to be safe
+            return check_mismatch;
+        };
+
+        #[cfg(feature = "metrics")]
+        metrics::gauge!(format!(
+            "prediction::rollbacks::history::{:?}::num_values",
+            DebugName::type_name::<C>()
+        ))
+        .set(predicted_history.len() as f64);
+
+        // Check for mismatch if requested
+        let should_rollback = if check_mismatch {
+            let history_value = predicted_history.get(confirmed_tick);
+            self.should_rollback_check(confirmed_component.as_ref(), history_value)
+        } else {
+            false
+        };
+
+        // Always add confirmed value to history - this value will be preserved during rollback
+        predicted_history.add_confirmed(confirmed_tick, confirmed_component);
+        should_rollback
     }
 
     /// Type-erased function for calling `pop_until_tick` on a [`PredictionHistory<C>`] component.
@@ -295,14 +362,16 @@ impl PredictionRegistry {
         let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
         // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
         let history = unsafe { ptr.deref_mut::<PredictionHistory<C>>() };
-        if let Some(HistoryState::Updated(v)) = history.pop_until_tick(tick) {
-            trace!(
-                "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
-                DebugName::type_name::<C>(),
-                tick,
-                v
-            );
-            f(&v, hasher);
+        if let Some(state) = history.pop_until_tick(tick) {
+            if let Some(v) = state.value() {
+                trace!(
+                    "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
+                    DebugName::type_name::<C>(),
+                    tick,
+                    v
+                );
+                f(v, hasher);
+            }
         }
     }
 }
@@ -351,6 +420,11 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
+        self.app.register_marker_with::<Predicted>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app.set_marker_fns::<Predicted, C>(write_history::<C>, remove_history::<C>);
         let history_id = self
             .app
             .world_mut()
@@ -376,7 +450,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .get_mut(&ComponentKind::of::<C>())
             .unwrap();
         metadata.replication.as_mut().unwrap().set_predicted(true);
-        metadata.serialization.as_mut().unwrap().add_clone::<C>();
+        // metadata.serialization.as_mut().unwrap().add_clone::<C>();
         self
     }
 
@@ -477,5 +551,62 @@ impl PredictionAppRegistrationExt for App {
             return;
         }
         add_resource_rollback_systems::<R>(self);
+    }
+}
+
+
+// TODO: ideally we would update the LastConfirmedTick at this point?
+/// Instead of writing into a component directly, it writes data into [`PredictionHistory<C>`].
+///
+/// This function:
+/// 1. Always adds the confirmed value to the prediction history (needed for rollback in any mode)
+/// 2. If `RollbackMode::Check`, also checks for mismatch and records it
+fn write_history<C: SyncComponent>(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<()> {
+    let component: C = rule_fns.deserialize(ctx, message)?;
+    let tick: Tick = ctx.message_tick.get().into();
+    // SAFETY: we are not aliasing with the DeferredEntity or Entities
+    let registry = unsafe { ctx.world_cell.world() }.resource::<PredictionRegistry>();
+    let prediction_link = unsafe { ctx.world_cell.world() }.resource::<PredictionResource>().link_entity;
+    let mut metadata = unsafe { ctx.world_cell.world_mut() }.resource_mut::<StateRollbackMetadata>();
+
+    let should_check = unsafe { ctx.world_cell.world() }
+        .get::<PredictionManager>(prediction_link)
+        .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+
+    // Always add confirmed values to history (needed for rollback in any mode).
+    // If RollbackMode::Check, also check for mismatch.
+    let should_rollback = registry.add_confirmed_and_check_rollback(tick, Some(component), entity, should_check);
+    if should_rollback {
+        metadata.record_mismatch(tick);
+    }
+    Ok(())
+}
+
+/// Removes component `C` and records the removal in history.
+///
+/// This function:
+/// 1. Always adds the confirmed removal to the prediction history (needed for rollback in any mode)
+/// 2. If `RollbackMode::Check`, also checks for mismatch and records it
+fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+    let tick: Tick = ctx.message_tick.get().into();
+    // SAFETY: we are not aliasing with the DeferredEntity
+    let registry = unsafe { ctx.world_cell.world() }.resource::<PredictionRegistry>();
+    let prediction_link = unsafe { ctx.world_cell.world() }.resource::<PredictionResource>().link_entity;
+    let mut metadata = unsafe { ctx.world_cell.world_mut() }.resource_mut::<StateRollbackMetadata>();
+
+    let should_check = unsafe { ctx.world_cell.world() }
+        .get::<PredictionManager>(prediction_link)
+        .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+
+    // Always add confirmed removal to history (needed for rollback in any mode).
+    // If RollbackMode::Check, also check for mismatch.
+    let should_rollback = registry.add_confirmed_and_check_rollback::<C>(tick, None, entity, should_check);
+    if should_rollback {
+        metadata.record_mismatch(tick);
     }
 }

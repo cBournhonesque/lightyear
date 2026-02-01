@@ -66,7 +66,7 @@
 //!
 //! [`Replicate`]: crate::prelude::Replicate
 
-use crate::prelude::{PerSenderReplicationState, ReplicationState};
+use crate::send::{PerSenderReplicationState, ReplicationState};
 use bevy_app::{App, Plugin};
 use bevy_ecs::entity::{EntityHashMap, MapEntities};
 use bevy_ecs::prelude::*;

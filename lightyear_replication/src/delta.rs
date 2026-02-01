@@ -1,7 +1,7 @@
 //! Logic related to delta compression (sending only the changes between two states, instead of the new state)
 
 use crate::registry::ComponentKind;
-use crate::registry::registry::ComponentRegistry;
+use crate::registry::ComponentRegistry;
 use alloc::collections::BTreeMap;
 use bevy_ecs::{component::Component, entity::Entity};
 use bevy_ptr::Ptr;
@@ -128,25 +128,26 @@ impl DeltaManager {
         component: Ptr,
         registry: &ComponentRegistry,
     ) {
-        self.state
-            .entry((kind, entity))
-            .or_default()
-            .data
-            .entry(tick)
-            .or_insert_with(|| {
-                PerTickData {
-                    // SAFETY: the component Ptr corresponds to kind
-                    ptr: unsafe { registry.erased_clone(component, kind).unwrap() },
-                    num_acks: 0,
-                }
-            })
-            .num_acks += 1;
-        trace!(
-            ?kind,
-            ?entity,
-            ?tick,
-            "DeltaManager: storing component value"
-        );
+        unimplemented!("need to reimplement this");
+        // self.state
+        //     .entry((kind, entity))
+        //     .or_default()
+        //     .data
+        //     .entry(tick)
+        //     .or_insert_with(|| {
+        //         PerTickData {
+        //             // SAFETY: the component Ptr corresponds to kind
+        //             ptr: unsafe { registry.erased_clone(component, kind).unwrap() },
+        //             num_acks: 0,
+        //         }
+        //     })
+        //     .num_acks += 1;
+        // trace!(
+        //     ?kind,
+        //     ?entity,
+        //     ?tick,
+        //     "DeltaManager: storing component value"
+        // );
     }
 
     /// Get the stored component value so that we can compute deltas from it.
@@ -166,32 +167,33 @@ impl DeltaManager {
         kind: ComponentKind,
         registry: &ComponentRegistry,
     ) {
-        if let Some(mut group_data) = self.state.get_mut(&(kind, entity))
-            && let Some(per_tick_data) = group_data.data.get_mut(&tick)
-        {
-            if per_tick_data.num_acks == 1 {
-                // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
-                trace!(
-                    ?kind,
-                    ?entity,
-                    "DeltaManager: removing data for ticks strictly older than {tick:?}",
-                );
-
-                // if all clients have acked this tick, we can remove the data for all ticks strictly older than this
-                let recent_data = group_data.data.split_off(&tick);
-                // call drop on all the data that we are removing
-                group_data.data.values_mut().for_each(|tick_data| {
-                    // TODO: maybe this is not necessary, because it is extremely unlikely that the component
-                    //  will have anything to drop
-                    // SAFETY: the ptr corresponds to the correct kind
-                    unsafe { registry.erased_drop(tick_data.ptr, kind) }
-                        .expect("unable to drop component value");
-                });
-                group_data.data = recent_data;
-            } else {
-                per_tick_data.num_acks -= 1;
-            }
-        }
+        unimplemented!();
+        // if let Some(mut group_data) = self.state.get_mut(&(kind, entity))
+        //     && let Some(per_tick_data) = group_data.data.get_mut(&tick)
+        // {
+        //     if per_tick_data.num_acks == 1 {
+        //         // TODO: maybe optimize this by keeping track in each message of which delta compression components were included?
+        //         trace!(
+        //             ?kind,
+        //             ?entity,
+        //             "DeltaManager: removing data for ticks strictly older than {tick:?}",
+        //         );
+        //
+        //         // if all clients have acked this tick, we can remove the data for all ticks strictly older than this
+        //         let recent_data = group_data.data.split_off(&tick);
+        //         // call drop on all the data that we are removing
+        //         group_data.data.values_mut().for_each(|tick_data| {
+        //             // TODO: maybe this is not necessary, because it is extremely unlikely that the component
+        //             //  will have anything to drop
+        //             // SAFETY: the ptr corresponds to the correct kind
+        //             unsafe { registry.erased_drop(tick_data.ptr, kind) }
+        //                 .expect("unable to drop component value");
+        //         });
+        //         group_data.data = recent_data;
+        //     } else {
+        //         per_tick_data.num_acks -= 1;
+        //     }
+        // }
     }
 
     /// To avoid tick-wrapping issues, we run a system regularly (every u16::MAX / 3 ticks)

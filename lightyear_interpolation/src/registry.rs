@@ -1,33 +1,28 @@
 use crate::SyncComponent;
 use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-use bevy_ecs::entity::Entity;
-use bevy_ecs::prelude::World;
 use bevy_ecs::{component::Component, resource::Resource};
+use bevy_ecs::component::Mutable;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_platform::collections::HashMap;
-use lightyear_replication::prelude::{ComponentRegistration, ComponentRegistry};
-use lightyear_replication::registry::ComponentKind;
-use lightyear_replication::registry::buffered::BufferedChanges;
-use lightyear_replication::registry::registry::LerpFn;
+use bevy_replicon::bytes::Bytes;
+use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
+use bevy_replicon::shared::replication::command_markers::MarkerConfig;
+use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+use lightyear_core::interpolation::Interpolated;
+use lightyear_core::prelude::Tick;
+use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
+use lightyear_replication::registry::replication::ComponentRegistration;
+use crate::interpolation_history::ConfirmedHistory;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
     curve.sample_unchecked(t)
 }
 
-/// Function that will sync a component value from the confirmed entity to the interpolated entity
-type SyncFn = fn(
-    &InterpolationRegistry,
-    &ComponentRegistry,
-    confirmed: Entity,
-    predicted: Entity,
-    manager: Entity,
-    &mut World,
-    &mut BufferedChanges,
-);
 
 #[derive(Debug, Clone)]
 pub struct InterpolationMetadata {
@@ -118,6 +113,11 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
+        self.app.register_marker_with::<Interpolated>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
         if !self
             .app
             .world()
@@ -201,4 +201,31 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
             .set_interpolated(true);
         self
     }
+}
+
+
+// TODO: ideally we would update the LastConfirmedTick at this point?
+/// Instead of writing into a component directly, it writes data into [`PredictionHistory<C>`].
+fn write_history<C: Component<Mutability = Mutable>>(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<()> {
+    let component: C = rule_fns.deserialize(ctx, message)?;
+    let tick: Tick = ctx.message_tick.get().into();
+    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
+        history.push(tick, component);
+    } else {
+        let mut history = ConfirmedHistory::<C>::default();
+        history.push(tick, component);
+        entity.insert(history);
+    }
+    Ok(())
+}
+
+/// Removes component `C`
+fn remove_history<C: Component>(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+    // TODO: only remove once the tick is reached1
+    entity.remove::<C>();
 }
