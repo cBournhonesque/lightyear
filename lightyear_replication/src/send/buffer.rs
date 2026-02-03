@@ -673,6 +673,16 @@ fn replicate_component_update(
             let raw_data = writer.split();
             sender.prepare_component_insert(entity, group_id, raw_data);
         } else {
+            if delta_compression
+                && sender.is_delta_component_suppressed(unmapped_entity, component_kind)
+            {
+                trace!(
+                    ?entity,
+                    component = ?component_kind,
+                    "Skipping delta update (suppressed)"
+                );
+                return Ok(());
+            }
             // trace!(?component_kind, ?entity, "Try to buffer component update");
             // check the send_tick, i.e. we will send all updates more recent than this tick
             let send_tick = sender.get_send_tick(group_id);

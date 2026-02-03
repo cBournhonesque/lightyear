@@ -54,7 +54,7 @@ pub mod prelude {
     };
     pub use crate::components::*;
     pub use crate::control::{Controlled, ControlledBy, ControlledByRemote, Lifetime};
-    pub use crate::delta::{DeltaManager, Diffable};
+    pub use crate::delta::{DeltaComponentHistory, DeltaManager, Diffable};
     pub use crate::hierarchy::{
         DisableReplicateHierarchy, HierarchySendPlugin, ReplicateLike, ReplicateLikeChildren,
     };

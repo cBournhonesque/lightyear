@@ -35,25 +35,8 @@
 //! modified the baseline at tick 5 for connection A, connection B would find corrupted
 //! data when it tries to compute its delta from tick 7.
 //!
-//! ## Periodic Absolute Resyncs
-//!
-//! Even with proper reconstruction tracking, tiny quantization errors can accumulate.
-//! Periodic absolute resyncs (sending exact f32 values every N ticks) reset the baseline
-//! to exact values, bounding maximum drift.
-//!
-//! # Example
-//!
-//! ```ignore
-//! // Position delta compression with period=4:
-//! // Tick 1: Absolute (8 bytes) - exact values
-//! // Tick 2: Relative (3 bytes) - quantized delta
-//! // Tick 3: Relative (3 bytes) - quantized delta
-//! // Tick 4: Relative (3 bytes) - quantized delta
-//! // Tick 5: Absolute (8 bytes) - drift reset
-//! // Average: (8 + 3 + 3 + 3) / 4 = 4.25 bytes/tick (~47% reduction)
-//! ```
 
-use crate::registry::ComponentKind;
+use crate::registry::{ComponentError, ComponentKind};
 use crate::registry::registry::ComponentRegistry;
 use alloc::collections::BTreeMap;
 use bevy_ecs::{component::Component, entity::Entity};
@@ -113,6 +96,8 @@ pub struct DeltaComponentHistory<C> {
     // We cannot use a ReadyBuffer because we need to be able to fetch values at arbitrary ticks
     // not just the most recent ticks
     pub buffer: BTreeMap<Tick, C>,
+    /// Last tick where we applied an out-of-band resync.
+    pub last_resync_tick: Option<Tick>,
 }
 
 // Implementing Default manually to not require C: Default
@@ -120,6 +105,7 @@ impl<C> Default for DeltaComponentHistory<C> {
     fn default() -> Self {
         Self {
             buffer: BTreeMap::new(),
+            last_resync_tick: None,
         }
     }
 }
@@ -266,6 +252,22 @@ impl DeltaManager {
             ?tick,
             "DeltaManager: storing reconstructed component value"
         );
+    }
+
+    /// Store a reconstructed value by cloning the provided component.
+    /// This is useful for out-of-band resync baselines.
+    pub fn store_reconstructed_cloned<C: Component + Clone>(
+        &self,
+        entity: Entity,
+        tick: Tick,
+        component: &C,
+        registry: &ComponentRegistry,
+    ) -> Result<(), ComponentError> {
+        let kind = ComponentKind::of::<C>();
+        let ptr = Ptr::from(component);
+        let cloned = unsafe { registry.erased_clone(ptr, kind)? };
+        self.store_reconstructed(entity, tick, kind, cloned);
+        Ok(())
     }
 
     /// Migrate a stored value from one tick to another.

@@ -374,6 +374,17 @@ fn buffer_insert_delta<
                     DebugName::type_name::<C>()
                 )));
             };
+            if let Some(resync_tick) = history.last_resync_tick {
+                if previous_tick < resync_tick {
+                    trace!(
+                        ?entity,
+                        ?previous_tick,
+                        ?resync_tick,
+                        "Ignoring stale delta before resync"
+                    );
+                    return Ok(());
+                }
+            }
             let Some(past_value) = history.buffer.get(&previous_tick) else {
                 return Err(ComponentError::DeltaCompressionError(format!(
                     "Entity {entity:?} does not have a value for tick {previous_tick:?} in the ConfirmedHistory<{}>",
@@ -494,13 +505,13 @@ fn buffer_insert_delta<
 
             // store the component value in the delta component history, so that we can compute
             // diffs from it
-            entity_mut
+            let mut history = entity_mut
                 .entity
                 .entry::<DeltaComponentHistory<C>>()
-                .or_default()
-                .get_mut()
-                .buffer
-                .insert(tick, cloned_value);
+                .or_default();
+            let mut history = history.get_mut();
+            history.buffer.insert(tick, cloned_value);
+            history.last_resync_tick = Some(tick);
         }
     }
     Ok(())

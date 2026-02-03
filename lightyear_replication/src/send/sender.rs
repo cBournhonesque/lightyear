@@ -69,6 +69,8 @@ pub struct ReplicationSender {
     pub group_with_updates: EntityHashSet<ReplicationGroupId>,
     /// Buffer to so that we have an ordered receiver per group
     pub group_channels: EntityHashMap<ReplicationGroupId, GroupChannel>,
+    /// Delta-compressed components temporarily suppressed for this sender.
+    pub(crate) suppressed_delta_components: HashSet<(Entity, ComponentKind)>,
     pub send_timer: Timer,
     /// ChangeTicks when we last sent replication messages for this Sender.
     /// We will compare this to component change ticks to determine if the change should be included.
@@ -107,6 +109,7 @@ impl ReplicationSender {
             group_with_updates: EntityHashSet::default(),
             // pending_unique_components: EntityHashMap::default(),
             group_channels: Default::default(),
+            suppressed_delta_components: HashSet::default(),
             send_updates_mode,
             // PRIORITY
             send_timer,
@@ -320,6 +323,51 @@ impl ReplicationSender {
                 .retain(|_, ack_tick| tick - *ack_tick <= delta);
         }
     }
+
+    /// Force the delta-ack tick for a specific entity/component pair.
+    pub fn force_delta_ack_tick<C: Component>(
+        &mut self,
+        group_id: ReplicationGroupId,
+        entity: Entity,
+        tick: Tick,
+    ) {
+        if let Some(group_channel) = self.group_channels.get_mut(&group_id) {
+            group_channel
+                .delta_ack_ticks
+                .insert((entity, ComponentKind::of::<C>()), tick);
+        }
+    }
+
+    /// Temporarily suppress delta updates for a specific component on this sender.
+    pub fn suppress_delta_component<C: Component>(&mut self, entity: Entity) {
+        self.suppressed_delta_components
+            .insert((entity, ComponentKind::of::<C>()));
+    }
+
+    /// Clear suppression for a specific component on this sender.
+    pub fn clear_delta_component_suppression<C: Component>(&mut self, entity: Entity) {
+        self.suppressed_delta_components
+            .remove(&(entity, ComponentKind::of::<C>()));
+    }
+
+    pub(crate) fn is_delta_component_suppressed(&self, entity: Entity, kind: ComponentKind) -> bool {
+        self.suppressed_delta_components
+            .contains(&(entity, kind))
+    }
+
+    pub(crate) fn clear_delta_suppression_for_entity(&mut self, entity: Entity) {
+        self.suppressed_delta_components
+            .retain(|(e, _)| *e != entity);
+    }
+
+    /// Clean up delta compression state for a despawned entity.
+    /// Called when an entity is removed from replication.
+    pub(crate) fn cleanup_entity_delta_state(&mut self, entity: Entity, group_id: ReplicationGroupId) {
+        if let Some(group_channel) = self.group_channels.get_mut(&group_id) {
+            group_channel.delta_ack_ticks.retain(|(e, _), _| *e != entity);
+        }
+        self.clear_delta_suppression_for_entity(entity);
+    }
 }
 
 /// We want:
@@ -474,6 +522,7 @@ impl ReplicationSender {
     /// after computing a delta, the stored baseline is updated by applying the same
     /// delta (simulating what the client will do). This ensures both server and client
     /// compute future deltas from the same quantized baseline.
+    ///
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn prepare_delta_component_update(
@@ -493,6 +542,7 @@ impl ReplicationSender {
             metrics::counter!("replication::send::component_update_delta").increment(1);
         }
         let group_channel = self.group_channels.entry(group_id).or_default();
+        // Delta path: use existing delta compression logic
         // Get the latest acked tick for this entity/component
         let raw_data = group_channel
             .delta_ack_ticks
