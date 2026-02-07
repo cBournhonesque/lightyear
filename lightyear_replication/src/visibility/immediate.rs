@@ -110,13 +110,17 @@ impl NetworkVisibilityPlugin {
                     state.visibility = VisibilityState::Visible;
                 }
 
-                // TODO: is it safe to discard the PerSenderReplicationState information?
-                //  what if we knew that we don't have authority over the entity
-                //  so even if we call `gain_visibility` we want to keep that information?
-                //  The issue is that keeping the data around forever could be expensive...
-                // discard these entities since we already sent a despawn message for it
+                // When visibility is Lost, the despawn has already been sent by
+                // replicate_entity. Instead of deleting the entry (which destroys
+                // the predicted/interpolated flags set by InterpolationTarget/
+                // PredictionTarget on_insert hooks), reset to Default so that
+                // gain_visibility can reuse the entry with correct flags on
+                // interest re-entry. The memory cost is minimal (~8 bytes per
+                // sender-entity pair that has ever been visible).
                 if state.visibility == VisibilityState::Lost {
-                    return false;
+                    state.visibility = VisibilityState::default();
+                    state.spawned = false;
+                    return true;
                 }
                 true
             })
@@ -220,16 +224,19 @@ mod tests {
             VisibilityState::Lost
         );
 
-        // after an update: Lost -> Cleared
+        // after an update: Lost -> Default (entry preserved, spawned reset)
         app.update();
-        assert!(
-            app.world_mut()
+        {
+            let state = app
+                .world_mut()
                 .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .is_none()
-        );
+                .unwrap();
+            let per_sender = state.per_sender_state.get(&sender).expect(
+                "entry should be preserved after Lost to retain predicted/interpolated flags",
+            );
+            assert_eq!(per_sender.visibility, VisibilityState::Default);
+            assert!(!per_sender.spawned);
+        }
 
         // if we Gain/Lose visibility in the same tick, do nothing
         app.world_mut()
