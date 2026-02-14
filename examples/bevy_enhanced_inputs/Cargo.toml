@@ -1,6 +1,6 @@
 [package]
 name = "bevy_enhanced_inputs"
-version = "0.26.1"
+version = "0.26.4"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 description = "Examples for the lightyear networking library for the Bevy game engine"
