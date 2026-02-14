@@ -227,10 +227,7 @@ mod tests {
         // after an update: Lost -> Default (entry preserved, spawned reset)
         app.update();
         {
-            let state = app
-                .world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap();
+            let state = app.world_mut().get_mut::<ReplicationState>(entity).unwrap();
             let per_sender = state.per_sender_state.get(&sender).expect(
                 "entry should be preserved after Lost to retain predicted/interpolated flags",
             );
