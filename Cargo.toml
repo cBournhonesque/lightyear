@@ -218,7 +218,7 @@ bevy_winit = { version = "0.18", default-features = false }
 tracy-client = { version = "0.18" }
 
 # input
-bevy_enhanced_input = { version = "0.22", features = ["serialize"] }
+bevy_enhanced_input = { version = "0.23", features = ["serialize"] }
 leafwing-input-manager = { version = "0.20", default-features = false, features = [
   "keyboard",
 ] }
