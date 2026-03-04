@@ -1,4 +1,6 @@
-use super::interpolation_history::{apply_confirmed_update, insert_confirmed_history};
+use super::interpolation_history::{
+    apply_confirmed_update, insert_confirmed_history, insert_confirmed_history_on_interpolated,
+};
 use crate::SyncComponent;
 use crate::despawn::removed_components;
 use crate::interpolate::{interpolate, update_confirmed_history};
@@ -65,8 +67,6 @@ impl ToBytes for InterpolationDelay {
 
 // TODO: if Interpolated is added on an existing entity, we need to swap all its existing interpolated components to Confirmed<C>
 
-// TODO (IMPORTANT): when a component with interpolation is inserted, we need to insert ConfirmedHistory
-
 /// Plugin that enables interpolating between replicated updates received from the remote.
 ///
 /// Each remote update will be stored in a buffer, and the component will smoothly interpolate between two consecutive remote updates.
@@ -102,6 +102,7 @@ pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut 
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_observer(removed_components::<C>);
     app.add_observer(insert_confirmed_history::<C>);
+    app.add_observer(insert_confirmed_history_on_interpolated::<C>);
     app.add_systems(
         Update,
         (apply_confirmed_update::<C>, update_confirmed_history::<C>)
