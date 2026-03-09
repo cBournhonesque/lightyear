@@ -17,7 +17,7 @@ pub struct HostServerPlugin;
 #[derive(QueryData)]
 struct HostServerQueryData {
     entity: Entity,
-    replicate_like: &'static ReplicateLikeChildren,
+    replicate_like: Option<&'static ReplicateLikeChildren>,
     controlled_by: Option<Ref<'static, ControlledBy>>,
     replicated: Ref<'static, Replicated>,
     controlled: Option<&'static Controlled>,
@@ -68,7 +68,11 @@ impl HostServerPlugin {
                 }
                 // if the fake components are added on the root, add them on the children
                 if replicated.is_added() {
-                    replicate_like.collection().iter().for_each(|e| {
+                    let Some(replicate_like_children) = replicate_like else {
+                        return;
+                    };
+
+                    replicate_like_children.collection().iter().for_each(|e| {
                         commands.entity(*e).insert((
                             Replicated {
                                 receiver: local_entity,
