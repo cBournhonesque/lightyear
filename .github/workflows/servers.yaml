@@ -63,7 +63,7 @@ jobs:
         run: grep -v '^#' ./examples/example_list.env >> $GITHUB_ENV
 
       - name: Build and publish docker for example server binaries
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           push: true
           context: .
