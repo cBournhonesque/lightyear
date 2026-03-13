@@ -30,7 +30,6 @@ use bevy_app::prelude::*;
 use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
-use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 

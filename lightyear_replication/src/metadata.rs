@@ -5,13 +5,16 @@ use bevy_ecs::prelude::*;
 use bevy_time::{Timer, TimerMode};
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_core::id::RemoteId;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{PositiveTickDelta, TickDelta};
-use lightyear_messages::prelude::{AppTriggerExt, EventSender};
+use lightyear_messages::MessageManager;
+use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::ToBytes;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_transport::prelude::*;
+use tracing::debug;
 use crate::prelude::ReplicationSender;
 
 /// Resource that needs to be added to control the replication behaviour for the current App.
@@ -96,11 +99,31 @@ fn send_sender_metadata(
     }
 }
 
+/// Receive metadata about the sender from a remote peer and populate the entity mapper
+fn receive_sender_metadata(
+    trigger: On<RemoteEvent<SenderMetadata>>,
+    mut query: Query<(Entity, &RemoteId, &mut MessageManager)>,
+) {
+    let remote_entity = trigger.trigger.sender_entity;
+    let from = &trigger.from;
+    for (local_entity, remote_id, mut manager) in query.iter_mut() {
+        if remote_id.0 == *from {
+            debug!(
+                "Received SenderMetadata: mapping remote {:?} -> local {:?}",
+                remote_entity, local_entity
+            );
+            manager.entity_mapper.insert(remote_entity, local_entity);
+            return;
+        }
+    }
+}
+
 pub struct MetadataPlugin;
 
 
 impl Plugin for MetadataPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<ReplicationMetadata>();
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             send_frequency: Duration::default(),
@@ -108,5 +131,7 @@ impl Plugin for MetadataPlugin {
         });
         app.register_event_to_bytes::<SenderMetadata>()
             .add_direction(NetworkDirection::Bidirectional);
+        app.add_observer(send_sender_metadata);
+        app.add_observer(receive_sender_metadata);
     }
 }

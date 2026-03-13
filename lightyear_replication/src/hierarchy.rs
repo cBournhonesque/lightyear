@@ -14,7 +14,7 @@ use serde::Serialize;
 use serde::de::DeserializeOwned;
 use smallvec::SmallVec;
 use tracing::trace;
-use bevy_replicon::prelude::SyncRelatedAppExt;
+use bevy_replicon::prelude::{AppRuleExt, SyncRelatedAppExt};
 use crate::ReplicationSystems;
 #[cfg(feature = "prediction")]
 use crate::send::PredictionTarget;
@@ -132,6 +132,8 @@ impl<
 > Plugin for HierarchySendPlugin<R>
 {
     fn build(&self, app: &mut App) {
+        // Register the relationship component for replication so it's sent to peers
+        app.replicate::<R>();
         app.sync_related_entities::<R>();
 
         // propagate ReplicateLike

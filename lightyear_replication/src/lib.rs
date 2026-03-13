@@ -13,6 +13,7 @@ pub mod server;
 
 #[cfg(feature = "client")]
 pub mod client;
+pub mod channels;
 pub mod send;
 pub mod registry;
 pub mod metadata;
@@ -27,6 +28,7 @@ pub mod visibility;
 #[cfg(feature = "delta")]
 pub mod delta;
 
+#[cfg(feature = "delta")]
 mod impls;
 
 pub mod prelude {
@@ -46,6 +48,7 @@ pub mod prelude {
     pub use crate::registry::replication::AppComponentExt;
     pub use crate::registry::TransformLinearInterpolation;
 
+    #[cfg(feature = "delta")]
     pub use crate::delta::Diffable;
 
     #[cfg(feature = "prediction")]
@@ -72,7 +75,10 @@ impl PluginGroup for LightyearRepliconBackend {
     fn build(self) -> PluginGroupBuilder {
         let mut group = PluginGroupBuilder::start::<Self>();
 
-        group = group.add(bevy_replicon::shared::RepliconSharedPlugin::default());
+        group = group.add(bevy_replicon::shared::RepliconSharedPlugin {
+            auth_method: bevy_replicon::shared::AuthMethod::None,
+        });
+        group = group.add(channels::RepliconChannelRegistrationPlugin);
         group = group.add(metadata::MetadataPlugin);
 
         #[cfg(feature = "server")]
@@ -87,6 +93,8 @@ impl PluginGroup for LightyearRepliconBackend {
             group = group.add(send::SendPlugin);
             group = group.add(control::ControlPlugin);
             group = group.add(hierarchy::HierarchyPlugin);
+            group = group.add(hierarchy::HierarchySendPlugin::<bevy_ecs::prelude::ChildOf>::default());
+            group = group.add(visibility::immediate::NetworkVisibilityPlugin);
 
         }
 

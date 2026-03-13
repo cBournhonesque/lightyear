@@ -2,7 +2,7 @@ use bevy_app::App;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::{Component};
 use bevy_replicon::prelude::{AppRuleExt, RuleFns};
-use bevy_replicon::shared::replication::registry::command_fns::MutWrite;
+use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use bevy_replicon::shared::replication::registry::rule_fns::{DeserializeFn, SerializeFn};
 use serde::{Serialize, de::DeserializeOwned};
 use crate::registry::ComponentRegistry;

@@ -144,9 +144,10 @@ impl Default for Rooms {
 }
 
 impl VisibilityFilter for Rooms {
+    type ClientComponent = Self;
     type Scope = Entity;
-    fn is_visible(&self, other: &Self) -> bool {
-        self.rooms.intersection_count(&other.rooms) > 0
+    fn is_visible(&self, _client: Entity, component: Option<&Self::ClientComponent>) -> bool {
+        component.is_some_and(|other| self.rooms.intersection_count(&other.rooms) > 0)
     }
 }
 
