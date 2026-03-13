@@ -5,8 +5,6 @@ use lightyear::prelude::*;
 use lightyear_connection::server::Started;
 use lightyear_crossbeam::CrossbeamIo;
 use test_log::test;
-use lightyear_replication::metadata::SenderMetadata;
-use lightyear_replication::receive::ReplicationReceiver;
 
 /// Check that the client/server setup is correct:
 /// - the various components we expect are present
@@ -27,9 +25,7 @@ fn test_setup_client_server() {
             .client(0)
             .contains::<MessageReceiver<StringMessage>>()
     );
-    assert!(stepper.client(0).contains::<EventSender<SenderMetadata>>());
     assert!(stepper.client(0).contains::<ReplicationSender>());
-    assert!(stepper.client(0).contains::<ReplicationReceiver>());
     assert!(stepper.client(0).contains::<CrossbeamIo>());
     assert!(stepper.client(0).contains::<Connected>());
     assert!(stepper.client(0).contains::<LocalAddr>());
@@ -50,11 +46,6 @@ fn test_setup_client_server() {
         stepper
             .client_of(0)
             .contains::<MessageReceiver<StringMessage>>()
-    );
-    assert!(
-        stepper
-            .client_of(0)
-            .contains::<EventSender<SenderMetadata>>()
     );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());

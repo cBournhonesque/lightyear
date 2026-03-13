@@ -80,6 +80,7 @@ impl PluginGroup for LightyearRepliconBackend {
         });
         group = group.add(channels::RepliconChannelRegistrationPlugin);
         group = group.add(metadata::MetadataPlugin);
+        group = group.add(prespawn::PreSpawnedPlugin);
 
         #[cfg(feature = "server")]
         {

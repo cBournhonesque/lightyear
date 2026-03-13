@@ -19,6 +19,7 @@ pub struct ReceivePlugin;
 impl Plugin for ReceivePlugin {
     fn build(&self, app: &mut App) {
         // make sure that any ordering relative to ReplicationSystems is also applied to ClientSystems
+        app.configure_sets(PreUpdate, ClientSystems::Receive.in_set(ReplicationSystems::Receive));
         app.configure_sets(PostUpdate, ClientSystems::Receive.in_set(ReplicationSystems::Receive));
     }
 }

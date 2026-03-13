@@ -18,7 +18,7 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
-use bevy_replicon::shared::replication::command_markers::MarkerConfig;
+use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_core::tick::Tick;

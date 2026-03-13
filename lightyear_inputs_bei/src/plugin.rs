@@ -24,7 +24,7 @@ use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use bevy_replicon::shared::replication::registry::command_fns::MutWrite;
+use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use bevy_replicon::prelude::AppRuleExt;
 
 /// Add BEI Input replication to your app.

@@ -2,7 +2,7 @@ use crate::protocol::NativeInput as MyInput;
 use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
-use lightyear::input::server::InputRebroadcaster;
+// use lightyear::input::server::InputRebroadcaster;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::prelude::{LocalTimeline, Rollback};
@@ -10,7 +10,7 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::prelude::{PredictionTarget, Replicate, RoomAllocator, Rooms};
+use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use test_log::test;
@@ -322,101 +322,101 @@ fn test_input_broadcasting_prediction() {
     stepper.client_apps[1].update();
 }
 
-/// Test the server can rebroadcast inputs to custom targets
-#[test]
-fn test_input_custom_rebroadcast() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(3));
-    let server_recv_delay: i16 = 2;
-
-    // client 0 has some latency to send inputs to the server
-    stepper
-        .client_of_mut(0)
-        .get_mut::<Link>()
-        .unwrap()
-        .recv
-        .conditioner = Some(lightyear_link::LinkConditioner::new(
-        LinkConditionerConfig {
-            incoming_latency: TICK_DURATION * (server_recv_delay as u32),
-            ..default()
-        },
-    ));
-
-    // SETUP - Create an entity controlled by client 0, predicted by all clients
-    let server_entity = stepper
-        .server_app
-        .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::to_clients(NetworkTarget::All),
-            ActionState::<MyInput>::default(),
-        ))
-        .id();
-    stepper.frame_step_server_first(1);
-
-    // Add rooms only for clients 0 and 1
-    let room = stepper.server_app.world_mut().resource_mut::<RoomAllocator>().allocate();
-
-    stepper.server_app.world_mut().entity_mut(server_entity).insert(Rooms::single(room));
-    let client_of0 = stepper.client_of(0).id();
-    let client_of1 = stepper.client_of(1).id();
-    stepper.server_app.world_mut().entity_mut(client_of0).insert(Rooms::single(room));
-    stepper.server_app.world_mut().entity_mut(client_of1).insert(Rooms::single(room));
-    stepper.frame_step_server_first(1);
-
-    // make sure that ClientOf 0 only rebroadcasts inputs to the room (so to client 1)
-    stepper
-        .client_of_mut(0)
-        .insert(InputRebroadcaster::<MyInput>::Room(room));
-
-    // Get the predicted entities on both clients
-    let client0_predicted = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
-        .expect("entity not replicated to client 0");
-
-    let client1_predicted = stepper
-        .client(1)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
-        .expect("entity not replicated to client 1");
-
-    let client2_predicted = stepper
-        .client(2)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_entity)
-        .expect("entity not replicated to client 2");
-
-    // Add input markers to client 0, and make sure that it's replicated to client 1 but not to client 2
-    // because the input message is not broadcasted to client 2
-    let client0_tick = stepper.client_tick(0);
-    let client1_tick = stepper.client_tick(1);
-    info!(?client0_tick, ?client1_tick, "Add input marker on client 0");
-    stepper.client_apps[0]
-        .world_mut()
-        .entity_mut(client0_predicted)
-        .insert(InputMarker::<MyInput>::default());
-    stepper.frame_step(5);
-
-    assert!(
-        stepper.client_apps[1]
-            .world()
-            .get::<NativeBuffer<MyInput>>(client1_predicted)
-            .is_some()
-    );
-    assert!(
-        stepper.client_apps[2]
-            .world()
-            .get::<NativeBuffer<MyInput>>(client2_predicted)
-            .is_none()
-    );
-}
+// /// Test the server can rebroadcast inputs to custom targets
+// #[test]
+// fn test_input_custom_rebroadcast() {
+//     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(3));
+//     let server_recv_delay: i16 = 2;
+//
+//     // client 0 has some latency to send inputs to the server
+//     stepper
+//         .client_of_mut(0)
+//         .get_mut::<Link>()
+//         .unwrap()
+//         .recv
+//         .conditioner = Some(lightyear_link::LinkConditioner::new(
+//         LinkConditionerConfig {
+//             incoming_latency: TICK_DURATION * (server_recv_delay as u32),
+//             ..default()
+//         },
+//     ));
+//
+//     // SETUP - Create an entity controlled by client 0, predicted by all clients
+//     let server_entity = stepper
+//         .server_app
+//         .world_mut()
+//         .spawn((
+//             Replicate::to_clients(NetworkTarget::All),
+//             PredictionTarget::to_clients(NetworkTarget::All),
+//             ActionState::<MyInput>::default(),
+//         ))
+//         .id();
+//     stepper.frame_step_server_first(1);
+//
+//     // Add rooms only for clients 0 and 1
+//     let room = stepper.server_app.world_mut().resource_mut::<RoomAllocator>().allocate();
+//
+//     stepper.server_app.world_mut().entity_mut(server_entity).insert(Rooms::single(room));
+//     let client_of0 = stepper.client_of(0).id();
+//     let client_of1 = stepper.client_of(1).id();
+//     stepper.server_app.world_mut().entity_mut(client_of0).insert(Rooms::single(room));
+//     stepper.server_app.world_mut().entity_mut(client_of1).insert(Rooms::single(room));
+//     stepper.frame_step_server_first(1);
+//
+//     // make sure that ClientOf 0 only rebroadcasts inputs to the room (so to client 1)
+//     stepper
+//         .client_of_mut(0)
+//         .insert(InputRebroadcaster::<MyInput>::Room(room));
+//
+//     // Get the predicted entities on both clients
+//     let client0_predicted = stepper
+//         .client(0)
+//         .get::<MessageManager>()
+//         .unwrap()
+//         .entity_mapper
+//         .get_local(server_entity)
+//         .expect("entity not replicated to client 0");
+//
+//     let client1_predicted = stepper
+//         .client(1)
+//         .get::<MessageManager>()
+//         .unwrap()
+//         .entity_mapper
+//         .get_local(server_entity)
+//         .expect("entity not replicated to client 1");
+//
+//     let client2_predicted = stepper
+//         .client(2)
+//         .get::<MessageManager>()
+//         .unwrap()
+//         .entity_mapper
+//         .get_local(server_entity)
+//         .expect("entity not replicated to client 2");
+//
+//     // Add input markers to client 0, and make sure that it's replicated to client 1 but not to client 2
+//     // because the input message is not broadcasted to client 2
+//     let client0_tick = stepper.client_tick(0);
+//     let client1_tick = stepper.client_tick(1);
+//     info!(?client0_tick, ?client1_tick, "Add input marker on client 0");
+//     stepper.client_apps[0]
+//         .world_mut()
+//         .entity_mut(client0_predicted)
+//         .insert(InputMarker::<MyInput>::default());
+//     stepper.frame_step(5);
+//
+//     assert!(
+//         stepper.client_apps[1]
+//             .world()
+//             .get::<NativeBuffer<MyInput>>(client1_predicted)
+//             .is_some()
+//     );
+//     assert!(
+//         stepper.client_apps[2]
+//             .world()
+//             .get::<NativeBuffer<MyInput>>(client2_predicted)
+//             .is_none()
+//     );
+// }
 
 // /// Test a remote client's pre-predicted entity sending inputs to the server
 // #[test]

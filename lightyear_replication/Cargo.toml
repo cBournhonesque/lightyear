@@ -51,6 +51,7 @@ bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_ptr.workspace = true
 bevy_reflect.workspace = true
+bevy_state.workspace = true
 bevy_time.workspace = true
 bevy_transform.workspace = true
 bevy_utils.workspace = true

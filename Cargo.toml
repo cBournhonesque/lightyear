@@ -208,6 +208,7 @@ bevy_math = { version = "0.18", default-features = false }
 bevy_platform = { version = "0.18", default-features = false }
 bevy_ptr = { version = "0.18", default-features = false }
 bevy_reflect = { version = "0.18", default-features = false }
+bevy_state = { version = "0.18", default-features = false }
 bevy_text = { version = "0.18", default-features = false }
 bevy_time = { version = "0.18", default-features = false }
 bevy_transform = { version = "0.18", default-features = false }
@@ -219,10 +220,7 @@ bevy_winit = { version = "0.18", default-features = false }
 tracy-client = { version = "0.18" }
 
 # replication
-bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon.git",  branch = "lightyear" }
-
-# replication
-bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon.git",  branch = "lightyear" }
+bevy_replicon = { path = "../bevy_replicon" }
 
 # input
 bevy_enhanced_input = { version = "0.22", features = ["serialize"] }
