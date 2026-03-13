@@ -38,7 +38,7 @@ commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
 
 */
 
-use crate::prelude::{PerSenderReplicationState, ReplicationState};
+use crate::prelude::{InterpolationTarget, PerSenderReplicationState, PredictionTarget, ReplicationState};
 use crate::send::plugin::ReplicationBufferSystems;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
@@ -194,19 +194,44 @@ impl RoomPlugin {
     fn apply_room_events(
         mut commands: Commands,
         mut room_events: ResMut<RoomEvents>,
-        mut query: Query<&mut ReplicationState>,
+        mut query: Query<(
+            &mut ReplicationState,
+            Has<PredictionTarget>,
+            Has<InterpolationTarget>,
+        )>,
     ) {
         // TODO: should we use iter_mut here to keep the allocated NetworkVisibility?
         room_events
             .events
             .drain(..)
             .for_each(|(entity, mut room_vis)| {
-                if let Ok(mut vis) = query.get_mut(entity) {
+                if let Ok((mut vis, has_prediction, has_interpolation)) = query.get_mut(entity) {
                     room_vis
                         .clients
                         .drain()
                         .for_each(|(sender, state)| match state {
-                            VisibilityState::Gained => vis.gain_visibility(sender),
+                            VisibilityState::Gained => {
+                                vis.gain_visibility(sender);
+                                // When a sender loses visibility, their
+                                // PerSenderReplicationState entry is eventually removed
+                                // (in update_network_visibility). When they later regain
+                                // visibility, gain_visibility() creates a fresh entry with
+                                // predicted/interpolated = false. Restore these flags from
+                                // the entity's PredictionTarget/InterpolationTarget so the
+                                // client spawns the entity with prediction/interpolation.
+                                if let Some(per_sender) =
+                                    vis.per_sender_state.get_mut(&sender)
+                                {
+                                    #[cfg(feature = "prediction")]
+                                    if has_prediction {
+                                        per_sender.predicted = true;
+                                    }
+                                    #[cfg(feature = "interpolation")]
+                                    if has_interpolation {
+                                        per_sender.interpolated = true;
+                                    }
+                                }
+                            }
                             VisibilityState::Lost => vis.lose_visibility(sender),
                             VisibilityState::Visible => {
                                 unreachable!()
