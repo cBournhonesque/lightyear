@@ -173,6 +173,53 @@ fn deserialize_action<A: InputAction>(
     Ok(Action::<A>::default())
 }
 
+const ACTION_OF_PRE_MAPPED: u8 = 1;
+const ACTION_OF_NOT_MAPPED: u8 = 0;
+
+/// Custom serialize function for [`ActionOf<C>`] that handles entity mapping.
+///
+/// On the client sending to the server: converts client entities to server entities
+/// using `entity_map.to_server()`, writes PRE_MAPPED flag so the server uses the entity as-is.
+///
+/// On the server rebroadcasting to clients: entities created on the server won't be in
+/// `to_server()`, so they get NOT_MAPPED flag and the receiver applies standard entity mapping.
+pub(crate) fn serialize_action_of<C: Component>(
+    ctx: &SerializeCtx,
+    action_of: &ActionOf<C>,
+    message: &mut Vec<u8>,
+) -> bevy_ecs::error::Result<()> {
+    let entity = action_of.get();
+    if let Some(&remote_entity) = ctx.entity_map.to_server().get(&entity) {
+        message.push(ACTION_OF_PRE_MAPPED);
+        bevy_replicon::postcard_utils::entity_to_extend_mut(&remote_entity, message)?;
+    } else {
+        message.push(ACTION_OF_NOT_MAPPED);
+        bevy_replicon::postcard_utils::entity_to_extend_mut(&entity, message)?;
+    }
+    Ok(())
+}
+
+/// Custom deserialize function for [`ActionOf<C>`] that handles entity mapping.
+///
+/// If PRE_MAPPED: the sender already converted the entity to receiver's local terms.
+/// If NOT_MAPPED: apply standard entity mapping via `ctx.get_mapped()`.
+pub(crate) fn deserialize_action_of<C: Component>(
+    ctx: &mut WriteCtx,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<ActionOf<C>> {
+    use bevy_replicon::bytes::Buf;
+    let flag = message.get_u8();
+    let entity = bevy_replicon::postcard_utils::entity_from_buf(message)?;
+
+    let mapped = if flag == ACTION_OF_PRE_MAPPED {
+        entity
+    } else {
+        ctx.get_mapped(entity)
+    };
+
+    Ok(ActionOf::<C>::new(mapped))
+}
+
 pub trait InputRegistryExt {
     /// Registers a new input action type and returns its kind.
     fn register_input_action<A: InputAction>(self) -> Self;

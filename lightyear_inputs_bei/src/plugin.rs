@@ -25,7 +25,7 @@ use lightyear_inputs::config::InputConfig;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
-use bevy_replicon::prelude::AppRuleExt;
+use bevy_replicon::prelude::{AppRuleExt, RuleFns, ReplicationMode};
 
 /// Add BEI Input replication to your app.
 pub struct InputPlugin<C> {
@@ -69,7 +69,13 @@ impl<
         // We cannot directly replicate ActionOf<C> because it contains an entity, and we might need to do some custom mapping
         // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity
         // to be able to be mapped
-        app.replicate::<ActionOf<C>>();
+        app.replicate_with((
+            RuleFns::new(
+                crate::setup::serialize_action_of::<C>,
+                crate::setup::deserialize_action_of::<C>,
+            ),
+            ReplicationMode::default(),
+        ));
 
         #[cfg(feature = "client")]
         {

@@ -22,9 +22,7 @@ use test_log::test;
 use tracing::info;
 
 /// Check that we can insert actions on the client entity
-/// TODO: action entity replication needs replicon integration
 #[test]
-#[ignore]
 fn test_actions_on_client_entity() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     // we spawn an action entity on the client
@@ -259,9 +257,7 @@ fn test_buffer_inputs_with_delay() {
 
 /// Check that Actions<C> is restored correctly after a rollback, including timing
 /// information
-/// TODO: action entity replication needs replicon integration
 #[test]
-#[ignore]
 fn test_client_rollback() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
@@ -370,9 +366,7 @@ fn test_client_rollback() {
 struct Counter(usize);
 
 /// Check that Actions<C> is restored correctly after a rollback, and observers are re-triggered
-/// TODO: action entity replication needs replicon integration
 #[test]
-#[ignore]
 fn test_client_rollback_bei_events() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
