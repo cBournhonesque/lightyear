@@ -1,11 +1,11 @@
 [package]
 name = "lightyear_replication"
-version = "0.26.2"
+version = "0.26.4"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Integration with Replicon as the replication and messaging layer for Lightyear"
+description = "IO primitives for the lightyear networking library"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
@@ -24,36 +24,40 @@ avian2d = ["dep:avian2d"]
 avian3d = ["dep:avian3d"]
 
 [dependencies]
+lightyear_link.workspace = true
 lightyear_utils.workspace = true
+lightyear_serde.workspace = true
 lightyear_core.workspace = true
 lightyear_connection.workspace = true
-lightyear_link.workspace = true
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
-lightyear_serde.workspace = true
-lightyear_sync = {workspace = true, optional = true}
+lightyear_sync = { workspace = true, optional = true }
 
 # utils
-dashmap = {workspace = true, optional = true}
-fixedbitset.workspace = true
+dashmap = { workspace = true, optional = true }
+indexmap.workspace = true
 metrics = { workspace = true, optional = true }
-seahash.workspace = true
-serde.workspace = true
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+seahash.workspace = true
+fixedbitset.workspace = true
+
+# serde
+serde.workspace = true
+bytes.workspace = true
 
 # bevy
 bevy_app.workspace = true
-bevy_ecs = { workspace = true, features = ["bevy_reflect"] }
 bevy_derive.workspace = true
+bevy_ecs = { workspace = true, features = ["bevy_reflect"] }
 bevy_math.workspace = true
 bevy_platform.workspace = true
 bevy_ptr.workspace = true
 bevy_reflect.workspace = true
+bevy_time = { workspace = true, features = ["bevy_reflect"] }
+bevy_transform = { workspace = true, features = ["libm"] }
 bevy_state.workspace = true
-bevy_time.workspace = true
-bevy_transform.workspace = true
 bevy_utils.workspace = true
 
 # replication

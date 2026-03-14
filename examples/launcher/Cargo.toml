@@ -1,6 +1,6 @@
 [package]
 name = "launcher"
-version = "0.26.2"
+version = "0.26.4"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 publish = false
@@ -39,7 +39,7 @@ simple_box = { path = "../simple_box", features = ["client", "server", "gui"] }
 # fps_new = { path = "../fps_new", features = ["client", "server", "gui"] } # Add other examples as needed
 
 clap = { version = "4.5.3", features = ["derive"] }
-strum = { version = "0.27", features = ["derive"] }
+strum = { version = "0.28", features = ["derive"] }
 ron = "0.12"
 tempfile = "3.19"
 

@@ -151,7 +151,7 @@ struct AuthorityChannel;
 
 pub struct AuthorityPlugin;
 
-/// Component added on an entity (usually the [`Server`]) so that it can track at all times
+/// Component added on an entity (usually the `Server`) so that it can track at all times
 /// which peer is the owner of an entity.
 #[derive(Component)]
 pub struct AuthorityBroker {

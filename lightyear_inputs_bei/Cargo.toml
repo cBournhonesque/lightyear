@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_inputs_bei"
-version = "0.26.2"
+version = "0.26.4"
 authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -26,6 +26,9 @@ lightyear_messages.workspace = true
 # inputs
 bevy_enhanced_input.workspace = true
 
+# replication
+bevy_replicon.workspace = true
+
 # utils
 tracing.workspace = true
 
@@ -37,8 +40,6 @@ bevy_app.workspace = true
 bevy_ecs.workspace = true
 bevy_reflect.workspace = true
 bevy_utils.workspace = true
-
-bevy_replicon.workspace = true
 
 [dev-dependencies]
 bevy.workspace = true
