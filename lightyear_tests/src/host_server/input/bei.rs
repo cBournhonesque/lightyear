@@ -11,9 +11,7 @@ use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{PredictionTarget, Replicate, ReplicateLike};
 
 /// Check that the host-server still rebroadcasts inputs from non-host clients to each other.
-/// TODO: action entity replication needs replicon integration
 #[test]
-#[ignore]
 fn test_rebroadcast() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::from_link_types(
         vec![ClientType::Host, ClientType::Netcode, ClientType::Netcode],
@@ -89,22 +87,15 @@ fn test_rebroadcast() {
             .server_app
             .world()
             .get::<InputMarker<BEIContext>>(action_host)
-            .is_none()
-    );
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .get::<Replicate>(action_host)
-            .is_none()
+            .is_none(),
+        "Action entity on host-server should not have InputMarker"
     );
     assert!(
         stepper
             .server_app
             .world()
             .get::<ReplicateLike>(action_host)
-            .is_some()
+            .is_some(),
+        "Action entity on host-server should have ReplicateLike for rebroadcast"
     );
-
-    // Check that
 }

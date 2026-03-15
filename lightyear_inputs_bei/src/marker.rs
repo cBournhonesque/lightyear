@@ -3,6 +3,7 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
+use bevy_replicon::client::confirm_history::ConfirmHistory;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -24,13 +25,18 @@ impl<C> Default for InputMarker<C> {
 
 /// Propagate the InputMarker component from the Context entity to the Action entities
 /// whenever an InputMarker is added to a Context entity.
+/// Skip replicated action entities (those received from remote clients).
 pub(crate) fn propagate_input_marker<C: Component>(
     trigger: On<Add, InputMarker<C>>,
     actions: Query<&Actions<C>>,
+    confirm: Query<(), With<ConfirmHistory>>,
     mut commands: Commands,
 ) {
     if let Ok(actions) = actions.get(trigger.entity) {
         actions.iter().for_each(|action| {
+            if confirm.get(action).is_ok() {
+                return;
+            }
             commands.entity(action).insert(InputMarker::<C>::default());
         });
     }
@@ -38,9 +44,11 @@ pub(crate) fn propagate_input_marker<C: Component>(
 
 /// When an Action entity is added to a Context entity that has an InputMarker,
 /// add the InputMarker to the Action entity as well.
+/// Skip replicated entities — those are received from remote clients and should not
+/// be marked as local input sources.
 pub(crate) fn add_input_marker_from_parent<C: Component>(
     trigger: On<Add, ActionOf<C>>,
-    action_of: Query<&ActionOf<C>>,
+    action_of: Query<&ActionOf<C>, Without<ConfirmHistory>>,
     context: Query<(), With<InputMarker<C>>>,
     mut commands: Commands,
 ) {
@@ -54,9 +62,10 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
 }
 
 /// If Bindings or ActionMock is added to an Action entity, add the InputMarker to that Action entity.
+/// Skip replicated entities.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
     trigger: On<Add, (Bindings, ActionMock)>,
-    action: Query<(), With<ActionOf<C>>>,
+    action: Query<(), (With<ActionOf<C>>, Without<ConfirmHistory>)>,
     mut commands: Commands,
 ) {
     if action.get(trigger.entity).is_ok() {
