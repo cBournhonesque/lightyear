@@ -9,7 +9,7 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::HashMap;
 use lightyear_replication::registry::ComponentKind;
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::registry::ComponentRegistry;
 use tracing::trace;
 
 /// Cached list of archetypes that are predicted.

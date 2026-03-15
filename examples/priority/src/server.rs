@@ -14,6 +14,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.init_resource::<Global>();
         app.add_systems(Startup, setup);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
@@ -43,9 +44,6 @@ pub(crate) fn setup(mut commands: Commands) {
                 Shape::Circle,
                 ShapeChangeTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
                 Replicate::to_clients(NetworkTarget::All),
-                // A group with priority 2.0 will be replicated twice as often as a group with priority 1.0
-                // in case the bandwidth is saturated.
-                ReplicationGroup::default().set_priority(1.0 + y.abs() as f32),
             ));
         }
     }
@@ -55,7 +53,7 @@ pub(crate) fn setup(mut commands: Commands) {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     info!("New client connected: {:?}", trigger.entity);
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender::default(),
         // limit to 3KB/s
         Transport::new(PriorityConfig::new(3000)),
     ));

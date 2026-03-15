@@ -58,6 +58,13 @@ macro_rules! wrapping_id {
                  }
             }
 
+            impl From<u32> for $struct_name {
+                fn from(value: u32) -> Self {
+                    // as u16 truncates the higher bits
+                    Self(value as u16)
+                }
+            }
+
             /// Derive deref so that we don't have to write packet_id.0 in most cases
             impl Deref for $struct_name {
                 type Target = u16;

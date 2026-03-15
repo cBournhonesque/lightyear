@@ -1,7 +1,8 @@
 use crate::protocol::{BEIAction1, BEIContext};
 use crate::stepper::*;
 use bevy::prelude::*;
-use bevy_enhanced_input::action::{Action, ActionMock, ActionState, MockSpan};
+use bevy_enhanced_input::action::{Action, ActionState};
+use bevy_enhanced_input::action::mock::{ActionMock, MockSpan};
 use bevy_enhanced_input::prelude::{ActionOf, ActionValue, Actions};
 use lightyear::input::bei::input_message::BEIBuffer;
 use lightyear::prelude::input::bei::InputMarker;
@@ -86,22 +87,15 @@ fn test_rebroadcast() {
             .server_app
             .world()
             .get::<InputMarker<BEIContext>>(action_host)
-            .is_none()
-    );
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .get::<Replicate>(action_host)
-            .is_none()
+            .is_none(),
+        "Action entity on host-server should not have InputMarker"
     );
     assert!(
         stepper
             .server_app
             .world()
             .get::<ReplicateLike>(action_host)
-            .is_some()
+            .is_some(),
+        "Action entity on host-server should have ReplicateLike for rebroadcast"
     );
-
-    // Check that
 }

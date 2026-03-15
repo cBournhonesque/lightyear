@@ -15,12 +15,13 @@ use lightyear::core::tick::TickDuration;
 use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::*;
+use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear_avian2d::prelude::LagCompensationSpatialQuery;
 
 use crate::protocol::*;
 
 #[cfg(feature = "server")]
-use lightyear::prelude::{Room, RoomEvent};
+use lightyear::prelude::RoomId;
 use lightyear_avian2d::plugin::AvianReplicationMode;
 
 const EPS: f32 = 0.0001;
@@ -178,7 +179,6 @@ pub(crate) fn last_log(
         (
             Entity,
             Option<&Position>,
-            &Confirmed<Position>,
             Option<&Rotation>,
             Option<&Transform>,
         ),
@@ -188,7 +188,6 @@ pub(crate) fn last_log(
         (
             Entity,
             Option<&Position>,
-            &Confirmed<Position>,
             &ConfirmedHistory<Position>,
             Option<&Transform>,
         ),
@@ -197,24 +196,22 @@ pub(crate) fn last_log(
 ) {
     let tick = timeline.tick();
     let interpolate_tick = interpolation_timeline.iter().next().map(|t| t.tick());
-    for (entity, pos, confirmed, rotation, transform) in player.iter() {
+    for (entity, pos, rotation, transform) in player.iter() {
         debug!(
             ?tick,
             ?entity,
             ?pos,
-            ?confirmed,
             ?rotation,
             transform = ?transform.map(|t| t.translation.truncate()),
             "Player after last"
         );
     }
-    for (entity, position, confirmed, history, transform) in interpolated_bullet.iter() {
+    for (entity, position, history, transform) in interpolated_bullet.iter() {
         debug!(
             ?tick,
             ?interpolate_tick,
             ?entity,
             ?position,
-            ?confirmed,
             ?history,
             transform = ?transform.map(|t| t.translation.truncate()),
             "Bullet after fixed update"
@@ -886,10 +883,6 @@ mod full_entity {
                         Replicate::to_clients(NetworkTarget::All),
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                        // only replicate RigidBody to the shooter. We don't want interpolated bullets to have RigidBody
-                        ComponentReplicationOverrides::<RigidBody>::default()
-                            .disable_all()
-                            .enable_for(shooter),
                         controlled_by.unwrap().clone(),
                     ));
                 }
@@ -898,8 +891,6 @@ mod full_entity {
                         bullet_bundle,
                         Replicate::to_clients(NetworkTarget::All),
                         InterpolationTarget::to_clients(NetworkTarget::All),
-                        // We don't want interpolated bullets to have RigidBody
-                        ComponentReplicationOverrides::<RigidBody>::default().disable_all(),
                         controlled_by.unwrap().clone(),
                     ));
                 }
@@ -1738,13 +1729,15 @@ pub(crate) fn update_homing_missiles(
 #[derive(Component, Clone, PartialEq, Debug)]
 pub struct DespawnAfter(pub Timer);
 
-/// Resource to track room entities for each replication mode
+/// Resource to track room ids for each replication mode
+#[cfg(feature = "server")]
 #[derive(Resource, Debug)]
-pub struct Rooms {
-    pub rooms: HashMap<GameReplicationMode, Entity>,
+pub struct GameRooms {
+    pub rooms: HashMap<GameReplicationMode, RoomId>,
 }
 
-impl Default for Rooms {
+#[cfg(feature = "server")]
+impl Default for GameRooms {
     fn default() -> Self {
         Self {
             rooms: HashMap::default(),

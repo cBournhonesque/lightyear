@@ -348,7 +348,6 @@ impl Plugin for ProtocolPlugin {
 
         // messages
         app.register_event::<HitDetected>()
-            .add_map_entities()
             .add_direction(NetworkDirection::ClientToServer);
 
         // components
@@ -389,7 +388,7 @@ impl Plugin for ProtocolPlugin {
         // entities.
         app.register_component::<RigidBody>();
 
-        app.register_component::<BulletMarker>().add_map_entities();
+        app.register_component::<BulletMarker>();
 
         app.register_component::<Bot>();
 

@@ -118,6 +118,7 @@ cfg-if = "1.0"
 dashmap = "6.1.0"
 enum_dispatch = "0.3"
 fixed = { version = "1.29", features = ["serde"] }
+fixedbitset = "0.5.7"
 governor = "0.10"
 hashbrown = { version = "0.16", default-features = false }
 indexmap = { version = "2.9.0", default-features = false }
@@ -208,6 +209,7 @@ bevy_math = { version = "0.18", default-features = false }
 bevy_platform = { version = "0.18", default-features = false }
 bevy_ptr = { version = "0.18", default-features = false }
 bevy_reflect = { version = "0.18", default-features = false }
+bevy_state = { version = "0.18", default-features = false }
 bevy_text = { version = "0.18", default-features = false }
 bevy_time = { version = "0.18", default-features = false }
 bevy_transform = { version = "0.18", default-features = false }
@@ -223,6 +225,9 @@ bevy_enhanced_input = { version = "0.24", features = ["serialize"] }
 leafwing-input-manager = { version = "0.20", default-features = false, features = [
   "keyboard",
 ] }
+
+# replication
+bevy_replicon = { path = "../bevy_replicon" }
 
 # physics
 avian2d = { version = "0.5", default-features = false }

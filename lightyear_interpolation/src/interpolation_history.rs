@@ -1,12 +1,9 @@
-use crate::Interpolated;
 use crate::prelude::InterpolationRegistry;
-use bevy_ecs::prelude::Changed;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::Tick;
-use lightyear_replication::components::{Confirmed, ConfirmedTick};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -101,64 +98,5 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
             return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
         }
         None
-    }
-}
-
-/// When [`Confirmed<C>`] is inserted on an Interpolated entity, insert a [`ConfirmedHistory::<C>`] component
-///
-// TODO: should we populate the history immediately with the component value?
-pub(crate) fn insert_confirmed_history<C: Component>(
-    trigger: On<Add, Confirmed<C>>,
-    mut commands: Commands,
-    query: Query<(), (With<Interpolated>, Without<ConfirmedHistory<C>>)>,
-) {
-    if query.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .try_insert(ConfirmedHistory::<C>::default());
-    }
-}
-
-/// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
-pub(crate) fn apply_confirmed_update<C: Component + Clone>(
-    // TODO: this should be a trigger, we should trigger an event whenever Confirmed gets inserted or modified
-
-    // TODO: use the interpolation receiver corresponding to the Confirmed entity (via Replicated)
-    mut interpolated_entities: Query<
-        (&mut ConfirmedHistory<C>, &Confirmed<C>, &ConfirmedTick),
-        (With<Interpolated>, Changed<Confirmed<C>>),
-    >,
-) {
-    let kind = DebugName::type_name::<C>();
-    for (mut history, confirmed_component, confirmed) in interpolated_entities.iter_mut() {
-        // // if has_authority is true, we will consider the Confirmed value as the source of truth
-        // // else it will be the server updates
-        // // TODO: as an alternative, we could set the confirmed.tick to be equal to the current tick
-        // //  if we have authority! Then it would also work for prediction?
-        // let tick = if has_authority {
-        //     timeline.tick()
-        // } else {
-        //     confirmed.tick
-        // };
-        let tick = confirmed.tick;
-
-        // let Some(tick) = client
-        //     .replication_receiver()
-        //     .get_confirmed_tick(confirmed_entity)
-        // else {
-        //     error!(
-        //         "Could not find replication channel for entity {:?}",
-        //         confirmed_entity
-        //     );
-        //     continue;
-        // };
-
-        let component = confirmed_component.clone();
-        trace!(?kind, tick = ?tick, "adding confirmed update to history");
-        // update the history at the value that the entity currently is
-        // NOTE: it is guaranteed that the confirmed update is more recent than all previous updates
-        //  We enforce this invariant in replication::receive
-        history.push(tick, component.0);
-        // TODO: here we do not want to update directly the component, that will be done during interpolation
     }
 }

@@ -38,6 +38,24 @@ pub mod prelude {
     };
 }
 
+use lightyear_core::tick::Tick;
+
+pub(crate) trait ToTick {
+    fn tick(&self) -> Tick;
+}
+
+impl ToTick for lightyear_replication::prelude::ConfirmHistory {
+    fn tick(&self) -> Tick {
+        self.last_tick().get().into()
+    }
+}
+
+impl ToTick for lightyear_replication::prelude::ServerMutateTicks {
+    fn tick(&self) -> Tick {
+        self.last_tick().get().into()
+    }
+}
+
 use bevy_ecs::component::{Component, Mutable};
 pub use lightyear_core::prediction::Predicted;
 

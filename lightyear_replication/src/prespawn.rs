@@ -1,14 +1,12 @@
 //! Handles spawning entities that are predicted
 
-use crate::components::Replicated;
 use crate::control::{Controlled, ControlledBy};
-use crate::hierarchy::ReplicateLike;
 #[cfg(feature = "interpolation")]
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::prelude::PredictionTarget;
-use crate::prelude::{ComponentRegistry, Replicate};
-use crate::registry::ComponentKind;
+use crate::prelude::{Replicate};
+use crate::registry::{ComponentKind, ComponentRegistry};
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::archetype::Archetype;
@@ -22,6 +20,8 @@ use bevy_reflect::{Reflect, prelude::ReflectDefault};
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
+use bevy_replicon::client::confirm_history::ConfirmHistory;
+use bevy_replicon::prelude::Signature;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, Tick};
@@ -54,6 +54,8 @@ impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
         app.configure_sets(PostUpdate, PreSpawnedSystems::CleanUp);
         app.add_observer(Self::register_prespawn_hashes);
+        app.add_observer(Self::insert_prespawn_signature);
+        app.add_observer(Self::cleanup_matched_prespawn);
         #[cfg(feature = "client")]
         app.add_observer(PreSpawnedReceiver::handle_tick_sync);
         app.add_systems(
@@ -71,7 +73,7 @@ impl PreSpawnedPlugin {
         query: Query<
             &PreSpawned,
             // run this only when the component was added on a client-spawned entity (not server-replicated)
-            Without<Replicated>,
+            Without<ConfirmHistory>,
         >,
         mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
     ) {
@@ -127,8 +129,11 @@ impl PreSpawnedPlugin {
     pub(crate) fn pre_spawned_player_object_cleanup(
         mut commands: Commands,
         local_timeline: Res<LocalTimeline>,
-        manager_query: Single<&mut PreSpawnedReceiver>,
+        manager_query: Option<Single<&mut PreSpawnedReceiver>>,
     ) {
+        let Some(manager_query) = manager_query else {
+            return;
+        };
         let tick = local_timeline.tick();
         let mut manager = manager_query.into_inner();
         let manager = &mut *manager;
@@ -157,6 +162,45 @@ impl PreSpawnedPlugin {
                         entity_commands.despawn();
                     }
                 });
+        }
+    }
+
+    /// When PreSpawned is added, insert a Signature component so replicon's
+    /// matching pipeline (collect_mappings → apply_entity_mapping) can work.
+    fn insert_prespawn_signature(
+        trigger: On<Add, PreSpawned>,
+        query: Query<&PreSpawned, Without<ConfirmHistory>>,
+        mut commands: Commands,
+    ) {
+        if let Ok(prespawn) = query.get(trigger.entity) {
+            if let Some(hash) = prespawn.hash {
+                commands
+                    .entity(trigger.entity)
+                    .insert(Signature::from(hash));
+            }
+        }
+    }
+
+    /// When a prespawned entity is matched with a server entity (ConfirmHistory added),
+    /// clean up the PreSpawnedReceiver tracking and remove Signature.
+    fn cleanup_matched_prespawn(
+        trigger: On<Add, ConfirmHistory>,
+        query: Query<&PreSpawned>,
+        mut receiver_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
+        mut commands: Commands,
+    ) {
+        let entity = trigger.entity;
+        if let Ok(prespawn) = query.get(entity) {
+            if let Some(hash) = prespawn.hash {
+                if let Ok(mut receiver) = receiver_query.single_mut() {
+                    receiver.prespawn_hash_to_entities.remove(&hash);
+                    receiver
+                        .prespawn_tick_to_hash
+                        .retain(|(_, h)| *h != hash);
+                }
+            }
+            // Remove Signature to free the SignatureMap entry
+            commands.entity(entity).remove::<Signature>();
         }
     }
 }
@@ -395,7 +439,6 @@ pub(crate) fn compute_default_hash(
                 #[allow(unused_mut)]
                 let mut keep = type_id != TypeId::of::<PreSpawned>()
                     && type_id != TypeId::of::<Controlled>()
-                    && type_id != TypeId::of::<ReplicateLike>()
                     && type_id != TypeId::of::<Replicate>()
                     && type_id != TypeId::of::<ControlledBy>();
                 #[cfg(feature = "prediction")]

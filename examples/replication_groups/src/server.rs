@@ -14,6 +14,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         // the simulation systems that can be rolled back must run in FixedUpdate
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_observer(handle_new_client);
@@ -23,7 +24,7 @@ impl Plugin for ExampleServerPlugin {
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender::default(),
         Name::from("Client"),
     ));
 }
@@ -54,7 +55,7 @@ pub(crate) fn handle_connections(
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
                 owner: trigger.entity,
-                lifetime: Lifetime::default(),
+                lifetime: Default::default(),
             },
             Name::from("Head"),
         ))

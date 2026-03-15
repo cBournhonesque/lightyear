@@ -29,6 +29,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, setup);
         app.add_systems(
             FixedUpdate,
@@ -74,34 +75,6 @@ fn player_shoot(
     time: Res<Time<Fixed>>,
 ) {
     for (action_state, position, controlled_by) in &query {
-        let mut position_override = ComponentReplicationOverrides::<Position>::default();
-        position_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut rotation_override = ComponentReplicationOverrides::<Rotation>::default();
-        rotation_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut linear_velocity_override =
-            ComponentReplicationOverrides::<LinearVelocity>::default();
-        linear_velocity_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut angular_velocity_override =
-            ComponentReplicationOverrides::<AngularVelocity>::default();
-        angular_velocity_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut computed_mass_override = ComponentReplicationOverrides::<ComputedMass>::default();
-        computed_mass_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-
         if action_state.just_pressed(&CharacterAction::Shoot) {
             commands.spawn((
                 Name::new("Projectile"),
@@ -120,14 +93,6 @@ fn player_shoot(
                     owner: controlled_by.owner,
                     lifetime: Default::default(),
                 },
-                // we don't want clients to receive any replication updates after the initial spawn
-                (
-                    position_override,
-                    rotation_override,
-                    linear_velocity_override,
-                    angular_velocity_override,
-                    computed_mass_override,
-                ),
             ));
         }
     }
@@ -157,11 +122,7 @@ fn setup(mut commands: Commands) {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+        .insert(ReplicationSender::default());
 }
 
 /// Spawn the player entity when a client connects

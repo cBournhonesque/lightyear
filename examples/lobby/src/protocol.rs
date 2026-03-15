@@ -58,17 +58,11 @@ impl Lobbies {
                 lobby.players.remove(index);
                 if lobby.players.is_empty() {
                     removed_lobby = Some(lobby_id);
-                    commands.entity(lobby.room).despawn();
                 }
             }
         }
         if let Some(lobby_id) = removed_lobby {
             self.lobbies.remove(lobby_id);
-            // always make sure that there is an empty lobby for players to join
-            if !self.has_empty_lobby() {
-                let room = commands.spawn(Room::default()).id();
-                self.lobbies.push(Lobby::new(room));
-            }
         }
     }
 }
@@ -78,17 +72,17 @@ pub struct Lobby {
     pub players: Vec<PeerId>,
     /// Which client is selected to be the host for the next game (if None, the server will be the host)
     pub host: Option<PeerId>,
-    pub room: Entity,
+    pub room_id: RoomId,
     /// If true, the lobby is in game. If not, it is still in lobby mode
     pub in_game: bool,
 }
 
 impl Lobby {
-    pub(crate) fn new(room: Entity) -> Self {
+    pub(crate) fn new(room_id: RoomId) -> Self {
         Self {
             players: vec![],
             host: None,
-            room,
+            room_id,
             in_game: false,
         }
     }

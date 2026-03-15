@@ -4,13 +4,11 @@ use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
 use lightyear::prediction::Predicted;
-use lightyear::prelude::{Confirmed, InterpolationSystems, RollbackSystems};
+use lightyear::prelude::{InterpolationSystems, RollbackSystems};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
-pub struct ExampleRendererPlugin {
-    pub(crate) show_confirmed: bool,
-}
+pub struct ExampleRendererPlugin;
 
 impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
@@ -29,15 +27,6 @@ impl Plugin for ExampleRendererPlugin {
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
         app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
         app.add_observer(add_frame_interpolation_components);
-
-        if self.show_confirmed {
-            app.add_systems(
-                PostUpdate,
-                draw_confirmed_shadows
-                    .after(InterpolationSystems::Interpolate)
-                    .after(RollbackSystems::VisualCorrection),
-            );
-        }
     }
 }
 
@@ -60,38 +49,6 @@ fn add_frame_interpolation_components(
 
 fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
-}
-
-/// System that draws the outlines of confirmed entities, with lines to the centre of their predicted location.
-pub(crate) fn draw_confirmed_shadows(
-    mut gizmos: Gizmos,
-    confirmed_q: Query<
-        (
-            &Confirmed<Position>,
-            &Confirmed<Rotation>,
-            &Confirmed<LinearVelocity>,
-            &Position,
-        ),
-        (With<PlayerId>, With<Predicted>),
-    >,
-    predicted_q: Query<&Position, With<PlayerId>>,
-) {
-    for (position, rotation, velocity, predicted_pos) in confirmed_q.iter() {
-        let speed = velocity.length() / crate::shared::MAX_VELOCITY;
-        let ghost_col = css::GRAY.with_alpha(speed);
-        gizmos.rect_2d(
-            Isometry2d {
-                rotation: Rot2 {
-                    sin: rotation.sin,
-                    cos: rotation.cos,
-                },
-                translation: Vec2::new(position.x, position.y),
-            },
-            Vec2::ONE * PLAYER_SIZE,
-            ghost_col,
-        );
-        gizmos.line_2d(position.0 .0, predicted_pos.0, ghost_col);
-    }
 }
 
 /// System that draws the player's boxes and cursors

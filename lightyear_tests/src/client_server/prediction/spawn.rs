@@ -1,6 +1,7 @@
 use crate::stepper::*;
 use bevy::ecs::hierarchy::ChildOf;
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_core::prediction::Predicted;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use test_log::test;
@@ -68,3 +69,4 @@ fn test_spawn_predicted_with_hierarchy() {
         predicted_parent
     );
 }
+

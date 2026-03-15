@@ -26,6 +26,9 @@ lightyear_messages.workspace = true
 # inputs
 bevy_enhanced_input.workspace = true
 
+# replication
+bevy_replicon.workspace = true
+
 # utils
 tracing.workspace = true
 
