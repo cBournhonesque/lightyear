@@ -158,10 +158,13 @@ fn send_server_packets(
 /// to the entity_mapper, and entities that were previously synced but are no longer in
 /// `ServerEntityMap` are removed.
 fn sync_entity_map(
-    entity_map: Res<ServerEntityMap>,
+    entity_map: Option<Res<ServerEntityMap>>,
     mut managers: Query<&mut MessageManager>,
     mut synced_entities: Local<bevy_platform::collections::HashSet<Entity>>,
 ) {
+    let Some(entity_map) = entity_map else {
+        return;
+    };
     if !entity_map.is_changed() {
         return;
     }

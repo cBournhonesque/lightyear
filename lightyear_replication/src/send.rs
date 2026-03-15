@@ -616,16 +616,14 @@ impl Plugin for SendPlugin{
         #[cfg(feature = "prediction")]
         {
             app.register_required_components::<PredictionTarget, Predicted>();
-            // Register Predicted for replication so the marker component is replicated
-            // from server to client. This enables the replicon marker system to use
-            // write_history for predicted components on subsequent updates.
-            app.replicate::<Predicted>();
+            // Note: app.replicate::<Predicted>() is called in SharedComponentRegistrationPlugin
+            // to ensure matching component IDs on both client and server.
             app.init_resource::<PredictedBit>();
         }
         #[cfg(feature = "interpolation")]
         {
             app.register_required_components::<InterpolationTarget, Interpolated>();
-            app.replicate::<Interpolated>();
+            // Note: app.replicate::<Interpolated>() is called in SharedComponentRegistrationPlugin
             app.init_resource::<InterpolatedBit>();
         }
     }

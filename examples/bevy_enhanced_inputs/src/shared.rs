@@ -32,11 +32,11 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 
 pub(crate) fn confirmed_log(
     timeline: Res<LocalTimeline>,
-    players: Query<(Entity, &Confirmed<PlayerPosition>), Changed<Confirmed<PlayerPosition>>>,
+    players: Query<(Entity, &PlayerPosition), (With<PlayerId>, Changed<PlayerPosition>)>,
 ) {
     let tick = timeline.tick();
     for status in players.iter() {
-        trace!(?tick, ?status, "Confirmed Updated");
+        trace!(?tick, ?status, "Position Updated");
     }
 }
 

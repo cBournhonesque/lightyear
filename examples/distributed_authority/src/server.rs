@@ -24,6 +24,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, setup);
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_connected);
@@ -47,7 +48,7 @@ fn setup(mut commands: Commands) {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
         ReplicationReceiver::default(),
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender::default(),
         Name::from("Client"),
     ));
 }
@@ -72,7 +73,7 @@ pub(crate) fn handle_connected(
         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
         ControlledBy {
             owner: trigger.entity,
-            lifetime: Lifetime::default(),
+            lifetime: Default::default(),
         },
     ));
     info!("Create entity {:?} for client {:?}", entity.id(), client_id);

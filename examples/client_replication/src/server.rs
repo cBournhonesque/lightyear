@@ -13,6 +13,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(replicate_cursors);
         app.add_observer(handle_new_client);
         app.add_observer(on_connect);
@@ -27,7 +28,7 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
         ReplicationReceiver::default(),
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender::default(),
         Name::from("ClientOf"),
     ));
 }
@@ -51,19 +52,20 @@ pub(crate) fn on_connect(
 
 /// When we receive a replicated Cursor, replicate it to all other clients
 pub(crate) fn replicate_cursors(
-    // We add an observer on both Cursor and Replicated because
-    // in host-server mode, Replicated is not present on the entity when
-    // CursorPosition is added. (Replicated gets added slightly after by an observer)
     trigger: On<Add, (CursorPosition, Replicated)>,
     mut commands: Commands,
-    cursor_query: Query<&Replicated, With<CursorPosition>>,
-    client_query: Query<&RemoteId, With<ClientOf>>,
+    cursor_query: Query<&PlayerId, With<CursorPosition>>,
+    peer_metadata: Res<PeerMetadata>,
 ) {
     let entity = trigger.entity;
-    let Ok(replicated) = cursor_query.get(entity) else {
+    let Ok(player_id) = cursor_query.get(entity) else {
         return;
     };
-    let client_id = client_query.get(replicated.receiver).unwrap().0;
+    let client_id = player_id.0;
+    let Some(sender_entity) = peer_metadata.mapping.get(&client_id) else {
+        error!("Could not find sender entity for client: {:?}", client_id);
+        return;
+    };
     info!("received cursor spawn event from client: {client_id:?}");
     if let Ok(mut e) = commands.get_entity(entity) {
         // Cursor: replicate to others, interpolate for others
@@ -72,7 +74,7 @@ pub(crate) fn replicate_cursors(
             Replicate::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
-                owner: replicated.receiver,
+                owner: *sender_entity,
                 lifetime: Lifetime::SessionBased,
             },
         ));

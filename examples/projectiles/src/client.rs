@@ -1,9 +1,9 @@
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{Rooms, color_from_id};
+use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_enhanced_input::action::ActionMock;
+use bevy_enhanced_input::action::mock::ActionMock;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
@@ -38,14 +38,13 @@ pub(crate) fn handle_predicted_spawn(
         (
             &PlayerId,
             &Position,
-            &Confirmed<Position>,
             &GameReplicationMode,
         ),
         With<Predicted>,
     >,
 ) {
     let client_id = client.into_inner().0;
-    if let Ok((player_id, pos, confirmed_pos, mode)) = player_query.get_mut(trigger.entity) {
+    if let Ok((player_id, pos, mode)) = player_query.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
@@ -65,7 +64,6 @@ pub(crate) fn handle_predicted_spawn(
         }
         info!(
             ?pos,
-            ?confirmed_pos,
             "Adding actions to predicted player {:?}",
             trigger.entity
         );

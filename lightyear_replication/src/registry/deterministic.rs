@@ -54,7 +54,6 @@ impl<C: Debug> ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                let confirmed_component_id = world.register_component::<C>();
                 let component_id = world.register_component::<C>();
 
                 let kind = ComponentKind::of::<C>();
@@ -62,11 +61,8 @@ impl<C: Debug> ComponentRegistration<'_, C> {
                     .component_metadata_map
                     .entry(kind)
                     .or_insert_with(|| ComponentMetadata {
-                        confirmed_component_id,
                         component_id,
                         replication: None,
-                        // #[cfg(feature = "delta")]
-                        // delta: None,
                         deterministic: None,
                     })
                     .deterministic = Some(DeterministicFns::new::<C>(default_inner_hash_fn::<C>));
@@ -84,18 +80,14 @@ impl<C: Debug> ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                let confirmed_component_id = world.register_component::<C>();
                 let component_id = world.register_component::<C>();
                 let kind = ComponentKind::of::<C>();
                 registry
                     .component_metadata_map
                     .entry(kind)
                     .or_insert_with(|| ComponentMetadata {
-                        confirmed_component_id,
                         component_id,
                         replication: None,
-                        // #[cfg(feature = "delta")]
-                        // delta: None,
                         deterministic: None,
                     })
                     .deterministic = Some(DeterministicFns::new(f));

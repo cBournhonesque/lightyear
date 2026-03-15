@@ -22,6 +22,7 @@ const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_plugins(LagCompensationPlugin);
         app.add_systems(Startup, spawn_bots);
         app.add_observer(handle_new_client);
@@ -44,25 +45,13 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+        .insert(ReplicationSender::default());
 }
 
-// Replicate the pre-spawned entities back to the client
-// We have to use `InitialReplicated` instead of `Replicated`, because
-// the server has already assumed authority over the entity so the `Replicated` component
-// has been removed
 pub(crate) fn spawn_player(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
-    replicated_players: Query<
-        (Entity, &InitialReplicated),
-        (Added<InitialReplicated>, With<PlayerId>),
-    >,
 ) {
     let Ok(client_id) = query.get(trigger.entity) else {
         return;

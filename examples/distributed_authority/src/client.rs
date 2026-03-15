@@ -32,16 +32,9 @@ impl Plugin for ExampleClientPlugin {
 /// on the client so that we can replicate updates to the server if we get authority
 /// over the ball
 pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) {
-    let mut color_override = ComponentReplicationOverrides::<PlayerColor>::default();
-    color_override.global_override(ComponentReplicationOverride {
-        disable: true,
-        ..default()
-    });
     commands.entity(trigger.entity).insert((
         Replicate::to_server(),
         Name::new("Ball"),
-        // Disable PlayerColor replication from client to server
-        color_override,
     ));
 }
 

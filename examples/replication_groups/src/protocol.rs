@@ -249,6 +249,6 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<TailLength>();
 
-        app.register_component::<PlayerParent>().add_map_entities();
+        app.register_component::<PlayerParent>();
     }
 }

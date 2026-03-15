@@ -13,7 +13,7 @@
 #![allow(dead_code)]
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::{ReplicationSender, SendUpdatesMode};
+use lightyear::prelude::ReplicationSender;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
@@ -56,11 +56,7 @@ fn main() {
             // We are doing client->server replication so we need to include a ReplicationSender for the client
             app.world_mut()
                 .entity_mut(client)
-                .insert(ReplicationSender::new(
-                    SEND_INTERVAL,
-                    SendUpdatesMode::SinceLastAck,
-                    false,
-                ));
+                .insert(ReplicationSender::default());
         }
         #[cfg(feature = "server")]
         Some(Mode::Server) => {

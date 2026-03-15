@@ -103,7 +103,7 @@ fn send_sender_metadata(
 fn receive_sender_metadata(
     trigger: On<RemoteEvent<SenderMetadata>>,
     mut query: Query<(Entity, &RemoteId, &mut MessageManager)>,
-    mut entity_map: ResMut<bevy_replicon::shared::server_entity_map::ServerEntityMap>,
+    entity_map: Option<ResMut<bevy_replicon::shared::server_entity_map::ServerEntityMap>>,
 ) {
     let remote_entity = trigger.trigger.sender_entity;
     let from = &trigger.from;
@@ -114,7 +114,9 @@ fn receive_sender_metadata(
                 remote_entity, local_entity
             );
             manager.entity_mapper.insert(remote_entity, local_entity);
-            entity_map.insert(remote_entity, local_entity);
+            if let Some(mut entity_map) = entity_map {
+                entity_map.insert(remote_entity, local_entity);
+            }
             return;
         }
     }

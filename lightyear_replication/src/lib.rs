@@ -38,18 +38,21 @@ pub mod prelude {
 
     pub use crate::ReplicationSystems;
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
-    pub use crate::control::{Controlled, ControlledBy};
+    pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority};
+    pub use crate::control::{Controlled, ControlledBy, Lifetime};
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::prespawn::PreSpawned;
     pub use crate::receive::ReplicationReceiver;
-    pub use crate::send::{Replicate, ReplicationSender};
+    pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender};
 
     pub use crate::visibility::room::{RoomAllocator, RoomPlugin, Rooms, RoomId};
+    pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
     pub use crate::registry::replication::AppComponentExt;
+    pub use crate::registry::ComponentRegistry;
     pub use crate::registry::TransformLinearInterpolation;
 
     #[cfg(feature = "delta")]
-    pub use crate::delta::Diffable;
+    pub use crate::delta::{Diffable, DeltaManager};
 
     #[cfg(feature = "prediction")]
     pub use crate::send::PredictionTarget;
@@ -69,6 +72,30 @@ pub enum ReplicationSystems {
     Send,
 }
 
+/// Plugin that registers replicated marker components (`Predicted`, `Interpolated`, `Controlled`)
+/// with replicon on both client and server. This ensures the component ID registry matches
+/// on both sides, which is required for correct deserialization.
+struct SharedComponentRegistrationPlugin;
+
+impl bevy_app::prelude::Plugin for SharedComponentRegistrationPlugin {
+    fn build(&self, app: &mut bevy_app::prelude::App) {
+        use bevy_replicon::prelude::AppRuleExt;
+        // The order of app.replicate() calls must be identical on client and server.
+        // These marker components are sent from server to client as part of entity replication.
+        #[cfg(feature = "prediction")]
+        app.replicate::<lightyear_core::prediction::Predicted>();
+        #[cfg(feature = "interpolation")]
+        app.replicate::<lightyear_core::interpolation::Interpolated>();
+        app.replicate::<control::Controlled>();
+
+        // ServerMutateTicks is normally only initialized by bevy_replicon's ClientPlugin,
+        // but prediction systems on server-only builds also reference it. Init it here
+        // so it's always available (defaults to empty/harmless state).
+        #[cfg(any(feature = "prediction", feature = "interpolation"))]
+        app.init_resource::<bevy_replicon::client::server_mutate_ticks::ServerMutateTicks>();
+    }
+}
+
 pub struct LightyearRepliconBackend;
 
 impl PluginGroup for LightyearRepliconBackend {
@@ -81,6 +108,9 @@ impl PluginGroup for LightyearRepliconBackend {
         group = group.add(channels::RepliconChannelRegistrationPlugin);
         group = group.add(metadata::MetadataPlugin);
         group = group.add(prespawn::PreSpawnedPlugin);
+        // Register shared marker components before server/client-specific plugins,
+        // so that both sides have matching replicon component IDs.
+        group = group.add(SharedComponentRegistrationPlugin);
 
         #[cfg(feature = "server")]
         {
@@ -89,8 +119,6 @@ impl PluginGroup for LightyearRepliconBackend {
             group = group.add(server_plugin);
             group = group.add(server::RepliconServerPlugin);
 
-
-            // TODO: add this independently from client or server. This should be enabled on the sender side
             group = group.add(send::SendPlugin);
             group = group.add(control::ControlPlugin);
             group = group.add(hierarchy::HierarchyPlugin);

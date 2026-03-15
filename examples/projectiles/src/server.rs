@@ -1,7 +1,7 @@
 use crate::client::ExampleClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{Rooms, SharedPlugin, color_from_id};
+use crate::shared::{GameRooms, SharedPlugin, color_from_id};
 use avian2d::prelude::*;
 use bevy::input::InputPlugin;
 use bevy::prelude::*;
@@ -33,7 +33,8 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(RoomPlugin);
-        app.init_resource::<Rooms>();
+        app.init_resource::<GameRooms>();
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
 
         app.add_plugins(LagCompensationPlugin);
         app.add_observer(handle_new_client);
@@ -57,7 +58,7 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
         trigger.entity
     );
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender::default(),
         // We need a ReplicationReceiver on the server side because the Action entities are spawned
         // on the client and replicated to the server.
         ReplicationReceiver::default(),
@@ -76,19 +77,12 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
     ));
 }
 
-// Replicate the pre-spawned entities back to the client
-// We have to use `InitialReplicated` instead of `Replicated`, because
-// the server has already assumed authority over the entity so the `Replicated` component
-// has been removed
 pub(crate) fn spawn_player(
     trigger: On<Add, Connected>,
     query: Query<(&RemoteId, Has<bot::BotClient>), With<ClientOf>>,
     mut commands: Commands,
-    mut rooms: ResMut<Rooms>,
-    replicated_players: Query<
-        (Entity, &InitialReplicated),
-        (Added<InitialReplicated>, With<PlayerId>),
-    >,
+    mut rooms: ResMut<GameRooms>,
+    mut room_allocator: ResMut<RoomAllocator>,
 ) {
     let sender = trigger.entity;
     let Ok((client_id, is_bot)) = query.get(sender) else {
@@ -99,23 +93,17 @@ pub(crate) fn spawn_player(
 
     for i in 0..6 {
         let replication_mode = GameReplicationMode::from_room_id(i);
-        let room = *rooms.rooms.entry(replication_mode).or_insert_with(|| {
-            commands
-                .spawn((
-                    Room::default(),
-                    Name::new(format!("Room{}", replication_mode.name())),
-                ))
-                .id()
+        let room_id = *rooms.rooms.entry(replication_mode).or_insert_with(|| {
+            room_allocator.allocate()
         });
 
         // start by adding the player to the first room
         if i == 0 {
-            commands.trigger(RoomEvent {
-                target: RoomTarget::AddSender(trigger.entity),
-                room,
-            });
+            commands
+                .entity(trigger.entity)
+                .insert(lightyear::prelude::Rooms::single(room_id));
         }
-        let player = server_player_bundle(room, client_id, sender, replication_mode);
+        let player = server_player_bundle(room_id, client_id, sender, replication_mode);
         let player_entity = match replication_mode {
             GameReplicationMode::AllPredicted => {
                 commands.spawn((player, PredictionTarget::to_clients(NetworkTarget::All)))
@@ -124,21 +112,11 @@ pub(crate) fn spawn_player(
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                // we don't want to add RigidBody to the Interpolation target because that
-                // will add Position::default()/Rotation::default() via RequiredComponents.
-                ComponentReplicationOverrides::<RigidBody>::default()
-                    .disable_all()
-                    .enable_for(sender),
             )),
             GameReplicationMode::ClientPredictedLagComp => commands.spawn((
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                // we don't want to add RigidBody to the Interpolation target because that
-                // will add Position::default()/Rotation::default() via RequiredComponents.
-                ComponentReplicationOverrides::<RigidBody>::default()
-                    .disable_all()
-                    .enable_for(sender),
                 // add the component to make lag-compensation possible!
                 LagCompensationHistory::default(),
             )),
@@ -146,27 +124,18 @@ pub(crate) fn spawn_player(
                 player,
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
-                // we don't want to add RigidBody to the Interpolation target because that
-                // will add Position::default()/Rotation::default() via RequiredComponents.
-                ComponentReplicationOverrides::<RigidBody>::default()
-                    .disable_all()
-                    .enable_for(sender),
             )),
             GameReplicationMode::AllInterpolated => {
                 commands.spawn((
                     player,
                     InterpolationTarget::to_clients(NetworkTarget::All),
-                    // we don't want to add RigidBody to the Interpolation target because that
-                    // will add Position::default()/Rotation::default() via RequiredComponents.
-                    // that means the entity will be in the middle of the screen until Position/Rotation are added
-                    ComponentReplicationOverrides::<RigidBody>::default().disable_all(),
                 ))
             }
             GameReplicationMode::OnlyInputsReplicated => commands.spawn((
                 PlayerContext,
                 replication_mode,
                 Replicate::to_clients(NetworkTarget::All),
-                NetworkVisibility::default(),
+                lightyear::prelude::Rooms::single(room_id),
                 ControlledBy {
                     owner: sender,
                     lifetime: Default::default(),
@@ -180,16 +149,12 @@ pub(crate) fn spawn_player(
         if is_bot {
             commands.entity(player_entity).insert(Bot);
         }
-        info!("Spawning player {player_entity:?} for room: {room:?}");
-        commands.trigger(RoomEvent {
-            target: RoomTarget::AddEntity(player_entity),
-            room,
-        });
+        info!("Spawning player {player_entity:?} for room: {room_id:?}");
     }
 }
 
 fn server_player_bundle(
-    room: Entity,
+    room_id: RoomId,
     client_id: PeerId,
     owner: Entity,
     replication_mode: GameReplicationMode,
@@ -197,7 +162,7 @@ fn server_player_bundle(
     let bundle = shared::player_bundle(client_id, replication_mode);
     (
         Replicate::to_clients(NetworkTarget::All),
-        NetworkVisibility::default(),
+        lightyear::prelude::Rooms::single(room_id),
         ControlledBy {
             owner,
             lifetime: Default::default(),
@@ -292,7 +257,7 @@ mod bot {
         app.world_mut().spawn((
             Client::default(),
             BotClient,
-            ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+            ReplicationSender::default(),
             ReplicationReceiver::default(),
             NetcodeClient::new(
                 auth,
@@ -465,10 +430,10 @@ mod bot {
 pub fn cycle_replication_mode(
     trigger: On<Complete<CycleReplicationMode>>,
     global: Single<&mut GameReplicationMode, With<ClientContext>>,
-    rooms: Res<Rooms>,
+    rooms: Res<GameRooms>,
     mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
     clients: Query<Entity, With<ClientOf>>,
-    room: Query<&Room>,
+    players: Query<Entity, With<PlayerMarker>>,
     mut commands: Commands,
 ) {
     let mut replication_mode = global.into_inner();
@@ -492,25 +457,18 @@ pub fn cycle_replication_mode(
         rooms.rooms.get(&current_mode),
         rooms.rooms.get(&*replication_mode),
     ) {
-        // also manually remove the Actions of the players present in the existing room
+        // also manually remove the Actions of the players present in the current room
         // (otherwise we might still be sending input messages for those actions even though the clients
         //  have despawned the corresponding player entities)
-        if let Ok(room) = room.get(*current_room) {
-            room.entities.iter().for_each(|player| {
-                commands
-                    .entity(*player)
-                    .despawn_related::<Actions<PlayerContext>>();
-            })
+        for player in players.iter() {
+            commands
+                .entity(player)
+                .despawn_related::<Actions<PlayerContext>>();
         }
         for client_entity in clients.iter() {
-            commands.trigger(RoomEvent {
-                target: RoomTarget::RemoveSender(client_entity),
-                room: *current_room,
-            });
-            commands.trigger(RoomEvent {
-                target: RoomTarget::AddSender(client_entity),
-                room: *next_room,
-            });
+            commands
+                .entity(client_entity)
+                .insert(lightyear::prelude::Rooms::single(*next_room));
             info!(
                 "Switching client {client_entity:?} from room {current_room:?} to room {next_room:?}"
             );

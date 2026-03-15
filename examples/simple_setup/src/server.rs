@@ -16,6 +16,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SERVER_REPLICATION_INTERVAL));
         app.add_systems(Startup, startup);
         app.add_observer(handle_new_client);
     }
@@ -30,11 +31,7 @@ impl Plugin for ExampleServerPlugin {
 fn handle_new_client(trigger: On<Add, Connected>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SERVER_REPLICATION_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+        .insert(ReplicationSender::default());
 }
 
 /// Start the server

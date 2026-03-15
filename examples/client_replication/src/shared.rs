@@ -91,11 +91,9 @@ fn spawn_player(
         // and replicated from server to client
         if is_server {
             #[cfg(feature = "server")]
-            action.insert((
+            action.insert(
                 Replicate::to_clients(NetworkTarget::Single(client_id)),
-                // make sure that the context and action are replicated together
-                PREDICTION_GROUP,
-            ));
+            );
         }
         let mut action = commands.spawn((
             ActionOf::<Player>::new(entity),
@@ -105,10 +103,9 @@ fn spawn_player(
         ));
         if is_server {
             #[cfg(feature = "server")]
-            action.insert((
+            action.insert(
                 Replicate::to_clients(NetworkTarget::Single(client_id)),
-                PREDICTION_GROUP,
-            ));
+            );
         }
     }
 }

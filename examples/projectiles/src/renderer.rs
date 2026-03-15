@@ -5,12 +5,12 @@ use bevy::color::palettes::basic::{GREEN, RED};
 use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
-use bevy_enhanced_input::action::{Action, ActionMock};
+use bevy_enhanced_input::action::{Action, mock::ActionMock};
 use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prelude::{
-    Client, Confirmed, Controlled, DeterministicPredicted, PreSpawned, Predicted, Replicate,
+    Client, Controlled, DeterministicPredicted, PreSpawned, Predicted, Replicate,
     Replicated,
 };
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;

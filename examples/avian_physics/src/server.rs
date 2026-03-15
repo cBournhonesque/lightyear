@@ -16,6 +16,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, setup);
         app.add_observer(handle_new_client);
         app.add_observer(replicate_players);
@@ -26,11 +27,7 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+        .insert(ReplicationSender::default());
 }
 
 // Renamed from init, removed Global resource, assume ball is always predicted

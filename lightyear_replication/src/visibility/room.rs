@@ -49,7 +49,7 @@ use tracing::{info, trace};
 /// Unique identifier for a room.
 ///
 /// The [`RoomId`] must be allocated via the [`RoomAllocator`] resource.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, bevy_reflect::Reflect)]
 pub struct RoomId(u16);
 
 impl RoomId {
