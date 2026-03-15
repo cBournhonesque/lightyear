@@ -76,9 +76,7 @@ fn test_compute_hash() {
 /// https://github.com/cBournhonesque/lightyear/issues/906
 ///
 /// This errors only if the server entities were part of the same replication group
-/// TODO: prespawn matching needs replicon integration
 #[test]
-#[ignore]
 fn test_multiple_prespawn() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
@@ -315,9 +313,7 @@ fn panic_on_rollback() {
 /// before it gets matched to a server entity.
 /// The match should work normally without causing any rollbacks, since the server components
 /// on the PreSpawned entity should match the client history when it was spawned.
-/// TODO: prespawn matching needs replicon integration
 #[test]
-#[ignore]
 fn test_prespawn_local_despawn_match() {
     let mut config = StepperConfig::single();
     config.init = false;

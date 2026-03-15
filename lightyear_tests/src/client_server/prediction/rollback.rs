@@ -15,6 +15,7 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
+use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode};
 use lightyear_prediction::prelude::*;
 use lightyear_prediction::rollback::{DeterministicPredicted, reset_input_rollback_tracker};
@@ -39,392 +40,393 @@ fn setup() -> (ClientServerStepper, Entity) {
     (stepper, predicted)
 }
 
-struct RollbackCounter(pub usize);
+// =============================================================================
+// Scenario 1: Component predicted-inserted but not from replication → removed on rollback
+// =============================================================================
 
-// // TODO: check that if A is updated but B is not, and A and B are in the same replication group,
-// //  then we need to check the rollback for B as well!
-// /// Check that we enter a rollback state when confirmed entity is updated at tick T and:
-// /// 1. Predicted component and Confirmed component are different
-// /// 2. Confirmed component does not exist and predicted component exists
-// /// 3. Confirmed component exists but predicted component does not exist
-// /// 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
-// #[test]
-// fn test_check_rollback() {
-//     let (mut stepper, predicted) = setup();
-//
-//     // make sure we simulate that we received a server update
-//     let tick = stepper.client_tick(0);
-//
-//     // step once to avoid 0 tick rollback
-//     stepper.frame_step(1);
-//
-//     assert!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<PredictionHistory<CompFull>>(predicted)
-//             .is_some()
-//     );
-//     let history_id = stepper
-//         .client_app()
-//         .world_mut()
-//         .register_component::<PredictionHistory<CompFull>>();
-//     info!(?history_id, "hi");
-//     trigger_rollback_check(&mut stepper, tick);
-//     stepper.frame_step(1);
-//     // 0. Rollback when the Confirmed component is just added
-//     // (there is a rollback even though the values match, because the value isn't present in
-//     //  the PredictionHistory at the time of spawn)
-//     assert!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<PredictionHistory<CompFull>>(predicted)
-//             .is_some()
-//     );
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .resource::<PredictionMetrics>()
-//             .rollbacks,
-//         1
-//     );
-//
-//     // 1. Predicted component and confirmed component are different
-//     let tick = stepper.client_tick(0);
-//     // TODO: receive remote update
-//     // stepper
-//     //     .client_app()
-//     //     .world_mut()
-//     //     .entity_mut(predicted)
-//     //     .insert(Confirmed(CompFull(2.0)));
-//     // simulate that we received a server message for the confirmed entity on tick `tick`
-//     // where the PredictionHistory had the value of 1.0
-//
-//     // step once to avoid 0 tick rollback
-//     stepper.frame_step(1);
-//
-//     trigger_rollback_check(&mut stepper, tick);
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .resource::<PredictionMetrics>()
-//             .rollbacks,
-//         2
-//     );
-//     // the predicted history now has CompFull(2.0)
-//
-//     // 2. Confirmed component does not exist but predicted component exists
-//     // TODO: receive remote remove
-//     // stepper
-//     //     .client_app()
-//     //     .world_mut()
-//     //     .entity_mut(predicted)
-//     //     .remove::<Confirmed<CompFull>>();
-//     // simulate that we received a server message for the confirmed entity on tick `tick`
-//     trigger_rollback_check(&mut stepper, tick);
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .resource::<PredictionMetrics>()
-//             .rollbacks,
-//         3
-//     );
-//     // the predicted history now has Absent
-//
-//     // 3. Confirmed component exists but predicted component does not exist
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted)
-//         .remove::<CompFull>();
-//     // TODO: receive update for component
-//     // stepper
-//     //     .client_app()
-//     //     .world_mut()
-//     //     .entity_mut(predicted)
-//     //     .insert(Confirmed(CompFull(2.0)));
-//     // simulate that we received a server message for the confirmed entity on tick `tick`
-//     trigger_rollback_check(&mut stepper, tick);
-//     stepper.frame_step(1);
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .resource::<PredictionMetrics>()
-//             .rollbacks,
-//         4
-//     );
-//     // the predicted history now has ConfirmedSyncModeFull(2.0)
-//
-//     // 4. If confirmed component is the same value as what we have in the history for predicted component, we do not rollback
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted)
-//         .get_mut::<PredictionHistory<CompFull>>()
-//         .unwrap()
-//         .add_confirmed(tick, Some(CompFull(2.0)));
-//
-//     // simulate that we received a server message for the confirmed entity on tick `tick`
-//     trigger_rollback_check(&mut stepper, tick);
-//     stepper.frame_step(1);
-//     // no rollback
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .resource::<PredictionMetrics>()
-//             .rollbacks,
-//         4
-//     );
-// }
+/// Client prediction adds a component, but server never has it.
+/// On rollback, the component should be removed.
+#[test]
+fn test_predicted_insert_reverted_on_rollback() {
+    let (mut stepper, predicted) = setup();
 
-// /// Test that:
-// /// - we remove a component from the predicted entity
-// /// - rolling back before the remove should re-add it
-// ///   We are still able to rollback properly (the rollback adds the component to the predicted entity)
-// #[test]
-// fn test_removed_predicted_component_rollback() {
-//     let (mut stepper, predicted) = setup();
-//     fn increment_component_system(
-//         mut commands: Commands,
-//         mut query_networked: Query<(Entity, &mut CompFull), With<Predicted>>,
-//     ) {
-//         for (entity, mut component) in query_networked.iter_mut() {
-//             component.0 += 1.0;
-//             if component.0 == 5.0 {
-//                 commands.entity(entity).remove::<CompFull>();
-//             }
-//         }
-//     }
-//     stepper
-//         .client_app()
-//         .add_systems(FixedUpdate, increment_component_system);
-//     stepper.frame_step(1);
-//
-//     // check that the component got synced
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<CompFull>(predicted)
-//             .unwrap(),
-//         &CompFull(2.0)
-//     );
-//     // also insert a non-networked component directly on the predicted entity
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted)
-//         .insert(CompNotNetworked(1.0));
-//
-//     // advance five more frames, so that the component gets removed on predicted
-//     stepper.frame_step(5);
-//
-//     // check that the networked component got removed on predicted
-//     assert!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<CompFull>(predicted)
-//             .is_none()
-//     );
-//     // also remove the non-networked component
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted)
-//         .remove::<CompNotNetworked>();
-//
-//     // create a rollback situation
-//     let tick = stepper.client_tick(0);
-//     info!("Trigger rollback back to {:?}", tick - 3);
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .get_mut::<CompFull>(predicted)
-//         .unwrap()
-//         .0 = -10.0;
-//     trigger_rollback_check(&mut stepper, tick - 3);
-//     stepper.frame_step(1);
-//
-//     // check that rollback happened
-//     // predicted got the component re-added and that we rolled back 3 ticks and advances by 1 tick
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world_mut()
-//             .get_mut::<CompFull>(predicted)
-//             .unwrap()
-//             .0,
-//         -6.0
-//     );
-//     // the non-networked component got rolled back as well
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world_mut()
-//             .get_mut::<CompNotNetworked>(predicted)
-//             .unwrap()
-//             .0,
-//         1.0
-//     );
-// }
+    stepper.frame_step(1);
+    let rollback_tick = stepper.client_tick(0);
+    stepper.frame_step(1);
 
-// /// Test that:
-// /// - a component gets added on Predicted
-// /// - we trigger a rollback, and the confirmed entity does not have the component
-// /// - the rollback removes the component from the predicted entity
-// #[test]
-// fn test_added_predicted_component_rollback() {
-//     let (mut stepper, predicted) = setup();
-//
-//     stepper.frame_step(1);
-//
-//     // the prediction history is updated with this tick
-//     let rollback_tick = stepper.client_tick(0);
-//     stepper.frame_step(1);
-//
-//     // add a non-networked component as well, which should be removed on the rollback
-//     // since it did not exist at the rollback tick
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted)
-//         .insert(CompNotNetworked(1.0));
-//
-//     // create a rollback situation to a tick where
-//     // - confirmed_component missing
-//     // - predicted component exists in history
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted)
-//         .remove::<CompFull>();
-//     trigger_rollback_check(&mut stepper, rollback_tick);
-//     stepper.frame_step(1);
-//
-//     // check that rollback happened:
-//     // the registered component got removed from predicted since it was not present on confirmed
-//     assert!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<CompFull>(predicted)
-//             .is_none()
-//     );
-//     // the non-networked component got removed from predicted as it wasn't present in the history
-//     assert!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<CompNotNetworked>(predicted)
-//             .is_none()
-//     );
-// }
+    // Client prediction adds CompNotNetworked (not replicated, server doesn't have it)
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .insert(CompNotNetworked(1.0));
 
-// /// If we have disable_rollback:
-// /// 1) we don't check rollback for that entity
-// /// 2) if a rollback happens, we reset to the predicted history value instead of the confirmed value
-// #[test]
-// fn test_disable_rollback() {
-//     let (mut stepper, predicted_b) = setup();
-//
-//     // add predicted/confirmed entities
-//     let receiver = stepper.client(0).id();
-//     let tick = stepper.client_tick(0);
-//     let predicted_a = stepper
-//         .client_app()
-//         .world_mut()
-//         .spawn((
-//             Predicted,
-//             DeterministicPredicted::default(),
-//         ))
-//         .id();
-//
-//     // value gets synced and added to PredictionHistory
-//     stepper.frame_step(1);
-//
-//     // 1. check rollback doesn't trigger on disable-rollback entities
-//     let tick = stepper.client_tick(0);
-//     // TODO
-//     // stepper
-//     //     .client_app()
-//     //     .world_mut()
-//     //     .entity_mut(predicted_a)
-//     //     .get_mut::<Confirmed<CompFull>>()
-//     //     .unwrap()
-//     //     .0
-//     //     .0 = 2.0;
-//     // simulate that we received a server message for the confirmed entity on tick `tick`
-//     trigger_rollback_check(&mut stepper, tick);
-//     let num_rollbacks = stepper
-//         .client_app()
-//         .world()
-//         .resource::<PredictionMetrics>()
-//         .rollbacks;
-//     stepper.frame_step(1);
-//     // no rollback
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .resource::<PredictionMetrics>()
-//             .rollbacks,
-//         num_rollbacks
-//     );
-//
-//     // 2. If a rollback happens, then we reset DisableRollback entities to their historical value
-//     stepper.frame_step(1);
-//     let tick = stepper.client_tick(0);
-//     // stepper
-//     //     .client_app()
-//     //     .world_mut()
-//     //     .entity_mut(predicted_b)
-//     //     .get_mut::<Confirmed<CompFull>>()
-//     //     .unwrap()
-//     //     .0
-//     //     .0 = 3.0;
-//     let mut history = PredictionHistory::<CompFull>::default();
-//     history.add_confirmed(tick, Some(CompFull(10.0)));
-//     stepper
-//         .client_app()
-//         .world_mut()
-//         .entity_mut(predicted_a)
-//         .insert(history);
-//     // step once to avoid a 0-tick rollback
-//     stepper.frame_step(1);
-//     // simulate that we received a server message for the confirmed entities on tick `tick`
-//     // (all predicted entities are in the same ReplicationGroup)
-//     trigger_rollback_check(&mut stepper, tick);
-//     stepper.frame_step(1);
-//
-//     // the DisableRollback entity was rolledback to the past PredictionHistory value
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<CompFull>(predicted_a)
-//             .unwrap()
-//             .0,
-//         10.0
-//     );
-//     assert_eq!(
-//         stepper
-//             .client_app()
-//             .world()
-//             .get::<CompFull>(predicted_b)
-//             .unwrap()
-//             .0,
-//         3.0
-//     );
-// }
+    // Simulate confirmed state at rollback_tick: CompFull still 1.0 (no change from server)
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(rollback_tick, Some(CompFull(1.0)));
+
+    trigger_rollback_check(&mut stepper, rollback_tick);
+    stepper.frame_step(1);
+
+    // CompNotNetworked should be removed: it wasn't in the history at rollback_tick
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompNotNetworked>(predicted)
+            .is_none(),
+        "Predicted-inserted component should be removed on rollback"
+    );
+}
+
+// =============================================================================
+// Scenario 2: Component predicted-removed → re-inserted on rollback
+// =============================================================================
+
+/// Client prediction removes a component, but server still has it.
+/// On rollback, the component should be restored.
+#[test]
+fn test_predicted_remove_restored_on_rollback() {
+    let (mut stepper, predicted) = setup();
+
+    fn increment_and_remove(
+        mut commands: Commands,
+        mut query: Query<(Entity, &mut CompFull), With<Predicted>>,
+    ) {
+        for (entity, mut comp) in query.iter_mut() {
+            comp.0 += 1.0;
+            if comp.0 == 5.0 {
+                commands.entity(entity).remove::<CompFull>();
+            }
+        }
+    }
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_and_remove);
+
+    // Run until CompFull is removed (1.0 → 2.0 → 3.0 → 4.0 → 5.0 → removed)
+    stepper.frame_step(5);
+    assert!(
+        stepper.client_app().world().get::<CompFull>(predicted).is_none(),
+        "CompFull should have been removed by prediction"
+    );
+
+    let tick = stepper.client_tick(0);
+    // Simulate server confirms CompFull = -10.0 at tick-3 (server says it still exists)
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .insert(CompFull(-10.0));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(tick - 3, Some(CompFull(-10.0)));
+
+    trigger_rollback_check(&mut stepper, tick - 3);
+    stepper.frame_step(1);
+
+    // CompFull should be re-added and re-simulated: -10 + 4 increments = -6
+    assert_eq!(
+        stepper.client_app().world().get::<CompFull>(predicted).unwrap().0,
+        -6.0,
+        "Predicted-removed component should be restored and re-simulated on rollback"
+    );
+}
+
+// =============================================================================
+// Scenario 3: Entity predicted-despawned → re-enabled on rollback
+// =============================================================================
+
+/// Client uses `prediction_despawn` on an entity.
+/// On rollback (to before the despawn), the entity should be re-enabled.
+#[test]
+fn test_predicted_despawn_restored_on_rollback() {
+    let (mut stepper, predicted) = setup();
+
+    stepper.frame_step(1);
+    let rollback_tick = stepper.client_tick(0);
+    stepper.frame_step(1);
+
+    // Predicted-despawn the entity (adds PredictionDisable, doesn't actually despawn)
+    stepper
+        .client_app()
+        .world_mut()
+        .commands()
+        .entity(predicted)
+        .prediction_despawn();
+    stepper.frame_step(1);
+
+    assert!(
+        stepper.client_app().world().get_entity(predicted).is_ok(),
+        "Entity should still exist after prediction_despawn"
+    );
+    assert!(
+        stepper.client_app().world().get::<PredictionDisable>(predicted).is_some(),
+        "Entity should have PredictionDisable marker"
+    );
+
+    // Trigger rollback to before the despawn
+    trigger_rollback_check(&mut stepper, rollback_tick);
+    stepper.frame_step(1);
+
+    // PredictionDisable should be removed, entity re-enabled
+    assert!(
+        stepper.client_app().world().get_entity(predicted).is_ok(),
+        "Entity should still exist after rollback"
+    );
+    assert!(
+        stepper.client_app().world().get::<PredictionDisable>(predicted).is_none(),
+        "PredictionDisable should be removed after rollback"
+    );
+    assert_eq!(
+        stepper.client_app().world().get::<CompFull>(predicted).unwrap(),
+        &CompFull(1.0),
+        "Component should be restored to value at rollback tick"
+    );
+}
+
+// =============================================================================
+// Scenario 4: Entity predicted-spawned → despawned on rollback
+// =============================================================================
+
+/// A DeterministicPredicted entity spawned during prediction should be despawned
+/// if rollback goes back to before the spawn tick.
+#[test]
+fn test_predicted_spawn_despawned_on_rollback() {
+    let (mut stepper, _) = setup();
+    stepper.frame_step(1);
+
+    let tick = stepper.client_tick(0);
+    let predicted_a = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Predicted, DeterministicPredicted::default(), CompFull(1.0)))
+        .id();
+
+    // trigger a rollback to before the entity was spawned
+    trigger_state_rollback(&mut stepper, tick - 1);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper.client_app().world().get_entity(predicted_a).is_err(),
+        "Predicted-spawned entity should be despawned on rollback to before spawn tick"
+    );
+}
+
+// =============================================================================
+// Scenario 5: Component modified → corrected on rollback
+// =============================================================================
+
+/// Client prediction modifies a component value differently than the server.
+/// On rollback, the component should snap to the confirmed value and re-simulate.
+#[test]
+fn test_predicted_modify_corrected_on_rollback() {
+    let (mut stepper, predicted) = setup();
+
+    fn increment_component(mut query: Query<&mut CompFull, With<Predicted>>) {
+        for mut comp in query.iter_mut() {
+            comp.0 += 1.0;
+        }
+    }
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_component);
+
+    // Run 3 frames: CompFull goes 1.0 → 2.0 → 3.0 → 4.0
+    stepper.frame_step(3);
+    assert_eq!(
+        stepper.client_app().world().get::<CompFull>(predicted).unwrap().0,
+        4.0
+    );
+
+    let tick = stepper.client_tick(0);
+    // Server says CompFull was actually 10.0 at tick-2 (different from predicted 2.0)
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(tick - 2, Some(CompFull(10.0)));
+
+    trigger_rollback_check(&mut stepper, tick - 2);
+    stepper.frame_step(1);
+
+    // Snap to 10.0 at tick-2, re-simulate 3 ticks: 10.0 + 3 = 13.0
+    assert_eq!(
+        stepper.client_app().world().get::<CompFull>(predicted).unwrap().0,
+        13.0,
+        "Modified component should be corrected to confirmed value and re-simulated"
+    );
+}
+
+// =============================================================================
+// Scenario 6: Component inserted from remote → applied on rollback
+// =============================================================================
+
+/// Server sends a new component that the client didn't have.
+/// On rollback, the component should be present at the confirmed tick.
+#[test]
+fn test_remote_insert_applied_on_rollback() {
+    let (mut stepper, predicted) = setup();
+
+    stepper.frame_step(2);
+    let tick = stepper.client_tick(0);
+    stepper.frame_step(1);
+
+    // Simulate server sending CompNotNetworked(5.0) at `tick` (component client didn't predict)
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .insert(CompNotNetworked(5.0));
+    // Create prediction history for CompNotNetworked with confirmed value
+    let mut history = PredictionHistory::<CompNotNetworked>::default();
+    history.add_confirmed(tick, Some(CompNotNetworked(5.0)));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .insert(history);
+
+    trigger_rollback_check(&mut stepper, tick);
+    stepper.frame_step(1);
+
+    // The remotely-inserted component should be present after rollback
+    assert_eq!(
+        stepper.client_app().world().get::<CompNotNetworked>(predicted).unwrap(),
+        &CompNotNetworked(5.0),
+        "Remotely-inserted component should be present after rollback"
+    );
+}
+
+// =============================================================================
+// Scenario 7: Component removed from remote → removed on rollback
+// =============================================================================
+
+/// Server removes a component that the client still had.
+/// On rollback, the component should be absent.
+#[test]
+fn test_remote_remove_applied_on_rollback() {
+    let (mut stepper, predicted) = setup();
+
+    stepper.frame_step(1);
+    let rollback_tick = stepper.client_tick(0);
+    stepper.frame_step(1);
+
+    // Simulate server removing CompFull at rollback_tick
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(rollback_tick, None);
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .remove::<CompFull>();
+
+    trigger_rollback_check(&mut stepper, rollback_tick);
+    stepper.frame_step(1);
+
+    // CompFull should be absent after rollback: server confirmed removal
+    assert!(
+        stepper.client_app().world().get::<CompFull>(predicted).is_none(),
+        "Remotely-removed component should be absent after rollback"
+    );
+}
+
+// =============================================================================
+// Other rollback tests
+// =============================================================================
+
+/// If we have disable_rollback (DeterministicPredicted):
+/// 1) the entity alone doesn't trigger rollback
+/// 2) if a rollback happens (from another entity), we reset to the predicted history value
+#[test]
+fn test_disable_rollback() {
+    let (mut stepper, predicted_b) = setup();
+
+    // add a DeterministicPredicted entity (disable state rollback for it)
+    let predicted_a = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            Predicted,
+            DeterministicPredicted::default(),
+            CompFull(1.0),
+        ))
+        .id();
+
+    // value gets synced and added to PredictionHistory
+    stepper.frame_step(1);
+
+    // 2. If a rollback happens (triggered by predicted_b), DeterministicPredicted entity
+    //    gets reset to its historical value
+    let tick = stepper.client_tick(0);
+
+    // Set up history for predicted_a with a known confirmed value
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted_a)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(tick, Some(CompFull(10.0)));
+
+    // Simulate confirmed update for predicted_b with a different value to trigger mismatch
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted_b)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(tick, Some(CompFull(3.0)));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted_b)
+        .get_mut::<CompFull>()
+        .unwrap()
+        .0 = 3.0;
+
+    // step once to avoid a 0-tick rollback
+    stepper.frame_step(1);
+
+    trigger_rollback_check(&mut stepper, tick);
+    stepper.frame_step(1);
+
+    // the DeterministicPredicted entity was rolled back to the past PredictionHistory value
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_a)
+            .unwrap()
+            .0,
+        10.0
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_b)
+            .unwrap()
+            .0,
+        3.0
+    );
+}
 
 /// Test that:
 /// - the `Time` resource's elapsed is rollbacked to the first tick of the rollback

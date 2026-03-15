@@ -378,7 +378,9 @@ fn check_rollback(
         }
         RollbackMode::Check => {
             // First check: maybe we already know we should rollback after there was a mismatch
-            // when receiving a confirmed update (in write_history)
+            // when receiving a confirmed update (in write_history).
+            // The mismatch flags persist across frames since check_rollback may run
+            // before receive_replication in the same frame.
             if state_metadata.should_rollback {
                 if let Some(mismatch_tick) = state_metadata.earliest_mismatch_tick {
                     debug!(
@@ -393,6 +395,8 @@ fn check_rollback(
                     );
                 }
             }
+            // Always consume the mismatch state after checking
+            state_metadata.reset_mismatch_state();
 
             // Check if ServerMutateTicks has advanced since we last processed it
             let server_ticks_advanced = state_metadata.has_server_mutate_ticks_advanced(&server_mutate_ticks);

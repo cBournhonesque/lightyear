@@ -40,22 +40,28 @@ impl Plugin for RepliconChannelRegistrationPlugin {
     fn build(&self, app: &mut App) {
         // ServerChannel::Updates - Ordered Reliable, Bidirectional
         // (both client and server can replicate entities)
+        // High priority: entity actions (spawn/despawn/insert/remove) should be sent ASAP
         app.add_channel::<RepliconUpdatesChannel>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            priority: 10.0,
             ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
 
         // ServerChannel::Mutations - Unreliable, Bidirectional
+        // Low priority: component mutations can be delayed if bandwidth is limited
         app.add_channel::<RepliconMutationsChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
+            priority: 1.0,
             ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
 
         // ClientChannel::MutationAcks - Ordered Reliable, Bidirectional
+        // High priority: acks should be sent ASAP to avoid unnecessary resends
         app.add_channel::<RepliconMutationAcksChannel>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            priority: 10.0,
             ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);

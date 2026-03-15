@@ -154,11 +154,19 @@ impl StateRollbackMetadata {
         }
     }
 
-    /// Reset the per-frame state tracking
+    /// Reset the per-frame state tracking.
+    /// Note: `should_rollback` and `earliest_mismatch_tick` are NOT reset here
+    /// because they need to persist until consumed by `check_rollback`.
+    /// `check_rollback` may run before `receive_replication` in the same frame,
+    /// so mismatch flags from the previous frame must remain visible.
     pub(crate) fn reset_frame_state(&mut self) {
+        self.received_messages_this_frame = false;
+    }
+
+    /// Reset the mismatch state after it has been consumed by check_rollback.
+    pub(crate) fn reset_mismatch_state(&mut self) {
         self.earliest_mismatch_tick = None;
         self.should_rollback = false;
-        self.received_messages_this_frame = false;
     }
 
     /// Returns the last processed tick (for checking if ServerMutateTicks advanced)

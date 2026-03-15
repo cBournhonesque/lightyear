@@ -569,20 +569,25 @@ fn write_history<C: SyncComponent>(
 ) -> Result<()> {
     let component: C = rule_fns.deserialize(ctx, message)?;
     let tick: Tick = ctx.message_tick.get().into();
-    // SAFETY: we are not aliasing with the DeferredEntity or Entities
-    let registry = unsafe { ctx.world_cell.world() }.resource::<PredictionRegistry>();
-    let prediction_link = unsafe { ctx.world_cell.world() }.resource::<PredictionResource>().link_entity;
-    let mut metadata = unsafe { ctx.world_cell.world_mut() }.resource_mut::<StateRollbackMetadata>();
-
-    let should_check = unsafe { ctx.world_cell.world() }
-        .get::<PredictionManager>(prediction_link)
-        .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+    // We extract all needed values and drop the world borrow before using `entity` again.
+    let (registry, should_check) = {
+        let world = unsafe { entity.world_mut() };
+        let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
+        let prediction_link = world.resource::<PredictionResource>().link_entity;
+        let should_check = world
+            .get::<PredictionManager>(prediction_link)
+            .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+        // SAFETY: registry lives in the World and won't be moved/dropped during this function
+        (unsafe { &*registry }, should_check)
+    };
 
     // Always add confirmed values to history (needed for rollback in any mode).
     // If RollbackMode::Check, also check for mismatch.
     let should_rollback = registry.add_confirmed_and_check_rollback(tick, Some(component), entity, should_check);
     if should_rollback {
-        metadata.record_mismatch(tick);
+        // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
+        unsafe { entity.world_mut() }.resource_mut::<StateRollbackMetadata>().record_mismatch(tick);
     }
     Ok(())
 }
@@ -594,19 +599,24 @@ fn write_history<C: SyncComponent>(
 /// 2. If `RollbackMode::Check`, also checks for mismatch and records it
 fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
     let tick: Tick = ctx.message_tick.get().into();
-    // SAFETY: we are not aliasing with the DeferredEntity
-    let registry = unsafe { ctx.world_cell.world() }.resource::<PredictionRegistry>();
-    let prediction_link = unsafe { ctx.world_cell.world() }.resource::<PredictionResource>().link_entity;
-    let mut metadata = unsafe { ctx.world_cell.world_mut() }.resource_mut::<StateRollbackMetadata>();
-
-    let should_check = unsafe { ctx.world_cell.world() }
-        .get::<PredictionManager>(prediction_link)
-        .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+    // We extract all needed values and drop the world borrow before using `entity` again.
+    let (registry, should_check) = {
+        let world = unsafe { entity.world_mut() };
+        let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
+        let prediction_link = world.resource::<PredictionResource>().link_entity;
+        let should_check = world
+            .get::<PredictionManager>(prediction_link)
+            .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+        // SAFETY: registry lives in the World and won't be moved/dropped during this function
+        (unsafe { &*registry }, should_check)
+    };
 
     // Always add confirmed removal to history (needed for rollback in any mode).
     // If RollbackMode::Check, also check for mismatch.
     let should_rollback = registry.add_confirmed_and_check_rollback::<C>(tick, None, entity, should_check);
     if should_rollback {
-        metadata.record_mismatch(tick);
+        // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
+        unsafe { entity.world_mut() }.resource_mut::<StateRollbackMetadata>().record_mismatch(tick);
     }
 }

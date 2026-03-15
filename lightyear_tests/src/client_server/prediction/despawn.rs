@@ -8,14 +8,7 @@ struct TestComponent(usize);
 
 /// Test that if a predicted entity gets despawned erroneously
 /// The rollback re-adds the predicted entity.
-///
-/// TODO: PredictionDisable is a disabling component, so replicon's mutation receiver
-/// skips disabled entities. This means `write_history()` is never called for the entity,
-/// confirmed values are never recorded, and rollback detection never triggers.
-/// See also: lightyear_prediction/src/despawn.rs TODO about adding PredictionDisable
-/// to the replication receiver systems.
 #[test]
-#[ignore]
 fn test_despawned_predicted_rollback() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
@@ -108,7 +101,9 @@ fn test_despawned_predicted_rollback() {
         .get_mut::<CompFull>(server_entity)
         .unwrap()
         .0 = 2.0;
-    stepper.frame_step(2);
+    // 3 frames: 1 for server to send, 1 for client to receive (mismatch detected),
+    // 1 for check_rollback to consume the mismatch and run rollback
+    stepper.frame_step(3);
 
     // Check that the entity was rolled back and the PredictionDisable marker was removed
     assert!(

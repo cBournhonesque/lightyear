@@ -300,3 +300,93 @@ fn test_spawn_multiple_lose_visibility() {
         "entity should be visible again after gain_visibility"
     );
 }
+
+/// Test that visibility overrides are NOT reset when ReplicationTarget is replaced.
+///
+/// Scenario: server spawns entity visible to clients 1 and 2, then lose_visibility for client 2,
+/// then re-insert Replicate targeting all clients. Client 2 should still not see the entity.
+#[test]
+fn test_visibility_persists_on_replication_target_change() {
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    stepper.frame_step(2);
+
+    // both clients should see the entity
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "client 0 should see the entity"
+    );
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "client 1 should see the entity"
+    );
+
+    // lose visibility for client 1 (second client, index 1)
+    let sender_1 = stepper.client_of_entities[1];
+    stepper
+        .server_app
+        .world_mut()
+        .lose_visibility(server_entity, sender_1);
+    stepper.frame_step(2);
+
+    // client 1 should no longer see the entity
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "client 1 should not see the entity after lose_visibility"
+    );
+
+    // re-insert Replicate targeting all clients (triggers on_replace + on_insert)
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(Replicate::to_clients(NetworkTarget::All));
+    stepper.frame_step(2);
+
+    // client 0 should still see the entity
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "client 0 should still see the entity after ReplicationTarget change"
+    );
+    // client 1 should still NOT see the entity (visibility override persists)
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "client 1 should still not see the entity after ReplicationTarget change"
+    );
+}

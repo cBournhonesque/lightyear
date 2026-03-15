@@ -25,13 +25,6 @@ impl Plugin for SharedPlugins {
         #[cfg(feature = "replication")]
         app.add_plugins(crate::protocol::ProtocolCheckPlugin);
 
-        // #[cfg(feature = "replication")]
-        // app.add_plugins(lightyear_replication::prelude::ReplicationSendPlugin)
-        //     .add_plugins(lightyear_replication::prelude::NetworkVisibilityPlugin)
-        //     .add_plugins(lightyear_replication::prelude::HierarchySendPlugin::<ChildOf>::default())
-        //     .add_plugins(lightyear_replication::prelude::AuthorityPlugin)
-        //     .add_plugins(lightyear_replication::prelude::ReplicationReceivePlugin);
-
         #[cfg(feature = "replication")]
         {
             app.add_plugins(LightyearRepliconBackend);

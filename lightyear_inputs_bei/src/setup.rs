@@ -230,18 +230,6 @@ impl InputRegistryExt for &mut App {
         self.replicate_with(
             (RuleFns::new(serialize_action::<A>, deserialize_action::<A>), ReplicationMode::Once)
         );
-
-        // // Register the Action<A> component so that it can be also added on the server
-        // self.register_component_custom_serde::<Action<A>>(SerializeFns::<Action<A>> {
-        //     serialize: InputRegistryPlugin::serialize_action::<A>,
-        //     deserialize: InputRegistryPlugin::deserialize_action::<A>,
-        // })
-        // .with_replication_config(ComponentReplicationConfig {
-        //     replicate_once: true,
-        //     disable: false,
-        //     delta_compression: false,
-        // });
-
         self
     }
 }
