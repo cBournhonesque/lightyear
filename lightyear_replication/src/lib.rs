@@ -87,6 +87,9 @@ impl bevy_app::prelude::Plugin for SharedComponentRegistrationPlugin {
         #[cfg(feature = "interpolation")]
         app.replicate::<lightyear_core::interpolation::Interpolated>();
         app.replicate::<control::Controlled>();
+        // ChildOf is registered for replication in HierarchySendPlugin (server-only),
+        // but must also be registered on the client so FnsIds match.
+        app.replicate::<bevy_ecs::prelude::ChildOf>();
 
         // ServerMutateTicks is normally only initialized by bevy_replicon's ClientPlugin,
         // but prediction systems on server-only builds also reference it. Init it here
