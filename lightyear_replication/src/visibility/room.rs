@@ -127,6 +127,11 @@ impl Rooms {
         self.rooms.set(room.as_usize(), true);
     }
 
+    /// Returns true if this entity/client is in the specified room
+    pub fn contains_room(&self, room: RoomId) -> bool {
+        room.as_usize() < self.rooms.len() && self.rooms.contains(room.as_usize())
+    }
+
     /// Removes the entity/client from the specified room
     pub fn remove_room(&mut self, room: RoomId) {
         if room.as_usize() < self.rooms.len() {

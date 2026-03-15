@@ -467,9 +467,7 @@ fn test_client_rollback_bei_events() {
 /// we receive the input for tick 30. In that case we should either:
 /// - launch a rollback check immediately for tick 30
 /// - or at least at tick 35 use the newly received input value for prediction!
-/// TODO: action entity replication needs replicon integration
 #[test]
-#[ignore]
 fn test_input_broadcasting_prediction() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
     let server_recv_delay: i16 = 2;
