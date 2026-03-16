@@ -114,9 +114,10 @@ fn receive_sender_metadata(
                 remote_entity, local_entity
             );
             manager.entity_mapper.insert(remote_entity, local_entity);
-            if let Some(mut entity_map) = entity_map {
-                entity_map.insert(remote_entity, local_entity);
-            }
+            // TODO: how can we update this manually?
+            // if let Some(mut entity_map) = entity_map {
+            //     entity_map.insert(remote_entity, local_entity);
+            // }
             return;
         }
     }
