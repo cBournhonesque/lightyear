@@ -3,7 +3,7 @@ use alloc::string::String;
 use avian2d::prelude::*;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::InputAction;
+// use bevy_enhanced_input::prelude::InputAction; // disabled: lightyear_inputs_bei needs local bevy_replicon
 use leafwing_input_manager::Actionlike;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::frame_interpolation::FrameInterpolationPlugin;
@@ -134,13 +134,13 @@ pub enum LeafwingInput2 {
     Crouch,
 }
 
-// BEI Inputs
-#[derive(Serialize, Deserialize, Component, Clone, PartialEq, Debug, Reflect)]
-pub struct BEIContext;
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, InputAction)]
-#[action_output(bool)]
-pub struct BEIAction1;
+// BEI Inputs - disabled: lightyear_inputs_bei needs local bevy_replicon (entity_map on SerializeCtx)
+// #[derive(Serialize, Deserialize, Component, Clone, PartialEq, Debug, Reflect)]
+// pub struct BEIContext;
+//
+// #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, InputAction)]
+// #[action_output(bool)]
+// pub struct BEIAction1;
 
 // Protocol
 pub struct ProtocolPlugin {
@@ -201,13 +201,14 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
-        app.add_plugins(bei::InputPlugin::<BEIContext>::new(InputConfig::<
-            BEIContext,
-        > {
-            rebroadcast_inputs: true,
-            ..default()
-        }));
-        app.register_input_action::<BEIAction1>();
+        // BEI disabled: lightyear_inputs_bei needs local bevy_replicon
+        // app.add_plugins(bei::InputPlugin::<BEIContext>::new(InputConfig::<
+        //     BEIContext,
+        // > {
+        //     rebroadcast_inputs: true,
+        //     ..default()
+        // }));
+        // app.register_input_action::<BEIAction1>();
 
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             replication_mode: self.avian_mode,

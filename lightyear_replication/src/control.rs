@@ -3,7 +3,7 @@ use bevy_app::{App, Plugin};
 use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_replicon::prelude::{AppRuleExt, ComponentScope};
+use bevy_replicon::prelude::SingleComponent;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
@@ -49,11 +49,16 @@ pub struct ControlledBy {
 
 
 impl ControlledBy {
-    fn on_insert(trigger: On<Add, ControlledBy>, controlled_by: Query<&ControlledBy>, control_bit: Res<ControlBit>, mut sender: Query<&mut ClientVisibility, With<ReplicationSender>>) {
+    fn on_insert(trigger: On<Add, ControlledBy>, controlled_by: Query<&ControlledBy>, control_bit: Res<ControlBit>, mut sender: Query<(Entity, &mut ClientVisibility), With<ReplicationSender>>) {
         let visibility_bit = control_bit.0;
-        let sender_entity = controlled_by.get(trigger.entity).unwrap().owner;
-        if let Ok(mut visibility) = sender.get_mut(sender_entity) {
-            visibility.set(trigger.entity, visibility_bit, true);
+        let owner_entity = controlled_by.get(trigger.entity).unwrap().owner;
+        // Two-pass: first hide Controlled for all clients, then show for owner only
+        for (sender_entity, mut visibility) in sender.iter_mut() {
+            if sender_entity == owner_entity {
+                visibility.set(trigger.entity, visibility_bit, true);
+            } else {
+                visibility.set(trigger.entity, visibility_bit, false);
+            }
         }
     }
 
@@ -103,13 +108,13 @@ pub enum Lifetime {
 
 /// Component-level visibility for [`Controlled`]
 #[derive(Resource, Deref)]
-struct ControlBit(FilterBit);
+pub struct ControlBit(FilterBit);
 
 impl FromWorld for ControlBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<ComponentScope<Controlled>>(world, &mut registry)
+                filter_registry.register_scope::<SingleComponent<Controlled>>(world, &mut registry)
             })
         });
         Self(bit)
@@ -125,5 +130,6 @@ impl Plugin for ControlPlugin {
         // to ensure matching component IDs on both client and server.
         app.add_observer(ControlledBy::on_insert);
         app.add_observer(ControlledBy::on_replace);
+        app.add_observer(ControlledBy::handle_disconnection);
     }
 }

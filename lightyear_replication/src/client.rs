@@ -11,7 +11,7 @@ use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
 use lightyear_messages::plugin::MessageSystems;
-use tracing::trace;
+use tracing::{trace, debug};
 use crate::channels::RepliconChannelMap;
 
 /// Adds the replicon client-side backend bridge for lightyear.
@@ -47,6 +47,14 @@ impl Plugin for RepliconClientPlugin {
             sync_entity_map
                 .after(ClientSystems::Receive)
                 .after(ServerSystems::Receive),
+        );
+
+        // Despawn all replicated entities when the client disconnects.
+        // bevy_replicon's reset only clears the entity map; lightyear must
+        // clean up the actual entities.
+        app.add_systems(
+            OnExit(ClientState::Connected),
+            despawn_replicated_on_disconnect.after(ClientSystems::Reset),
         );
 
         app.configure_sets(
@@ -110,6 +118,22 @@ fn send_client_packets(
         for mut transport in transports.iter_mut() {
             transport.send_mut_erased(channel_kind, message.clone(), 1.0).ok();
         }
+    }
+}
+
+/// Despawn all replicated entities when the client disconnects.
+///
+/// This matches the old `ReplicationReceivePlugin::handle_disconnection` behavior:
+/// all entities that were spawned from replication are despawned on disconnect.
+/// In the new replicon flow, predicted and interpolated entities also have `Replicated`
+/// since they arrive as replicated components.
+fn despawn_replicated_on_disconnect(
+    mut commands: Commands,
+    replicated: Query<Entity, With<Replicated>>,
+) {
+    for entity in replicated.iter() {
+        debug!("Despawning replicated entity {:?} on disconnect", entity);
+        commands.entity(entity).try_despawn();
     }
 }
 

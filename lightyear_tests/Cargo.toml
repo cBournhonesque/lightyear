@@ -41,7 +41,7 @@ lightyear = { workspace = true, features = [
   "metrics",
   "netcode",
   "input_native",
-  "input_bei",
+  # "input_bei", # disabled: lightyear_inputs_bei needs local bevy_replicon (entity_map on SerializeCtx)
   "leafwing",
   "interpolation",
   "prediction",

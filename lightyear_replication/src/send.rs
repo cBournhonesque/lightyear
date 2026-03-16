@@ -9,7 +9,7 @@ use bevy_derive::Deref;
 use bevy_ecs::entity::EntityIndexMap;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
-use bevy_replicon::prelude::{AppRuleExt, ComponentScope, FilterScope, Replicated, VisibilityFilter};
+use bevy_replicon::prelude::{AppRuleExt, SingleComponent, FilterScope, Replicated, VisibilityFilter};
 use bevy_replicon::server::server_tick::ServerTick;
 use bevy_replicon::server::ServerSystems;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
@@ -340,7 +340,7 @@ mod prediction {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<ComponentScope<Predicted>>(world, &mut registry)
+                    filter_registry.register_scope::<SingleComponent<Predicted>>(world, &mut registry)
                 })
             });
             Self(bit)
@@ -356,7 +356,7 @@ mod interpolation {
 
     pub type InterpolationTarget = ReplicationTarget<Interpolated>;
     impl ReplicationTargetT for Interpolated {
-        type VisibilityBit = ReplicateBit;
+        type VisibilityBit = InterpolatedBit;
         // Context = the host-sender entity
         type Context = bool;
 
@@ -400,7 +400,7 @@ mod interpolation {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<ComponentScope<Interpolated>>(world, &mut registry)
+                    filter_registry.register_scope::<SingleComponent<Interpolated>>(world, &mut registry)
                 })
             });
             Self(bit)
@@ -513,8 +513,24 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                     let peer_metadata = unsafe { unsafe_world.world() }
                         .resource::<PeerMetadata>();
                     let world = unsafe { unsafe_world.world_mut() };
+                    let all_clients: alloc::vec::Vec<Entity> = server.collection().iter().copied().collect();
+                    trace!(?entity, ?visibility_bit, num_clients = all_clients.len(), ?target, "SingleServer on_insert: setting visibility");
+                    // First pass: hide for all clients (default is visible, so we must
+                    // explicitly hide for non-target clients)
+                    for &sender_entity in &all_clients {
+                        if let Ok((mut visibility, _)) = world
+                            .query_filtered::<(&mut ClientVisibility, Has<HostClient>),
+                                (With<ClientOf>, Or<(With<ReplicationSender>, With<HostClient>)>)
+                            >()
+                            .get_mut(world, sender_entity)
+                        {
+                            trace!(?entity, ?sender_entity, "  hiding bit for client");
+                            visibility.set(entity, visibility_bit, false);
+                        }
+                    }
+                    // Second pass: show for target clients and update replicate state
                     target.apply_targets(
-                        server.collection().iter().copied(),
+                        all_clients.into_iter(),
                         &peer_metadata.mapping,
                         &mut |sender_entity: Entity| {
                             let Ok((mut visibility, host_client)) = world
@@ -525,6 +541,7 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                             else {
                                 return;
                             };
+                            trace!(?entity, ?sender_entity, "  showing bit for target client");
                             T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
                             visibility.set(entity, visibility_bit, true);
                         },
@@ -591,6 +608,67 @@ fn update_replication_tick(
 }
 
 pub struct SendPlugin;
+
+/// When a new client gets `ClientVisibility`, set correct visibility bits
+/// for all existing `PredictionTarget`/`InterpolationTarget` entities.
+/// Without this, late-joining clients would see all components (including
+/// Predicted/Interpolated markers that shouldn't be visible to them).
+#[cfg(feature = "server")]
+fn handle_new_client_visibility(
+    trigger: On<Add, ClientVisibility>,
+    remote_id_query: Query<&lightyear_core::id::RemoteId>,
+    #[cfg(feature = "prediction")]
+    prediction_targets: Query<(Entity, &PredictionTarget)>,
+    #[cfg(feature = "prediction")]
+    predicted_bit: Res<PredictedBit>,
+    #[cfg(feature = "interpolation")]
+    interpolation_targets: Query<(Entity, &InterpolationTarget)>,
+    #[cfg(feature = "interpolation")]
+    interpolated_bit: Res<InterpolatedBit>,
+    controlled_entities: Query<(Entity, &crate::control::ControlledBy)>,
+    controlled_bit: Res<crate::control::ControlBit>,
+    mut visibilities: Query<&mut ClientVisibility>,
+) {
+    let sender_entity = trigger.entity;
+    let Ok(remote_id) = remote_id_query.get(sender_entity) else {
+        return;
+    };
+    let peer_id = remote_id.0;
+    trace!(?sender_entity, ?peer_id, "handle_new_client_visibility");
+
+    let Ok(mut visibility) = visibilities.get_mut(sender_entity) else {
+        return;
+    };
+
+    #[cfg(feature = "prediction")]
+    for (entity, target) in prediction_targets.iter() {
+        if let ReplicationMode::SingleServer(ref net_target) = target.mode {
+            if !net_target.targets(&peer_id) {
+                trace!(?entity, ?sender_entity, ?peer_id, "  hiding predicted bit for non-target client");
+                visibility.set(entity, **predicted_bit, false);
+            }
+        }
+    }
+
+    #[cfg(feature = "interpolation")]
+    for (entity, target) in interpolation_targets.iter() {
+        if let ReplicationMode::SingleServer(ref net_target) = target.mode {
+            if !net_target.targets(&peer_id) {
+                trace!(?entity, ?sender_entity, ?peer_id, "  hiding interpolated bit for non-target client");
+                visibility.set(entity, **interpolated_bit, false);
+            }
+        }
+    }
+
+    // Hide Controlled for entities not owned by this client
+    for (entity, controlled_by) in controlled_entities.iter() {
+        if controlled_by.owner != sender_entity {
+            trace!(?entity, ?sender_entity, "  hiding controlled bit for non-owner client");
+            visibility.set(entity, **controlled_bit, false);
+        }
+    }
+}
+
 impl Plugin for SendPlugin{
     fn build(&self, app: &mut App) {
         if !app.world().contains_resource::<ComponentRegistry>() {
@@ -626,6 +704,10 @@ impl Plugin for SendPlugin{
             // Note: app.replicate::<Interpolated>() is called in SharedComponentRegistrationPlugin
             app.init_resource::<InterpolatedBit>();
         }
+
+        #[cfg(feature = "server")]
+        app.add_observer(handle_new_client_visibility);
+
     }
 }
 

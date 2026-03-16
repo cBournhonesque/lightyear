@@ -4,6 +4,13 @@
 t = "test -- --test-threads=1"
 clip = "clippy --workspace --features=lightyear_core/not_mock,avian3d/f32 --exclude=compiletime --exclude=avian_3d_character --exclude=launcher --exclude=delta_compression --exclude=distributed_authority --no-deps -- -D warnings -A clippy::needless_lifetimes"
 
+[target.x86_64-unknown-linux-gnu]
+linker = "/usr/bin/gcc"
+
+[env]
+CC = "/usr/bin/gcc"
+PKG_CONFIG_PATH = "/tmp"
+
 [unstable]
 profile-rustflags = true
 

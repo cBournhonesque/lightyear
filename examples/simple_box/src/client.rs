@@ -24,9 +24,28 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(FixedUpdate, player_movement);
 
-        app.add_systems(Update, receive_message1);
+        app.add_systems(Update, (receive_message1, debug_player_entities));
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
+    }
+}
+
+fn debug_player_entities(
+    query: Query<
+        (Entity, &PlayerId, Has<Predicted>, Has<Interpolated>, Has<Controlled>, Has<Replicated>),
+        Added<PlayerId>,
+    >,
+) {
+    for (entity, player_id, predicted, interpolated, controlled, replicated) in query.iter() {
+        warn!(
+            ?entity,
+            ?player_id,
+            predicted,
+            interpolated,
+            controlled,
+            replicated,
+            "Player entity status on client"
+        );
     }
 }
 
