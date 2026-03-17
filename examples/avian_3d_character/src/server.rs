@@ -9,10 +9,12 @@ use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::apply_character_action;
@@ -29,6 +31,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, setup);
         app.add_systems(
@@ -71,10 +74,20 @@ fn despawn_system(
 fn player_shoot(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    query: Query<(&ActionState<CharacterAction>, &Position, &ControlledBy), Without<Predicted>>,
+    host_server: Query<(), With<HostServer>>,
+    query: Query<(
+        &ActionState<CharacterAction>,
+        &Position,
+        &ControlledBy,
+        Has<Predicted>,
+    )>,
     time: Res<Time<Fixed>>,
 ) {
-    for (action_state, position, controlled_by) in &query {
+    let is_host_server = !host_server.is_empty();
+    for (action_state, position, controlled_by, predicted) in &query {
+        if is_host_server && predicted {
+            continue;
+        }
         if action_state.just_pressed(&CharacterAction::Shoot) {
             commands.spawn((
                 Name::new("Projectile"),

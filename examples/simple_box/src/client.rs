@@ -5,7 +5,7 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //!   predicted entity and the server entity)
 
-use crate::protocol::Direction;
+use crate::automation::{self, AutomationClientPlugin};
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
@@ -17,7 +17,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, init_automation_settings);
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set
@@ -25,98 +25,9 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(FixedUpdate, player_movement);
 
-        app.add_systems(
-            Update,
-            (
-                receive_message1,
-                debug_player_entities,
-                log_position_updates,
-            ),
-        );
+        app.add_systems(Update, receive_message1);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
-    }
-}
-
-#[derive(Resource, Clone, Default)]
-struct AutomationSettings {
-    direction: Option<Direction>,
-    log_positions: bool,
-}
-
-impl AutomationSettings {
-    #[cfg(not(target_family = "wasm"))]
-    fn from_env() -> Self {
-        let direction = std::env::var("LIGHTYEAR_SIMPLE_BOX_AUTOMOVE")
-            .ok()
-            .and_then(|value| parse_direction(&value));
-        let log_positions = std::env::var("LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS")
-            .map(|value| value != "0")
-            .unwrap_or(false);
-        Self {
-            direction,
-            log_positions,
-        }
-    }
-
-    #[cfg(target_family = "wasm")]
-    fn from_env() -> Self {
-        Self::default()
-    }
-}
-
-fn init_automation_settings(mut commands: Commands) {
-    let settings = AutomationSettings::from_env();
-    if let Some(direction) = &settings.direction {
-        info!(?direction, "Using automated client input");
-    }
-    if settings.log_positions {
-        info!("Logging predicted and interpolated player position updates");
-    }
-    commands.insert_resource(settings);
-}
-
-#[cfg(not(target_family = "wasm"))]
-fn parse_direction(value: &str) -> Option<Direction> {
-    let mut direction = Direction::default();
-    for token in value.split(',') {
-        match token.trim().to_ascii_lowercase().as_str() {
-            "" | "none" => {}
-            "up" | "u" => direction.up = true,
-            "down" | "d" => direction.down = true,
-            "left" | "l" => direction.left = true,
-            "right" | "r" => direction.right = true,
-            other => {
-                warn!(token = other, "Ignoring unknown automated input token");
-            }
-        }
-    }
-    Some(direction)
-}
-
-fn debug_player_entities(
-    query: Query<
-        (
-            Entity,
-            &PlayerId,
-            Has<Predicted>,
-            Has<Interpolated>,
-            Has<Controlled>,
-            Has<Replicated>,
-        ),
-        Added<PlayerId>,
-    >,
-) {
-    for (entity, player_id, predicted, interpolated, controlled, replicated) in query.iter() {
-        warn!(
-            ?entity,
-            ?player_id,
-            predicted,
-            interpolated,
-            controlled,
-            replicated,
-            "Player entity status on client"
-        );
     }
 }
 
@@ -128,14 +39,11 @@ fn debug_player_entities(
 /// `InputPlugin`, which contains more features.
 fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
-    automation: Option<Res<AutomationSettings>>,
+    automation: Option<Res<automation::client::AutomationSettings>>,
     keypress: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        let mut direction = automation
-            .as_ref()
-            .and_then(|settings| settings.direction.clone())
-            .unwrap_or_default();
+        let mut direction = automation::client::direction_override(automation).unwrap_or_default();
 
         if direction.is_none() {
             if let Some(keypress) = keypress {
@@ -179,41 +87,6 @@ fn player_movement(
 pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message1>>) {
     for message in receiver.receive() {
         info!("Received message: {:?}", message);
-    }
-}
-
-fn log_position_updates(
-    settings: Option<Res<AutomationSettings>>,
-    query: Query<
-        (
-            Entity,
-            &PlayerId,
-            &PlayerPosition,
-            Has<Predicted>,
-            Has<Interpolated>,
-            Has<Controlled>,
-        ),
-        Changed<PlayerPosition>,
-    >,
-) {
-    let Some(settings) = settings else {
-        return;
-    };
-    if !settings.log_positions {
-        return;
-    }
-    for (entity, player_id, position, predicted, interpolated, controlled) in query.iter() {
-        if predicted || interpolated {
-            info!(
-                ?entity,
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                interpolated,
-                controlled,
-                "Player position update on client"
-            );
-        }
     }
 }
 

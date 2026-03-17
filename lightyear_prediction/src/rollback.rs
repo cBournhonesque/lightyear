@@ -32,16 +32,18 @@ We need:
 
  */
 
-use super::predicted_history::{PredictionHistory};
+use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, SyncComponent};
+use crate::ToTick;
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
-use crate::manager::{LastConfirmedInput, PredictionManager, PredictionResource, RollbackMode, StateRollbackMetadata};
+use crate::manager::{
+    LastConfirmedInput, PredictionManager, PredictionResource, RollbackMode, StateRollbackMetadata,
+};
 use crate::plugin::PredictionSystems;
 use crate::registry::PredictionRegistry;
-use crate::ToTick;
 use alloc::vec::Vec;
 use bevy_app::FixedMain;
 use bevy_app::prelude::*;
@@ -51,15 +53,15 @@ use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy_reflect::Reflect;
+use bevy_replicon::prelude::{ClientMessages, ClientSystems};
+use bevy_replicon::shared::backend::channels::ServerChannel;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use bevy_replicon::prelude::{ClientMessages, ClientSystems};
-use bevy_replicon::shared::backend::channels::ServerChannel;
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::tick::{Tick};
+use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_replication::prelude::{ConfirmHistory, ServerMutateTicks};
@@ -280,18 +282,19 @@ pub struct DisableRollback;
 /// that they are ignored from all queries
 pub struct DisabledDuringRollback;
 
-
 /// Set a flag if we received any replication message this frame.
 /// Also reset the per-frame state.
 fn check_received_replication_messages(
     client_messages: Res<ClientMessages>,
-    mut metadata: ResMut<StateRollbackMetadata>
+    mut metadata: ResMut<StateRollbackMetadata>,
 ) {
     // Reset per-frame state
     metadata.reset_frame_state();
 
     // Check if we received any replication messages
-    if client_messages.received_count(ServerChannel::Updates) > 0 || client_messages.received_count(ServerChannel::Mutations) > 0 {
+    if client_messages.received_count(ServerChannel::Updates) > 0
+        || client_messages.received_count(ServerChannel::Mutations) > 0
+    {
         metadata.received_messages_this_frame = true;
     }
 }
@@ -328,12 +331,8 @@ fn check_rollback(
     #[cfg(feature = "metrics")]
     let _timer = TimerGauge::new("prediction/rollback/check");
 
-    let (
-        manager_entity,
-        last_confirmed_input,
-        mut prediction_manager,
-        mut prespawned_receiver,
-    ) = receiver_query.into_inner();
+    let (manager_entity, last_confirmed_input, mut prediction_manager, mut prespawned_receiver) =
+        receiver_query.into_inner();
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
 
@@ -399,7 +398,8 @@ fn check_rollback(
             state_metadata.reset_mismatch_state();
 
             // Check if ServerMutateTicks has advanced since we last processed it
-            let server_ticks_advanced = state_metadata.has_server_mutate_ticks_advanced(&server_mutate_ticks);
+            let server_ticks_advanced =
+                state_metadata.has_server_mutate_ticks_advanced(&server_mutate_ticks);
 
             // Second check: if ServerMutateTicks has advanced, check unchanged entities
             // Only check if we haven't already triggered a rollback and ServerMutateTicks advanced
@@ -407,13 +407,16 @@ fn check_rollback(
                 if server_confirmed_tick > tick {
                     debug!(
                         "ServerMutateTicks tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
-                        server_confirmed_tick,
-                        tick
+                        server_confirmed_tick, tick
                     );
                 } else {
                     // Check unchanged entities: those where ConfirmHistory.last_tick < ServerMutateTicks.last_tick
                     // For these entities, we know their value at server_confirmed_tick = their last confirmed value
-                    trace!(?tick, ?server_confirmed_tick, "Checking for state-based rollback on unchanged entities");
+                    trace!(
+                        ?tick,
+                        ?server_confirmed_tick,
+                        "Checking for state-based rollback on unchanged entities"
+                    );
 
                     predicted_entities.par_iter_mut().for_each(|(confirm_history,mut entity_mut)| {
                         if prediction_manager.is_rollback() {
@@ -620,8 +623,6 @@ pub(crate) fn remove_prediction_disable(
     });
 }
 
-
-
 /// If there is a mismatch, prepare rollback for all components.
 ///
 /// This function:
@@ -680,7 +681,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         }
 
         let restore_value = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
-            predicted_history.pop_until_tick(server_confirmed_tick).map(|s| s.into_value()).flatten()
+            predicted_history
+                .pop_until_tick(server_confirmed_tick)
+                .map(|s| s.into_value())
+                .flatten()
         } else {
             // Get the value at rollback_tick (predicted or confirmed).
             // It could be predicted if we received a partial update for an entity at tick T (triggering

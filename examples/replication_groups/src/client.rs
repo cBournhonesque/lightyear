@@ -1,3 +1,4 @@
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
@@ -11,6 +12,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         // app.add_systems(
         //     PostUpdate,
         //     debug_interpolate

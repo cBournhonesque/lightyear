@@ -1,7 +1,8 @@
 use crate::SyncComponent;
+use crate::interpolation_history::ConfirmedHistory;
 use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-use bevy_ecs::{component::Component, resource::Resource};
 use bevy_ecs::component::Mutable;
+use bevy_ecs::{component::Component, resource::Resource};
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -9,20 +10,18 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
-use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::Tick;
-use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_replication::registry::replication::ComponentRegistration;
-use crate::interpolation_history::ConfirmedHistory;
+use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
     curve.sample_unchecked(t)
 }
-
 
 #[derive(Debug, Clone)]
 pub struct InterpolationMetadata {
@@ -117,7 +116,8 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
             priority: 100,
             need_history: true,
         });
-        self.app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
+        self.app
+            .set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
         if !self
             .app
             .world()
@@ -202,7 +202,6 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
         self
     }
 }
-
 
 // TODO: ideally we would update the LastConfirmedTick at this point?
 /// Instead of writing into a component directly, it writes data into [`PredictionHistory<C>`].

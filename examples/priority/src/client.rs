@@ -2,6 +2,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 
@@ -9,6 +10,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);

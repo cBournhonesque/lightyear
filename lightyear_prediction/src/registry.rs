@@ -1,12 +1,14 @@
 use crate::SyncComponent;
+use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
 use crate::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
 use crate::predicted_history::PredictionHistory;
+use crate::prelude::PredictionManager;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
-use bevy_ecs::component::{ComponentId};
+use bevy_ecs::component::ComponentId;
 use bevy_ecs::prelude::*;
 use bevy_ecs::ptr::PtrMut;
 use bevy_ecs::world::FilteredEntityMut;
@@ -14,22 +16,20 @@ use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
-use bevy_utils::prelude::DebugName;
-use core::fmt::Debug;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
-use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+use bevy_utils::prelude::DebugName;
+use core::fmt::Debug;
+use lightyear_core::prediction::Predicted;
 use lightyear_core::tick::Tick;
 use lightyear_replication::delta::Diffable;
+use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
 use tracing::{debug, trace, trace_span};
-use lightyear_core::prediction::Predicted;
-use lightyear_replication::registry::replication::ComponentRegistration;
-use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
-use crate::prelude::PredictionManager;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -185,7 +185,11 @@ impl PredictionRegistry {
         should_rollback_fn(this, that)
     }
 
-    pub fn should_rollback_check<C: SyncComponent>(&self, confirmed: Option<&C>, predicted: Option<&C>) -> bool {
+    pub fn should_rollback_check<C: SyncComponent>(
+        &self,
+        confirmed: Option<&C>,
+        predicted: Option<&C>,
+    ) -> bool {
         match (confirmed, predicted) {
             (Some(c), Some(p)) => {
                 let should = self.should_rollback(c, p);
@@ -203,16 +207,16 @@ impl PredictionRegistry {
                 should
             }
             (Some(c), None) => {
-                 debug!(
-                        "Should Rollback! Confirmed component exists ({c:?}), but predicted value does not exists",
-                    );
-                    #[cfg(feature = "metrics")]
-                    metrics::counter!(format!(
-                        "prediction::rollbacks::causes::{}::missing_on_predicted",
-                        DebugName::type_name::<C>()
-                    ))
-                    .increment(1);
-                    true
+                debug!(
+                    "Should Rollback! Confirmed component exists ({c:?}), but predicted value does not exists",
+                );
+                #[cfg(feature = "metrics")]
+                metrics::counter!(format!(
+                    "prediction::rollbacks::causes::{}::missing_on_predicted",
+                    DebugName::type_name::<C>()
+                ))
+                .increment(1);
+                true
             }
             (None, Some(p)) => {
                 debug!(
@@ -226,10 +230,9 @@ impl PredictionRegistry {
                 .increment(1);
                 true
             }
-            (None, None) => false
+            (None, None) => false,
         }
     }
-
 
     /// Check for rollback on entities that didn't receive an explicit update.
     ///
@@ -270,7 +273,10 @@ impl PredictionRegistry {
             // No confirmed value in history - we can't check for rollback.
             // This can happen for entities that were just spawned and haven't received
             // any replication updates yet.
-            trace!("No confirmed value in history for entity {:?}, skipping rollback check", entity);
+            trace!(
+                "No confirmed value in history for entity {:?}, skipping rollback check",
+                entity
+            );
             return false;
         };
 
@@ -424,7 +430,8 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             priority: 100,
             need_history: true,
         });
-        self.app.set_marker_fns::<Predicted, C>(write_history::<C>, remove_history::<C>);
+        self.app
+            .set_marker_fns::<Predicted, C>(write_history::<C>, remove_history::<C>);
         let history_id = self
             .app
             .world_mut()
@@ -554,7 +561,6 @@ impl PredictionAppRegistrationExt for App {
     }
 }
 
-
 // TODO: ideally we would update the LastConfirmedTick at this point?
 /// Instead of writing into a component directly, it writes data into [`PredictionHistory<C>`].
 ///
@@ -584,10 +590,13 @@ fn write_history<C: SyncComponent>(
 
     // Always add confirmed values to history (needed for rollback in any mode).
     // If RollbackMode::Check, also check for mismatch.
-    let should_rollback = registry.add_confirmed_and_check_rollback(tick, Some(component), entity, should_check);
+    let should_rollback =
+        registry.add_confirmed_and_check_rollback(tick, Some(component), entity, should_check);
     if should_rollback {
         // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
-        unsafe { entity.world_mut() }.resource_mut::<StateRollbackMetadata>().record_mismatch(tick);
+        unsafe { entity.world_mut() }
+            .resource_mut::<StateRollbackMetadata>()
+            .record_mismatch(tick);
     }
     Ok(())
 }
@@ -614,9 +623,12 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
 
     // Always add confirmed removal to history (needed for rollback in any mode).
     // If RollbackMode::Check, also check for mismatch.
-    let should_rollback = registry.add_confirmed_and_check_rollback::<C>(tick, None, entity, should_check);
+    let should_rollback =
+        registry.add_confirmed_and_check_rollback::<C>(tick, None, entity, should_check);
     if should_rollback {
         // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
-        unsafe { entity.world_mut() }.resource_mut::<StateRollbackMetadata>().record_mismatch(tick);
+        unsafe { entity.world_mut() }
+            .resource_mut::<StateRollbackMetadata>()
+            .record_mismatch(tick);
     }
 }

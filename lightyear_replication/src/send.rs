@@ -1,41 +1,43 @@
 //! Handles visibility rules for Replicate, PredictionTarget, and InterpolationTarget components.
+use crate::authority::{AuthorityBroker, HasAuthority};
 use alloc::vec::Vec;
-use core::ops::Deref;
 use bevy_app::prelude::*;
+use bevy_derive::Deref;
+use bevy_ecs::entity::EntityIndexMap;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use bevy_derive::Deref;
-use bevy_ecs::entity::EntityIndexMap;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
-use bevy_replicon::prelude::{AppRuleExt, SingleComponent, FilterScope, Replicated, VisibilityFilter};
-use bevy_replicon::server::server_tick::ServerTick;
+use bevy_replicon::prelude::{
+    AppRuleExt, FilterScope, Replicated, SingleComponent, VisibilityFilter,
+};
 use bevy_replicon::server::ServerSystems;
+use bevy_replicon::server::server_tick::ServerTick;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use bevy_time::Time;
-use serde::{Deserialize, Serialize};
-use lightyear_connection::client::{PeerMetadata};
+use core::ops::Deref;
+use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::PeerId;
-use crate::authority::{AuthorityBroker, HasAuthority};
+use serde::{Deserialize, Serialize};
 
 #[allow(unused_imports)]
 use tracing::{error, trace};
 
-#[cfg(feature = "prediction")]
-pub use prediction::*;
+use crate::ReplicationSystems;
+use crate::metadata::ReplicationMetadata;
+use crate::registry::ComponentRegistry;
 #[cfg(feature = "interpolation")]
 pub use interpolation::*;
 use lightyear_core::prelude::LocalTimeline;
-use crate::metadata::ReplicationMetadata;
-use crate::registry::ComponentRegistry;
-use crate::ReplicationSystems;
+#[cfg(feature = "prediction")]
+pub use prediction::*;
 
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
@@ -147,12 +149,9 @@ pub struct PerSenderReplicationState {
     pub authority: Option<bool>,
 }
 
-
 impl PerSenderReplicationState {
     pub(crate) fn new(authority: Option<bool>) -> Self {
-        Self {
-            authority,
-        }
+        Self { authority }
     }
     pub(crate) fn with_authority() -> Self {
         Self::new(Some(true))
@@ -179,12 +178,17 @@ mod private {
 
 #[doc(hidden)]
 pub trait ReplicationTargetT: private::Sealed + Send + Sync + 'static {
-    type VisibilityBit: Resource + Deref<Target=FilterBit>;
+    type VisibilityBit: Resource + Deref<Target = FilterBit>;
     type Context: Default;
 
     fn pre_insert(world: &mut DeferredWorld, entity: Entity);
     fn post_insert(context: &Self::Context, entity_mut: &mut EntityWorldMut);
-    fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool);
+    fn update_replicate_state(
+        context: &mut Self::Context,
+        state: &mut ReplicationState,
+        sender_entity: Entity,
+        host_client: bool,
+    );
 
     fn on_replace(world: DeferredWorld, context: HookContext);
 }
@@ -208,7 +212,10 @@ impl ReplicationTargetT for () {
 
     fn pre_insert(world: &mut DeferredWorld, entity: Entity) {
         // update the authority broker if the entity is spawned on the server
-        if let Some(peer_metadata) = world.get_resource::<PeerMetadata>() && let Some(server) = peer_metadata.mapping.get(&PeerId::Server) && let Some(mut broker) = world.get_mut::<AuthorityBroker>(*server) {
+        if let Some(peer_metadata) = world.get_resource::<PeerMetadata>()
+            && let Some(server) = peer_metadata.mapping.get(&PeerId::Server)
+            && let Some(mut broker) = world.get_mut::<AuthorityBroker>(*server)
+        {
             // only set the authority if it didn't have an owner already (in case the authority was replicated
             // by another peer)
             broker.owners.entry(entity).or_insert(Some(PeerId::Server));
@@ -220,20 +227,29 @@ impl ReplicationTargetT for () {
         }
         if let Some(host_sender) = context.0 {
             entity_mut.insert((
-                ReplicatedFrom { receiver: host_sender },
+                ReplicatedFrom {
+                    receiver: host_sender,
+                },
                 // TODO: do we still need InitialReplicated?
                 // SpawnedOnHostServer,
             ));
         }
     }
 
-    fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool) {
+    fn update_replicate_state(
+        context: &mut Self::Context,
+        state: &mut ReplicationState,
+        sender_entity: Entity,
+        host_client: bool,
+    ) {
         if host_client {
             context.0 = Some(sender_entity);
         }
         // only insert a sender if it was not already present
         // since it could already be present with no_authority (if we received the entity from a remote peer)
-        state.per_sender_state.entry(sender_entity)
+        state
+            .per_sender_state
+            .entry(sender_entity)
             .and_modify(|s| {
                 // authority could be set to None (for example if PredictionTarget is processed first)
                 if s.authority.is_none() {
@@ -247,7 +263,7 @@ impl ReplicationTargetT for () {
     }
 
     fn on_replace(mut world: DeferredWorld, context: HookContext) {
-    world.commands().queue(move |world: &mut World| {
+        world.commands().queue(move |world: &mut World| {
             let Ok(entity_ref) = world.get_entity(context.entity) else {
                 return;
             };
@@ -261,9 +277,13 @@ impl ReplicationTargetT for () {
             // TODO: after `DeferredWorld::as_unsafe_world_cell` becomes pub, put that outside of commands
             let unsafe_world = world.as_unsafe_world_cell();
             // SAFETY: we fetch data from distinct entities so there is no aliasing
-            if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
+            if let Some(state) =
+                unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity)
+            {
                 state.per_sender_state.keys().for_each(|sender_entity| {
-                    if let Some(mut visibility) = unsafe{ unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
+                    if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }
+                        .get_mut::<ClientVisibility>(*sender_entity)
+                    {
                         visibility.set(context.entity, visibility_bit, false);
                     }
                 });
@@ -271,7 +291,6 @@ impl ReplicationTargetT for () {
         });
     }
 }
-
 
 /// Entity-level visibility for [`Replicate`]
 #[doc(hidden)]
@@ -308,21 +327,30 @@ mod prediction {
             }
         }
 
-        fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool) {
+        fn update_replicate_state(
+            context: &mut Self::Context,
+            state: &mut ReplicationState,
+            sender_entity: Entity,
+            host_client: bool,
+        ) {
             *context = host_client;
         }
 
         fn on_replace(mut world: DeferredWorld, context: HookContext) {
             let visibility_bit = *world.resource::<PredictedBit>().deref();
-            world.commands().queue(move | world: &mut World| {
+            world.commands().queue(move |world: &mut World| {
                 if world.get_entity(context.entity).is_err() {
                     return;
                 }
                 let unsafe_world = world.as_unsafe_world_cell();
                 // SAFETY: we fetch data from distinct entities so there is no aliasing
-                if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
+                if let Some(state) =
+                    unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity)
+                {
                     state.per_sender_state.keys().for_each(|sender_entity| {
-                        if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
+                        if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }
+                            .get_mut::<ClientVisibility>(*sender_entity)
+                        {
                             visibility.set(context.entity, visibility_bit, false);
                         }
                     });
@@ -340,14 +368,14 @@ mod prediction {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<SingleComponent<Predicted>>(world, &mut registry)
+                    filter_registry
+                        .register_scope::<SingleComponent<Predicted>>(world, &mut registry)
                 })
             });
             Self(bit)
         }
     }
 }
-
 
 #[cfg(feature = "interpolation")]
 mod interpolation {
@@ -367,21 +395,30 @@ mod interpolation {
             }
         }
 
-        fn update_replicate_state(context: &mut Self::Context, state: &mut ReplicationState, sender_entity: Entity, host_client: bool) {
+        fn update_replicate_state(
+            context: &mut Self::Context,
+            state: &mut ReplicationState,
+            sender_entity: Entity,
+            host_client: bool,
+        ) {
             *context = host_client;
         }
 
         fn on_replace(mut world: DeferredWorld, context: HookContext) {
             let visibility_bit = *world.resource::<InterpolatedBit>().deref();
-            world.commands().queue(move | world: &mut World| {
+            world.commands().queue(move |world: &mut World| {
                 if world.get_entity(context.entity).is_err() {
                     return;
                 }
                 let unsafe_world = world.as_unsafe_world_cell();
                 // SAFETY: we fetch data from distinct entities so there is no aliasing
-                if let Some(state) = unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity) {
+                if let Some(state) =
+                    unsafe { unsafe_world.world() }.get::<ReplicationState>(context.entity)
+                {
                     state.per_sender_state.keys().for_each(|sender_entity| {
-                        if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }.get_mut::<ClientVisibility>(*sender_entity) {
+                        if let Some(mut visibility) = unsafe { unsafe_world.world_mut() }
+                            .get_mut::<ClientVisibility>(*sender_entity)
+                        {
                             visibility.set(context.entity, visibility_bit, false);
                         }
                     });
@@ -389,7 +426,6 @@ mod interpolation {
             });
         }
     }
-
 
     /// Component-level visibility for [`InterpolationTarget`]
     #[doc(hidden)]
@@ -400,14 +436,14 @@ mod interpolation {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry.register_scope::<SingleComponent<Interpolated>>(world, &mut registry)
+                    filter_registry
+                        .register_scope::<SingleComponent<Interpolated>>(world, &mut registry)
                 })
             });
             Self(bit)
         }
     }
 }
-
 
 impl<T: ReplicationTargetT> ReplicationTarget<T> {
     pub fn new(mode: ReplicationMode) -> Self {
@@ -617,14 +653,10 @@ pub struct SendPlugin;
 fn handle_new_client_visibility(
     trigger: On<Add, ClientVisibility>,
     remote_id_query: Query<&lightyear_core::id::RemoteId>,
-    #[cfg(feature = "prediction")]
-    prediction_targets: Query<(Entity, &PredictionTarget)>,
-    #[cfg(feature = "prediction")]
-    predicted_bit: Res<PredictedBit>,
-    #[cfg(feature = "interpolation")]
-    interpolation_targets: Query<(Entity, &InterpolationTarget)>,
-    #[cfg(feature = "interpolation")]
-    interpolated_bit: Res<InterpolatedBit>,
+    #[cfg(feature = "prediction")] prediction_targets: Query<(Entity, &PredictionTarget)>,
+    #[cfg(feature = "prediction")] predicted_bit: Res<PredictedBit>,
+    #[cfg(feature = "interpolation")] interpolation_targets: Query<(Entity, &InterpolationTarget)>,
+    #[cfg(feature = "interpolation")] interpolated_bit: Res<InterpolatedBit>,
     controlled_entities: Query<(Entity, &crate::control::ControlledBy)>,
     controlled_bit: Res<crate::control::ControlBit>,
     mut visibilities: Query<&mut ClientVisibility>,
@@ -644,7 +676,12 @@ fn handle_new_client_visibility(
     for (entity, target) in prediction_targets.iter() {
         if let ReplicationMode::SingleServer(ref net_target) = target.mode {
             if !net_target.targets(&peer_id) {
-                trace!(?entity, ?sender_entity, ?peer_id, "  hiding predicted bit for non-target client");
+                trace!(
+                    ?entity,
+                    ?sender_entity,
+                    ?peer_id,
+                    "  hiding predicted bit for non-target client"
+                );
                 visibility.set(entity, **predicted_bit, false);
             }
         }
@@ -654,7 +691,12 @@ fn handle_new_client_visibility(
     for (entity, target) in interpolation_targets.iter() {
         if let ReplicationMode::SingleServer(ref net_target) = target.mode {
             if !net_target.targets(&peer_id) {
-                trace!(?entity, ?sender_entity, ?peer_id, "  hiding interpolated bit for non-target client");
+                trace!(
+                    ?entity,
+                    ?sender_entity,
+                    ?peer_id,
+                    "  hiding interpolated bit for non-target client"
+                );
                 visibility.set(entity, **interpolated_bit, false);
             }
         }
@@ -663,19 +705,26 @@ fn handle_new_client_visibility(
     // Hide Controlled for entities not owned by this client
     for (entity, controlled_by) in controlled_entities.iter() {
         if controlled_by.owner != sender_entity {
-            trace!(?entity, ?sender_entity, "  hiding controlled bit for non-owner client");
+            trace!(
+                ?entity,
+                ?sender_entity,
+                "  hiding controlled bit for non-owner client"
+            );
             visibility.set(entity, **controlled_bit, false);
         }
     }
 }
 
-impl Plugin for SendPlugin{
+impl Plugin for SendPlugin {
     fn build(&self, app: &mut App) {
         if !app.world().contains_resource::<ComponentRegistry>() {
             app.world_mut().init_resource::<ComponentRegistry>();
         }
 
-        app.add_systems(PostUpdate, update_replication_tick.in_set(ServerSystems::IncrementTick));
+        app.add_systems(
+            PostUpdate,
+            update_replication_tick.in_set(ServerSystems::IncrementTick),
+        );
 
         #[cfg(any(feature = "prediction", feature = "interpolation"))]
         // We enable this replicon setting that does a few things:
@@ -687,7 +736,10 @@ impl Plugin for SendPlugin{
         app.track_mutate_messages();
 
         // make sure that any ordering relative to ReplicationSystems is also applied to ServerSystems
-        app.configure_sets(PostUpdate, ServerSystems::Send.in_set(ReplicationSystems::Send));
+        app.configure_sets(
+            PostUpdate,
+            ServerSystems::Send.in_set(ReplicationSystems::Send),
+        );
 
         app.register_required_components::<Replicate, Replicated>();
         app.init_resource::<ReplicateBit>();
@@ -707,8 +759,5 @@ impl Plugin for SendPlugin{
 
         #[cfg(feature = "server")]
         app.add_observer(handle_new_client_visibility);
-
     }
 }
-
-

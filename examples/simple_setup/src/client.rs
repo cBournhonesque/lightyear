@@ -1,4 +1,5 @@
 //! The client plugin.
+use crate::automation::{headless_enabled, ClientStartupConfig};
 use crate::shared::*;
 use bevy::prelude::*;
 use core::net::Ipv4Addr;
@@ -19,25 +20,37 @@ impl Plugin for ExampleClientPlugin {
 }
 
 /// Spawn a client that connects to the server
-fn startup(mut commands: Commands) -> Result {
-    commands.spawn(Camera2d);
-    let auth = Authentication::Manual {
-        server_addr: SERVER_ADDR,
-        client_id: 0,
-        private_key: Key::default(),
-        protocol_id: 0,
+fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
+    if !headless_enabled() {
+        commands.spawn(Camera2d);
+    }
+    let client = if let Some(server) = config.host_server {
+        commands
+            .spawn((
+                Client::default(),
+                Name::new("HostClient"),
+                LinkOf { server },
+            ))
+            .id()
+    } else {
+        let auth = Authentication::Manual {
+            server_addr: SERVER_ADDR,
+            client_id: config.client_id,
+            private_key: Key::default(),
+            protocol_id: 0,
+        };
+        commands
+            .spawn((
+                Client::default(),
+                LocalAddr(CLIENT_ADDR),
+                PeerAddr(SERVER_ADDR),
+                Link::new(None),
+                ReplicationReceiver::default(),
+                NetcodeClient::new(auth, NetcodeConfig::default())?,
+                UdpIo::default(),
+            ))
+            .id()
     };
-    let client = commands
-        .spawn((
-            Client::default(),
-            LocalAddr(CLIENT_ADDR),
-            PeerAddr(SERVER_ADDR),
-            Link::new(None),
-            ReplicationReceiver::default(),
-            NetcodeClient::new(auth, NetcodeConfig::default())?,
-            UdpIo::default(),
-        ))
-        .id();
     commands.trigger(Connect { entity: client });
     Ok(())
 }

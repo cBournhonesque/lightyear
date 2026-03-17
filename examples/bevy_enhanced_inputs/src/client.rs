@@ -5,6 +5,7 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //!   predicted entity and the server entity)
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
@@ -15,6 +16,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(player_movement);

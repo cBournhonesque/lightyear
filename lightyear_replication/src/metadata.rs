@@ -1,8 +1,8 @@
-use core::time::Duration;
+use crate::prelude::ReplicationSender;
 use bevy_app::prelude::*;
-use lightyear_serde::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_time::{Timer, TimerMode};
+use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::id::RemoteId;
@@ -10,12 +10,12 @@ use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{PositiveTickDelta, TickDelta};
 use lightyear_messages::MessageManager;
 use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
-use lightyear_serde::reader::Reader;
 use lightyear_serde::ToBytes;
+use lightyear_serde::prelude::*;
+use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_transport::prelude::*;
 use tracing::debug;
-use crate::prelude::ReplicationSender;
 
 /// Resource that needs to be added to control the replication behaviour for the current App.
 ///
@@ -31,7 +31,7 @@ pub struct ReplicationMetadata {
 impl ReplicationMetadata {
     pub fn new(replication_interval: Duration) -> Self {
         Self {
-            timer: Timer::new(replication_interval, TimerMode::Repeating)
+            timer: Timer::new(replication_interval, TimerMode::Repeating),
         }
     }
 }
@@ -72,7 +72,6 @@ impl ToBytes for SenderMetadata {
     }
 }
 
-
 /// Default reliable channel to replicate metadata about the Sender or the connection
 pub struct MetadataChannel;
 
@@ -83,10 +82,7 @@ fn send_sender_metadata(
     trigger: On<Add, (Connected, ReplicationSender)>,
     metadata: Res<ReplicationMetadata>,
     tick_duration: Res<TickDuration>,
-    mut query: Query<
-        (Entity, &mut EventSender<SenderMetadata>),
-        With<Connected>,
-    >,
+    mut query: Query<(Entity, &mut EventSender<SenderMetadata>), With<Connected>>,
 ) {
     let send_interval = metadata.timer.duration();
     let send_interval_delta = TickDelta::from_duration(send_interval, tick_duration.0);
@@ -124,7 +120,6 @@ fn receive_sender_metadata(
 }
 
 pub struct MetadataPlugin;
-
 
 impl Plugin for MetadataPlugin {
     fn build(&self, app: &mut App) {

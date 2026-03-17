@@ -1,5 +1,6 @@
 use core::net::{Ipv4Addr, SocketAddr};
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::HOST_SERVER_PORT;
 use bevy::prelude::*;
@@ -28,6 +29,7 @@ impl Default for AppState {
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.init_resource::<lobby::LobbyTable>();
         app.init_state::<AppState>();
         app.add_systems(
@@ -48,6 +50,7 @@ impl Plugin for ExampleClientPlugin {
             )
                 .run_if(in_state(AppState::Game)),
         );
+        #[cfg(feature = "gui")]
         app.add_systems(EguiPrimaryContextPass, lobby::lobby_ui);
         app.add_systems(
             PreUpdate,

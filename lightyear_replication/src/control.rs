@@ -1,3 +1,4 @@
+use crate::send::ReplicationSender;
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin};
 use bevy_derive::Deref;
@@ -11,14 +12,12 @@ use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use lightyear_connection::client::Disconnected;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
-use crate::send::{ReplicationSender};
 
 // TODO: currently we add Controlled on the sender for replication but this could cause issues with authority changes.
 /// Marker component on the receiver side to indicate that the replicated entity
 /// is under the control of the local peer that received the entity
 #[derive(Component, Clone, PartialEq, Debug, Default, Reflect, Serialize, Deserialize)]
 pub struct Controlled;
-
 
 /// Component on the sender side that lists the entities controlled by the remote peer
 #[derive(Component, Clone, PartialEq, Debug, Reflect)]
@@ -47,9 +46,13 @@ pub struct ControlledBy {
     pub lifetime: Lifetime,
 }
 
-
 impl ControlledBy {
-    fn on_insert(trigger: On<Add, ControlledBy>, controlled_by: Query<&ControlledBy>, control_bit: Res<ControlBit>, mut sender: Query<(Entity, &mut ClientVisibility), With<ReplicationSender>>) {
+    fn on_insert(
+        trigger: On<Add, ControlledBy>,
+        controlled_by: Query<&ControlledBy>,
+        control_bit: Res<ControlBit>,
+        mut sender: Query<(Entity, &mut ClientVisibility), With<ReplicationSender>>,
+    ) {
         let visibility_bit = control_bit.0;
         let owner_entity = controlled_by.get(trigger.entity).unwrap().owner;
         // Two-pass: first hide Controlled for all clients, then show for owner only
@@ -62,7 +65,12 @@ impl ControlledBy {
         }
     }
 
-    fn on_replace(trigger: On<Replace, ControlledBy>, controlled_by: Query<&ControlledBy>, control_bit: Res<ControlBit>, mut sender: Query<&mut ClientVisibility, With<ReplicationSender>>) {
+    fn on_replace(
+        trigger: On<Replace, ControlledBy>,
+        controlled_by: Query<&ControlledBy>,
+        control_bit: Res<ControlBit>,
+        mut sender: Query<&mut ClientVisibility, With<ReplicationSender>>,
+    ) {
         let visibility_bit = control_bit.0;
         let sender_entity = controlled_by.get(trigger.entity).unwrap().owner;
         if let Ok(mut visibility) = sender.get_mut(sender_entity) {
@@ -104,7 +112,6 @@ pub enum Lifetime {
     /// The entity is not despawned even if the controlling client disconnects
     Persistent,
 }
-
 
 /// Component-level visibility for [`Controlled`]
 #[derive(Resource, Deref)]

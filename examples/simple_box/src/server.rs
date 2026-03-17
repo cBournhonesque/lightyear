@@ -6,6 +6,7 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
@@ -20,42 +21,14 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
-        app.add_systems(Startup, init_server_debug_logging);
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
-        app.add_systems(FixedUpdate, (movement, log_server_player_updates).chain());
+        app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
         app.add_systems(Update, send_message);
     }
-}
-
-#[derive(Resource, Default)]
-struct ServerDebugLogging {
-    enabled: bool,
-}
-
-impl ServerDebugLogging {
-    #[cfg(not(target_family = "wasm"))]
-    fn from_env() -> Self {
-        let enabled = std::env::var("LIGHTYEAR_SIMPLE_BOX_LOG_SERVER")
-            .map(|value| value != "0")
-            .unwrap_or(false);
-        Self { enabled }
-    }
-
-    #[cfg(target_family = "wasm")]
-    fn from_env() -> Self {
-        Self::default()
-    }
-}
-
-fn init_server_debug_logging(mut commands: Commands) {
-    let logging = ServerDebugLogging::from_env();
-    if logging.enabled {
-        info!("Logging server-side player inputs and position updates");
-    }
-    commands.insert_resource(logging);
 }
 
 /// When a new client tries to connect to a server, an entity is created for it with the `LinkOf` component.
@@ -116,34 +89,6 @@ fn movement(
         }
         trace!(?tick, ?position, ?inputs, "server");
         shared::shared_movement_behaviour(position, inputs);
-    }
-}
-
-fn log_server_player_updates(
-    logging: Res<ServerDebugLogging>,
-    query: Query<
-        (
-            Entity,
-            &PlayerId,
-            &PlayerPosition,
-            &ActionState<Inputs>,
-            Has<Predicted>,
-        ),
-        Or<(Changed<PlayerPosition>, Changed<ActionState<Inputs>>)>,
-    >,
-) {
-    if !logging.enabled {
-        return;
-    }
-    for (entity, player_id, position, inputs, predicted) in query.iter() {
-        info!(
-            ?entity,
-            ?player_id,
-            position = ?position.0,
-            ?inputs,
-            predicted,
-            "Server player update"
-        );
     }
 }
 

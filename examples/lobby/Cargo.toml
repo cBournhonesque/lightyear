@@ -14,7 +14,6 @@ publish = false
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
 client = [
-  "gui",
   "lightyear/client",
   "lightyear_examples_common/client",
   # Lobby example needs server functionality on the client side too

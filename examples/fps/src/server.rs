@@ -1,3 +1,4 @@
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
@@ -22,6 +23,7 @@ const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_plugins(LagCompensationPlugin);
         app.add_systems(Startup, spawn_bots);

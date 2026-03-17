@@ -23,17 +23,15 @@ state.lose_visibility(client);
 ```
 */
 
-use bevy_replicon::server::visibility::filters_mask::FilterBit;
-use bevy_replicon::server::visibility::registry::FilterRegistry;
-use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_app::prelude::*;
 use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
+use bevy_replicon::server::visibility::filters_mask::FilterBit;
+use bevy_replicon::server::visibility::registry::FilterRegistry;
+use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 #[allow(unused_imports)]
 use tracing::{info, trace};
-
-
 
 #[doc(hidden)]
 #[derive(Resource, Deref)]
@@ -58,7 +56,7 @@ pub trait VisibilityExt {
 
 impl VisibilityExt for Commands<'_, '_> {
     fn gain_visibility(&mut self, entity: Entity, sender: Entity) {
-    self.queue(move |world: &mut World| {
+        self.queue(move |world: &mut World| {
             world.gain_visibility(entity, sender);
         });
     }
@@ -85,7 +83,6 @@ impl VisibilityExt for World {
         }
     }
 }
-
 
 /// Plugin that handles the visibility system
 #[derive(Default)]

@@ -8,8 +8,8 @@
 use crate::Predicted;
 use crate::rollback::DeterministicPredicted;
 use alloc::collections::VecDeque;
-use bevy_ecs::prelude::*;
 use bevy_ecs::component::Mutable;
+use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use core::fmt::{self, Debug, Display};
@@ -43,17 +43,26 @@ pub enum PredictionState<R> {
 impl<R> PredictionState<R> {
     /// Returns true if this state is confirmed (received from the server)
     pub fn is_confirmed(&self) -> bool {
-        matches!(self, PredictionState::Confirmed(_) | PredictionState::ConfirmedRemoved)
+        matches!(
+            self,
+            PredictionState::Confirmed(_) | PredictionState::ConfirmedRemoved
+        )
     }
 
     /// Returns true if this state is predicted (computed locally)
     pub fn is_predicted(&self) -> bool {
-        matches!(self, PredictionState::Predicted(_) | PredictionState::Removed)
+        matches!(
+            self,
+            PredictionState::Predicted(_) | PredictionState::Removed
+        )
     }
 
     /// Returns true if the component exists (not removed)
     pub fn is_present(&self) -> bool {
-        matches!(self, PredictionState::Predicted(_) | PredictionState::Confirmed(_))
+        matches!(
+            self,
+            PredictionState::Predicted(_) | PredictionState::Confirmed(_)
+        )
     }
 
     pub fn into_value(self) -> Option<R> {
@@ -179,7 +188,9 @@ impl<C> PredictionHistory<C> {
         if partition == 0 {
             return None;
         }
-        self.buffer.get(partition - 1).and_then(|(_, state)| state.value())
+        self.buffer
+            .get(partition - 1)
+            .and_then(|(_, state)| state.value())
     }
 
     /// Get the full state at the specified tick
@@ -360,9 +371,9 @@ impl<C: Clone> PredictionHistory<C> {
     /// Clear all predicted values that are more recent than the rollback tick,
     /// while preserving confirmed values.
     pub fn clear_predicted_from(&mut self, rollback_tick: Tick) {
-        self.buffer.retain(|(tick, state)| *tick <= rollback_tick || state.is_confirmed());
+        self.buffer
+            .retain(|(tick, state)| *tick <= rollback_tick || state.is_confirmed());
     }
-
 }
 
 // ============================================================================
@@ -418,15 +429,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 
 /// If a predicted component gets added to [`Predicted`] entity, add a [`PredictionHistory`] component.
 pub(crate) fn add_prediction_history<C: Component>(
-    trigger: On<
-        Add,
-        (
-            C,
-            Predicted,
-            PreSpawned,
-            DeterministicPredicted,
-        ),
-    >,
+    trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
     mut commands: Commands,
     query: Query<
         (),
@@ -455,7 +458,9 @@ pub(crate) fn add_prediction_history<C: Component>(
 
 /// During rollback re-simulation, check if we have a confirmed value for this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
-pub(crate) fn snap_to_confirmed_during_rollback<C: Component<Mutability = Mutable> + Clone + PartialEq>(
+pub(crate) fn snap_to_confirmed_during_rollback<
+    C: Component<Mutability = Mutable> + Clone + PartialEq,
+>(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
     // Only run during rollback
@@ -542,7 +547,9 @@ mod tests {
         let restore_value = history.clear_predicted_from(Tick(4));
 
         // Should restore to the value at tick 4 (which is the confirmed value at tick 3)
-        assert!(matches!(restore_value, Some(PredictionState::Confirmed(TestValue(v))) if v == 3.0));
+        assert!(
+            matches!(restore_value, Some(PredictionState::Confirmed(TestValue(v))) if v == 3.0)
+        );
 
         // Confirmed value at tick 7 should be preserved
         assert!(history.get_confirmed_at(Tick(7)).is_some());

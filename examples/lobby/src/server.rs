@@ -10,9 +10,11 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::shared_movement_behaviour;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -23,6 +25,7 @@ pub struct ExampleServerPlugin {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         // the server is using Rooms
         app.add_plugins(RoomPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
@@ -51,10 +54,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 /// System to start the dedicated server at Startup
-fn start_dedicated_server(
-    mut commands: Commands,
-    mut room_allocator: ResMut<RoomAllocator>,
-) {
+fn start_dedicated_server(mut commands: Commands, mut room_allocator: ResMut<RoomAllocator>) {
     let mut lobbies = Lobbies::default();
     // add one empty lobby
     let room_id = room_allocator.allocate();
@@ -67,10 +67,9 @@ fn start_dedicated_server(
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        ReplicationSender::default(),
-        Name::from("Client"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender::default(), Name::from("Client")));
 }
 
 /// Spawn an entity for a given client
@@ -146,9 +145,14 @@ mod game {
         server_started: Single<(), (With<Server>, With<Started>)>,
         // add a Without<Client> so that we don't run the movement system twice in host-client mode
         // for the controlled entity
-        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), Without<Predicted>>,
+        host_server: Query<(), With<HostServer>>,
+        mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>, Has<Predicted>)>,
     ) {
-        for (position, inputs) in position_query.iter_mut() {
+        let is_host_server = !host_server.is_empty();
+        for (position, inputs, predicted) in position_query.iter_mut() {
+            if is_host_server && predicted {
+                continue;
+            }
             shared_movement_behaviour(position, inputs);
         }
     }
@@ -245,9 +249,7 @@ mod lobby {
                     lobby.players.push(client_id);
                     if host.is_none() {
                         spawn_player_entity(&mut commands, sender, client_id, Some(room_id));
-                        commands
-                            .entity(sender)
-                            .insert(Rooms::single(room_id));
+                        commands.entity(sender).insert(Rooms::single(room_id));
                     }
                     multi_sender.send::<_, Channel1>(
                         &StartGame {

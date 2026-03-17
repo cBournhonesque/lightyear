@@ -4,8 +4,8 @@ use alloc::vec::Vec;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_transport::channel::builder::ChannelSettings;
 use lightyear_transport::channel::builder::ChannelMode;
+use lightyear_transport::channel::builder::ChannelSettings;
 use lightyear_transport::channel::builder::ReliableSettings;
 use lightyear_transport::channel::registry::{ChannelId, ChannelKind};
 use lightyear_transport::prelude::{AppChannelExt, ChannelRegistry};
@@ -80,16 +80,12 @@ impl Plugin for RepliconChannelRegistrationPlugin {
 
         // server_channels: index 0 = Updates, index 1 = Mutations
         // (matches ServerChannel::Updates = 0, ServerChannel::Mutations = 1)
-        let server_channels = alloc::vec![
-            (updates_kind, updates_id),
-            (mutations_kind, mutations_id),
-        ];
+        let server_channels =
+            alloc::vec![(updates_kind, updates_id), (mutations_kind, mutations_id),];
 
         // client_channels: index 0 = MutationAcks
         // (matches ClientChannel::MutationAcks = 0)
-        let client_channels = alloc::vec![
-            (mutation_acks_kind, mutation_acks_id),
-        ];
+        let client_channels = alloc::vec![(mutation_acks_kind, mutation_acks_id),];
 
         app.insert_resource(RepliconChannelMap {
             server_channels,

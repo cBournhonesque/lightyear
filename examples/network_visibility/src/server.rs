@@ -1,10 +1,11 @@
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared::{color_from_id, shared_movement_behaviour};
 use bevy::prelude::*;
 use lightyear::connection::client::PeerMetadata;
 use lightyear::input::native::prelude::{ActionState, InputMarker};
-use lightyear::prelude::*;
 use lightyear::prelude::server::*;
+use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
 const GRID_SIZE: f32 = 200.0;
@@ -16,6 +17,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.add_plugins(RoomPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, init);
@@ -26,10 +28,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_systems(Update, interest_management);
 
         // Allocate a room for the player entities
-        let player_room = app
-            .world_mut()
-            .resource_mut::<RoomAllocator>()
-            .allocate();
+        let player_room = app.world_mut().resource_mut::<RoomAllocator>().allocate();
         app.insert_resource(PlayerRoom(player_room));
     }
 }
@@ -43,7 +42,9 @@ pub struct PlayerRoom(RoomId);
 /// You can add additional components to update the connection. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert(ReplicationSender::default());
+    commands
+        .entity(trigger.entity)
+        .insert(ReplicationSender::default());
 }
 
 /// If the new client connects to the server, we want to spawn a new player entity for it.
@@ -107,10 +108,7 @@ pub(crate) fn init(mut commands: Commands) {
 pub(crate) fn interest_management(
     peer_metadata: Res<PeerMetadata>,
     player_query: Query<(&PlayerId, Ref<Position>), (Without<CircleMarker>, With<Replicate>)>,
-    circle_query: Query<
-        (Entity, &Position),
-        (With<CircleMarker>, With<Replicate>),
-    >,
+    circle_query: Query<(Entity, &Position), (With<CircleMarker>, With<Replicate>)>,
     mut commands: Commands,
 ) {
     for (client_id, position) in player_query.iter() {

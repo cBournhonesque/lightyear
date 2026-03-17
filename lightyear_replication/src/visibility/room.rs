@@ -49,7 +49,17 @@ use tracing::{info, trace};
 /// Unique identifier for a room.
 ///
 /// The [`RoomId`] must be allocated via the [`RoomAllocator`] resource.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, bevy_reflect::Reflect)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    bevy_reflect::Reflect,
+)]
 pub struct RoomId(u16);
 
 impl RoomId {
@@ -83,8 +93,6 @@ impl RoomAllocator {
     }
 }
 
-
-
 /// A [`Rooms`] is a component that represents the list of rooms that the entity or client belongs to.
 ///
 /// It is used to manage interest management via rooms.
@@ -98,7 +106,7 @@ pub struct Rooms {
     rooms: FixedBitSet,
 }
 
-impl<T: Iterator<Item=RoomId>> From<T> for Rooms{
+impl<T: Iterator<Item = RoomId>> From<T> for Rooms {
     fn from(value: T) -> Self {
         let mut rooms = Self::default();
         for room in value {

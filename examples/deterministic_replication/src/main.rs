@@ -16,6 +16,7 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 /// how many ticks to delay the input by
 pub const INPUT_DELAY_TICKS: u16 = 0;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;

@@ -3,10 +3,12 @@ use bevy::prelude::*;
 use core::ops::Deref;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 
@@ -14,6 +16,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.init_resource::<Global>();
         app.add_systems(Startup, setup);
@@ -89,13 +92,14 @@ pub(crate) fn handle_connected(
 
 /// Read client inputs and move players
 fn movement(
-    mut query: Query<
-        (&mut Position, &ActionState<Inputs>),
-        // We don't want to apply inputs to the locally predicted entities
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    mut query: Query<(&mut Position, &ActionState<Inputs>, Has<Predicted>)>,
 ) {
-    for (position, action_state) in query.iter_mut() {
+    let is_host_server = !host_server.is_empty();
+    for (position, action_state, predicted) in query.iter_mut() {
+        if is_host_server && predicted {
+            continue;
+        }
         // Use the shared movement function, adapted for ActionState
         shared::shared_movement_behaviour(position, action_state);
     }

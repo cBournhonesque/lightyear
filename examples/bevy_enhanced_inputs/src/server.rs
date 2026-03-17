@@ -6,11 +6,13 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::Fire;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -19,6 +21,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_observer(movement);
@@ -90,14 +93,14 @@ pub(crate) fn handle_connected(
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
     trigger: On<Fire<Movement>>,
-    mut position_query: Query<
-        &mut PlayerPosition,
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    mut position_query: Query<(&mut PlayerPosition, Has<Predicted>)>,
 ) {
-    if let Ok(position) = position_query.get_mut(trigger.context) {
+    let is_host_server = !host_server.is_empty();
+    if let Ok((position, predicted)) = position_query.get_mut(trigger.context) {
+        if is_host_server && predicted {
+            return;
+        }
         shared::shared_movement_behaviour(position, trigger.value);
     }
 }

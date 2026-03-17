@@ -16,6 +16,7 @@ use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
+mod automation;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::prelude::ReplicationSender;

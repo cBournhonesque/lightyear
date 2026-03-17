@@ -9,6 +9,7 @@ use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::Controlled;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::*;
 
@@ -16,6 +17,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(
             Update,

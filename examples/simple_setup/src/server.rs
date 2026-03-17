@@ -6,6 +6,7 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::automation::ServerStartupConfig;
 use crate::shared::*;
 use bevy::prelude::*;
 use lightyear::prelude::client::*;
@@ -35,7 +36,10 @@ fn handle_new_client(trigger: On<Add, Connected>, mut commands: Commands) {
 }
 
 /// Start the server
-fn startup(mut commands: Commands) -> Result {
+fn startup(mut commands: Commands, config: Res<ServerStartupConfig>) -> Result {
+    if !config.auto_spawn {
+        return Ok(());
+    }
     let server = commands
         .spawn((
             NetcodeServer::new(server::NetcodeConfig::default()),

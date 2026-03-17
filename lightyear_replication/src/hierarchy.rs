@@ -1,25 +1,25 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
-use crate::prelude::{Replicate};
+use crate::ReplicationSystems;
+use crate::prelude::Replicate;
+#[cfg(feature = "interpolation")]
+use crate::send::InterpolationTarget;
+#[cfg(feature = "prediction")]
+use crate::send::PredictionTarget;
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
 use bevy_ecs::component::Immutable;
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::reflect::ReflectMapEntities;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
+use bevy_replicon::prelude::SyncRelatedAppExt;
 use core::fmt::Debug;
-use bevy_ecs::query::QueryData;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use smallvec::SmallVec;
 use tracing::trace;
-use bevy_replicon::prelude::SyncRelatedAppExt;
-use crate::ReplicationSystems;
-#[cfg(feature = "prediction")]
-use crate::send::PredictionTarget;
-#[cfg(feature = "interpolation")]
-use crate::send::InterpolationTarget;
 
 #[deprecated(note = "Use RelationshipSystems instead")]
 pub type RelationshipSet = RelationshipSystems;
@@ -51,14 +51,18 @@ impl HierarchyPlugin {
     ) {
         if let Ok(replicate_like) = child_query.get(trigger.entity) {
             if let Ok(root_propagation) = root_query.get(replicate_like.root) {
-                commands.entity(trigger.entity).insert(root_propagation.replicate.clone());
+                commands
+                    .entity(trigger.entity)
+                    .insert(root_propagation.replicate.clone());
                 #[cfg(feature = "prediction")]
                 if let Some(prediction) = root_propagation.prediction {
                     commands.entity(trigger.entity).insert(prediction.clone());
                 }
                 #[cfg(feature = "interpolation")]
                 if let Some(interpolation) = root_propagation.interpolation {
-                    commands.entity(trigger.entity).insert(interpolation.clone());
+                    commands
+                        .entity(trigger.entity)
+                        .insert(interpolation.clone());
                 }
             }
         }
@@ -140,8 +144,7 @@ impl<
         app.add_observer(Self::propagate_replicate_like_replication_marker_removed);
         app.add_systems(
             PostUpdate,
-            Self::propagate_through_hierarchy
-                .before(ReplicationSystems::Send)
+            Self::propagate_through_hierarchy.before(ReplicationSystems::Send),
         );
     }
 }

@@ -8,6 +8,7 @@ use lightyear::input::client::InputSystems;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement};
@@ -16,6 +17,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             update_cursor_state_from_window
@@ -30,10 +32,13 @@ impl Plugin for ExampleClientPlugin {
 
 /// Compute the world-position of the cursor and set it in the DualAxis input
 fn update_cursor_state_from_window(
-    window: Single<&Window>,
+    window: Option<Single<&Window>>,
     q_camera: Query<(&Camera, &GlobalTransform)>,
     mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
 ) {
+    let Some(window) = window else {
+        return;
+    };
     let Ok((camera, camera_transform)) = q_camera.single() else {
         error!("Expected to find only one camera");
         return;

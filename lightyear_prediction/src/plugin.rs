@@ -8,17 +8,18 @@ use super::rollback::{
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
-use crate::manager::{PredictionManager};
+use crate::manager::PredictionManager;
 use crate::predicted_history::{
     add_prediction_history, apply_component_removal_predicted,
-    handle_tick_event_prediction_history, snap_to_confirmed_during_rollback, update_prediction_history,
+    handle_tick_event_prediction_history, snap_to_confirmed_during_rollback,
+    update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
 #[cfg(feature = "metrics")]
 use alloc::format;
-use bevy_app::prelude::*;
 use bevy_app::FixedPreUpdate;
+use bevy_app::prelude::*;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
@@ -26,7 +27,7 @@ use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
-use lightyear_replication::prelude::{ReplicationSystems};
+use lightyear_replication::prelude::ReplicationSystems;
 
 /// Plugin that enables client-side prediction
 #[derive(Default)]

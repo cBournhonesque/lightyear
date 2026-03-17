@@ -5,7 +5,7 @@ use crate::control::{Controlled, ControlledBy};
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
 use crate::prelude::PredictionTarget;
-use crate::prelude::{Replicate};
+use crate::prelude::Replicate;
 use crate::registry::{ComponentKind, ComponentRegistry};
 use alloc::vec::Vec;
 use bevy_app::{App, Plugin, PostUpdate};
@@ -17,11 +17,11 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::query::QuerySingleError;
 use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::{Reflect, prelude::ReflectDefault};
+use bevy_replicon::client::confirm_history::ConfirmHistory;
+use bevy_replicon::prelude::Signature;
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
 use core::hash::{Hash, Hasher};
-use bevy_replicon::client::confirm_history::ConfirmHistory;
-use bevy_replicon::prelude::Signature;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, Tick};
@@ -194,9 +194,7 @@ impl PreSpawnedPlugin {
             if let Some(hash) = prespawn.hash {
                 if let Ok(mut receiver) = receiver_query.single_mut() {
                     receiver.prespawn_hash_to_entities.remove(&hash);
-                    receiver
-                        .prespawn_tick_to_hash
-                        .retain(|(_, h)| *h != hash);
+                    receiver.prespawn_tick_to_hash.retain(|(_, h)| *h != hash);
                 }
             }
             // Remove Signature to free the SignatureMap entry

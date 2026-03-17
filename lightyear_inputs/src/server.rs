@@ -6,9 +6,9 @@ use crate::input_message::{
 };
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
-use alloc::vec::Vec;
 #[cfg(feature = "metrics")]
 use alloc::format;
+use alloc::vec::Vec;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;

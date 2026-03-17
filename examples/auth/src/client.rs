@@ -31,18 +31,21 @@ impl Plugin for ExampleClientPlugin {
             task: None,
         });
 
-        // despawn the existing connect button from the Renderer if it exists
-        // (because we want to replace it with one with specific behaviour)
-        // This might need adjustment if the common renderer changes significantly
-        if let Ok(button_entity) = app
-            .world_mut()
-            .query_filtered::<Entity, With<Button>>()
-            .single(app.world())
+        #[cfg(feature = "gui")]
         {
-            app.world_mut().despawn(button_entity);
-        }
+            // despawn the existing connect button from the Renderer if it exists
+            // (because we want to replace it with one with specific behaviour)
+            // This might need adjustment if the common renderer changes significantly
+            if let Ok(button_entity) = app
+                .world_mut()
+                .query_filtered::<Entity, With<Button>>()
+                .single(app.world())
+            {
+                app.world_mut().despawn(button_entity);
+            }
 
-        app.add_systems(Startup, spawn_connect_button);
+            app.add_systems(Startup, spawn_connect_button);
+        }
         app.add_systems(Update, fetch_connect_token);
         app.add_observer(on_disconnect);
     }
@@ -50,9 +53,20 @@ impl Plugin for ExampleClientPlugin {
 
 /// Holds a handle to an io task that is requesting a `ConnectToken` from the backend
 #[derive(Resource)]
-struct ConnectTokenRequestTask {
+pub(crate) struct ConnectTokenRequestTask {
     auth_backend_addr: SocketAddr,
     task: Option<Task<ConnectToken>>,
+}
+
+pub(crate) fn begin_connect_token_request(task_state: &mut ConnectTokenRequestTask) {
+    if task_state.task.is_some() {
+        return;
+    }
+    let auth_backend_addr = task_state.auth_backend_addr;
+    let task = IoTaskPool::get().spawn_local(Compat::new(async move {
+        get_connect_token_from_auth_backend(auth_backend_addr).await
+    }));
+    task_state.task = Some(task);
 }
 
 /// If we have an io task that is waiting for a `ConnectToken`, we poll the task until completion,
@@ -125,6 +139,7 @@ fn on_disconnect(
 /// Create a button that allow you to connect/disconnect to a server
 /// When pressing Connect, we will start an asynchronous request via TCP to get a ConnectToken
 /// that can be used to connect
+#[cfg(feature = "gui")]
 pub(crate) fn spawn_connect_button(mut commands: Commands) {
     commands.spawn(Camera2d);
     commands
@@ -164,12 +179,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                         match client.state {
                             ClientState::Disconnected => {
                                 info!("Starting task to get ConnectToken");
-
-                                let auth_backend_addr = task_state.auth_backend_addr;
-                                let task = IoTaskPool::get().spawn_local(Compat::new(async move {
-                                    get_connect_token_from_auth_backend(auth_backend_addr).await
-                                }));
-                                task_state.task = Some(task);
+                                begin_connect_token_request(&mut task_state);
                             }
                             _ => {
                                 info!("Disconnecting from server");

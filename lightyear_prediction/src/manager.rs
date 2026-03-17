@@ -10,11 +10,11 @@ use bevy_ecs::entity::EntityHash;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
-use lightyear_core::prelude::{Tick};
+use lightyear_core::prelude::Tick;
+use lightyear_replication::prelude::ServerMutateTicks;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
-use lightyear_replication::prelude::{ServerMutateTicks};
 
 #[derive(Resource)]
 pub struct PredictionResource {
@@ -78,7 +78,6 @@ impl RollbackPolicy {
     }
 }
 
-
 #[derive(Component, Debug, Reflect)]
 #[component(on_insert = PredictionManager::on_insert)]
 #[require(InputTimelineConfig)]
@@ -114,8 +113,6 @@ impl LastConfirmedInput {
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)
     }
 }
-
-
 
 /// Stores metadata related to state-based prediction.
 ///
@@ -180,7 +177,10 @@ impl StateRollbackMetadata {
     }
 
     /// Check if ServerMutateTicks has advanced since we last processed it
-    pub fn has_server_mutate_ticks_advanced(&self, server_mutate_ticks: &ServerMutateTicks) -> bool {
+    pub fn has_server_mutate_ticks_advanced(
+        &self,
+        server_mutate_ticks: &ServerMutateTicks,
+    ) -> bool {
         let current_tick: Tick = server_mutate_ticks.last_tick().get().into();
         match self.last_processed_tick {
             None => true, // First time, always process
@@ -191,7 +191,11 @@ impl StateRollbackMetadata {
     /// Get the rollback tick based on mode:
     /// - For Check mode: earliest_mismatch_tick (if any)
     /// - For Always mode: ServerMutateTicks.last_tick
-    pub fn get_rollback_tick(&self, mode: RollbackMode, server_mutate_ticks: &ServerMutateTicks) -> Option<Tick> {
+    pub fn get_rollback_tick(
+        &self,
+        mode: RollbackMode,
+        server_mutate_ticks: &ServerMutateTicks,
+    ) -> Option<Tick> {
         match mode {
             RollbackMode::Check => {
                 if self.should_rollback {

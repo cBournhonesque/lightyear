@@ -7,6 +7,7 @@ use lightyear::connection::host::HostClient;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin};
@@ -15,6 +16,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(add_ball_physics);

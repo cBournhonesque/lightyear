@@ -1,11 +1,11 @@
+use crate::registry::ComponentRegistry;
 use bevy_app::App;
 use bevy_ecs::change_detection::Mut;
-use bevy_ecs::component::{Component};
+use bevy_ecs::component::Component;
 use bevy_replicon::prelude::{AppRuleExt, RuleFns};
 use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use bevy_replicon::shared::replication::registry::rule_fns::{DeserializeFn, SerializeFn};
 use serde::{Serialize, de::DeserializeOwned};
-use crate::registry::ComponentRegistry;
 
 /// Add a component to the list of components that can be sent
 pub trait AppComponentExt {
@@ -35,9 +35,7 @@ pub trait AppComponentExt {
 }
 
 impl AppComponentExt for App {
-    fn register_component<
-        C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned,
-    >(
+    fn register_component<C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned>(
         &mut self,
     ) -> ComponentRegistration<'_, C> {
         if self
@@ -63,11 +61,7 @@ impl AppComponentExt for App {
         serialize_fn: SerializeFn<C>,
         deserialize_fn: DeserializeFn<C>,
     ) -> ComponentRegistration<'_, C> {
-
-        self.replicate_with(RuleFns::new(
-            serialize_fn,
-            deserialize_fn
-        ));
+        self.replicate_with(RuleFns::new(serialize_fn, deserialize_fn));
         ComponentRegistration::new(self)
     }
 

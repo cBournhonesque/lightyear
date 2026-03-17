@@ -1,3 +1,4 @@
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::color_from_id;
@@ -16,6 +17,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_deterministic_spawn);
@@ -34,14 +36,7 @@ pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
     mut commands: Commands,
-    mut player_query: Query<
-        (
-            &PlayerId,
-            &Position,
-            &GameReplicationMode,
-        ),
-        With<Predicted>,
-    >,
+    mut player_query: Query<(&PlayerId, &Position, &GameReplicationMode), With<Predicted>>,
 ) {
     let client_id = client.into_inner().0;
     if let Ok((player_id, pos, mode)) = player_query.get_mut(trigger.entity) {
@@ -64,8 +59,7 @@ pub(crate) fn handle_predicted_spawn(
         }
         info!(
             ?pos,
-            "Adding actions to predicted player {:?}",
-            trigger.entity
+            "Adding actions to predicted player {:?}", trigger.entity
         );
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
         add_actions(&mut commands, trigger.entity);

@@ -3,16 +3,17 @@ pub mod deterministic;
 
 pub mod replication;
 
+use crate::registry::replication::ReplicationMetadata;
 use alloc::string::String;
-use core::any::TypeId;
 use bevy_ecs::component::ComponentId;
 use bevy_ecs::prelude::*;
 use bevy_platform::collections::HashMap;
 use bevy_reflect::{Reflect, TypePath};
 use bevy_transform::components::Transform;
 use bevy_utils::prelude::DebugName;
+use core::any::TypeId;
 use lightyear_core::network::NetId;
-use lightyear_serde::{SerializationError,};
+use lightyear_serde::SerializationError;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
@@ -20,12 +21,10 @@ use serde::ser::Serialize;
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
-use crate::registry::replication::ReplicationMetadata;
 
 /// Function used to interpolate from one component state (`start`) to another (`other`)
 /// t goes from 0.0 (`start`) to 1.0 (`other`)
 pub type LerpFn<C> = fn(start: C, other: C, t: f32) -> C;
-
 
 pub type ComponentNetId = NetId;
 
@@ -197,7 +196,7 @@ impl ComponentRegistry {
                 component_id,
                 replication: Some(ReplicationMetadata {
                     predicted: false,
-                    interpolated: false
+                    interpolated: false,
                 }),
                 // #[cfg(feature = "delta")]
                 // delta: None,
@@ -210,9 +209,6 @@ impl ComponentRegistry {
         self.hasher.finish()
     }
 }
-
-
-
 
 pub struct TransformLinearInterpolation;
 

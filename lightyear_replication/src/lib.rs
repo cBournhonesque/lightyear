@@ -11,17 +11,17 @@ use bevy_ecs::prelude::SystemSet;
 #[cfg(feature = "server")]
 pub mod server;
 
+pub mod authority;
+pub mod channels;
 #[cfg(feature = "client")]
 pub mod client;
-pub mod channels;
-pub mod send;
-pub mod registry;
-pub mod metadata;
-pub mod authority;
 pub mod control;
-pub mod receive;
-pub mod prespawn;
 pub mod hierarchy;
+pub mod metadata;
+pub mod prespawn;
+pub mod receive;
+pub mod registry;
+pub mod send;
 
 pub mod visibility;
 
@@ -37,29 +37,28 @@ pub mod prelude {
     pub use bevy_replicon::prelude::Replicated;
 
     pub use crate::ReplicationSystems;
-    pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority};
     pub use crate::control::{Controlled, ControlledBy, Lifetime};
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
+    pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
     pub use crate::receive::ReplicationReceiver;
     pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender};
 
-    pub use crate::visibility::room::{RoomAllocator, RoomPlugin, Rooms, RoomId};
-    pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
-    pub use crate::registry::replication::AppComponentExt;
     pub use crate::registry::ComponentRegistry;
     pub use crate::registry::TransformLinearInterpolation;
+    pub use crate::registry::replication::AppComponentExt;
+    pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
+    pub use crate::visibility::room::{RoomAllocator, RoomId, RoomPlugin, Rooms};
 
     #[cfg(feature = "delta")]
-    pub use crate::delta::{Diffable, DeltaManager};
+    pub use crate::delta::{DeltaManager, Diffable};
 
-    #[cfg(feature = "prediction")]
-    pub use crate::send::PredictionTarget;
     #[cfg(feature = "interpolation")]
     pub use crate::send::InterpolationTarget;
+    #[cfg(feature = "prediction")]
+    pub use crate::send::PredictionTarget;
 }
-
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ReplicationSystems {
@@ -125,9 +124,9 @@ impl PluginGroup for LightyearRepliconBackend {
             group = group.add(send::SendPlugin);
             group = group.add(control::ControlPlugin);
             group = group.add(hierarchy::HierarchyPlugin);
-            group = group.add(hierarchy::HierarchySendPlugin::<bevy_ecs::prelude::ChildOf>::default());
+            group =
+                group.add(hierarchy::HierarchySendPlugin::<bevy_ecs::prelude::ChildOf>::default());
             group = group.add(visibility::immediate::NetworkVisibilityPlugin);
-
         }
 
         #[cfg(feature = "client")]

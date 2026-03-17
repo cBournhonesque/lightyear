@@ -1,3 +1,4 @@
+use crate::registry::replication::ComponentRegistration;
 use crate::registry::{ComponentKind, ComponentMetadata, ComponentRegistry};
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
@@ -5,7 +6,6 @@ use bevy_ptr::Ptr;
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use tracing::trace;
-use crate::registry::replication::ComponentRegistration;
 
 #[derive(Debug, Clone, Copy)]
 pub struct DeterministicFns {

@@ -9,6 +9,7 @@ use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{SharedPlugin, color_from_id, player_bundle, shared_movement_behaviour};
@@ -17,6 +18,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(handle_player_spawn);
     }
 }

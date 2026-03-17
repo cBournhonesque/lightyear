@@ -91,9 +91,7 @@ fn spawn_player(
         // and replicated from server to client
         if is_server {
             #[cfg(feature = "server")]
-            action.insert(
-                Replicate::to_clients(NetworkTarget::Single(client_id)),
-            );
+            action.insert(Replicate::to_clients(NetworkTarget::Single(client_id)));
         }
         let mut action = commands.spawn((
             ActionOf::<Player>::new(entity),
@@ -103,9 +101,7 @@ fn spawn_player(
         ));
         if is_server {
             #[cfg(feature = "server")]
-            action.insert(
-                Replicate::to_clients(NetworkTarget::Single(client_id)),
-            );
+            action.insert(Replicate::to_clients(NetworkTarget::Single(client_id)));
         }
     }
 }

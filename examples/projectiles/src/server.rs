@@ -1,3 +1,4 @@
+use crate::automation::AutomationServerPlugin;
 use crate::client::ExampleClientPlugin;
 use crate::protocol::*;
 use crate::shared;
@@ -32,6 +33,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.add_plugins(RoomPlugin);
         app.init_resource::<GameRooms>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
@@ -93,9 +95,10 @@ pub(crate) fn spawn_player(
 
     for i in 0..6 {
         let replication_mode = GameReplicationMode::from_room_id(i);
-        let room_id = *rooms.rooms.entry(replication_mode).or_insert_with(|| {
-            room_allocator.allocate()
-        });
+        let room_id = *rooms
+            .rooms
+            .entry(replication_mode)
+            .or_insert_with(|| room_allocator.allocate());
 
         // start by adding the player to the first room
         if i == 0 {
@@ -126,10 +129,7 @@ pub(crate) fn spawn_player(
                 InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             )),
             GameReplicationMode::AllInterpolated => {
-                commands.spawn((
-                    player,
-                    InterpolationTarget::to_clients(NetworkTarget::All),
-                ))
+                commands.spawn((player, InterpolationTarget::to_clients(NetworkTarget::All)))
             }
             GameReplicationMode::OnlyInputsReplicated => commands.spawn((
                 PlayerContext,

@@ -2,6 +2,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
@@ -18,6 +19,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             buffer_input.in_set(InputSystems::WriteClientInputs),
@@ -32,10 +34,9 @@ impl Plugin for ExampleClientPlugin {
 /// on the client so that we can replicate updates to the server if we get authority
 /// over the ball
 pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        Replicate::to_server(),
-        Name::new("Ball"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((Replicate::to_server(), Name::new("Ball")));
 }
 
 /// System that reads from peripherals and adds inputs to the buffer

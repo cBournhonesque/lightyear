@@ -59,9 +59,9 @@ use core::fmt::Debug;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_replication::ReplicationSystems;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
-use lightyear_replication::ReplicationSystems;
 
 #[deprecated(note = "Use FrameInterpolationSystems instead")]
 pub type FrameInterpolationSet = FrameInterpolationSystems;

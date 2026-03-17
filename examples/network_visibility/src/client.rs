@@ -3,6 +3,7 @@ use lightyear::input::client::InputSystems;
 use lightyear::input::native::prelude::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::shared_movement_behaviour;
 
@@ -10,6 +11,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set

@@ -16,6 +16,8 @@ use bevy_enhanced_input::action::ActionState;
 use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
+use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
+use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use core::fmt::Debug;
 #[cfg(feature = "client")]
 use lightyear_core::prelude::is_in_rollback;
@@ -24,8 +26,6 @@ use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
-use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
-use bevy_replicon::prelude::{AppRuleExt, RuleFns, ReplicationMode};
 
 /// Add BEI Input replication to your app.
 pub struct InputPlugin<C> {

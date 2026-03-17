@@ -5,6 +5,7 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
@@ -17,6 +18,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set

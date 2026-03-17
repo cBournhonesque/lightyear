@@ -10,9 +10,9 @@ use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
-use lightyear_messages::plugin::MessageSystems;
-use tracing::{trace, debug};
 use crate::channels::RepliconChannelMap;
+use lightyear_messages::plugin::MessageSystems;
+use tracing::{debug, trace};
 
 /// Adds the replicon client-side backend bridge for lightyear.
 ///
@@ -116,7 +116,9 @@ fn send_client_packets(
     for (channel_idx, message) in client_messages.drain_sent() {
         let (channel_kind, _) = channel_map.client_channels[channel_idx];
         for mut transport in transports.iter_mut() {
-            transport.send_mut_erased(channel_kind, message.clone(), 1.0).ok();
+            transport
+                .send_mut_erased(channel_kind, message.clone(), 1.0)
+                .ok();
         }
     }
 }

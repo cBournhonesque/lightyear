@@ -4,6 +4,7 @@ use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSystems;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::color_from_id;
 
@@ -11,8 +12,10 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(on_connect);
         app.add_observer(on_admin_context);
+        #[cfg(feature = "gui")]
         app.add_systems(Update, cursor_movement);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
@@ -43,6 +46,7 @@ pub(crate) fn on_connect(
     }
 }
 
+#[cfg(feature = "gui")]
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
     client: Single<&LocalId, (With<Connected>, With<Client>)>,
@@ -59,6 +63,7 @@ fn cursor_movement(
     }
 }
 
+#[cfg(feature = "gui")]
 // Get the cursor position relative to the window
 fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
     let cursor_pos = window.cursor_position()?;

@@ -13,9 +13,9 @@ use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
+use crate::channels::RepliconChannelMap;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::{debug, trace};
-use crate::channels::RepliconChannelMap;
 
 /// Adds the replicon server-side backend bridge for lightyear.
 ///
@@ -142,7 +142,12 @@ fn send_server_packets(
 ) {
     for (client, channel_idx, message) in server_messages.drain_sent() {
         let (channel_kind, _) = channel_map.server_channels[channel_idx];
-        trace!("send_server_packets: sending {} bytes on channel_idx={} to {:?}", message.len(), channel_idx, client);
+        trace!(
+            "send_server_packets: sending {} bytes on channel_idx={} to {:?}",
+            message.len(),
+            channel_idx,
+            client
+        );
         if let Ok(mut transport) = transports.get_mut(client) {
             transport.send_mut_erased(channel_kind, message, 1.0).ok();
         } else {
