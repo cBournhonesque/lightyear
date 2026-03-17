@@ -10,6 +10,7 @@ use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -20,12 +21,41 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
+        app.add_systems(Startup, init_server_debug_logging);
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
-        app.add_systems(FixedUpdate, movement);
+        app.add_systems(FixedUpdate, (movement, log_server_player_updates).chain());
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
         app.add_systems(Update, send_message);
     }
+}
+
+#[derive(Resource, Default)]
+struct ServerDebugLogging {
+    enabled: bool,
+}
+
+impl ServerDebugLogging {
+    #[cfg(not(target_family = "wasm"))]
+    fn from_env() -> Self {
+        let enabled = std::env::var("LIGHTYEAR_SIMPLE_BOX_LOG_SERVER")
+            .map(|value| value != "0")
+            .unwrap_or(false);
+        Self { enabled }
+    }
+
+    #[cfg(target_family = "wasm")]
+    fn from_env() -> Self {
+        Self::default()
+    }
+}
+
+fn init_server_debug_logging(mut commands: Commands) {
+    let logging = ServerDebugLogging::from_env();
+    if logging.enabled {
+        info!("Logging server-side player inputs and position updates");
+    }
+    commands.insert_resource(logging);
 }
 
 /// When a new client tries to connect to a server, an entity is created for it with the `LinkOf` component.
@@ -34,10 +64,9 @@ impl Plugin for ExampleServerPlugin {
 /// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        ReplicationSender::default(),
-        Name::from("Client"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender::default(), Name::from("Client")));
 }
 
 /// If the new client connects to the server, we want to spawn a new player entity for it.
@@ -76,17 +105,45 @@ pub(crate) fn handle_connected(
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
     timeline: Res<LocalTimeline>,
-    mut position_query: Query<
-        (&mut PlayerPosition, &ActionState<Inputs>),
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>, Has<Predicted>)>,
 ) {
+    let is_host_server = !host_server.is_empty();
     let tick = timeline.tick();
-    for (position, inputs) in position_query.iter_mut() {
+    for (position, inputs, predicted) in position_query.iter_mut() {
+        if is_host_server && predicted {
+            continue;
+        }
         trace!(?tick, ?position, ?inputs, "server");
         shared::shared_movement_behaviour(position, inputs);
+    }
+}
+
+fn log_server_player_updates(
+    logging: Res<ServerDebugLogging>,
+    query: Query<
+        (
+            Entity,
+            &PlayerId,
+            &PlayerPosition,
+            &ActionState<Inputs>,
+            Has<Predicted>,
+        ),
+        Or<(Changed<PlayerPosition>, Changed<ActionState<Inputs>>)>,
+    >,
+) {
+    if !logging.enabled {
+        return;
+    }
+    for (entity, player_id, position, inputs, predicted) in query.iter() {
+        info!(
+            ?entity,
+            ?player_id,
+            position = ?position.0,
+            ?inputs,
+            predicted,
+            "Server player update"
+        );
     }
 }
 

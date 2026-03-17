@@ -183,11 +183,10 @@ impl Plugin for ProtocolPlugin {
             .add_prediction()
             .add_linear_correction_fn()
             .add_linear_interpolation();
-        app.register_component::<CompMap>()
-            .add_prediction();
+        app.register_component::<CompMap>().add_prediction();
         app.add_rollback::<CompNotNetworked>();
         app.register_component::<CompDelta>();
-            // .add_delta_compression();
+        // .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {

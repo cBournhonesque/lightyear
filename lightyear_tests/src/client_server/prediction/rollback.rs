@@ -30,10 +30,7 @@ fn setup() -> (ClientServerStepper, Entity) {
     let predicted = stepper
         .client_app()
         .world_mut()
-        .spawn((
-            Predicted,
-            CompFull(1.0),
-        ))
+        .spawn((Predicted, CompFull(1.0)))
         .id();
     // run one frame to initialize prediction history for the entity
     stepper.frame_step(1);
@@ -112,7 +109,11 @@ fn test_predicted_remove_restored_on_rollback() {
     // Run until CompFull is removed (1.0 → 2.0 → 3.0 → 4.0 → 5.0 → removed)
     stepper.frame_step(5);
     assert!(
-        stepper.client_app().world().get::<CompFull>(predicted).is_none(),
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .is_none(),
         "CompFull should have been removed by prediction"
     );
 
@@ -136,7 +137,12 @@ fn test_predicted_remove_restored_on_rollback() {
 
     // CompFull should be re-added and re-simulated: -10 + 4 increments = -6
     assert_eq!(
-        stepper.client_app().world().get::<CompFull>(predicted).unwrap().0,
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .unwrap()
+            .0,
         -6.0,
         "Predicted-removed component should be restored and re-simulated on rollback"
     );
@@ -170,7 +176,11 @@ fn test_predicted_despawn_restored_on_rollback() {
         "Entity should still exist after prediction_despawn"
     );
     assert!(
-        stepper.client_app().world().get::<PredictionDisable>(predicted).is_some(),
+        stepper
+            .client_app()
+            .world()
+            .get::<PredictionDisable>(predicted)
+            .is_some(),
         "Entity should have PredictionDisable marker"
     );
 
@@ -184,11 +194,19 @@ fn test_predicted_despawn_restored_on_rollback() {
         "Entity should still exist after rollback"
     );
     assert!(
-        stepper.client_app().world().get::<PredictionDisable>(predicted).is_none(),
+        stepper
+            .client_app()
+            .world()
+            .get::<PredictionDisable>(predicted)
+            .is_none(),
         "PredictionDisable should be removed after rollback"
     );
     assert_eq!(
-        stepper.client_app().world().get::<CompFull>(predicted).unwrap(),
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .unwrap(),
         &CompFull(1.0),
         "Component should be restored to value at rollback tick"
     );
@@ -217,7 +235,11 @@ fn test_predicted_spawn_despawned_on_rollback() {
     stepper.frame_step(1);
 
     assert!(
-        stepper.client_app().world().get_entity(predicted_a).is_err(),
+        stepper
+            .client_app()
+            .world()
+            .get_entity(predicted_a)
+            .is_err(),
         "Predicted-spawned entity should be despawned on rollback to before spawn tick"
     );
 }
@@ -244,7 +266,12 @@ fn test_predicted_modify_corrected_on_rollback() {
     // Run 3 frames: CompFull goes 1.0 → 2.0 → 3.0 → 4.0
     stepper.frame_step(3);
     assert_eq!(
-        stepper.client_app().world().get::<CompFull>(predicted).unwrap().0,
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .unwrap()
+            .0,
         4.0
     );
 
@@ -263,7 +290,12 @@ fn test_predicted_modify_corrected_on_rollback() {
 
     // Snap to 10.0 at tick-2, re-simulate 3 ticks: 10.0 + 3 = 13.0
     assert_eq!(
-        stepper.client_app().world().get::<CompFull>(predicted).unwrap().0,
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .unwrap()
+            .0,
         13.0,
         "Modified component should be corrected to confirmed value and re-simulated"
     );
@@ -303,7 +335,11 @@ fn test_remote_insert_applied_on_rollback() {
 
     // The remotely-inserted component should be present after rollback
     assert_eq!(
-        stepper.client_app().world().get::<CompNotNetworked>(predicted).unwrap(),
+        stepper
+            .client_app()
+            .world()
+            .get::<CompNotNetworked>(predicted)
+            .unwrap(),
         &CompNotNetworked(5.0),
         "Remotely-inserted component should be present after rollback"
     );
@@ -342,7 +378,11 @@ fn test_remote_remove_applied_on_rollback() {
 
     // CompFull should be absent after rollback: server confirmed removal
     assert!(
-        stepper.client_app().world().get::<CompFull>(predicted).is_none(),
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .is_none(),
         "Remotely-removed component should be absent after rollback"
     );
 }
@@ -362,11 +402,7 @@ fn test_disable_rollback() {
     let predicted_a = stepper
         .client_app()
         .world_mut()
-        .spawn((
-            Predicted,
-            DeterministicPredicted::default(),
-            CompFull(1.0),
-        ))
+        .spawn((Predicted, DeterministicPredicted::default(), CompFull(1.0)))
         .id();
 
     // value gets synced and added to PredictionHistory

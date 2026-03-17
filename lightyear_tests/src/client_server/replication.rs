@@ -5,9 +5,9 @@ use crate::stepper::*;
 use bevy::prelude::{Name, default};
 use bevy_replicon::prelude::Replicated;
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::prediction::Predicted;
 use lightyear_core::interpolation::Interpolated;
+use lightyear_core::prediction::Predicted;
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
@@ -844,8 +844,7 @@ fn test_replicated_entities_despawned_on_client_when_client_disconnects() {
         .get_local(server_entity)
         .expect("entity should be replicated to client 0");
     assert!(
-        stepper
-            .client_apps[0]
+        stepper.client_apps[0]
             .world()
             .get::<Replicated>(client_entity)
             .is_some(),
@@ -858,8 +857,7 @@ fn test_replicated_entities_despawned_on_client_when_client_disconnects() {
 
     // client 0 should still have the entity (it didn't disconnect)
     assert!(
-        stepper
-            .client_apps[0]
+        stepper.client_apps[0]
             .world()
             .get_entity(client_entity)
             .is_ok(),
@@ -894,7 +892,10 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
         .get_local(server_entity)
         .expect("entity should be replicated to client 1");
     assert!(
-        stepper.client_apps[1].world().get::<Replicated>(client_entity_on_1).is_some(),
+        stepper.client_apps[1]
+            .world()
+            .get::<Replicated>(client_entity_on_1)
+            .is_some(),
         "Entity should have Replicated component on client 1"
     );
 
@@ -905,7 +906,10 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
     });
     // Also insert Disconnected on the server side for client_of 1
     let client_of_1 = stepper.client_of_entities[1];
-    stepper.server_app.world_mut().entity_mut(client_of_1)
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(client_of_1)
         .insert(lightyear_connection::client::Disconnected { reason: None });
     stepper.server_app.world_mut().flush();
 
@@ -915,7 +919,10 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
 
     // After disconnect, all replicated entities should be despawned on client 1
     assert!(
-        stepper.client_apps[1].world().get_entity(client_entity_on_1).is_err(),
+        stepper.client_apps[1]
+            .world()
+            .get_entity(client_entity_on_1)
+            .is_err(),
         "Replicated entity should be despawned on client 1 after disconnect"
     );
 }
@@ -926,8 +933,16 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
 fn test_prediction_target_visibility_with_two_clients() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
-    let client_0_id = stepper.client_of(0).get::<lightyear_core::id::RemoteId>().unwrap().0;
-    let client_1_id = stepper.client_of(1).get::<lightyear_core::id::RemoteId>().unwrap().0;
+    let client_0_id = stepper
+        .client_of(0)
+        .get::<lightyear_core::id::RemoteId>()
+        .unwrap()
+        .0;
+    let client_1_id = stepper
+        .client_of(1)
+        .get::<lightyear_core::id::RemoteId>()
+        .unwrap()
+        .0;
 
     // server spawns entity for client 0: predicted for client 0, interpolated for client 1
     let entity_for_client_0 = stepper
@@ -955,57 +970,89 @@ fn test_prediction_target_visibility_with_two_clients() {
 
     // On client 0:
     let mm_0 = stepper.client(0).get::<MessageManager>().unwrap();
-    let e0_on_client_0 = mm_0.entity_mapper.get_local(entity_for_client_0)
+    let e0_on_client_0 = mm_0
+        .entity_mapper
+        .get_local(entity_for_client_0)
         .expect("entity_for_client_0 should be replicated to client 0");
-    let e1_on_client_0 = mm_0.entity_mapper.get_local(entity_for_client_1)
+    let e1_on_client_0 = mm_0
+        .entity_mapper
+        .get_local(entity_for_client_1)
         .expect("entity_for_client_1 should be replicated to client 0");
 
     // entity_for_client_0 should have Predicted on client 0
     assert!(
-        stepper.client_apps[0].world().get::<Predicted>(e0_on_client_0).is_some(),
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e0_on_client_0)
+            .is_some(),
         "entity_for_client_0 should have Predicted on client 0"
     );
     // entity_for_client_1 should NOT have Predicted on client 0
     assert!(
-        stepper.client_apps[0].world().get::<Predicted>(e1_on_client_0).is_none(),
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e1_on_client_0)
+            .is_none(),
         "entity_for_client_1 should NOT have Predicted on client 0 (should be Interpolated)"
     );
     // entity_for_client_1 should have Interpolated on client 0
     assert!(
-        stepper.client_apps[0].world().get::<Interpolated>(e1_on_client_0).is_some(),
+        stepper.client_apps[0]
+            .world()
+            .get::<Interpolated>(e1_on_client_0)
+            .is_some(),
         "entity_for_client_1 should have Interpolated on client 0"
     );
     // entity_for_client_0 should NOT have Interpolated on client 0
     assert!(
-        stepper.client_apps[0].world().get::<Interpolated>(e0_on_client_0).is_none(),
+        stepper.client_apps[0]
+            .world()
+            .get::<Interpolated>(e0_on_client_0)
+            .is_none(),
         "entity_for_client_0 should NOT have Interpolated on client 0"
     );
 
     // On client 1:
     let mm_1 = stepper.client(1).get::<MessageManager>().unwrap();
-    let e0_on_client_1 = mm_1.entity_mapper.get_local(entity_for_client_0)
+    let e0_on_client_1 = mm_1
+        .entity_mapper
+        .get_local(entity_for_client_0)
         .expect("entity_for_client_0 should be replicated to client 1");
-    let e1_on_client_1 = mm_1.entity_mapper.get_local(entity_for_client_1)
+    let e1_on_client_1 = mm_1
+        .entity_mapper
+        .get_local(entity_for_client_1)
         .expect("entity_for_client_1 should be replicated to client 1");
 
     // entity_for_client_1 should have Predicted on client 1
     assert!(
-        stepper.client_apps[1].world().get::<Predicted>(e1_on_client_1).is_some(),
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(e1_on_client_1)
+            .is_some(),
         "entity_for_client_1 should have Predicted on client 1"
     );
     // entity_for_client_0 should NOT have Predicted on client 1
     assert!(
-        stepper.client_apps[1].world().get::<Predicted>(e0_on_client_1).is_none(),
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(e0_on_client_1)
+            .is_none(),
         "entity_for_client_0 should NOT have Predicted on client 1 (should be Interpolated)"
     );
     // entity_for_client_0 should have Interpolated on client 1
     assert!(
-        stepper.client_apps[1].world().get::<Interpolated>(e0_on_client_1).is_some(),
+        stepper.client_apps[1]
+            .world()
+            .get::<Interpolated>(e0_on_client_1)
+            .is_some(),
         "entity_for_client_0 should have Interpolated on client 1"
     );
     // entity_for_client_1 should NOT have Interpolated on client 1
     assert!(
-        stepper.client_apps[1].world().get::<Interpolated>(e1_on_client_1).is_none(),
+        stepper.client_apps[1]
+            .world()
+            .get::<Interpolated>(e1_on_client_1)
+            .is_none(),
         "entity_for_client_1 should NOT have Interpolated on client 1"
     );
 
@@ -1038,8 +1085,16 @@ fn test_prediction_target_visibility_with_two_clients() {
 fn test_prediction_target_visibility_sequential_spawn() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
-    let client_0_id = stepper.client_of(0).get::<lightyear_core::id::RemoteId>().unwrap().0;
-    let client_1_id = stepper.client_of(1).get::<lightyear_core::id::RemoteId>().unwrap().0;
+    let client_0_id = stepper
+        .client_of(0)
+        .get::<lightyear_core::id::RemoteId>()
+        .unwrap()
+        .0;
+    let client_1_id = stepper
+        .client_of(1)
+        .get::<lightyear_core::id::RemoteId>()
+        .unwrap()
+        .0;
 
     // server spawns entity for client 0 first
     let entity_for_client_0 = stepper
@@ -1094,16 +1149,46 @@ fn test_prediction_target_visibility_sequential_spawn() {
     let mm_0 = stepper.client(0).get::<MessageManager>().unwrap();
     let e0_on_client_0 = mm_0.entity_mapper.get_local(entity_for_client_0).unwrap();
     let e1_on_client_0 = mm_0.entity_mapper.get_local(entity_for_client_1).unwrap();
-    assert!(stepper.client_apps[0].world().get::<Predicted>(e0_on_client_0).is_some());
-    assert!(stepper.client_apps[0].world().get::<Predicted>(e1_on_client_0).is_none());
-    assert!(stepper.client_apps[0].world().get::<Interpolated>(e1_on_client_0).is_some());
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e0_on_client_0)
+            .is_some()
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e1_on_client_0)
+            .is_none()
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Interpolated>(e1_on_client_0)
+            .is_some()
+    );
 
     let mm_1 = stepper.client(1).get::<MessageManager>().unwrap();
     let e0_on_client_1 = mm_1.entity_mapper.get_local(entity_for_client_0).unwrap();
     let e1_on_client_1 = mm_1.entity_mapper.get_local(entity_for_client_1).unwrap();
-    assert!(stepper.client_apps[1].world().get::<Predicted>(e1_on_client_1).is_some());
-    assert!(stepper.client_apps[1].world().get::<Predicted>(e0_on_client_1).is_none());
-    assert!(stepper.client_apps[1].world().get::<Interpolated>(e0_on_client_1).is_some());
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(e1_on_client_1)
+            .is_some()
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(e0_on_client_1)
+            .is_none()
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Interpolated>(e0_on_client_1)
+            .is_some()
+    );
 }
 
 /// Mimics the simple_box pattern: entities spawned via observer on Connected,
@@ -1138,7 +1223,10 @@ fn test_simple_box_pattern_prediction_visibility() {
             },
         ))
         .id();
-    info!("Spawned entity_for_0: {:?} targeting client {:?}", entity_for_0, client_0_id);
+    info!(
+        "Spawned entity_for_0: {:?} targeting client {:?}",
+        entity_for_0, client_0_id
+    );
 
     // Let it replicate
     stepper.frame_step(3);
@@ -1157,23 +1245,48 @@ fn test_simple_box_pattern_prediction_visibility() {
             },
         ))
         .id();
-    info!("Spawned entity_for_1: {:?} targeting client {:?}", entity_for_1, client_1_id);
+    info!(
+        "Spawned entity_for_1: {:?} targeting client {:?}",
+        entity_for_1, client_1_id
+    );
 
     stepper.frame_step(3);
 
     // Check client 0
     let mm_0 = stepper.client(0).get::<MessageManager>().unwrap();
-    let e0_on_c0 = mm_0.entity_mapper.get_local(entity_for_0)
+    let e0_on_c0 = mm_0
+        .entity_mapper
+        .get_local(entity_for_0)
         .expect("entity_for_0 not replicated to client 0");
-    let e1_on_c0 = mm_0.entity_mapper.get_local(entity_for_1)
+    let e1_on_c0 = mm_0
+        .entity_mapper
+        .get_local(entity_for_1)
         .expect("entity_for_1 not replicated to client 0");
 
-    let e0_predicted = stepper.client_apps[0].world().get::<Predicted>(e0_on_c0).is_some();
-    let e0_interpolated = stepper.client_apps[0].world().get::<Interpolated>(e0_on_c0).is_some();
-    let e0_controlled = stepper.client_apps[0].world().get::<Controlled>(e0_on_c0).is_some();
-    let e1_predicted = stepper.client_apps[0].world().get::<Predicted>(e1_on_c0).is_some();
-    let e1_interpolated = stepper.client_apps[0].world().get::<Interpolated>(e1_on_c0).is_some();
-    let e1_controlled = stepper.client_apps[0].world().get::<Controlled>(e1_on_c0).is_some();
+    let e0_predicted = stepper.client_apps[0]
+        .world()
+        .get::<Predicted>(e0_on_c0)
+        .is_some();
+    let e0_interpolated = stepper.client_apps[0]
+        .world()
+        .get::<Interpolated>(e0_on_c0)
+        .is_some();
+    let e0_controlled = stepper.client_apps[0]
+        .world()
+        .get::<Controlled>(e0_on_c0)
+        .is_some();
+    let e1_predicted = stepper.client_apps[0]
+        .world()
+        .get::<Predicted>(e1_on_c0)
+        .is_some();
+    let e1_interpolated = stepper.client_apps[0]
+        .world()
+        .get::<Interpolated>(e1_on_c0)
+        .is_some();
+    let e1_controlled = stepper.client_apps[0]
+        .world()
+        .get::<Controlled>(e1_on_c0)
+        .is_some();
 
     info!(
         "Client 0: entity_for_0 ({:?}): predicted={}, interpolated={}, controlled={}",
@@ -1185,21 +1298,46 @@ fn test_simple_box_pattern_prediction_visibility() {
     );
 
     assert!(e0_predicted, "Client 0's own entity should be Predicted");
-    assert!(!e0_interpolated, "Client 0's own entity should NOT be Interpolated");
-    assert!(!e1_predicted, "Client 1's entity on client 0 should NOT be Predicted");
-    assert!(e1_interpolated, "Client 1's entity on client 0 should be Interpolated");
+    assert!(
+        !e0_interpolated,
+        "Client 0's own entity should NOT be Interpolated"
+    );
+    assert!(
+        !e1_predicted,
+        "Client 1's entity on client 0 should NOT be Predicted"
+    );
+    assert!(
+        e1_interpolated,
+        "Client 1's entity on client 0 should be Interpolated"
+    );
 
     // Check client 1
     let mm_1 = stepper.client(1).get::<MessageManager>().unwrap();
-    let e0_on_c1 = mm_1.entity_mapper.get_local(entity_for_0)
+    let e0_on_c1 = mm_1
+        .entity_mapper
+        .get_local(entity_for_0)
         .expect("entity_for_0 not replicated to client 1");
-    let e1_on_c1 = mm_1.entity_mapper.get_local(entity_for_1)
+    let e1_on_c1 = mm_1
+        .entity_mapper
+        .get_local(entity_for_1)
         .expect("entity_for_1 not replicated to client 1");
 
-    let e0_predicted_c1 = stepper.client_apps[1].world().get::<Predicted>(e0_on_c1).is_some();
-    let e0_interpolated_c1 = stepper.client_apps[1].world().get::<Interpolated>(e0_on_c1).is_some();
-    let e1_predicted_c1 = stepper.client_apps[1].world().get::<Predicted>(e1_on_c1).is_some();
-    let e1_interpolated_c1 = stepper.client_apps[1].world().get::<Interpolated>(e1_on_c1).is_some();
+    let e0_predicted_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Predicted>(e0_on_c1)
+        .is_some();
+    let e0_interpolated_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Interpolated>(e0_on_c1)
+        .is_some();
+    let e1_predicted_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Predicted>(e1_on_c1)
+        .is_some();
+    let e1_interpolated_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Interpolated>(e1_on_c1)
+        .is_some();
 
     info!(
         "Client 1: entity_for_0 ({:?}): predicted={}, interpolated={}",
@@ -1210,10 +1348,19 @@ fn test_simple_box_pattern_prediction_visibility() {
         e1_on_c1, e1_predicted_c1, e1_interpolated_c1
     );
 
-    assert!(!e0_predicted_c1, "Client 0's entity on client 1 should NOT be Predicted");
-    assert!(e0_interpolated_c1, "Client 0's entity on client 1 should be Interpolated");
+    assert!(
+        !e0_predicted_c1,
+        "Client 0's entity on client 1 should NOT be Predicted"
+    );
+    assert!(
+        e0_interpolated_c1,
+        "Client 0's entity on client 1 should be Interpolated"
+    );
     assert!(e1_predicted_c1, "Client 1's own entity should be Predicted");
-    assert!(!e1_interpolated_c1, "Client 1's own entity should NOT be Interpolated");
+    assert!(
+        !e1_interpolated_c1,
+        "Client 1's own entity should NOT be Interpolated"
+    );
 
     // Count
     let predicted_count_0 = stepper.client_apps[0]
@@ -1226,8 +1373,14 @@ fn test_simple_box_pattern_prediction_visibility() {
         .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<Predicted>>()
         .iter(stepper.client_apps[1].world())
         .count();
-    assert_eq!(predicted_count_0, 1, "Client 0 should have exactly 1 Predicted entity, got {predicted_count_0}");
-    assert_eq!(predicted_count_1, 1, "Client 1 should have exactly 1 Predicted entity, got {predicted_count_1}");
+    assert_eq!(
+        predicted_count_0, 1,
+        "Client 0 should have exactly 1 Predicted entity, got {predicted_count_0}"
+    );
+    assert_eq!(
+        predicted_count_1, 1,
+        "Client 1 should have exactly 1 Predicted entity, got {predicted_count_1}"
+    );
 }
 
 /// Test prediction visibility with a late-joining client.
@@ -1261,10 +1414,18 @@ fn test_prediction_target_visibility_late_join() {
     stepper.frame_step(3);
 
     // Verify client 0 sees the entity as Predicted
-    let e0_on_c0 = stepper.client(0).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_0).unwrap();
+    let e0_on_c0 = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_0)
+        .unwrap();
     assert!(
-        stepper.client_apps[0].world().get::<Predicted>(e0_on_c0).is_some(),
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e0_on_c0)
+            .is_some(),
         "Client 0 should see its own entity as Predicted"
     );
 
@@ -1293,17 +1454,37 @@ fn test_prediction_target_visibility_late_join() {
     stepper.frame_step(3);
 
     // Check entity_for_0 on client 1 (late joiner)
-    let e0_on_c1 = stepper.client(1).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_0)
+    let e0_on_c1 = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_0)
         .expect("entity_for_0 should be replicated to client 1");
-    let e1_on_c1 = stepper.client(1).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_1)
+    let e1_on_c1 = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_1)
         .expect("entity_for_1 should be replicated to client 1");
 
-    let e0_pred_c1 = stepper.client_apps[1].world().get::<Predicted>(e0_on_c1).is_some();
-    let e0_interp_c1 = stepper.client_apps[1].world().get::<Interpolated>(e0_on_c1).is_some();
-    let e1_pred_c1 = stepper.client_apps[1].world().get::<Predicted>(e1_on_c1).is_some();
-    let e1_interp_c1 = stepper.client_apps[1].world().get::<Interpolated>(e1_on_c1).is_some();
+    let e0_pred_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Predicted>(e0_on_c1)
+        .is_some();
+    let e0_interp_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Interpolated>(e0_on_c1)
+        .is_some();
+    let e1_pred_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Predicted>(e1_on_c1)
+        .is_some();
+    let e1_interp_c1 = stepper.client_apps[1]
+        .world()
+        .get::<Interpolated>(e1_on_c1)
+        .is_some();
 
     info!(
         "Late-join Client 1: entity_for_0: predicted={}, interpolated={}",
@@ -1314,26 +1495,51 @@ fn test_prediction_target_visibility_late_join() {
         e1_pred_c1, e1_interp_c1
     );
 
-    assert!(!e0_pred_c1, "Client 0's entity should NOT be Predicted on late-joining client 1");
-    assert!(e0_interp_c1, "Client 0's entity should be Interpolated on late-joining client 1");
+    assert!(
+        !e0_pred_c1,
+        "Client 0's entity should NOT be Predicted on late-joining client 1"
+    );
+    assert!(
+        e0_interp_c1,
+        "Client 0's entity should be Interpolated on late-joining client 1"
+    );
     assert!(e1_pred_c1, "Client 1's own entity should be Predicted");
-    assert!(!e1_interp_c1, "Client 1's own entity should NOT be Interpolated");
+    assert!(
+        !e1_interp_c1,
+        "Client 1's own entity should NOT be Interpolated"
+    );
 
     // Also check entity_for_1 on client 0
-    let e1_on_c0 = stepper.client(0).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_1)
+    let e1_on_c0 = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_1)
         .expect("entity_for_1 should be replicated to client 0");
 
-    let e1_pred_c0 = stepper.client_apps[0].world().get::<Predicted>(e1_on_c0).is_some();
-    let e1_interp_c0 = stepper.client_apps[0].world().get::<Interpolated>(e1_on_c0).is_some();
+    let e1_pred_c0 = stepper.client_apps[0]
+        .world()
+        .get::<Predicted>(e1_on_c0)
+        .is_some();
+    let e1_interp_c0 = stepper.client_apps[0]
+        .world()
+        .get::<Interpolated>(e1_on_c0)
+        .is_some();
 
     info!(
         "Client 0: entity_for_1: predicted={}, interpolated={}",
         e1_pred_c0, e1_interp_c0
     );
 
-    assert!(!e1_pred_c0, "Client 1's entity should NOT be Predicted on client 0");
-    assert!(e1_interp_c0, "Client 1's entity should be Interpolated on client 0");
+    assert!(
+        !e1_pred_c0,
+        "Client 1's entity should NOT be Predicted on client 0"
+    );
+    assert!(
+        e1_interp_c0,
+        "Client 1's entity should be Interpolated on client 0"
+    );
 
     // Count predicted per client
     let pred_count_0 = stepper.client_apps[0]
@@ -1346,8 +1552,14 @@ fn test_prediction_target_visibility_late_join() {
         .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<Predicted>>()
         .iter(stepper.client_apps[1].world())
         .count();
-    assert_eq!(pred_count_0, 1, "Client 0 should have exactly 1 Predicted, got {pred_count_0}");
-    assert_eq!(pred_count_1, 1, "Client 1 should have exactly 1 Predicted, got {pred_count_1}");
+    assert_eq!(
+        pred_count_0, 1,
+        "Client 0 should have exactly 1 Predicted, got {pred_count_0}"
+    );
+    assert_eq!(
+        pred_count_1, 1,
+        "Client 1 should have exactly 1 Predicted, got {pred_count_1}"
+    );
 }
 
 /// Mimics the simple_box example most closely: entities spawned via observer
@@ -1368,13 +1580,19 @@ fn test_prediction_visibility_observer_spawn_late_join() {
     // (mimicking simple_box handle_connected)
     stepper.server_app.add_observer(
         |trigger: bevy::prelude::On<bevy::prelude::Add, Connected>,
-         query: bevy::prelude::Query<&RemoteId, bevy::prelude::With<lightyear_connection::client_of::ClientOf>>,
+         query: bevy::prelude::Query<
+            &RemoteId,
+            bevy::prelude::With<lightyear_connection::client_of::ClientOf>,
+        >,
          mut commands: bevy::prelude::Commands| {
             let Ok(remote_id) = query.get(trigger.entity) else {
                 return;
             };
             let client_id = remote_id.0;
-            info!("Observer: spawning player for client {:?} (client_of {:?})", client_id, trigger.entity);
+            info!(
+                "Observer: spawning player for client {:?} (client_of {:?})",
+                client_id, trigger.entity
+            );
             commands.spawn((
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
@@ -1399,7 +1617,10 @@ fn test_prediction_visibility_observer_spawn_late_join() {
         .query_filtered::<bevy::prelude::Entity, bevy::prelude::With<Predicted>>()
         .iter(stepper.client_apps[0].world())
         .count();
-    assert_eq!(pred_count_0, 1, "After first client connects, client 0 should have 1 Predicted entity, got {pred_count_0}");
+    assert_eq!(
+        pred_count_0, 1,
+        "After first client connects, client 0 should have 1 Predicted entity, got {pred_count_0}"
+    );
 
     // Now client 1 joins late
     stepper.new_client(ClientType::Netcode, None);
@@ -1438,8 +1659,14 @@ fn test_prediction_visibility_observer_spawn_late_join() {
         );
     }
 
-    assert_eq!(pred_count_0, 1, "Client 0 should have exactly 1 Predicted entity, got {pred_count_0}");
-    assert_eq!(pred_count_1, 1, "Client 1 should have exactly 1 Predicted entity, got {pred_count_1}");
+    assert_eq!(
+        pred_count_0, 1,
+        "Client 0 should have exactly 1 Predicted entity, got {pred_count_0}"
+    );
+    assert_eq!(
+        pred_count_1, 1,
+        "Client 1 should have exactly 1 Predicted entity, got {pred_count_1}"
+    );
 }
 
 /// Test that re-inserting a Replicate component works as expected (doesn't
@@ -1503,9 +1730,7 @@ fn test_reinsert_replicate() {
 fn test_server_side_visibility_bits() {
     use lightyear_core::id::RemoteId;
 
-    let mut stepper = ClientServerStepper::from_config(
-        StepperConfig::with_netcode_clients(2)
-    );
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
     let client_0_id = stepper.client_of(0).get::<RemoteId>().unwrap().0;
     let client_1_id = stepper.client_of(1).get::<RemoteId>().unwrap().0;
@@ -1546,32 +1771,92 @@ fn test_server_side_visibility_bits() {
     stepper.frame_step(4);
 
     // Verify on client 0
-    let e0_on_c0 = stepper.client(0).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_0).unwrap();
-    let e1_on_c0 = stepper.client(0).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_1).unwrap();
+    let e0_on_c0 = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_0)
+        .unwrap();
+    let e1_on_c0 = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_1)
+        .unwrap();
 
-    assert!(stepper.client_apps[0].world().get::<Predicted>(e0_on_c0).is_some(),
-        "Client 0 should see entity_for_0 as Predicted");
-    assert!(stepper.client_apps[0].world().get::<Interpolated>(e0_on_c0).is_none(),
-        "Client 0 should NOT see entity_for_0 as Interpolated");
-    assert!(stepper.client_apps[0].world().get::<Predicted>(e1_on_c0).is_none(),
-        "Client 0 should NOT see entity_for_1 as Predicted");
-    assert!(stepper.client_apps[0].world().get::<Interpolated>(e1_on_c0).is_some(),
-        "Client 0 should see entity_for_1 as Interpolated");
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e0_on_c0)
+            .is_some(),
+        "Client 0 should see entity_for_0 as Predicted"
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Interpolated>(e0_on_c0)
+            .is_none(),
+        "Client 0 should NOT see entity_for_0 as Interpolated"
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Predicted>(e1_on_c0)
+            .is_none(),
+        "Client 0 should NOT see entity_for_1 as Predicted"
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<Interpolated>(e1_on_c0)
+            .is_some(),
+        "Client 0 should see entity_for_1 as Interpolated"
+    );
 
     // Verify on client 1
-    let e0_on_c1 = stepper.client(1).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_0).unwrap();
-    let e1_on_c1 = stepper.client(1).get::<MessageManager>().unwrap()
-        .entity_mapper.get_local(entity_for_1).unwrap();
+    let e0_on_c1 = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_0)
+        .unwrap();
+    let e1_on_c1 = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_for_1)
+        .unwrap();
 
-    assert!(stepper.client_apps[1].world().get::<Predicted>(e0_on_c1).is_none(),
-        "Client 1 should NOT see entity_for_0 as Predicted");
-    assert!(stepper.client_apps[1].world().get::<Interpolated>(e0_on_c1).is_some(),
-        "Client 1 should see entity_for_0 as Interpolated");
-    assert!(stepper.client_apps[1].world().get::<Predicted>(e1_on_c1).is_some(),
-        "Client 1 should see entity_for_1 as Predicted");
-    assert!(stepper.client_apps[1].world().get::<Interpolated>(e1_on_c1).is_none(),
-        "Client 1 should NOT see entity_for_1 as Interpolated");
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(e0_on_c1)
+            .is_none(),
+        "Client 1 should NOT see entity_for_0 as Predicted"
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Interpolated>(e0_on_c1)
+            .is_some(),
+        "Client 1 should see entity_for_0 as Interpolated"
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(e1_on_c1)
+            .is_some(),
+        "Client 1 should see entity_for_1 as Predicted"
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Interpolated>(e1_on_c1)
+            .is_none(),
+        "Client 1 should NOT see entity_for_1 as Interpolated"
+    );
 }

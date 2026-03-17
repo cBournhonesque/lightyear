@@ -1,16 +1,16 @@
 //! Check various replication scenarios between 2 peers only
 
 use crate::protocol::*;
-use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use crate::stepper::*;
 use bevy::prelude::*;
+use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
+use lightyear_replication::visibility::immediate::VisibilityExt;
 use test_log::test;
 #[allow(unused_imports)]
 use tracing::info;
-use lightyear_replication::visibility::immediate::VisibilityExt;
 
 #[test]
 fn test_spawn_gain_visibility() {
@@ -131,9 +131,7 @@ fn test_despawn_with_visibility() {
     let server_entity_0 = stepper
         .server_app
         .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-        ))
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper
         .server_app
@@ -144,9 +142,7 @@ fn test_despawn_with_visibility() {
     let server_entity_1 = stepper
         .server_app
         .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-        ))
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper
         .server_app
@@ -217,10 +213,7 @@ fn test_despawn_non_visible_logspam() {
     let server_parent = stepper
         .server_app
         .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-            CompFull(1.0),
-        ))
+        .spawn((Replicate::to_clients(NetworkTarget::All), CompFull(1.0)))
         .id();
     let server_child = stepper
         .server_app

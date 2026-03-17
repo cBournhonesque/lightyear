@@ -1,7 +1,7 @@
 use crate::protocol::{CompFull, CompMap, CompSimple};
 use crate::stepper::*;
 use bevy::app::PreUpdate;
-use bevy::prelude::{Entity, IntoScheduleConfigs, With, ChildOf};
+use bevy::prelude::{ChildOf, Entity, IntoScheduleConfigs, With};
 use bevy::utils::default;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
@@ -13,9 +13,7 @@ use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisa
 use lightyear_prediction::diagnostics::PredictionMetrics;
 use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
 use lightyear_prediction::prelude::RollbackSystems;
-use lightyear_replication::prelude::{
-    PreSpawned, PredictionTarget, Replicate, Replicated,
-};
+use lightyear_replication::prelude::{PreSpawned, PredictionTarget, Replicate, Replicated};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::*;
 use test_log::test;
@@ -115,7 +113,7 @@ fn test_multiple_prespawn() {
             PreSpawned::new(1),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ChildOf(server_prespawn_a)
+            ChildOf(server_prespawn_a),
         ))
         .id();
     stepper.frame_step(1);

@@ -231,13 +231,33 @@ fn test_replicate_position_child_collider() {
 
     // After several frames, the server and client should agree on positions.
     // The child's Transform is (2, 2, 0) relative to parent, so child Position.x = parent Position.x + 2.
-    let server_parent_pos = stepper.server_app.world().get::<Position>(server_parent).unwrap().x;
-    let server_child_pos = stepper.server_app.world().get::<Position>(server_child).unwrap().x;
+    let server_parent_pos = stepper
+        .server_app
+        .world()
+        .get::<Position>(server_parent)
+        .unwrap()
+        .x;
+    let server_child_pos = stepper
+        .server_app
+        .world()
+        .get::<Position>(server_child)
+        .unwrap()
+        .x;
     info!(server_parent_pos, server_child_pos, "Server positions");
     assert_relative_eq!(server_child_pos, server_parent_pos + 2.0, epsilon = 0.1);
 
-    let client_parent_pos = stepper.client_app().world().get::<Position>(client_parent).unwrap().x;
-    let client_child_pos = stepper.client_app().world().get::<Position>(client_child).unwrap().x;
+    let client_parent_pos = stepper
+        .client_app()
+        .world()
+        .get::<Position>(client_parent)
+        .unwrap()
+        .x;
+    let client_child_pos = stepper
+        .client_app()
+        .world()
+        .get::<Position>(client_child)
+        .unwrap()
+        .x;
     info!(client_parent_pos, client_child_pos, "Client positions");
 
     // Client positions should match server positions (within tolerance for replication delay)
@@ -247,9 +267,22 @@ fn test_replicate_position_child_collider() {
     assert_relative_eq!(client_child_pos, client_parent_pos + 2.0, epsilon = 0.1);
 
     // Transform hierarchy should be correct
-    let client_child_transform = stepper.client_app().world().get::<Transform>(client_child).unwrap().translation.x;
+    let client_child_transform = stepper
+        .client_app()
+        .world()
+        .get::<Transform>(client_child)
+        .unwrap()
+        .translation
+        .x;
     assert_relative_eq!(client_child_transform, 2.0, epsilon = 0.1);
 
-    let client_child_global = stepper.client_app().world().get::<GlobalTransform>(client_child).unwrap().compute_transform().translation.x;
+    let client_child_global = stepper
+        .client_app()
+        .world()
+        .get::<GlobalTransform>(client_child)
+        .unwrap()
+        .compute_transform()
+        .translation
+        .x;
     assert_relative_eq!(client_child_global, client_child_pos, epsilon = 0.1);
 }

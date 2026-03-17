@@ -65,10 +65,7 @@ fn test_update_history() {
     let predicted = stepper
         .client_app()
         .world_mut()
-        .spawn((
-            Predicted,
-            Replicated,
-        ))
+        .spawn((Predicted, Replicated))
         .id();
 
     // 1. Updating Comp::Full on predicted component

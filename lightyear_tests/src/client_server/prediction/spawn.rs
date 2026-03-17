@@ -69,4 +69,3 @@ fn test_spawn_predicted_with_hierarchy() {
         predicted_parent
     );
 }
-
