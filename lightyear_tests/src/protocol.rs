@@ -69,6 +69,9 @@ impl Ease for CompFull {
 pub struct CompSimple(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompCustomInterp(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompOnce(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default, Reflect)]
@@ -178,6 +181,8 @@ impl Plugin for ProtocolPlugin {
             .add_prediction()
             .add_linear_interpolation();
         app.register_component::<CompSimple>();
+        app.register_component::<CompCustomInterp>()
+            .add_custom_interpolation();
         app.register_component::<CompOnce>();
         app.register_component::<CompCorr>()
             .add_prediction()

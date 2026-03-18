@@ -1,6 +1,6 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::protocol::{CompA, CompDisabled, CompReplicateOnce};
+use crate::protocol::{CompA, CompCustomInterp, CompDisabled, CompReplicateOnce};
 use crate::stepper::*;
 use bevy::prelude::{Name, default};
 use bevy_replicon::prelude::Replicated;
@@ -8,6 +8,7 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::LocalTimeline;
+use lightyear::prelude::ConfirmedHistory;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
@@ -256,6 +257,46 @@ fn test_component_update() {
             .get::<CompA>()
             .expect("component missing"),
         &CompA(2.0)
+    );
+}
+
+#[test]
+fn test_custom_interpolation_component_gets_confirmed_history() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper.server_app.world_mut().spawn((
+        Replicate::to_clients(NetworkTarget::All),
+        InterpolationTarget::to_clients(NetworkTarget::All),
+        CompCustomInterp(1.0),
+    )).id();
+
+    stepper.frame_step(2);
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(CompCustomInterp(2.0));
+    stepper.frame_step_server_first(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .unwrap();
+    let client_entity_ref = stepper.client_apps[0].world().entity(client_entity);
+
+    assert!(
+        client_entity_ref.get::<Interpolated>().is_some(),
+        "entity should be interpolated on the client"
+    );
+    let history = client_entity_ref
+        .get::<ConfirmedHistory<CompCustomInterp>>()
+        .expect("custom-interpolated components should get ConfirmedHistory on interpolated entities");
+    assert!(
+        history.start().is_some(),
+        "custom-interpolated history should contain at least one confirmed update"
     );
 }
 

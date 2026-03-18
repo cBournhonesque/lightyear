@@ -5,7 +5,7 @@ use lightyear_examples_common::automation::{
     env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
 };
 
-use crate::protocol::{Inputs, PlayerId, PlayerPosition, TailPoints};
+use crate::protocol::{Direction, Inputs, PlayerId, PlayerParent, PlayerPosition, TailLength, TailPoints};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -16,7 +16,14 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, (client::log_players, client::log_tails));
+        app.add_systems(
+            Update,
+            (
+                client::log_players,
+                client::log_tails,
+                client::log_interpolated_snake_consistency,
+            ),
+        );
     }
 }
 
@@ -38,6 +45,7 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
+        move_script: Option<Vec<(f32, Vec<KeyCode>)>>,
         log_client: bool,
     }
 
@@ -45,6 +53,7 @@ mod client {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
+                move_script: parse_move_script(env_string("LIGHTYEAR_AUTOMOVE_SCRIPT")),
                 log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
@@ -56,16 +65,23 @@ mod client {
 
     pub(super) fn drive_keys(
         settings: Res<AutomationSettings>,
+        time: Res<Time>,
         mut previous: Local<Vec<KeyCode>>,
         mut buttons: ResMut<ButtonInput<KeyCode>>,
     ) {
-        sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
+        let keys = if let Some(script) = &settings.move_script {
+            script_keys(script, time.elapsed_secs())
+        } else {
+            settings.pressed_keys.clone()
+        };
+        sync_pressed_keys(&mut buttons, &mut previous, &keys);
     }
 
     pub(super) fn log_players(
         settings: Option<Res<AutomationSettings>>,
         query: Query<
             (
+                Entity,
                 &PlayerId,
                 &PlayerPosition,
                 Has<Predicted>,
@@ -80,8 +96,9 @@ mod client {
         if !settings.log_client {
             return;
         }
-        for (player_id, position, predicted, interpolated) in &query {
+        for (entity, player_id, position, predicted, interpolated) in &query {
             info!(
+                ?entity,
                 ?player_id,
                 position = ?position.0,
                 predicted,
@@ -93,7 +110,7 @@ mod client {
 
     pub(super) fn log_tails(
         settings: Option<Res<AutomationSettings>>,
-        tails: Query<&TailPoints, Changed<TailPoints>>,
+        tails: Query<(Entity, &PlayerParent, &TailPoints), Changed<TailPoints>>,
     ) {
         let Some(settings) = settings else {
             return;
@@ -101,8 +118,66 @@ mod client {
         if !settings.log_client {
             return;
         }
-        for tail in &tails {
-            info!(?tail, "replication_groups client tail update");
+        for (entity, parent, tail) in &tails {
+            info!(?entity, parent = ?parent.0, ?tail, "replication_groups client tail update");
+        }
+    }
+
+    pub(super) fn log_interpolated_snake_consistency(
+        settings: Option<Res<AutomationSettings>>,
+        players: Query<
+            (
+                Entity,
+                &PlayerId,
+                &PlayerPosition,
+                Option<&ConfirmedHistory<PlayerPosition>>,
+            ),
+            With<Interpolated>,
+        >,
+        tails: Query<
+            (
+                Entity,
+                &PlayerParent,
+                &TailPoints,
+                &TailLength,
+                Option<&ConfirmedHistory<TailPoints>>,
+            ),
+            With<Interpolated>,
+        >,
+    ) {
+        let Some(settings) = settings else {
+            return;
+        };
+        if !settings.log_client {
+            return;
+        }
+
+        for (tail_entity, parent, tail, tail_length, tail_history) in &tails {
+            let Ok((head_entity, player_id, head, head_history)) = players.get(parent.0) else {
+                warn!(?tail_entity, parent = ?parent.0, "interpolated tail missing head");
+                continue;
+            };
+
+            let invalid = snake_has_diagonal(head.0, tail)
+                || !front_matches_head_direction(head.0, tail)
+                || history_ticks_mismatch(head_history, tail_history);
+            if !invalid {
+                continue;
+            }
+
+            info!(
+                ?player_id,
+                ?head_entity,
+                ?tail_entity,
+                head = ?head.0,
+                first_point = ?tail.0.front().map(|(point, _)| *point),
+                head_history = ?history_ticks(head_history),
+                tail_history = ?history_ticks(tail_history),
+                tail_len = tail_total_length(head.0, tail),
+                expected_len = tail_length.0,
+                ?tail,
+                "replication_groups client interpolated snake inconsistency"
+            );
         }
     }
 
@@ -122,6 +197,86 @@ mod client {
             }
         }
         keys
+    }
+
+    fn parse_move_script(value: Option<String>) -> Option<Vec<(f32, Vec<KeyCode>)>> {
+        let value = value?;
+        let mut script = Vec::new();
+        for chunk in value.split(',') {
+            let chunk = chunk.trim();
+            if chunk.is_empty() {
+                continue;
+            }
+            let Some((time_str, dir_str)) = chunk.split_once(':') else {
+                warn!(?chunk, "Ignoring malformed LIGHTYEAR_AUTOMOVE_SCRIPT chunk");
+                continue;
+            };
+            let Ok(time) = time_str.trim().parse::<f32>() else {
+                warn!(?chunk, "Ignoring LIGHTYEAR_AUTOMOVE_SCRIPT chunk with bad time");
+                continue;
+            };
+            let keys = parse_move_keys(Some(dir_str.trim().to_string()));
+            script.push((time, keys));
+        }
+        script.sort_by(|a, b| a.0.total_cmp(&b.0));
+        (!script.is_empty()).then_some(script)
+    }
+
+    fn script_keys(script: &[(f32, Vec<KeyCode>)], elapsed: f32) -> Vec<KeyCode> {
+        let mut selected = Vec::new();
+        for (start, keys) in script {
+            if elapsed >= *start {
+                selected = keys.clone();
+            } else {
+                break;
+            }
+        }
+        selected
+    }
+
+    fn history_ticks<C>(history: Option<&ConfirmedHistory<C>>) -> Option<(Option<Tick>, Option<Tick>)> {
+        history.map(|history| (history.start().map(|(tick, _)| tick), history.end().map(|(tick, _)| tick)))
+    }
+
+    fn history_ticks_mismatch(
+        head_history: Option<&ConfirmedHistory<PlayerPosition>>,
+        tail_history: Option<&ConfirmedHistory<TailPoints>>,
+    ) -> bool {
+        history_ticks(head_history) != history_ticks(tail_history)
+    }
+
+    fn front_matches_head_direction(head: Vec2, tail: &TailPoints) -> bool {
+        let Some((front_point, front_dir)) = tail.0.front() else {
+            return true;
+        };
+        Direction::from_points(*front_point, head).is_none_or(|dir| dir == *front_dir)
+    }
+
+    fn snake_has_diagonal(head: Vec2, tail: &TailPoints) -> bool {
+        let Some((front_point, _)) = tail.0.front() else {
+            return false;
+        };
+        is_diagonal(head, *front_point)
+            || tail
+                .0
+                .iter()
+                .zip(tail.0.iter().skip(1))
+                .any(|(start, end)| is_diagonal(start.0, end.0))
+    }
+
+    fn tail_total_length(head: Vec2, tail: &TailPoints) -> f32 {
+        let Some((front_point, _)) = tail.0.front() else {
+            return 0.0;
+        };
+        let mut length = (head - *front_point).length();
+        for (start, end) in tail.0.iter().zip(tail.0.iter().skip(1)) {
+            length += (start.0 - end.0).length();
+        }
+        length
+    }
+
+    fn is_diagonal(a: Vec2, b: Vec2) -> bool {
+        a.x != b.x && a.y != b.y
     }
 }
 
@@ -144,13 +299,17 @@ mod server {
 
     pub(super) fn log_players(
         settings: Res<DebugSettings>,
-        players: Query<(&PlayerId, &PlayerPosition, &ActionState<Inputs>), Changed<PlayerPosition>>,
+        players: Query<
+            (Entity, &PlayerId, &PlayerPosition, &ActionState<Inputs>),
+            Changed<PlayerPosition>,
+        >,
     ) {
         if !settings.log_server {
             return;
         }
-        for (player_id, position, input) in &players {
+        for (entity, player_id, position, input) in &players {
             info!(
+                ?entity,
                 ?player_id,
                 position = ?position.0,
                 ?input,
@@ -161,13 +320,13 @@ mod server {
 
     pub(super) fn log_tails(
         settings: Res<DebugSettings>,
-        tails: Query<&TailPoints, Changed<TailPoints>>,
+        tails: Query<(Entity, &PlayerParent, &TailPoints), Changed<TailPoints>>,
     ) {
         if !settings.log_server {
             return;
         }
-        for tail in &tails {
-            info!(?tail, "replication_groups server tail update");
+        for (entity, parent, tail) in &tails {
+            info!(?entity, parent = ?parent.0, ?tail, "replication_groups server tail update");
         }
     }
 }

@@ -335,6 +335,7 @@ pub fn new_headless_app() -> App {
     let mut app = App::new();
     app.add_plugins((
         MinimalPlugins,
+        TransformPlugin,
         log_plugin(),
         StatesPlugin,
         DiagnosticsPlugin,

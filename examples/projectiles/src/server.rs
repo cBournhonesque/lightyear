@@ -1,4 +1,5 @@
 use crate::automation::AutomationServerPlugin;
+#[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
 use crate::protocol::*;
 use crate::shared;
@@ -50,6 +51,7 @@ impl Plugin for ExampleServerPlugin {
 
         // we don't want to panic when trying to read the InputReader if gui is not enabled
         app.configure_sets(PreUpdate, EnhancedInputSystems::Prepare.run_if(|| false));
+        #[cfg(feature = "client")]
         app.add_plugins(bot::BotPlugin);
     }
 }
@@ -184,6 +186,7 @@ fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Sco
     }
 }
 
+#[cfg(feature = "client")]
 mod bot {
     use super::*;
     pub struct BotPlugin;
@@ -424,6 +427,14 @@ mod bot {
     fn bot_wait(timeline: Res<LocalTimeline>) {
         std::thread::sleep(Duration::from_millis(15));
     }
+}
+
+#[cfg(not(feature = "client"))]
+mod bot {
+    use bevy::prelude::*;
+
+    #[derive(Component)]
+    pub struct BotClient;
 }
 
 /// Handle room switching when replication mode changes

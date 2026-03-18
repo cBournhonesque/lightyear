@@ -7,11 +7,23 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = ["lightyear/client", "lightyear_examples_common/client"]
+# Keep the protocol setup identical between split client/server builds.
+# Runtime mode still decides whether we actually run client or server logic.
+client = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 gui = ["lightyear_examples_common/gui3d"]
-server = ["lightyear/server", "lightyear_examples_common/server"]
+server = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 netcode = ["lightyear_examples_common/netcode"]
-udp = ["lightyear_examples_common/udp", "lightyear/udp"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
 [dependencies]
 lightyear = { workspace = true, features = [

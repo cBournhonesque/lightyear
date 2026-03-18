@@ -14,9 +14,19 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = ["lightyear/client", "lightyear_examples_common/client"]
+client = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 gui = ["lightyear_examples_common/gui2d"]
-server = ["lightyear/server", "lightyear_examples_common/server"]
+server = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 netcode = ["lightyear_examples_common/netcode"]
 udp = [
   "lightyear_examples_common/udp",

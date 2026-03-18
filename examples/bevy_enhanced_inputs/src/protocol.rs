@@ -41,12 +41,7 @@ pub struct ProtocolPlugin;
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // inputs
-        app.add_plugins(InputPlugin::<Player> {
-            config: InputConfig::<Player> {
-                rebroadcast_inputs: true,
-                ..default()
-            },
-        });
+        app.add_plugins(InputPlugin::<Player>::default());
         app.register_input_action::<Movement>();
 
         // components

@@ -8,6 +8,7 @@ use bevy_math::{
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_platform::collections::HashMap;
+use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
@@ -32,6 +33,11 @@ pub struct InterpolationMetadata {
 #[derive(Resource, Debug, Default)]
 pub struct InterpolationRegistry {
     pub(crate) interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
+}
+
+#[derive(Resource, Debug, Default)]
+struct InterpolatedMarkerFnRegistry {
+    kinds: HashSet<ComponentKind>,
 }
 
 impl InterpolationRegistry {
@@ -66,6 +72,30 @@ impl InterpolationRegistry {
             unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
     }
+}
+
+fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
+    if !app.world().contains_resource::<InterpolatedMarkerFnRegistry>() {
+        app.world_mut()
+            .insert_resource(InterpolatedMarkerFnRegistry::default());
+    }
+    let kind = ComponentKind::of::<C>();
+    let already_registered = {
+        let registry = app.world().resource::<InterpolatedMarkerFnRegistry>();
+        registry.kinds.contains(&kind)
+    };
+    if already_registered {
+        return;
+    }
+    app.register_marker_with::<Interpolated>(MarkerConfig {
+        priority: 100,
+        need_history: true,
+    });
+    app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
+    app.world_mut()
+        .resource_mut::<InterpolatedMarkerFnRegistry>()
+        .kinds
+        .insert(kind);
 }
 
 pub trait InterpolationRegistrationExt<C> {
@@ -112,12 +142,7 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        self.app.register_marker_with::<Interpolated>(MarkerConfig {
-            priority: 100,
-            need_history: true,
-        });
-        self.app
-            .set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
+        register_interpolated_marker_fns::<C>(self.app);
         if !self
             .app
             .world()
@@ -168,8 +193,10 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
 
     fn add_custom_interpolation(self) -> Self
     where
-        C: Component + Clone,
+        C: SyncComponent,
     {
+        let kind = ComponentKind::of::<C>();
+        register_interpolated_marker_fns::<C>(self.app);
         if !self
             .app
             .world()
@@ -182,7 +209,7 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
         let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
         registry
             .interpolation_map
-            .entry(ComponentKind::of::<C>())
+            .entry(kind)
             .and_modify(|r| r.custom_interpolation = true)
             .or_insert_with(|| InterpolationMetadata {
                 interpolation: None,
