@@ -3,6 +3,7 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
+use lightyear_replication::prelude::HasAuthority;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -56,7 +57,7 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
 /// If Bindings or ActionMock is added to an Action entity, add the InputMarker to that Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
     trigger: On<Add, (Bindings, ActionMock)>,
-    action: Query<(), With<ActionOf<C>>>,
+    action: Query<(), (With<HasAuthority>, With<ActionOf<C>>)>,
     mut commands: Commands,
 ) {
     if action.get(trigger.entity).is_ok() {
