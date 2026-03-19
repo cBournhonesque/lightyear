@@ -14,6 +14,7 @@ test_utils = ["lightyear_core/test_utils"]
 
 [dependencies]
 lightyear_core.workspace = true
+lightyear_connection = { workspace = true, features = ["client", "server"] }
 lightyear_link.workspace = true
 
 # bevy

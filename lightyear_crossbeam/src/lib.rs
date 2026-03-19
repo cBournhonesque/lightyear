@@ -19,6 +19,10 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
+use lightyear_connection::prelude::client::{Client, Connected, Disconnected};
+use lightyear_connection::prelude::server::ClientOf;
+use lightyear_core::id::{LocalId, PeerId, RemoteId};
+use lightyear_link::prelude::server::LinkOf;
 use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked};
 use tracing::{error, trace};
 
@@ -84,16 +88,55 @@ impl CrossbeamPlugin {
         }
     }
 
+    /// For crossbeam client entities, Linked implies Connected (no handshake needed).
+    /// Mirrors `RawClient::on_linked` in `lightyear_raw_connection`.
+    fn on_client_linked(
+        trigger: On<Add, Linked>,
+        query: Query<&LocalAddr, (With<CrossbeamIo>, With<Client>)>,
+        mut commands: Commands,
+    ) {
+        if let Ok(local_addr) = query.get(trigger.entity) {
+            trace!("CrossbeamIo client Linked! Adding Connected");
+            commands.entity(trigger.entity).insert((
+                Connected,
+                LocalId(PeerId::Raw(local_addr.0)),
+                RemoteId(PeerId::Server),
+            ));
+        }
+    }
+
+    /// For crossbeam server-side client mirror entities (LinkOf), Linked implies Connected.
+    /// Mirrors `RawServer::on_link_of_linked` in `lightyear_raw_connection`.
+    fn on_server_client_linked(
+        trigger: On<Add, Linked>,
+        query: Query<(&LinkOf, &PeerAddr), With<CrossbeamIo>>,
+        mut commands: Commands,
+    ) {
+        if let Ok((_link_of, peer_addr)) = query.get(trigger.entity) {
+            trace!("CrossbeamIo server LinkOf Linked! Adding Connected + ClientOf");
+            commands.entity(trigger.entity).insert((
+                Connected,
+                LocalId(PeerId::Server),
+                RemoteId(PeerId::Raw(peer_addr.0)),
+                ClientOf,
+            ));
+        }
+    }
+
     fn send(mut query: Query<IOQuery, With<Linked>>) -> Result {
-        query.iter_mut().try_for_each(|mut io| {
-            io.link.send.drain().try_for_each(|payload| {
+        for mut io in query.iter_mut() {
+            for payload in io.link.send.drain() {
                 #[cfg(feature = "test_utils")]
                 if io.helper.is_some_and(|h| h.block_send) {
-                    return Ok(());
+                    continue;
                 }
-                io.crossbeam_io.sender.try_send(payload)
-            })
-        })?;
+                if io.crossbeam_io.sender.try_send(payload).is_err() {
+                    // Channel disconnected (peer dropped) — not an error during shutdown
+                    trace!("CrossbeamIo send failed: channel disconnected");
+                    break;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -123,10 +166,171 @@ impl Plugin for CrossbeamPlugin {
             app.add_plugins(LinkPlugin);
         }
         app.add_observer(Self::link);
+        app.add_observer(Self::on_client_linked);
+        app.add_observer(Self::on_server_client_linked);
         app.add_systems(
             PreUpdate,
             Self::receive.in_set(LinkReceiveSystems::BufferToLink),
         );
         app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_connection::client::ConnectionPlugin;
+    use lightyear_connection::prelude::client::Connect;
+    use lightyear_link::prelude::server::LinkOf;
+    use lightyear_link::prelude::Server;
+
+    /// Verify that a crossbeam client reaches Connected after Connect trigger.
+    #[test]
+    fn client_reaches_connected_via_crossbeam() {
+        let (client_io, server_io) = CrossbeamIo::new_pair();
+
+        let mut app = App::new();
+        app.add_plugins(bevy_app::ScheduleRunnerPlugin::default());
+        app.add_plugins(ConnectionPlugin);
+        app.add_plugins(CrossbeamPlugin);
+
+        // Spawn server entity
+        let server_entity = app
+            .world_mut()
+            .spawn((Server::default(), Link::new(None)))
+            .id();
+
+        // Spawn server-side mirror with Linked (as the stepper does)
+        app.world_mut().spawn((
+            LinkOf {
+                server: server_entity,
+            },
+            Link::new(None),
+            Linked,
+            server_io,
+        ));
+
+        // Spawn client entity
+        let client_entity = app
+            .world_mut()
+            .spawn((Client::default(), Link::new(None), client_io))
+            .id();
+
+        // Trigger Connect (same as soup's handle_match_found_events)
+        app.world_mut().trigger(Connect {
+            entity: client_entity,
+        });
+
+        // Step a few frames for observers to fire
+        for _ in 0..5 {
+            app.update();
+        }
+
+        // Client should have Connected
+        assert!(
+            app.world().get::<Connected>(client_entity).is_some(),
+            "Client entity should have Connected component after crossbeam Connect trigger"
+        );
+    }
+
+    /// Verify that a server-side LinkOf entity with crossbeam gets Connected + ClientOf.
+    #[test]
+    fn server_mirror_reaches_connected_via_crossbeam() {
+        let (_client_io, server_io) = CrossbeamIo::new_pair();
+
+        let mut app = App::new();
+        app.add_plugins(bevy_app::ScheduleRunnerPlugin::default());
+        app.add_plugins(ConnectionPlugin);
+        app.add_plugins(CrossbeamPlugin);
+
+        let server_entity = app
+            .world_mut()
+            .spawn((Server::default(), Link::new(None)))
+            .id();
+
+        // Spawn mirror entity with Linked (as soup's spawn_server_entity does)
+        let mirror_entity = app
+            .world_mut()
+            .spawn((
+                LinkOf {
+                    server: server_entity,
+                },
+                Link::new(None),
+                Linked,
+                server_io,
+            ))
+            .id();
+
+        for _ in 0..5 {
+            app.update();
+        }
+
+        assert!(
+            app.world().get::<Connected>(mirror_entity).is_some(),
+            "Server mirror entity should have Connected"
+        );
+        assert!(
+            app.world().get::<ClientOf>(mirror_entity).is_some(),
+            "Server mirror entity should have ClientOf"
+        );
+    }
+
+    /// Verify that dropping one end of the crossbeam pair doesn't panic the send system.
+    #[test]
+    fn send_after_peer_disconnect_does_not_panic() {
+        let (client_io, server_io) = CrossbeamIo::new_pair();
+
+        let mut app = App::new();
+        app.add_plugins(bevy_app::ScheduleRunnerPlugin::default());
+        app.add_plugins(ConnectionPlugin);
+        app.add_plugins(CrossbeamPlugin);
+
+        let server_entity = app
+            .world_mut()
+            .spawn((Server::default(), Link::new(None)))
+            .id();
+
+        // Spawn server mirror with crossbeam IO
+        let mirror_entity = app
+            .world_mut()
+            .spawn((
+                LinkOf {
+                    server: server_entity,
+                },
+                Link::new(None),
+                Linked,
+                server_io,
+            ))
+            .id();
+
+        // Spawn client and connect
+        let client_entity = app
+            .world_mut()
+            .spawn((Client::default(), Link::new(None), client_io))
+            .id();
+
+        app.world_mut().trigger(Connect {
+            entity: client_entity,
+        });
+
+        // Step to establish connection
+        for _ in 0..3 {
+            app.update();
+        }
+
+        // Queue some data on the client's send buffer
+        if let Some(mut link) = app.world_mut().get_mut::<Link>(client_entity) {
+            link.send.push(Bytes::from_static(b"hello"));
+        }
+
+        // Drop the server mirror entity (simulates server thread exit / shutdown)
+        app.world_mut().despawn(mirror_entity);
+
+        // Step — send system should handle the disconnected channel gracefully
+        for _ in 0..3 {
+            app.update();
+        }
+
+        // If we get here without panic, the test passes
     }
 }
