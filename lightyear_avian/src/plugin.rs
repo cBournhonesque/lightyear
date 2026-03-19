@@ -357,10 +357,6 @@ impl LightyearAvianPlugin {
             .resource::<PhysicsTransformConfig>()
             .position_to_transform
         {
-            // Make sure that PositionToTransform sync also runs for Interpolated entities
-            app.register_required_components::<Position, ApplyPosToTransform>();
-            app.register_required_components::<Rotation, ApplyPosToTransform>();
-
             // TODO(important): handle this
             // NOTE: we do NOT include this because Position/Rotation might not be added at the same time (for example on the Interpolated entity)
             //  we only want to add Transform if both are added at the same time
