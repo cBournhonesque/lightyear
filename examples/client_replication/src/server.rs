@@ -3,8 +3,10 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::color_from_id;
 use bevy::prelude::*;
+use bevy_replicon::prelude::Remote;
 use core::time::Duration;
 use lightyear::connection::client::PeerMetadata;
+use lightyear::connection::host::{HostClient, HostServer};
 use lightyear::input::bei::prelude::Fire;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -17,6 +19,7 @@ impl Plugin for ExampleServerPlugin {
         app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(replicate_cursors);
+        app.add_observer(replicate_host_cursor);
         app.add_observer(handle_new_client);
         app.add_observer(on_connect);
     }
@@ -54,9 +57,9 @@ pub(crate) fn on_connect(
 
 /// When we receive a replicated Cursor, replicate it to all other clients
 pub(crate) fn replicate_cursors(
-    trigger: On<Add, (CursorPosition, Replicated)>,
+    trigger: On<Add, CursorPosition>,
     mut commands: Commands,
-    cursor_query: Query<&PlayerId, With<CursorPosition>>,
+    cursor_query: Query<&PlayerId, (With<CursorPosition>, With<Remote>)>,
     peer_metadata: Res<PeerMetadata>,
 ) {
     let entity = trigger.entity;
@@ -69,14 +72,39 @@ pub(crate) fn replicate_cursors(
         return;
     };
     info!("received cursor spawn event from client: {client_id:?}");
+    configure_cursor_rebroadcast(&mut commands, entity, client_id, *sender_entity);
+}
+
+/// In host-server mode, the host cursor already exists in the server world.
+/// Reuse that entity directly for rebroadcast instead of routing it back through the
+/// client->server replication bridge.
+pub(crate) fn replicate_host_cursor(
+    trigger: On<Add, CursorPosition>,
+    _: Single<(), With<HostServer>>,
+    host_client: Single<Entity, With<HostClient>>,
+    cursor_query: Query<&PlayerId, (With<CursorPosition>, Without<Remote>)>,
+    mut commands: Commands,
+) {
+    let entity = trigger.entity;
+    let Ok(player_id) = cursor_query.get(entity) else {
+        return;
+    };
+
+    configure_cursor_rebroadcast(&mut commands, entity, player_id.0, host_client.into_inner());
+}
+
+fn configure_cursor_rebroadcast(
+    commands: &mut Commands,
+    entity: Entity,
+    client_id: PeerId,
+    sender_entity: Entity,
+) {
     if let Ok(mut e) = commands.get_entity(entity) {
-        // Cursor: replicate to others, interpolate for others
         e.insert((
-            // do not replicate back to the client that owns the cursor!
             Replicate::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
-                owner: *sender_entity,
+                owner: sender_entity,
                 lifetime: Lifetime::SessionBased,
             },
         ));

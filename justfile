@@ -39,6 +39,12 @@ clippy_examples:
     cargo clippy -p simple_box --all-features -- -D warnings --no-deps
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
+build_examples_demos:
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 4 $pkgs'
+
+build_examples_demos_release:
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build --release -j 4 $pkgs'
+
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.

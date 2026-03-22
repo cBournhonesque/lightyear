@@ -32,6 +32,11 @@ use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::InputT
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
+#[derive(Resource, Default)]
+struct PreSpawnedSignatureOrdinals {
+    by_hash: bevy_platform::collections::HashMap<u64, u64>,
+}
+
 /// PreSpawning allows you to replicate an entity to the remote, but instead of creating a new
 /// entity in the remote world, you match an existing pre-spawned entity.
 ///
@@ -52,6 +57,7 @@ pub enum PreSpawnedSystems {
 
 impl Plugin for PreSpawnedPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<PreSpawnedSignatureOrdinals>();
         app.configure_sets(PostUpdate, PreSpawnedSystems::CleanUp);
         app.add_observer(Self::register_prespawn_hashes);
         app.add_observer(Self::insert_prespawn_signature);
@@ -170,13 +176,17 @@ impl PreSpawnedPlugin {
     fn insert_prespawn_signature(
         trigger: On<Add, PreSpawned>,
         query: Query<&PreSpawned, Without<ConfirmHistory>>,
+        mut signature_ordinals: ResMut<PreSpawnedSignatureOrdinals>,
         mut commands: Commands,
     ) {
         if let Ok(prespawn) = query.get(trigger.entity) {
             if let Some(hash) = prespawn.hash {
+                let ordinal = signature_ordinals.by_hash.entry(hash).or_default();
+                let signature_hash = prespawn_signature_hash(hash, *ordinal);
+                *ordinal += 1;
                 commands
                     .entity(trigger.entity)
-                    .insert(Signature::from(hash));
+                    .insert(Signature::from(signature_hash));
             }
         }
     }
@@ -193,8 +203,19 @@ impl PreSpawnedPlugin {
         if let Ok(prespawn) = query.get(entity) {
             if let Some(hash) = prespawn.hash {
                 if let Ok(mut receiver) = receiver_query.single_mut() {
-                    receiver.prespawn_hash_to_entities.remove(&hash);
-                    receiver.prespawn_tick_to_hash.retain(|(_, h)| *h != hash);
+                    if let Some(entities) = receiver.prespawn_hash_to_entities.get_mut(&hash) {
+                        entities.retain(|candidate| *candidate != entity);
+                        if entities.is_empty() {
+                            receiver.prespawn_hash_to_entities.remove(&hash);
+                        }
+                    }
+                    if let Some(index) = receiver
+                        .prespawn_tick_to_hash
+                        .iter()
+                        .position(|(_, candidate_hash)| *candidate_hash == hash)
+                    {
+                        receiver.prespawn_tick_to_hash.remove(index);
+                    }
                 }
             }
             // Remove Signature to free the SignatureMap entry
@@ -464,5 +485,16 @@ pub(crate) fn compute_default_hash(
         salt.hash(&mut hasher);
     }
 
+    hasher.finish()
+}
+
+fn prespawn_signature_hash(hash: u64, ordinal: u64) -> u64 {
+    if ordinal == 0 {
+        return hash;
+    }
+
+    let mut hasher = seahash::SeaHasher::new();
+    hash.hash(&mut hasher);
+    ordinal.hash(&mut hasher);
     hasher.finish()
 }

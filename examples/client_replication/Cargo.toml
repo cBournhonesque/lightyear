@@ -42,6 +42,7 @@ lightyear = { "workspace" = true, features = [
 ] }
 bevy_enhanced_input.workspace = true
 lightyear_examples_common.workspace = true
+bevy_replicon.workspace = true
 
 serde.workspace = true
 bevy.workspace = true

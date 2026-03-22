@@ -335,7 +335,7 @@ impl<C> PredictionHistory<C> {
     pub fn clear_until_tick(&mut self, tick: Tick) {
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|(buffer_tick, _)| buffer_tick < &tick);
         if partition > 0 {
             self.buffer.drain(0..partition);
         }

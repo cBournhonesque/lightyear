@@ -1,11 +1,13 @@
 use avian2d::prelude::Position;
 use bevy::prelude::*;
+use leafwing_input_manager::plugin::InputManagerSystem;
+use leafwing_input_manager::prelude::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::automation::{
     HeadlessInputPlugin, env_flag, env_string, sync_pressed_keys,
 };
 
-use crate::protocol::PlayerId;
+use crate::protocol::{PlayerActions, PlayerId};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -16,6 +18,10 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
+        app.add_systems(
+            PreUpdate,
+            client::drive_action_state.in_set(InputManagerSystem::ManualControl),
+        );
         app.add_systems(Update, client::log_players);
     }
 }
@@ -60,6 +66,31 @@ mod client {
         mut buttons: ResMut<ButtonInput<KeyCode>>,
     ) {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
+    }
+
+    pub(super) fn drive_action_state(
+        settings: Res<AutomationSettings>,
+        mut query: Query<&mut ActionState<PlayerActions>>,
+    ) {
+        for mut action_state in &mut query {
+            for action in [
+                PlayerActions::Up,
+                PlayerActions::Down,
+                PlayerActions::Left,
+                PlayerActions::Right,
+            ] {
+                action_state.release(&action);
+            }
+            for key in &settings.pressed_keys {
+                match key {
+                    KeyCode::KeyW => action_state.press(&PlayerActions::Up),
+                    KeyCode::KeyS => action_state.press(&PlayerActions::Down),
+                    KeyCode::KeyA => action_state.press(&PlayerActions::Left),
+                    KeyCode::KeyD => action_state.press(&PlayerActions::Right),
+                    _ => {}
+                }
+            }
+        }
     }
 
     pub(super) fn log_players(

@@ -75,7 +75,10 @@ impl InterpolationRegistry {
 }
 
 fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
-    if !app.world().contains_resource::<InterpolatedMarkerFnRegistry>() {
+    if !app
+        .world()
+        .contains_resource::<InterpolatedMarkerFnRegistry>()
+    {
         app.world_mut()
             .insert_resource(InterpolatedMarkerFnRegistry::default());
     }

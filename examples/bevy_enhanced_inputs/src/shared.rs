@@ -4,6 +4,7 @@
 //! mispredictions/rollbacks.
 use crate::protocol::*;
 use bevy::prelude::*;
+use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal};
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SharedSettings;
 
@@ -15,6 +16,38 @@ impl Plugin for SharedPlugin {
         app.add_systems(FixedPostUpdate, fixed_post_log);
         app.add_systems(Update, confirmed_log);
         app.add_systems(PostUpdate, interpolate_log);
+    }
+}
+
+/// Deterministic hash for PreSpawned action entities.
+/// Uses the client's PeerId and a salt to produce the same hash on both client and server,
+/// regardless of spawn tick.
+pub(crate) fn action_prespawn_hash(client_id: PeerId, salt: u64) -> u64 {
+    client_id
+        .to_bits()
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(salt)
+}
+
+/// Spawn action entities for a player. Called on both client and server.
+pub(crate) fn spawn_action_entities(
+    commands: &mut Commands,
+    player_entity: Entity,
+    client_id: PeerId,
+    is_server: bool,
+) {
+    let hash = action_prespawn_hash(client_id, 1);
+    let mut action = commands.spawn((
+        ActionOf::<Player>::new(player_entity),
+        Action::<Movement>::new(),
+        Bindings::spawn(Cardinal::wasd_keys()),
+        PreSpawned::new(hash),
+    ));
+    if is_server {
+        #[cfg(feature = "server")]
+        action.insert(Replicate::to_clients(NetworkTarget::Single(client_id)));
+    } else {
+        action.insert(lightyear::prelude::input::bei::InputMarker::<Player>::default());
     }
 }
 

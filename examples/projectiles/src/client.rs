@@ -5,6 +5,7 @@ use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::mock::ActionMock;
+use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
@@ -136,7 +137,7 @@ fn add_actions(commands: &mut Commands, player: Entity) {
         Action::<MoveCursor>::new(),
         // we use a mock to manually set the ActionState and ActionValue from the mouse position
         ActionMock::new(
-            ActionState::Fired,
+            TriggerState::Fired,
             ActionValue::zero(ActionValueDim::Axis2D),
             MockSpan::Manual,
         ),

@@ -207,7 +207,6 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_type::<Confirmed<Position>>();
     }
 }
 

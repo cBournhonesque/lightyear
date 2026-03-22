@@ -4,7 +4,7 @@ use bevy_state::prelude::*;
 
 use bevy_replicon::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
-use lightyear_connection::client::Connected;
+use lightyear_connection::client::{Client, Connected};
 use lightyear_messages::MessageManager;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
@@ -12,7 +12,7 @@ use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
 use lightyear_messages::plugin::MessageSystems;
-use tracing::{debug, trace};
+use tracing::debug;
 
 /// Adds the replicon client-side backend bridge for lightyear.
 ///
@@ -74,7 +74,7 @@ impl Plugin for RepliconClientPlugin {
 ///
 /// Sets `Connected` when any entity has `Connected` component (lightyear's connection marker).
 fn sync_client_state(
-    connected: Query<(), With<Connected>>,
+    connected: Query<(), (With<Connected>, With<Client>)>,
     state: Res<State<ClientState>>,
     mut next_state: ResMut<NextState<ClientState>>,
 ) {
@@ -92,7 +92,7 @@ fn sync_client_state(
 fn receive_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,
-    mut transports: Query<&mut Transport>,
+    mut transports: Query<&mut Transport, With<Client>>,
 ) {
     for mut transport in transports.iter_mut() {
         for (idx, &(_, channel_id)) in channel_map.server_channels.iter().enumerate() {
@@ -111,7 +111,7 @@ fn receive_client_packets(
 fn send_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,
-    mut transports: Query<&mut Transport>,
+    mut transports: Query<&mut Transport, With<Client>>,
 ) {
     for (channel_idx, message) in client_messages.drain_sent() {
         let (channel_kind, _) = channel_map.client_channels[channel_idx];
@@ -144,7 +144,7 @@ fn despawn_replicated_on_disconnect(
 /// This bridges replicon's entity tracking with lightyear's messaging entity map.
 fn sync_entity_map(
     entity_map: Res<ServerEntityMap>,
-    mut managers: Query<&mut MessageManager>,
+    mut managers: Query<&mut MessageManager, With<Client>>,
     mut synced_entities: Local<bevy_platform::collections::HashSet<Entity>>,
 ) {
     if !entity_map.is_changed() {

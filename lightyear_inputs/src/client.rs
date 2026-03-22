@@ -592,6 +592,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
+    prespawned: Query<(Entity, &PreSpawned)>,
 ) {
     let (mut receiver, last_confirmed_input, prediction_manager) = link.into_inner();
     let tick = timeline.tick();
@@ -604,10 +605,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     Some(entity)
                 }
                 InputTarget::PreSpawned(hash) => {
-                    // TODO: should clients receive rebroadcasted PreSpawned using the hash?
-                    //  if they don't receive the remote clients inputs in time, they cannot prespawn, so maybe they should just use the entity?
-                    //  Ideally, we could only pre-spawn on the controlling client (so we need a PrespawnTarget)?
-                    todo!()
+                    prespawned
+                        .iter()
+                        .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
                 }
             }) else {
                 warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);

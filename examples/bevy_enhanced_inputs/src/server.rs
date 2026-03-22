@@ -36,13 +36,9 @@ impl Plugin for ExampleServerPlugin {
 /// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        ReplicationSender::default(),
-        // We need a ReplicationReceiver on the server side because the Action entities are spawned
-        // on the client and replicated to the server.
-        ReplicationReceiver::default(),
-        Name::from("Client"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender::default(), Name::from("Client")));
 }
 
 /// If the new client connects to the server, we want to spawn a new player entity for it.
@@ -64,7 +60,7 @@ pub(crate) fn handle_connected(
     let s = 0.8;
     let l = 0.5;
     let color = Color::hsl(h, s, l);
-    let entity = commands
+    let player_entity = commands
         .spawn((
             // Add the context component on the server; it will be replicated to the client
             Player,
@@ -83,8 +79,9 @@ pub(crate) fn handle_connected(
         .id();
     info!(
         "Create player entity {:?} for client {:?}",
-        entity, client_id
+        player_entity, client_id
     );
+    shared::spawn_action_entities(&mut commands, player_entity, client_id, true);
 }
 
 /// Read client inputs and move players in server therefore giving a basis for other clients

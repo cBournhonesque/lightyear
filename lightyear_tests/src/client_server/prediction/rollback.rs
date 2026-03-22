@@ -6,6 +6,7 @@ use crate::stepper::*;
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
 use bevy::prelude::*;
+use bevy_replicon::prelude::RepliconTick;
 use core::time::Duration;
 use lightyear::input::native::prelude::InputMarker;
 use lightyear::prediction::Predicted;
@@ -298,6 +299,83 @@ fn test_predicted_modify_corrected_on_rollback() {
             .0,
         13.0,
         "Modified component should be corrected to confirmed value and re-simulated"
+    );
+}
+
+/// If one predicted entity triggers a rollback from an older tick while another
+/// predicted entity already has a newer confirmed tick, the newer confirmed
+/// value must be preserved during replay.
+#[test]
+fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
+    fn increment_component(mut query: Query<&mut CompFull, With<Predicted>>) {
+        for mut comp in query.iter_mut() {
+            comp.0 += 1.0;
+        }
+    }
+
+    let (mut stepper, predicted_a) = setup();
+    let predicted_b = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Predicted, CompFull(10.0)))
+        .id();
+
+    // Initialize prediction history for the second entity.
+    stepper.frame_step(1);
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_component);
+
+    // Build enough history so rollback and later confirmed ticks are distinct.
+    stepper.frame_step(4);
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 3;
+    let later_confirmed_tick = current_tick - 1;
+
+    let rollback_replicon_tick = RepliconTick::new(u32::from(rollback_tick.0));
+    let later_replicon_tick = RepliconTick::new(u32::from(later_confirmed_tick.0));
+
+    let world = stepper.client_app().world_mut();
+    world
+        .entity_mut(predicted_a)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(rollback_tick, Some(CompFull(100.0)));
+    world
+        .entity_mut(predicted_a)
+        .insert(ConfirmHistory::new(rollback_replicon_tick));
+
+    world
+        .entity_mut(predicted_b)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(later_confirmed_tick, Some(CompFull(200.0)));
+    world
+        .entity_mut(predicted_b)
+        .insert(ConfirmHistory::new(later_replicon_tick));
+
+    trigger_state_rollback(&mut stepper, rollback_tick);
+    stepper.frame_step(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_a)
+            .unwrap()
+            .0,
+        104.0,
+        "Rollback initiator should replay from the older confirmed tick"
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_b)
+            .unwrap()
+            .0,
+        202.0,
+        "Later confirmed value on another entity should be preserved during replay"
     );
 }
 

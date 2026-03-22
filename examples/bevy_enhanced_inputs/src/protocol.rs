@@ -1,7 +1,5 @@
 use bevy::math::Curve;
 use bevy::prelude::*;
-use bevy::prelude::{App, Plugin};
-use lightyear::input::prelude::InputConfig;
 use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};

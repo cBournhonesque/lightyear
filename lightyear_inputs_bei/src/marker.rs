@@ -1,9 +1,11 @@
 //! Add an [`InputMarker<C>`] component automatically to [`Action`] entities that need it
 
+use crate::setup::NetworkActionOf;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
+use lightyear_replication::prelude::HasAuthority;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -62,10 +64,62 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
 }
 
 /// If Bindings or ActionMock is added to an Action entity, add the InputMarker to that Action entity.
-/// Skip replicated entities.
+/// Only add the marker on locally controlled action entities that already have a network-facing
+/// action mapping. This avoids emitting inputs for entities that the server cannot resolve yet.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
     trigger: On<Add, (Bindings, ActionMock)>,
-    action: Query<(), (With<ActionOf<C>>, Without<ConfirmHistory>)>,
+    action: Query<
+        (),
+        (
+            With<ActionOf<C>>,
+            With<NetworkActionOf<C>>,
+            Without<ConfirmHistory>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    if action.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .insert(InputMarker::<C>::default());
+    }
+}
+
+/// If authority is granted after the action entity already exists, add the InputMarker
+/// once the entity becomes locally controlled.
+pub(crate) fn add_input_marker_from_authority<C: Component>(
+    trigger: On<Add, HasAuthority>,
+    action: Query<
+        (),
+        (
+            With<ActionOf<C>>,
+            With<NetworkActionOf<C>>,
+            Or<(With<Bindings>, With<ActionMock>)>,
+            Without<ConfirmHistory>,
+        ),
+    >,
+    mut commands: Commands,
+) {
+    if action.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .insert(InputMarker::<C>::default());
+    }
+}
+
+/// If the network-facing action mapping becomes available after the entity already has bindings,
+/// start treating it as a local input source at that point.
+pub(crate) fn add_input_marker_from_network_action<C: Component>(
+    trigger: On<Add, NetworkActionOf<C>>,
+    action: Query<
+        (),
+        (
+            With<ActionOf<C>>,
+            With<NetworkActionOf<C>>,
+            Or<(With<Bindings>, With<ActionMock>)>,
+            Without<ConfirmHistory>,
+        ),
+    >,
     mut commands: Commands,
 ) {
     if action.get(trigger.entity).is_ok() {

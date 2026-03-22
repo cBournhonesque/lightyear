@@ -16,41 +16,41 @@ use test_log::test;
 fn test_spawn_with_child() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(),))
-        .id();
-    stepper.frame_step(1);
     let server_entity = stepper
-        .client_of(0)
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_entity)
+        .get_local(server_entity)
         .expect("entity is not present in entity map");
 
-    let client_child = stepper
-        .client_app()
-        .world_mut()
-        .spawn((ChildOf(client_entity),))
-        .id();
-    stepper.frame_step(1);
     let server_child = stepper
-        .client_of(0)
+        .server_app
+        .world_mut()
+        .spawn((ChildOf(server_entity),))
+        .id();
+    stepper.frame_step(2);
+    let client_child = stepper
+        .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_child)
+        .get_local(server_child)
         .expect("entity is not present in entity map");
     assert_eq!(
         stepper
-            .server_app
+            .client_app()
             .world()
-            .get::<ChildOf>(server_child)
+            .get::<ChildOf>(client_child)
             .unwrap()
             .parent(),
-        server_entity
+        client_entity
     );
 }
 

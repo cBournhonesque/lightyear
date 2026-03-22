@@ -9,7 +9,8 @@ use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
-use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fire};
+use lightyear::input::bei::prelude::Fire;
+use lightyear::prelude::input::bei::InputMarker;
 use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
@@ -39,27 +40,24 @@ fn player_movement(
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// - spawn matching PreSpawned action entities
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
-    mut predicted: Query<(&mut PlayerColor, Has<Controlled>), With<Predicted>>,
+    mut predicted: Query<(&PlayerId, &mut PlayerColor, Has<Controlled>), With<Predicted>>,
     mut commands: Commands,
 ) {
     let entity = trigger.entity;
-    if let Ok((mut color, controlled)) = predicted.get_mut(entity) {
+    if let Ok((player_id, mut color, controlled)) = predicted.get_mut(entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
         if controlled {
-            // add Action entities to the predicted Context
-            commands.spawn((
-                ActionOf::<Player>::new(entity),
-                Action::<Movement>::new(),
-                Bindings::spawn(Cardinal::wasd_keys()),
-            ));
+            commands
+                .entity(entity)
+                .insert(InputMarker::<Player>::default());
+            shared::spawn_action_entities(&mut commands, entity, player_id.0, false);
         }
     }
 }

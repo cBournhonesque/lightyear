@@ -3,7 +3,7 @@ use crate::input_message::BEIStateSequence;
 
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use bevy_app::prelude::*;
+use bevy_app::{PreUpdate, prelude::*};
 use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
@@ -12,7 +12,7 @@ use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSystems;
 #[cfg(feature = "client")]
-use bevy_enhanced_input::action::ActionState;
+use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
@@ -24,6 +24,10 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
+#[cfg(any(feature = "client", feature = "server"))]
+use lightyear_messages::plugin::MessageSystems;
+#[cfg(any(feature = "client", feature = "server"))]
+use lightyear_replication::ReplicationSystems;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -66,29 +70,45 @@ impl<
         // we register the context C entity so that it can be replicated from the server to the client
         app.replicate::<C>();
 
-        // We cannot directly replicate ActionOf<C> because it contains an entity, and we might need to do some custom mapping
-        // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity
-        // to be able to be mapped
+        // We mirror ActionOf<C> into a separate component that stores the authoritative
+        // remote entity. That avoids depending on sender-side entity mapping in replicon's
+        // SerializeCtx.
         app.replicate_with((
             RuleFns::new(
-                crate::setup::serialize_action_of::<C>,
-                crate::setup::deserialize_action_of::<C>,
+                crate::setup::serialize_network_action_of::<C>,
+                crate::setup::deserialize_network_action_of::<C>,
             ),
             ReplicationMode::default(),
         ));
+        app.add_observer(InputRegistryPlugin::mirror_action_of_for_replication::<C>);
+        app.add_observer(InputRegistryPlugin::insert_action_of_from_network::<C>);
+        app.add_systems(
+            PreUpdate,
+            (
+                InputRegistryPlugin::resolve_pending_network_action_of::<C>,
+                InputRegistryPlugin::resolve_pending_action_of::<C>,
+            )
+                .chain()
+                .after(ReplicationSystems::Receive)
+                .before(MessageSystems::Receive),
+        );
 
         #[cfg(feature = "client")]
         {
             use crate::marker::{
-                add_input_marker_from_binding, add_input_marker_from_parent, propagate_input_marker,
+                add_input_marker_from_authority, add_input_marker_from_binding,
+                add_input_marker_from_network_action, add_input_marker_from_parent,
+                propagate_input_marker,
             };
-            // for rebroadcasting inputs, we insert ActionState (which inserts the InputBuffer) when ActionOf<C> is added
+            // for rebroadcasting inputs, we insert TriggerState (which inserts the InputBuffer) when ActionOf<C> is added
             // on an entity
-            app.register_required_components::<ActionOf<C>, ActionState>();
+            app.register_required_components::<ActionOf<C>, TriggerState>();
 
             app.add_observer(propagate_input_marker::<C>);
             app.add_observer(add_input_marker_from_parent::<C>);
             app.add_observer(add_input_marker_from_binding::<C>);
+            app.add_observer(add_input_marker_from_authority::<C>);
+            app.add_observer(add_input_marker_from_network_action::<C>);
 
             if self.config.rebroadcast_inputs {
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);

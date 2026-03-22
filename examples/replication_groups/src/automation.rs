@@ -5,7 +5,9 @@ use lightyear_examples_common::automation::{
     env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
 };
 
-use crate::protocol::{Direction, Inputs, PlayerId, PlayerParent, PlayerPosition, TailLength, TailPoints};
+use crate::protocol::{
+    Direction, Inputs, PlayerId, PlayerParent, PlayerPosition, TailLength, TailPoints,
+};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -212,7 +214,10 @@ mod client {
                 continue;
             };
             let Ok(time) = time_str.trim().parse::<f32>() else {
-                warn!(?chunk, "Ignoring LIGHTYEAR_AUTOMOVE_SCRIPT chunk with bad time");
+                warn!(
+                    ?chunk,
+                    "Ignoring LIGHTYEAR_AUTOMOVE_SCRIPT chunk with bad time"
+                );
                 continue;
             };
             let keys = parse_move_keys(Some(dir_str.trim().to_string()));
@@ -234,8 +239,15 @@ mod client {
         selected
     }
 
-    fn history_ticks<C>(history: Option<&ConfirmedHistory<C>>) -> Option<(Option<Tick>, Option<Tick>)> {
-        history.map(|history| (history.start().map(|(tick, _)| tick), history.end().map(|(tick, _)| tick)))
+    fn history_ticks<C>(
+        history: Option<&ConfirmedHistory<C>>,
+    ) -> Option<(Option<Tick>, Option<Tick>)> {
+        history.map(|history| {
+            (
+                history.start().map(|(tick, _)| tick),
+                history.end().map(|(tick, _)| tick),
+            )
+        })
     }
 
     fn history_ticks_mismatch(

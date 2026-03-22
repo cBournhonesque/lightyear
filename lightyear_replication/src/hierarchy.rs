@@ -42,27 +42,43 @@ struct PropagationQuery {
     interpolation: Option<&'static InterpolationTarget>,
 }
 
+#[derive(QueryData)]
+struct ChildPropagationQuery {
+    replicate_like: &'static ReplicateLike,
+    replicate: Option<&'static Replicate>,
+    #[cfg(feature = "prediction")]
+    prediction: Option<&'static PredictionTarget>,
+    #[cfg(feature = "interpolation")]
+    interpolation: Option<&'static InterpolationTarget>,
+}
+
 impl HierarchyPlugin {
     fn propagate_when_replicate_like_added(
         trigger: On<Insert, ReplicateLike>,
-        child_query: Query<&ReplicateLike>,
+        child_query: Query<ChildPropagationQuery>,
         root_query: Query<PropagationQuery>,
         mut commands: Commands,
     ) {
-        if let Ok(replicate_like) = child_query.get(trigger.entity) {
-            if let Ok(root_propagation) = root_query.get(replicate_like.root) {
-                commands
-                    .entity(trigger.entity)
-                    .insert(root_propagation.replicate.clone());
-                #[cfg(feature = "prediction")]
-                if let Some(prediction) = root_propagation.prediction {
-                    commands.entity(trigger.entity).insert(prediction.clone());
-                }
-                #[cfg(feature = "interpolation")]
-                if let Some(interpolation) = root_propagation.interpolation {
+        if let Ok(child) = child_query.get(trigger.entity) {
+            if let Ok(root_propagation) = root_query.get(child.replicate_like.root) {
+                if child.replicate.is_none() {
                     commands
                         .entity(trigger.entity)
-                        .insert(interpolation.clone());
+                        .insert(root_propagation.replicate.clone());
+                }
+                #[cfg(feature = "prediction")]
+                if child.prediction.is_none() {
+                    if let Some(prediction) = root_propagation.prediction {
+                        commands.entity(trigger.entity).insert(prediction.clone());
+                    }
+                }
+                #[cfg(feature = "interpolation")]
+                if child.interpolation.is_none() {
+                    if let Some(interpolation) = root_propagation.interpolation {
+                        commands
+                            .entity(trigger.entity)
+                            .insert(interpolation.clone());
+                    }
                 }
             }
         }

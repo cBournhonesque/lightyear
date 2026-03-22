@@ -8,7 +8,6 @@ use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
 use alloc::format;
-use alloc::vec::Vec;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
@@ -197,6 +196,17 @@ fn receive_input_message<S: ActionStateSequence>(
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
                 // only rebroadcast if the message is not already a rebroadcast
                 if !message.rebroadcast {
+                    // Resolve PreSpawned targets to server entities before rebroadcasting,
+                    // so that other clients can resolve them via normal entity mapping.
+                    for input in message.inputs.iter_mut() {
+                        if let InputTarget::PreSpawned(hash) = input.target {
+                            if let Some(server_e) = prespawned.iter()
+                                .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                            {
+                                input.target = InputTarget::Entity(server_e);
+                            }
+                        }
+                    }
                     debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
                     message.rebroadcast = true;
                     match rebroadcaster {

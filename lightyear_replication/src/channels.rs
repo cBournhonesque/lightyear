@@ -22,8 +22,16 @@ pub struct RepliconMutationAcksChannel;
 /// Maps between replicon's usize channel indices and lightyear's ChannelKind/ChannelId.
 ///
 /// Replicon has two separate channel namespaces (server and client), both starting from index 0.
-/// Server sends on server_channels, receives on client_channels.
+/// Server sends on `server_channels` and receives on `client_channels`.
 /// Client does the reverse.
+///
+/// With bidirectional replication enabled, the channel layout is:
+/// - `server_channels[0]` = server-to-client updates
+/// - `server_channels[1]` = server-to-client mutations
+/// - `server_channels[2]` = client-to-server mutation acknowledgments
+/// - `client_channels[0]` = server-to-client mutation acknowledgments
+/// - `client_channels[1]` = client-to-server updates
+/// - `client_channels[2]` = client-to-server mutations
 #[derive(Resource)]
 pub struct RepliconChannelMap {
     /// replicon server channel index -> lightyear (ChannelKind, ChannelId)
@@ -78,14 +86,19 @@ impl Plugin for RepliconChannelRegistrationPlugin {
         let mutations_id = *registry.get_net_from_kind(&mutations_kind).unwrap();
         let mutation_acks_id = *registry.get_net_from_kind(&mutation_acks_kind).unwrap();
 
-        // server_channels: index 0 = Updates, index 1 = Mutations
-        // (matches ServerChannel::Updates = 0, ServerChannel::Mutations = 1)
-        let server_channels =
-            alloc::vec![(updates_kind, updates_id), (mutations_kind, mutations_id),];
+        // Replicon reserves the same logical channel families in both directions.
+        // We reuse the same bidirectional lightyear transport channels for both namespaces.
+        let server_channels = alloc::vec![
+            (updates_kind, updates_id),
+            (mutations_kind, mutations_id),
+            (mutation_acks_kind, mutation_acks_id),
+        ];
 
-        // client_channels: index 0 = MutationAcks
-        // (matches ClientChannel::MutationAcks = 0)
-        let client_channels = alloc::vec![(mutation_acks_kind, mutation_acks_id),];
+        let client_channels = alloc::vec![
+            (mutation_acks_kind, mutation_acks_id),
+            (updates_kind, updates_id),
+            (mutations_kind, mutations_id),
+        ];
 
         app.insert_resource(RepliconChannelMap {
             server_channels,

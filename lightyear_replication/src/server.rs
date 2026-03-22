@@ -3,19 +3,21 @@ use bevy_ecs::prelude::*;
 use bevy_state::prelude::*;
 
 use bevy_replicon::prelude::*;
+use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::shared::backend::connected_client::NetworkId;
-use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::Connected;
+use lightyear_connection::client_of::ClientOf;
+use lightyear_connection::host::HostClient;
 use lightyear_connection::server::{Started, Stopped};
 use lightyear_core::id::RemoteId;
-use lightyear_messages::MessageManager;
+use lightyear_link::prelude::Server;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
 use lightyear_messages::plugin::MessageSystems;
-use tracing::{debug, trace};
+use tracing::trace;
 
 /// Adds the replicon server-side backend bridge for lightyear.
 ///
@@ -23,7 +25,6 @@ use tracing::{debug, trace};
 /// - `ServerState` transitions (Running when server starts or client connects)
 /// - `ConnectedClient` insertion for replicon visibility
 /// - Sending `ServerMessages` (replication) and receiving `ClientMessages` (acks) via transport
-/// - Syncing replicon's entity map to lightyear's `MessageManager` entity mapper
 pub struct RepliconServerPlugin;
 
 impl Plugin for RepliconServerPlugin {
@@ -47,14 +48,6 @@ impl Plugin for RepliconServerPlugin {
             send_server_packets.in_set(ServerSystems::SendPackets),
         );
 
-        // Entity map bridge: replicon's ServerEntityMap -> lightyear's MessageManager entity_mapper
-        app.add_systems(
-            PreUpdate,
-            sync_entity_map
-                .after(ClientSystems::Receive)
-                .after(ServerSystems::Receive),
-        );
-
         app.configure_sets(
             PreUpdate,
             ServerSystems::ReceivePackets
@@ -70,18 +63,19 @@ impl Plugin for RepliconServerPlugin {
     }
 }
 
-/// When `Connected` is added to a link entity, insert replicon's
-/// `ConnectedClient` and `NetworkId` so replicon's visibility system sees it.
+/// When `Connected` is added to a remote client link entity, insert replicon's
+/// `ConnectedClient` and `NetworkId` so replicon's packet path can target it.
 ///
-/// This fires on both CLIENT and SERVER apps:
-/// - SERVER: when a remote client connects (client_of entity)
-/// - CLIENT: when the client connects to the server (client entity)
+/// Host-clients intentionally do not become replicon `ConnectedClient`s because they share the
+/// same world as the server and may otherwise collide with a real remote client's `NetworkId`.
+/// They only need `ClientVisibility` for lightyear's same-app visibility hooks.
 fn on_client_connected(
     _trigger: On<Add, Connected>,
-    query: Query<(Entity, &RemoteId), Added<Connected>>,
+    remotes: Query<(Entity, &RemoteId), (Added<Connected>, With<ClientOf>, Without<HostClient>)>,
+    hosts: Query<Entity, (Added<Connected>, With<HostClient>)>,
     mut commands: Commands,
 ) {
-    for (entity, remote_id) in query.iter() {
+    for (entity, remote_id) in remotes.iter() {
         commands.entity(entity).insert((
             ConnectedClient {
                 max_size: lightyear_transport::packet::packet_builder::MAX_PACKET_SIZE,
@@ -89,19 +83,18 @@ fn on_client_connected(
             NetworkId::new(remote_id.to_bits()),
         ));
     }
+
+    for entity in hosts.iter() {
+        commands.entity(entity).insert(ClientVisibility::default());
+    }
 }
 
 /// Sync replicon's `ServerState` with lightyear lifecycle.
 ///
 /// Sets `Running` when `Started` is present (server app).
-///
-/// For CLIENT → SERVER replication (`Replicate::to_server()`), ServerState is set to Running
-/// from the Replicate on_insert hook instead, so the CLIENT app's replicon server only runs
-/// when there are entities to replicate. This prevents the CLIENT from sending empty mutations
-/// (from `track_mutate_messages`) that would confuse the SERVER's replicon client in multi-client setups.
 fn sync_server_state(
-    started: Query<(), With<Started>>,
-    stopped: Query<(), With<Stopped>>,
+    started: Query<(), (With<Server>, With<Started>)>,
+    stopped: Query<(), (With<Server>, With<Stopped>)>,
     state: Res<State<ServerState>>,
     mut next_state: ResMut<NextState<ServerState>>,
 ) {
@@ -119,7 +112,7 @@ fn sync_server_state(
 fn receive_server_packets(
     channel_map: Res<RepliconChannelMap>,
     mut server_messages: ResMut<ServerMessages>,
-    mut transports: Query<(Entity, &mut Transport)>,
+    mut transports: Query<(Entity, &mut Transport), With<ClientOf>>,
 ) {
     for (entity, mut transport) in transports.iter_mut() {
         for (idx, &(_, channel_id)) in channel_map.client_channels.iter().enumerate() {
@@ -138,7 +131,7 @@ fn receive_server_packets(
 fn send_server_packets(
     channel_map: Res<RepliconChannelMap>,
     mut server_messages: ResMut<ServerMessages>,
-    mut transports: Query<&mut Transport>,
+    mut transports: Query<&mut Transport, With<ClientOf>>,
 ) {
     for (client, channel_idx, message) in server_messages.drain_sent() {
         let (channel_kind, _) = channel_map.server_channels[channel_idx];
@@ -156,43 +149,55 @@ fn send_server_packets(
     }
 }
 
-/// Sync replicon's `ServerEntityMap` entries to lightyear's `MessageManager.entity_mapper`.
-///
-/// This bridges replicon's entity tracking with lightyear's messaging entity map.
-/// Handles both additions and removals: entities that are in `ServerEntityMap` are added
-/// to the entity_mapper, and entities that were previously synced but are no longer in
-/// `ServerEntityMap` are removed.
-fn sync_entity_map(
-    entity_map: Option<Res<ServerEntityMap>>,
-    mut managers: Query<&mut MessageManager>,
-    mut synced_entities: Local<bevy_platform::collections::HashSet<Entity>>,
-) {
-    let Some(entity_map) = entity_map else {
-        return;
-    };
-    if !entity_map.is_changed() {
-        return;
-    }
-    // Collect current replicon entities
-    let current: bevy_platform::collections::HashSet<Entity> = entity_map
-        .to_client()
-        .iter()
-        .map(|(server_entity, _)| *server_entity)
-        .collect();
+#[cfg(test)]
+mod tests {
+    use super::sync_server_state;
+    use bevy_app::{App, Update};
+    use bevy_replicon::prelude::ServerState;
+    use bevy_state::app::StatesPlugin;
+    use bevy_state::state::State;
+    use lightyear_connection::client::PeerMetadata;
+    use lightyear_connection::server::Stopped;
+    use lightyear_link::prelude::Server;
+    use test_log::test;
 
-    // In replicon: server_entity = remote entity, client_entity = local entity
-    // In lightyear: remote_entity = remote, local_entity = local
-    // So we map: replicon server_entity -> lightyear remote, replicon client_entity -> lightyear local
-    for mut mm in managers.iter_mut() {
-        // Add new entries
-        for (server_entity, client_entity) in entity_map.to_client().iter() {
-            mm.entity_mapper.insert(*server_entity, *client_entity);
-        }
-        // Remove entries that are no longer in ServerEntityMap
-        for removed in synced_entities.difference(&current) {
-            mm.entity_mapper.remove_by_remote(*removed);
-        }
+    #[test]
+    fn non_server_stopped_marker_does_not_stop_local_sender() {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin)
+            .init_resource::<PeerMetadata>()
+            .init_state::<ServerState>()
+            .add_systems(Update, sync_server_state)
+            .insert_state(ServerState::Running);
+
+        app.world_mut().spawn(Stopped);
+
+        app.update();
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<State<ServerState>>().get(),
+            ServerState::Running
+        );
     }
 
-    synced_entities.clone_from(&current);
+    #[test]
+    fn stopped_server_entity_transitions_state_to_stopped() {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin)
+            .init_resource::<PeerMetadata>()
+            .init_state::<ServerState>()
+            .add_systems(Update, sync_server_state)
+            .insert_state(ServerState::Running);
+
+        app.world_mut().spawn((Server::default(), Stopped));
+
+        app.update();
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<State<ServerState>>().get(),
+            ServerState::Stopped
+        );
+    }
 }

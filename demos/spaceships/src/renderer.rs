@@ -17,6 +17,7 @@ use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
 use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
 use lightyear::prelude::input::InputBuffer;
+use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -159,9 +160,9 @@ pub(crate) fn draw_confirmed_shadows(
             &Position,
             &Collider,
             &ColorComponent,
-            &Confirmed<Position>,
-            &Confirmed<Rotation>,
-            &Confirmed<LinearVelocity>,
+            &ConfirmedHistory<Position>,
+            &ConfirmedHistory<Rotation>,
+            &ConfirmedHistory<LinearVelocity>,
         ),
         (
             With<Predicted>,
@@ -169,11 +170,28 @@ pub(crate) fn draw_confirmed_shadows(
         ),
     >,
 ) {
-    for (pred_pos, collider, color, position, rotation, velocity) in query.iter() {
-        let speed = velocity.length() / MAX_VELOCITY;
+    for (pred_pos, collider, color, pos_history, rot_history, vel_history) in query.iter() {
+        let Some((_, confirmed_pos)) = pos_history.end().or_else(|| pos_history.start()) else {
+            continue;
+        };
+        let Some((_, confirmed_rot)) = rot_history.end().or_else(|| rot_history.start()) else {
+            continue;
+        };
+        let confirmed_speed = vel_history
+            .end()
+            .or_else(|| vel_history.start())
+            .map(|(_, v)| v.length())
+            .unwrap_or(0.0);
+        let speed = confirmed_speed / MAX_VELOCITY;
         let ghost_col = color.0.with_alpha(0.2 + speed * 0.8);
-        render_shape(collider.shape(), position, rotation, &mut gizmos, ghost_col);
-        gizmos.line_2d(***position, **pred_pos, ghost_col);
+        render_shape(
+            collider.shape(),
+            confirmed_pos,
+            confirmed_rot,
+            &mut gizmos,
+            ghost_col,
+        );
+        gizmos.line_2d(confirmed_pos.0, pred_pos.0, ghost_col);
     }
 }
 

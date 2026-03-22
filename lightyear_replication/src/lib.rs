@@ -5,6 +5,8 @@ extern crate alloc;
 extern crate std;
 
 use bevy_app::PluginGroupBuilder;
+#[cfg(feature = "client")]
+use bevy_app::prelude::Plugin;
 use bevy_app::prelude::PluginGroup;
 use bevy_ecs::prelude::SystemSet;
 
@@ -114,27 +116,36 @@ impl PluginGroup for LightyearRepliconBackend {
         // so that both sides have matching replicon component IDs.
         group = group.add(SharedComponentRegistrationPlugin);
 
-        #[cfg(feature = "server")]
-        {
-            let mut server_plugin = bevy_replicon::server::ServerPlugin::default();
-            server_plugin.tick_schedule = None;
-            group = group.add(server_plugin);
-            group = group.add(server::RepliconServerPlugin);
-
-            group = group.add(send::SendPlugin);
-            group = group.add(control::ControlPlugin);
-            group = group.add(hierarchy::HierarchyPlugin);
-            group =
-                group.add(hierarchy::HierarchySendPlugin::<bevy_ecs::prelude::ChildOf>::default());
-            group = group.add(visibility::immediate::NetworkVisibilityPlugin);
-        }
-
-        #[cfg(feature = "client")]
-        {
-            group = group.add(bevy_replicon::client::ClientPlugin);
-            group = group.add(client::RepliconClientPlugin);
-        }
-
         group
+    }
+}
+
+#[cfg(feature = "server")]
+pub struct LightyearRepliconServerBackend;
+
+#[cfg(feature = "server")]
+impl Plugin for LightyearRepliconServerBackend {
+    fn build(&self, app: &mut bevy_app::prelude::App) {
+        let mut server_plugin = bevy_replicon::server::ServerPlugin::default();
+        server_plugin.tick_schedule = None;
+        app.add_plugins(server_plugin);
+        app.add_plugins(server::RepliconServerPlugin);
+        app.add_plugins(send::SendPlugin);
+        app.add_plugins(control::ControlPlugin);
+        app.add_plugins(hierarchy::HierarchyPlugin);
+        app.add_plugins(hierarchy::HierarchySendPlugin::<bevy_ecs::prelude::ChildOf>::default());
+        app.add_plugins(visibility::immediate::NetworkVisibilityPlugin);
+        app.add_observer(send::handle_new_client_visibility);
+    }
+}
+
+#[cfg(feature = "client")]
+pub struct LightyearRepliconClientBackend;
+
+#[cfg(feature = "client")]
+impl Plugin for LightyearRepliconClientBackend {
+    fn build(&self, app: &mut bevy_app::prelude::App) {
+        app.add_plugins(bevy_replicon::client::ClientPlugin);
+        app.add_plugins(client::RepliconClientPlugin);
     }
 }

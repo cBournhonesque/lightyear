@@ -12,6 +12,8 @@ use bevy_app::{PluginGroup, PluginGroupBuilder};
 
 use crate::shared::SharedPlugins;
 use core::time::Duration;
+#[cfg(feature = "replication")]
+use lightyear_replication::LightyearRepliconServerBackend;
 
 /// A plugin group containing all the server plugins.
 ///
@@ -54,6 +56,9 @@ impl PluginGroup for ServerPlugins {
         let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
         });
+
+        #[cfg(feature = "replication")]
+        let builder = builder.add(LightyearRepliconServerBackend);
 
         #[cfg(feature = "deterministic")]
         let builder =

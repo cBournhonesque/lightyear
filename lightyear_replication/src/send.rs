@@ -28,11 +28,12 @@ use lightyear_core::id::PeerId;
 use serde::{Deserialize, Serialize};
 
 #[allow(unused_imports)]
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 use crate::ReplicationSystems;
 use crate::metadata::ReplicationMetadata;
 use crate::registry::ComponentRegistry;
+use crate::visibility::immediate::VisibilityBit;
 #[cfg(feature = "interpolation")]
 pub use interpolation::*;
 use lightyear_core::prelude::LocalTimeline;
@@ -245,6 +246,10 @@ impl ReplicationTargetT for () {
         if host_client {
             context.0 = Some(sender_entity);
         }
+        let remote_authoritative = state
+            .per_sender_state
+            .values()
+            .any(|sender_state| sender_state.authority == Some(false));
         // only insert a sender if it was not already present
         // since it could already be present with no_authority (if we received the entity from a remote peer)
         state
@@ -252,13 +257,17 @@ impl ReplicationTargetT for () {
             .entry(sender_entity)
             .and_modify(|s| {
                 // authority could be set to None (for example if PredictionTarget is processed first)
-                if s.authority.is_none() {
+                if s.authority.is_none() && !remote_authoritative {
                     context.1 = true;
                 }
             })
             .or_insert_with(|| {
-                context.1 = true;
-                PerSenderReplicationState::with_authority()
+                if remote_authoritative {
+                    PerSenderReplicationState::without_authority()
+                } else {
+                    context.1 = true;
+                    PerSenderReplicationState::with_authority()
+                }
             });
     }
 
@@ -273,7 +282,13 @@ impl ReplicationTargetT for () {
             if !is_replacement {
                 world.entity_mut(context.entity).remove::<Replicated>();
             }
-            let visibility_bit = world.resource::<ReplicateBit>().0;
+            let Some(visibility_bit) = world.get_resource::<ReplicateBit>().map(|bit| bit.0) else {
+                warn!(
+                    entity = ?context.entity,
+                    "Skipping replication target replacement because the visibility resource is missing"
+                );
+                return;
+            };
             // TODO: after `DeferredWorld::as_unsafe_world_cell` becomes pub, put that outside of commands
             let unsafe_world = world.as_unsafe_world_cell();
             // SAFETY: we fetch data from distinct entities so there is no aliasing
@@ -469,7 +484,16 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
     }
     fn on_insert(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
-        let visibility_bit = *world.resource::<T::VisibilityBit>().deref();
+        let Some(visibility_bit) = world
+            .get_resource::<T::VisibilityBit>()
+            .map(|bit| *bit.deref())
+        else {
+            warn!(
+                ?entity,
+                "Skipping replication target insertion because the visibility resource is missing"
+            );
+            return;
+        };
 
         T::pre_insert(&mut world, entity);
 
@@ -505,28 +529,37 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                 }
                 #[cfg(feature = "client")]
                 ReplicationMode::SingleClient => {
-                    use lightyear_connection::client::Client;
-                    use bevy_state::prelude::NextState;
-                    use bevy_replicon::prelude::ServerState;
+                    use bevy_replicon::prelude::ConnectedClient;
 
-                    // Set ServerState::Running on the client app for client→server replication.
-                    // Without this, replicon's server systems won't run on the CLIENT and no
-                    // replication data will be sent.
-                    if let Some(mut next_state) = world.get_resource_mut::<NextState<ServerState>>() {
-                        next_state.set(ServerState::Running);
+                    let (sender_entity, host_client) =
+                        if let Ok((sender_entity, mut visibility)) = world
+                            .query_filtered::<(Entity, &mut ClientVisibility), With<HostClient>>()
+                            .single_mut(world)
+                        {
+                            visibility.set(entity, visibility_bit, true);
+                            (sender_entity, true)
+                        } else if let Ok((sender_entity, mut visibility)) = world
+                            .query_filtered::<
+                                (Entity, &mut ClientVisibility),
+                                With<ConnectedClient>,
+                            >()
+                            .single_mut(world)
+                        {
+                            visibility.set(entity, visibility_bit, true);
+                            (sender_entity, false)
+                        } else {
+                            return;
+                        };
+
+                    if host_client {
+                        let mut endpoints = world
+                            .query_filtered::<&mut ClientVisibility, With<ConnectedClient>>();
+                        for mut visibility in endpoints.iter_mut(world) {
+                            visibility.set(entity, visibility_bit, false);
+                        }
                     }
 
-                    let Ok((sender_entity, mut visibility, host_client)) = world
-                        .query_filtered::<
-                            (Entity, &mut ClientVisibility, Has<HostClient>),
-                            (With<Client>, Or<(With<ReplicationSender>, With<HostClient>)>)
-                        >()
-                        .single_mut(world)
-                    else {
-                        return;
-                    };
                     T::update_replicate_state(&mut context, state.as_mut(), sender_entity, host_client);
-                    visibility.set(entity, visibility_bit, true);
                 }
                 #[cfg(feature = "server")]
                 ReplicationMode::SingleServer(target) => {
@@ -602,6 +635,19 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
                     unimplemented!()
                 }
                 ReplicationMode::Manual(entities) => {
+                    let all_senders: alloc::vec::Vec<Entity> = world
+                        .query_filtered::<Entity, Or<(With<ReplicationSender>, With<HostClient>)>>(
+                        )
+                        .iter(world)
+                        .collect();
+                    for sender_entity in all_senders {
+                        if let Ok(mut visibility) = world
+                            .query_filtered::<&mut ClientVisibility, Or<(With<ReplicationSender>, With<HostClient>)>>()
+                            .get_mut(world, sender_entity)
+                        {
+                            visibility.set(entity, visibility_bit, false);
+                        }
+                    }
                     for &sender_entity in entities.iter() {
                         let Ok((mut visibility, host_client)) = world
                             .query_filtered::<(&mut ClientVisibility, Has<HostClient>), Or<(With<ReplicationSender>, With<HostClient>)>>()
@@ -636,10 +682,93 @@ fn update_replication_tick(
 ) {
     replication_metadata.timer.tick(time.delta());
     if replication_metadata.timer.just_finished() {
-        // as u16 wraps automatically (truncates high bits)
+        // Replicon requires a fresh tick for each replication send. Lightyear's
+        // fixed simulation tick can stay unchanged between render frames, but we
+        // still need a unique replication tick to flush spawns/updates that occur
+        // between fixed ticks without reusing the previous mutate-confirm tick.
         let current_tick = replication_tick.get() as u16;
         let new_tick = timeline.tick();
-        replication_tick.increment_by((new_tick - current_tick).0 as u32);
+        let delta = (new_tick - current_tick).0 as u32;
+        replication_tick.increment_by(delta.max(1));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::schedule::common_conditions::resource_changed;
+    use bevy_time::Time;
+    use core::time::Duration;
+
+    #[derive(Resource, Default)]
+    struct SendCount(usize);
+
+    fn count_sends(mut count: ResMut<SendCount>) {
+        count.0 += 1;
+    }
+
+    #[test]
+    fn zero_timeline_delta_triggers_send_without_advancing_tick() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationMetadata::default());
+        app.init_resource::<ServerTick>();
+        app.init_resource::<SendCount>();
+        app.add_systems(Update, update_replication_tick);
+        app.add_systems(
+            Update,
+            count_sends
+                .after(update_replication_tick)
+                .run_if(resource_changed::<ServerTick>),
+        );
+        app.world_mut().clear_trackers();
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.update();
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 1);
+        assert_eq!(app.world().resource::<SendCount>().0, 1);
+    }
+
+    #[test]
+    fn timeline_advance_triggers_single_send() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationMetadata::default());
+        app.init_resource::<ServerTick>();
+        app.init_resource::<SendCount>();
+        app.add_systems(Update, update_replication_tick);
+        app.add_systems(
+            Update,
+            count_sends
+                .after(update_replication_tick)
+                .run_if(resource_changed::<ServerTick>),
+        );
+        app.world_mut().clear_trackers();
+
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(1);
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.update();
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 1);
+        assert_eq!(app.world().resource::<SendCount>().0, 1);
+
+        app.world_mut().clear_trackers();
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.update();
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 2);
+        assert_eq!(app.world().resource::<SendCount>().0, 2);
     }
 }
 
@@ -650,7 +779,7 @@ pub struct SendPlugin;
 /// Without this, late-joining clients would see all components (including
 /// Predicted/Interpolated markers that shouldn't be visible to them).
 #[cfg(feature = "server")]
-fn handle_new_client_visibility(
+pub(crate) fn handle_new_client_visibility(
     trigger: On<Add, ClientVisibility>,
     remote_id_query: Query<&lightyear_core::id::RemoteId>,
     #[cfg(feature = "prediction")] prediction_targets: Query<(Entity, &PredictionTarget)>,
@@ -720,6 +849,12 @@ impl Plugin for SendPlugin {
         if !app.world().contains_resource::<ComponentRegistry>() {
             app.world_mut().init_resource::<ComponentRegistry>();
         }
+        if !app.world().contains_resource::<ReplicationRegistry>() {
+            app.world_mut().init_resource::<ReplicationRegistry>();
+        }
+        if !app.world().contains_resource::<FilterRegistry>() {
+            app.world_mut().init_resource::<FilterRegistry>();
+        }
 
         app.add_systems(
             PostUpdate,
@@ -743,6 +878,7 @@ impl Plugin for SendPlugin {
 
         app.register_required_components::<Replicate, Replicated>();
         app.init_resource::<ReplicateBit>();
+        app.init_resource::<VisibilityBit>();
         #[cfg(feature = "prediction")]
         {
             app.register_required_components::<PredictionTarget, Predicted>();
@@ -756,8 +892,5 @@ impl Plugin for SendPlugin {
             // Note: app.replicate::<Interpolated>() is called in SharedComponentRegistrationPlugin
             app.init_resource::<InterpolatedBit>();
         }
-
-        #[cfg(feature = "server")]
-        app.add_observer(handle_new_client_visibility);
     }
 }

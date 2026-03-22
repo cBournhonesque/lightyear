@@ -1,14 +1,14 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::protocol::{CompA, CompCustomInterp, CompDisabled, CompReplicateOnce};
+use crate::protocol::{CompA, CompCustomInterp, CompReplicateOnce};
 use crate::stepper::*;
-use bevy::prelude::{Name, default};
+use bevy::prelude::{Bundle, Entity, Name, World};
 use bevy_replicon::prelude::Replicated;
+use lightyear::prelude::ConfirmedHistory;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::LocalTimeline;
-use lightyear::prelude::ConfirmedHistory;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
@@ -16,65 +16,121 @@ use lightyear_sync::prelude::InputTimeline;
 use test_log::test;
 use tracing::info;
 
-#[test]
-fn test_spawn() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(),))
-        .id();
-    // let state = stepper
-    //     .client_app()
-    //     .world()
-    //     .get::<ReplicationState>(client_entity);
-    // TODO: might need to step more when syncing to avoid receiving updates from the past?
-    stepper.frame_step(1);
-    stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .expect("entity is not present in entity map");
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplicationDirection {
+    ServerToClient,
+    ClientToServer,
 }
 
-#[test]
-fn test_spawn_from_replicate_change() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+impl ReplicationDirection {
+    fn replicate(self) -> Replicate {
+        match self {
+            Self::ServerToClient => Replicate::to_clients(NetworkTarget::All),
+            Self::ClientToServer => Replicate::to_server(),
+        }
+    }
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::manual(vec![]),))
-        .id();
-    stepper.frame_step(1);
-    assert!(
-        stepper
+    fn propagation_frames(self) -> usize {
+        match self {
+            Self::ServerToClient => 2,
+            Self::ClientToServer => 1,
+        }
+    }
+}
+
+fn active_replication_directions() -> impl Iterator<Item = ReplicationDirection> {
+    // Released Replicon does not support Lightyear's current same-world
+    // client->server replication path. Keep the generic harness in place so the
+    // symmetric coverage is ready once that direction is re-enabled.
+    [ReplicationDirection::ServerToClient].into_iter()
+}
+
+fn with_source_world<R>(
+    stepper: &mut ClientServerStepper,
+    direction: ReplicationDirection,
+    f: impl FnOnce(&mut World) -> R,
+) -> R {
+    match direction {
+        ReplicationDirection::ServerToClient => f(stepper.server_app.world_mut()),
+        ReplicationDirection::ClientToServer => f(stepper.client_app().world_mut()),
+    }
+}
+
+fn with_target_world<R>(
+    stepper: &mut ClientServerStepper,
+    direction: ReplicationDirection,
+    f: impl FnOnce(&mut World) -> R,
+) -> R {
+    match direction {
+        ReplicationDirection::ServerToClient => f(stepper.client_apps[0].world_mut()),
+        ReplicationDirection::ClientToServer => f(stepper.server_app.world_mut()),
+    }
+}
+
+fn target_entity(
+    stepper: &ClientServerStepper,
+    direction: ReplicationDirection,
+    source_entity: Entity,
+) -> Option<Entity> {
+    match direction {
+        ReplicationDirection::ServerToClient => stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(source_entity),
+        ReplicationDirection::ClientToServer => stepper
             .client_of(0)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
-            .get_local(client_entity)
-            .is_none()
-    );
+            .get_local(source_entity),
+    }
+}
 
-    // update replicate to include a new sender
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .insert(Replicate::to_server());
-    stepper.frame_step(1);
+fn spawn_on_source<B: Bundle>(
+    stepper: &mut ClientServerStepper,
+    direction: ReplicationDirection,
+    bundle: B,
+) -> Entity {
+    with_source_world(stepper, direction, |world| world.spawn(bundle).id())
+}
 
-    stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .expect("entity is not present in entity map");
+#[test]
+fn test_spawn() {
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+        let source_entity = spawn_on_source(&mut stepper, direction, (direction.replicate(),));
+        stepper.frame_step(direction.propagation_frames());
+
+        target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+    }
+}
+
+#[test]
+fn test_spawn_from_replicate_change() {
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+        let source_entity = spawn_on_source(&mut stepper, direction, (Replicate::manual(vec![]),));
+        stepper.frame_step(direction.propagation_frames());
+        assert!(
+            target_entity(&stepper, direction, source_entity).is_none(),
+            "entity should not be replicated yet for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .insert(direction.replicate());
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+    }
 }
 
 /// When client 2 connects:
@@ -113,117 +169,136 @@ fn test_spawn_new_connection() {
 
 #[test]
 fn test_entity_despawn() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(),))
-        .id();
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .expect("entity is not present in entity map");
+        let source_entity = spawn_on_source(&mut stepper, direction, (direction.replicate(),));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
 
-    // despawn
-    stepper.client_app().world_mut().despawn(client_entity);
-    stepper.frame_step(1);
+        with_source_world(&mut stepper, direction, |world| {
+            world.despawn(source_entity);
+        });
+        stepper.frame_step(direction.propagation_frames());
 
-    // check that the entity was despawned
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .get_entity(server_entity)
-            .is_err()
-    );
+        let mirrored_exists = with_target_world(&mut stepper, direction, |world| {
+            world.get_entity(mirrored_entity).is_ok()
+        });
+        assert!(
+            !mirrored_exists,
+            "entity should be despawned on the target for {direction:?}"
+        );
+    }
 }
 
 #[test]
 fn test_despawn_from_replicate_change() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(),))
-        .id();
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .expect("entity is not present in entity map");
+        let source_entity = spawn_on_source(&mut stepper, direction, (direction.replicate(),));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
 
-    // update replicate to exclude the previous sender
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .insert(Replicate::manual(vec![]));
-    stepper.frame_step(1);
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .insert(Replicate::manual(vec![]));
+        });
+        stepper.frame_step(direction.propagation_frames());
 
-    // check that the entity was despawned on the previous sender
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .get_entity(server_entity)
-            .is_err()
-    );
+        let mirrored_exists = with_target_world(&mut stepper, direction, |world| {
+            world.get_entity(mirrored_entity).is_ok()
+        });
+        assert!(
+            !mirrored_exists,
+            "entity should be despawned after replication target removal for {direction:?}"
+        );
+    }
 }
 
 #[test]
 fn test_component_insert() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(),))
-        .id();
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .unwrap();
+        let source_entity = spawn_on_source(&mut stepper, direction, (direction.replicate(),));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
 
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .insert(CompA(1.0));
-    stepper.frame_step(1);
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(1.0)
-    );
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).insert(CompA(1.0));
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let mirrored_comp = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            mirrored_comp,
+            Some(CompA(1.0)),
+            "component insert should replicate for {direction:?}"
+        );
+    }
 }
 
 #[test]
 fn test_component_update() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
+        let source_entity =
+            spawn_on_source(&mut stepper, direction, (direction.replicate(), CompA(1.0)));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        let initial_comp = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            initial_comp,
+            Some(CompA(1.0)),
+            "initial component state should replicate for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .get_mut::<CompA>()
+                .unwrap()
+                .0 = 2.0;
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let updated_comp = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            updated_comp,
+            Some(CompA(2.0)),
+            "component update should replicate for {direction:?}"
+        );
+    }
+}
+
+#[test]
+#[ignore = "requires client->server replication support on released replicon"]
+fn test_client_owned_entity_rebroadcasts_updates_to_other_clients() {
+    use lightyear_core::id::RemoteId;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let client_0_id = stepper.client_of(0).get::<RemoteId>().unwrap().0;
+    let client_entity = stepper.client_apps[0]
         .world_mut()
         .spawn((Replicate::to_server(), CompA(1.0)))
         .id();
+
     stepper.frame_step(1);
+
     let server_entity = stepper
         .client_of(0)
         .get::<MessageManager>()
@@ -231,32 +306,44 @@ fn test_component_update() {
         .entity_mapper
         .get_local(client_entity)
         .unwrap();
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(1.0)
-    );
 
     stepper
-        .client_app()
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(Replicate::to_clients(NetworkTarget::AllExceptSingle(
+            client_0_id,
+        )));
+
+    stepper.frame_step(2);
+
+    let client_1_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("client 1 should receive the rebroadcast entity");
+    assert_eq!(
+        stepper.client_apps[1].world().get::<CompA>(client_1_entity),
+        Some(&CompA(1.0))
+    );
+
+    stepper.client_apps[0]
         .world_mut()
         .entity_mut(client_entity)
-        .get_mut::<CompA>()
-        .unwrap()
-        .0 = 2.0;
-    stepper.frame_step(1);
+        .insert(CompA(2.0));
+    stepper.frame_step(2);
+
     assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(2.0)
+        stepper.server_app.world().get::<CompA>(server_entity),
+        Some(&CompA(2.0)),
+        "server should keep receiving updates from the owning client"
+    );
+    assert_eq!(
+        stepper.client_apps[1].world().get::<CompA>(client_1_entity),
+        Some(&CompA(2.0)),
+        "rebroadcast client should receive subsequent updates"
     );
 }
 
@@ -264,11 +351,15 @@ fn test_component_update() {
 fn test_custom_interpolation_component_gets_confirmed_history() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let server_entity = stepper.server_app.world_mut().spawn((
-        Replicate::to_clients(NetworkTarget::All),
-        InterpolationTarget::to_clients(NetworkTarget::All),
-        CompCustomInterp(1.0),
-    )).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            InterpolationTarget::to_clients(NetworkTarget::All),
+            CompCustomInterp(1.0),
+        ))
+        .id();
 
     stepper.frame_step(2);
     stepper
@@ -293,122 +384,209 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
     );
     let history = client_entity_ref
         .get::<ConfirmedHistory<CompCustomInterp>>()
-        .expect("custom-interpolated components should get ConfirmedHistory on interpolated entities");
+        .expect(
+            "custom-interpolated components should get ConfirmedHistory on interpolated entities",
+        );
     assert!(
         history.start().is_some(),
         "custom-interpolated history should contain at least one confirmed update"
     );
 }
 
-/// Test that replicating updates works even if the update happens after tick wrapping
 #[test]
-fn test_component_update_after_tick_wrap() {
+fn test_late_join_client_gets_predicted_marker_for_prediction_target_all() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    // remove InputTimeline otherwise it will try to resync
-    stepper.client_mut(0).remove::<InputTimeline>();
 
-    let client_entity = stepper
-        .client_app()
+    let server_entity = stepper
+        .server_app
         .world_mut()
-        .spawn((Replicate::to_server(), CompA(1.0)))
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+            CompA(1.0),
+        ))
         .id();
 
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
+    stepper.frame_step(3);
+
+    let client_0_entity = stepper
+        .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_entity)
+        .get_local(server_entity)
         .unwrap();
-
-    let tick_duration = stepper.tick_duration;
-    // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
-    // systems would not run)
-    stepper
-        .client_app()
-        .world_mut()
-        .resource_mut::<LocalTimeline>()
-        .apply_delta((u16::MAX / 3 + 10) as i16);
-    stepper
-        .server_app
-        .world_mut()
-        .resource_mut::<LocalTimeline>()
-        .apply_delta((u16::MAX / 3 + 10) as i16);
-    stepper.frame_step(1);
-
-    stepper
-        .client_app()
-        .world_mut()
-        .resource_mut::<LocalTimeline>()
-        .apply_delta((u16::MAX / 3 + 10) as i16);
-    stepper
-        .server_app
-        .world_mut()
-        .resource_mut::<LocalTimeline>()
-        .apply_delta((u16::MAX / 3 + 10) as i16);
-    stepper.frame_step(1);
-
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .get_mut::<CompA>()
-        .unwrap()
-        .0 = 2.0;
-    stepper.frame_step(1);
-    assert_eq!(
-        stepper
-            .server_app
+    assert!(
+        stepper.client_apps[0]
             .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(2.0)
+            .get::<Predicted>(client_0_entity)
+            .is_some(),
+        "existing client should see the entity as predicted"
+    );
+
+    stepper.new_client(ClientType::Netcode, None);
+    stepper.init();
+    stepper.frame_step(3);
+
+    let client_1_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("late-joining client should receive the entity");
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(client_1_entity)
+            .is_some(),
+        "late-joining client should see PredictionTarget::All entity as predicted"
     );
 }
 
 #[test]
-fn test_component_remove() {
+fn test_late_join_client_gets_latest_state_for_existing_predicted_entity() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(), CompA(1.0)))
-        .id();
-    stepper.frame_step(1);
     let server_entity = stepper
-        .client_of(0)
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+            CompA(0.0),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    for value in [1.0, 2.0, 3.0, 4.0] {
+        stepper
+            .server_app
+            .world_mut()
+            .entity_mut(server_entity)
+            .insert(CompA(value));
+        stepper.frame_step(1);
+    }
+
+    stepper.new_client(ClientType::Netcode, None);
+    stepper.init();
+    stepper.frame_step(3);
+
+    let client_1_entity = stepper
+        .client(1)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_entity)
-        .unwrap();
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(1.0)
-    );
-
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .remove::<CompA>();
-    stepper.frame_step(1);
+        .get_local(server_entity)
+        .expect("late-joining client should receive the entity");
     assert!(
+        stepper.client_apps[1]
+            .world()
+            .get::<Predicted>(client_1_entity)
+            .is_some(),
+        "late-joining client should see the entity as predicted"
+    );
+    assert_eq!(
+        stepper.client_apps[1].world().get::<CompA>(client_1_entity),
+        Some(&CompA(4.0)),
+        "late-joining client should receive the latest component state"
+    );
+}
+
+/// Test that replicating updates works even if the update happens after tick wrapping
+#[test]
+fn test_component_update_after_tick_wrap() {
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+        // remove InputTimeline otherwise it will try to resync
+        stepper.client_mut(0).remove::<InputTimeline>();
+
+        let source_entity =
+            spawn_on_source(&mut stepper, direction, (direction.replicate(), CompA(1.0)));
+
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+
+        // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
+        // systems would not run)
+        stepper
+            .client_app()
+            .world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta((u16::MAX / 3 + 10) as i16);
         stepper
             .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .is_none()
-    );
+            .world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta((u16::MAX / 3 + 10) as i16);
+        stepper.frame_step(direction.propagation_frames());
+
+        stepper
+            .client_app()
+            .world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta((u16::MAX / 3 + 10) as i16);
+        stepper
+            .server_app
+            .world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta((u16::MAX / 3 + 10) as i16);
+        stepper.frame_step(direction.propagation_frames());
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .get_mut::<CompA>()
+                .unwrap()
+                .0 = 2.0;
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let updated_comp = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            updated_comp,
+            Some(CompA(2.0)),
+            "component update should survive tick wrap for {direction:?}"
+        );
+    }
+}
+
+#[test]
+fn test_component_remove() {
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+        let source_entity =
+            spawn_on_source(&mut stepper, direction, (direction.replicate(), CompA(1.0)));
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        let initial_comp = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            initial_comp,
+            Some(CompA(1.0)),
+            "initial component state should replicate for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).remove::<CompA>();
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let removed = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().is_none()
+        });
+        assert!(
+            removed,
+            "component remove should replicate for {direction:?}"
+        );
+    }
 }
 
 /// Check that component removes are not replicated if the entity does not have Replicating
@@ -466,45 +644,39 @@ fn test_component_remove_not_replicating() {
 /// Check that if we remove a non-replicated component, the replicate component does not get removed
 #[test]
 fn test_component_remove_non_replicated() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(), CompA(1.0), Name::from("a")))
-        .id();
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .unwrap();
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .expect("component missing"),
-        &CompA(1.0)
-    );
+        let source_entity = spawn_on_source(
+            &mut stepper,
+            direction,
+            (direction.replicate(), CompA(1.0), Name::from("a")),
+        );
+        stepper.frame_step(direction.propagation_frames());
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        let initial_comp = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().cloned()
+        });
+        assert_eq!(
+            initial_comp,
+            Some(CompA(1.0)),
+            "initial component state should replicate for {direction:?}"
+        );
 
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .remove::<Name>();
-    stepper.frame_step(1);
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompA>()
-            .is_some()
-    );
+        with_source_world(&mut stepper, direction, |world| {
+            world.entity_mut(source_entity).remove::<Name>();
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let comp_still_present = with_target_world(&mut stepper, direction, |world| {
+            world.entity(mirrored_entity).get::<CompA>().is_some()
+        });
+        assert!(
+            comp_still_present,
+            "removing a non-replicated component should not affect replicated state for {direction:?}"
+        );
+    }
 }
 
 // /// Test that a component removal is not replicated if the component is marked as disabled

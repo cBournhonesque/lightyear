@@ -426,6 +426,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
+            trace!(
+                "Skipping prediction registration for component {:?} because PredictionPlugin is not present",
+                DebugName::type_name::<C>()
+            );
+            return self;
+        }
         self.app.register_marker_with::<Predicted>(MarkerConfig {
             priority: 100,
             need_history: true,
@@ -436,11 +443,6 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .app
             .world_mut()
             .register_component::<PredictionHistory<C>>();
-        if !self.app.world().contains_resource::<PredictionRegistry>() {
-            self.app
-                .world_mut()
-                .insert_resource(PredictionRegistry::default());
-        }
         let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
         trace!(
             "Adding prediction for component {:?}",

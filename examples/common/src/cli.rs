@@ -94,8 +94,8 @@ impl Cli {
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
                 app.add_plugins((
-                    lightyear::prelude::client::ClientPlugins { tick_duration },
                     lightyear::prelude::server::ServerPlugins { tick_duration },
+                    lightyear::prelude::client::ClientPlugins { tick_duration },
                     #[cfg(any(feature = "gui2d", feature = "gui3d"))]
                     ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
                     #[cfg(any(feature = "gui2d", feature = "gui3d"))]
