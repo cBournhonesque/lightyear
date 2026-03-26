@@ -303,7 +303,7 @@ fn update_action_state<S: ActionStateSequence>(
         // If we don't (because the input packet is late or lost), we won't do anything.
         // This is equivalent to considering that the player will keep playing the last action they played.
         if let Some(snapshot) = input_buffer.get_predict(tick) {
-            S::from_snapshot(S::State::into_inner(action_state), snapshot);
+            S::from_snapshot_transitions(S::State::into_inner(action_state), snapshot);
             trace!(
                 ?tick,
                 ?entity,
