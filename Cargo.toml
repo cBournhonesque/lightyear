@@ -170,7 +170,7 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = { version = "0.19" }
+aeronet_webtransport = { version = "0.20" }
 aeronet_websocket = { version = "0.19" }
 aeronet_steam = { version = "0.19" }
 aeronet_io = { version = "0.19" }
