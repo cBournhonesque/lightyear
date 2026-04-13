@@ -109,10 +109,10 @@ impl CrossbeamPlugin {
     /// Mirrors `RawServer::on_link_of_linked` in `lightyear_raw_connection`.
     fn on_server_client_linked(
         trigger: On<Add, Linked>,
-        query: Query<(&LinkOf, &PeerAddr), With<CrossbeamIo>>,
+        query: Query<&PeerAddr, (With<CrossbeamIo>, With<LinkOf>)>,
         mut commands: Commands,
     ) {
-        if let Ok((_link_of, peer_addr)) = query.get(trigger.entity) {
+        if let Ok(peer_addr) = query.get(trigger.entity) {
             trace!("CrossbeamIo server LinkOf Linked! Adding Connected + ClientOf");
             commands.entity(trigger.entity).insert((
                 Connected,
@@ -131,7 +131,8 @@ impl CrossbeamPlugin {
                     continue;
                 }
                 if io.crossbeam_io.sender.try_send(payload).is_err() {
-                    // Channel disconnected (peer dropped) — not an error during shutdown
+                    // Channel disconnected (peer dropped) — not an error during shutdown.
+                    // Remaining payloads are cleared when the Drain iterator drops on break.
                     trace!("CrossbeamIo send failed: channel disconnected");
                     break;
                 }
