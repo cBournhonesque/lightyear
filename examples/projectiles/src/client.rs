@@ -3,7 +3,7 @@ use crate::shared;
 use crate::shared::{Rooms, color_from_id};
 use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_enhanced_input::action::ActionMock;
+use bevy_enhanced_input::action::mock::ActionMock;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
