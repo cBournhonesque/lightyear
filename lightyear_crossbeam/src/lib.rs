@@ -19,7 +19,7 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError};
 use lightyear_core::time::Instant;
-use lightyear_connection::prelude::client::{Client, Connected, Disconnected};
+use lightyear_connection::prelude::client::{Client, Connected};
 use lightyear_connection::prelude::server::ClientOf;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::server::LinkOf;
