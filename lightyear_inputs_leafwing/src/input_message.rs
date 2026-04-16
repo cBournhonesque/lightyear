@@ -7,6 +7,7 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use core::time::Duration;
 use leafwing_input_manager::Actionlike;
+use leafwing_input_manager::InputControlKind;
 use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
@@ -175,6 +176,9 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         // Release any buttons present in current state but absent from snapshot
         let snapshot_keys: Vec<A> = new.keys();
         for action in state.keys() {
+            if action.input_control_kind() != InputControlKind::Button {
+                continue;
+            }
             if !snapshot_keys.contains(&action) && state.pressed(&action) {
                 state.release(&action);
             }
