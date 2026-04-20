@@ -51,6 +51,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
 ) {
     let timeline = interpolation.into_inner();
 
+    // how many ticks between each interpolation
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
         * timeline.remote_send_interval.as_secs_f32()
         / tick_duration.as_secs_f32())
@@ -90,6 +91,9 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
                 DebugName::type_name::<C>()
             );
             while history.pop().is_some() {}
+            // TODO: the correct behaviour would be to know the exact tick at which the
+            //  component started getting updated so that we know exactly which tick to
+            //  interpolate from! Using `current_interpolate_tick` here is a proxy.
             history.push(current_interpolate_tick, value.clone());
             commands.entity(entity).insert(value);
         }

@@ -90,12 +90,19 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         interpolation_registry: &InterpolationRegistry,
     ) -> Option<C> {
         let (start_tick, start) = self.start()?;
+        // It is possible that the interpolation_tick is early compared to the updates
+        // in the history: e.g. we received an update H, then no update for a while so
+        // we rebased it forward, and then two new updates arrive ahead of the
+        // interpolation tick (X...H1...H2). In that case interpolation should not run.
         if interpolation_tick < start_tick {
             return None;
         }
         let (end_tick, end) = self.end()?;
-        // Clamp prevents extrapolation past the newest anchor on a late update,
-        // bounding the jerk when the entity reverses direction during a gap.
+        // Clamp (rather than extrapolate past end_tick): bounds jerk to
+        // |newest - behind| on direction reversals. Extrapolation would look smoother
+        // in pure continuous motion but amplify the mismatch when the server path
+        // diverges from the extrapolated one. Revisit if we add velocity-aware
+        // interpolation with reconciliation.
         let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
             / (end_tick - start_tick) as f32)
             .clamp(0.0, 1.0);
