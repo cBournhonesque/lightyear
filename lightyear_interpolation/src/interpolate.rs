@@ -24,21 +24,27 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
     ((current - start) as f32 + overstep) / (end - start) as f32
 }
 
-/// Update the ConfirmedHistory so that interpolation can simply interpolate between the last 2 updates.
+/// Maintain the ConfirmedHistory so that `interpolate()` always sees the right anchors.
+///
+/// Goal: keep the history at `[behind, newest]` while updates flow, where `behind` is the
+/// most recent keyframe at or before the current interpolation tick. Under packet loss this
+/// means `interpolate()` blends between the freshest pair of confirmed values that bracket
+/// the current tick (or clamps at `newest` when we momentarily run out of forward anchors),
+/// instead of falling back to a single-keyframe rebase that snaps on every gap.
+///
+/// We only collapse to a single keyframe when the entity has been idle long enough that the
+/// next update is genuinely a fresh start, in which case we rebase the lone keyframe to the
+/// current tick so a future update interpolates from "now" rather than from a stale tick.
 pub(crate) fn update_confirmed_history<C: Component + Clone>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
     interpolation: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
     tick_duration: Res<TickDuration>,
-    // we don't insert the component immediately, instead we wait for:
-    // - either 2 updates, so that we can interpolate between them
-    // - or enough time has passed since the initial update
     mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>)>,
     mut commands: Commands,
 ) {
     let timeline = interpolation.into_inner();
 
-    // how many ticks between each interpolation
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
         * timeline.remote_send_interval.as_secs_f32()
         / tick_duration.as_secs_f32())
@@ -46,76 +52,41 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
 
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
-        // the ConfirmedHistory contains an ordered list (from oldest to most recent) of Confirmed component updates to interpolate between
-        // The component must always be interpolating between the oldest and the second oldest values in the history.
-        // History: H1...X...H2.....H3
-
-        // We enforce this like so:
-        // - If we have 2 older history values than the current tick, we pop the last value
-        //   History: H1....H2..X..H3  -> pop H1
-        if let Some((history_tick, end_value)) = history.end() {
-            // we have 2 updates, we can start interpolating!
-            if !present {
-                trace!(
-                    ?entity,
-                    ?history_tick,
-                    ?current_interpolate_tick,
-                    "insert interpolated comp value because we have 2 values to interpolate between. Kind = {:?}",
-                    DebugName::type_name::<C>()
-                );
-                // we can insert the end_value because:
-                // - if H1..X...H2, we will do interpolation right after
-                // - if H1...H2..X, H2 is a good starting point for the interpolation
-                commands.entity(entity).insert(end_value.clone());
-            }
-            if current_interpolate_tick >= history_tick {
-                history.pop();
-            }
+        // Drop keyframes older than the most recent one at or before the current tick: we
+        // only need one anchor "behind" the current tick to interpolate from.
+        while history.len() >= 2
+            && history
+                .get_nth(1)
+                .is_some_and(|(t, _)| t <= current_interpolate_tick)
+        {
+            history.pop();
         }
 
-        // If it's been too long since we last received an update; we pop the value from the history and
-        // re-insert it as the current interpolation tick.
-        // Otherwise we would be interpolating from a very old value, which would look strange.
-        //   History: H1.....................................X..H2...H3 -> H1.X...H2..H3
-        // We will then wait to have 2 new values before we can interpolate.
+        // Seed the component on the first sync so the entity has something to render before
+        // `interpolate()` runs. Choose `newest` so a brand-new entity snaps to the freshest
+        // confirmed value rather than a stale tail.
+        if !present && let Some((_, value)) = history.newest() {
+            commands.entity(entity).insert(value.clone());
+        }
+
+        // Idle rebase: if only one keyframe remains and the current tick has drifted past it
+        // by more than the expected send interval, treat the entity as idle and rebase the
+        // keyframe to "now". Without this, the next incoming update would create a stale-tick
+        // pair and produce a long catch-up blend that looks like a snap.
         if history.len() == 1
-            && let Some((history_tick, val)) = history.start()
-            && (current_interpolate_tick - history_tick) >= send_interval_delta_tick
+            && let Some((newest_tick, _)) = history.newest()
+            && (current_interpolate_tick - newest_tick) >= send_interval_delta_tick
         {
-            // Always re-insert val: interpolate() returns None at len == 1, so
-            // this rebase is the only path that converges the component on the
-            // latest confirmed value while the entity is idle.
             trace!(
                 ?entity,
-                ?history_tick,
+                ?newest_tick,
                 ?current_interpolate_tick,
-                ?present,
-                "insert interpolated comp value because we enough time has passed. Kind = {:?}",
+                "rebase idle keyframe to current tick. Kind = {:?}",
                 DebugName::type_name::<C>()
             );
-            commands.entity(entity).insert(val.clone());
-
-            trace!(
-                ?current_interpolate_tick,
-                ?history_tick,
-                ?send_interval_delta_tick,
-                "Reset the start_tick because it's been too long since we received an update"
-            );
-            let (_, val) = history.pop().unwrap();
-            // TODO: the correct behaviour would be to know the exact tick at which the component started getting updated
-            //  so that we know exactly which tick to interpolate from!
-            // we reset the value to a more recent tick so that the interpolation is done between two close values.
-            history.push(current_interpolate_tick, val);
+            let (_, value) = history.pop().unwrap();
+            history.push(current_interpolate_tick, value);
         }
-
-        // It is possible that the interpolation_tick is early compared to the two updates
-        // (for example we received an update H, then no update for a while so we removed it from the history, and then
-        //  we receive two updates ahead of the interpolation_tick)
-        // X...H1...H2
-        // In which case the interpolation should not run.
-
-        // TODO: if we don't have 2 values to interpolate between, we should extrapolate
-        //   History: H1....X...  -> extrapolate X
     }
 }
 

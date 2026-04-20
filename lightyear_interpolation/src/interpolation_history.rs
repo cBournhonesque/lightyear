@@ -50,6 +50,14 @@ impl<C> ConfirmedHistory<C> {
         self.get_nth(1)
     }
 
+    /// The most recent value in the history
+    pub fn newest(&self) -> Option<(Tick, &C)> {
+        match self.history.most_recent() {
+            None | Some((_, HistoryState::Removed)) => None,
+            Some((t, HistoryState::Updated(v))) => Some((*t, v)),
+        }
+    }
+
     /// Get the n-th oldest tick in the buffer (starts from n = 0)
     pub(crate) fn get_nth(&self, n: usize) -> Option<(Tick, &C)> {
         match self.history.get_nth(n) {
@@ -81,26 +89,27 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         interpolation_overstep: f32,
         interpolation_registry: &InterpolationRegistry,
     ) -> Option<C> {
-        if let Some((start_tick, start)) = self.start()
-            && let Some((end_tick, end)) = self.end()
-        {
-            if interpolation_tick < start_tick {
-                return None;
-            }
-            let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
-                / (end_tick - start_tick) as f32;
-            trace!(
-                ?start_tick,
-                ?end_tick,
-                ?interpolation_tick,
-                ?interpolation_overstep,
-                ?fraction,
-                "Interpolate {:?}",
-                DebugName::type_name::<C>()
-            );
-            return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
+        let (start_tick, start) = self.start()?;
+        if interpolation_tick < start_tick {
+            return None;
         }
-        None
+        let Some((end_tick, end)) = self.end() else {
+            // Single keyframe: snap so the component converges on the latest confirmed value.
+            return Some(start.clone());
+        };
+        let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+            / (end_tick - start_tick) as f32)
+            .clamp(0.0, 1.0);
+        trace!(
+            ?start_tick,
+            ?end_tick,
+            ?interpolation_tick,
+            ?interpolation_overstep,
+            ?fraction,
+            "Interpolate {:?}",
+            DebugName::type_name::<C>()
+        );
+        Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction))
     }
 }
 
@@ -194,16 +203,37 @@ mod tests {
         );
     }
 
-    // interpolate() requires two anchors. The idle-convergence case is handled
-    // by update_confirmed_history's rebase branch writing the value directly.
     #[test]
-    fn test_interpolate_returns_none_with_single_keyframe() {
+    fn test_interpolate_snaps_with_single_keyframe() {
         let registry = registry();
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.push(Tick(10), TestComp(42.0));
 
-        assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);
-        assert_eq!(history.interpolate(Tick(50), 0.5, &registry), None);
+        assert_eq!(
+            history.interpolate(Tick(10), 0.0, &registry),
+            Some(TestComp(42.0))
+        );
+        assert_eq!(
+            history.interpolate(Tick(50), 0.5, &registry),
+            Some(TestComp(42.0))
+        );
+    }
+
+    #[test]
+    fn test_interpolate_clamps_when_past_end_tick() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        assert_eq!(
+            history.interpolate(Tick(30), 0.0, &registry),
+            Some(TestComp(10.0))
+        );
+        assert_eq!(
+            history.interpolate(Tick(20), 0.5, &registry),
+            Some(TestComp(10.0))
+        );
     }
 
     #[test]
