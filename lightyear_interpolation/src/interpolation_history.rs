@@ -81,26 +81,27 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         interpolation_overstep: f32,
         interpolation_registry: &InterpolationRegistry,
     ) -> Option<C> {
-        if let Some((start_tick, start)) = self.start()
-            && let Some((end_tick, end)) = self.end()
-        {
-            if interpolation_tick < start_tick {
-                return None;
-            }
-            let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
-                / (end_tick - start_tick) as f32;
-            trace!(
-                ?start_tick,
-                ?end_tick,
-                ?interpolation_tick,
-                ?interpolation_overstep,
-                ?fraction,
-                "Interpolate {:?}",
-                DebugName::type_name::<C>()
-            );
-            return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
+        let (start_tick, start) = self.start()?;
+        if interpolation_tick < start_tick {
+            return None;
         }
-        None
+        let Some((end_tick, end)) = self.end() else {
+            // Only one keyframe left: snap to it so the component converges on
+            // the latest confirmed value when updates stop arriving.
+            return Some(start.clone());
+        };
+        let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+            / (end_tick - start_tick) as f32;
+        trace!(
+            ?start_tick,
+            ?end_tick,
+            ?interpolation_tick,
+            ?interpolation_overstep,
+            ?fraction,
+            "Interpolate {:?}",
+            DebugName::type_name::<C>()
+        );
+        Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction))
     }
 }
 
@@ -160,5 +161,72 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
         //  We enforce this invariant in replication::receive
         history.push(tick, component.0);
         // TODO: here we do not want to update directly the component, that will be done during interpolation
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::component::Component;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct TestComp(f32);
+
+    fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
+        TestComp(start.0 + (end.0 - start.0) * t)
+    }
+
+    fn registry() -> InterpolationRegistry {
+        let mut registry = InterpolationRegistry::default();
+        registry.set_interpolation::<TestComp>(lerp);
+        registry
+    }
+
+    #[test]
+    fn test_interpolate_blends_between_two_keyframes() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        assert_eq!(
+            history.interpolate(Tick(15), 0.0, &registry),
+            Some(TestComp(5.0))
+        );
+    }
+
+    // Regression: when only one keyframe remains, snap to it instead of returning None.
+    #[test]
+    fn test_interpolate_snaps_to_single_keyframe() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(42.0));
+
+        assert_eq!(
+            history.interpolate(Tick(10), 0.0, &registry),
+            Some(TestComp(42.0))
+        );
+        assert_eq!(
+            history.interpolate(Tick(50), 0.5, &registry),
+            Some(TestComp(42.0))
+        );
+    }
+
+    #[test]
+    fn test_interpolate_returns_none_when_tick_is_before_start() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        assert_eq!(history.interpolate(Tick(5), 0.0, &registry), None);
+    }
+
+    #[test]
+    fn test_interpolate_returns_none_when_history_is_empty() {
+        let registry = registry();
+        let history = ConfirmedHistory::<TestComp>::default();
+
+        assert_eq!(history.interpolate(Tick(0), 0.0, &registry), None);
     }
 }
