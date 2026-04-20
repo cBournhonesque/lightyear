@@ -93,10 +93,9 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         if interpolation_tick < start_tick {
             return None;
         }
-        let Some((end_tick, end)) = self.end() else {
-            // Single keyframe: snap so the component converges on the latest confirmed value.
-            return Some(start.clone());
-        };
+        let (end_tick, end) = self.end()?;
+        // Clamp prevents extrapolation past the newest anchor on a late update,
+        // bounding the jerk when the entity reverses direction during a gap.
         let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
             / (end_tick - start_tick) as f32)
             .clamp(0.0, 1.0);
@@ -203,20 +202,17 @@ mod tests {
         );
     }
 
+    // The idle-rebase path in update_confirmed_history writes the component
+    // directly when the buffer collapses to a single keyframe, so interpolate()
+    // returns None and the previously-written value stands.
     #[test]
-    fn test_interpolate_snaps_with_single_keyframe() {
+    fn test_interpolate_returns_none_with_single_keyframe() {
         let registry = registry();
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.push(Tick(10), TestComp(42.0));
 
-        assert_eq!(
-            history.interpolate(Tick(10), 0.0, &registry),
-            Some(TestComp(42.0))
-        );
-        assert_eq!(
-            history.interpolate(Tick(50), 0.5, &registry),
-            Some(TestComp(42.0))
-        );
+        assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);
+        assert_eq!(history.interpolate(Tick(50), 0.5, &registry), None);
     }
 
     #[test]

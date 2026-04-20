@@ -26,15 +26,21 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
 
 /// Maintain the ConfirmedHistory so that `interpolate()` always sees the right anchors.
 ///
-/// Goal: keep the history at `[behind, newest]` while updates flow, where `behind` is the
-/// most recent keyframe at or before the current interpolation tick. Under packet loss this
-/// means `interpolate()` blends between the freshest pair of confirmed values that bracket
-/// the current tick (or clamps at `newest` when we momentarily run out of forward anchors),
-/// instead of falling back to a single-keyframe rebase that snaps on every gap.
+/// Goal: keep the history walking forward through the freshest confirmed pair as the
+/// interpolation tick advances, without prematurely collapsing the buffer to a single
+/// keyframe. Under packet loss this means `interpolate()` blends between [behind, newest]
+/// (clamping at `newest` when an update is late) instead of freezing on every gap.
 ///
-/// We only collapse to a single keyframe when the entity has been idle long enough that the
-/// next update is genuinely a fresh start, in which case we rebase the lone keyframe to the
-/// current tick so a future update interpolates from "now" rather than from a stale tick.
+/// Smart drain: pop the oldest only when there are 3+ keyframes AND the second-oldest has
+/// already been passed by the current tick. This walks the blend anchor through bursty
+/// arrivals (e.g. H1 -> H2 -> H3 -> H4 as the tick advances) instead of immediately
+/// collapsing to the freshest pair, which would otherwise extrapolate backward.
+///
+/// Idle rebase: the smart drain never reduces below 2 entries on its own, so when the
+/// newest keyframe is older than the expected send interval we collapse the buffer to a
+/// single anchor at the current tick and write the component directly. This bounds the
+/// interpolator (which would otherwise stay clamped at the stale newest forever) and
+/// ensures the next incoming update produces a fresh blend from "now".
 pub(crate) fn update_confirmed_history<C: Component + Clone>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
@@ -52,9 +58,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
 
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
-        // Drop keyframes older than the most recent one at or before the current tick: we
-        // only need one anchor "behind" the current tick to interpolate from.
-        while history.len() >= 2
+        while history.len() >= 3
             && history
                 .get_nth(1)
                 .is_some_and(|(t, _)| t <= current_interpolate_tick)
@@ -62,30 +66,32 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             history.pop();
         }
 
-        // Seed the component on the first sync so the entity has something to render before
-        // `interpolate()` runs. Choose `newest` so a brand-new entity snaps to the freshest
-        // confirmed value rather than a stale tail.
-        if !present && let Some((_, value)) = history.newest() {
+        // Seed on first sync with the second-oldest (or oldest if that's all we have) so
+        // interpolate()'s first run has a sensible starting value while the blend warms up.
+        if !present
+            && let Some((_, value)) = history.end().or(history.start())
+        {
             commands.entity(entity).insert(value.clone());
         }
 
-        // Idle rebase: if only one keyframe remains and the current tick has drifted past it
-        // by more than the expected send interval, treat the entity as idle and rebase the
-        // keyframe to "now". Without this, the next incoming update would create a stale-tick
-        // pair and produce a long catch-up blend that looks like a snap.
-        if history.len() == 1
-            && let Some((newest_tick, _)) = history.newest()
-            && (current_interpolate_tick - newest_tick) >= send_interval_delta_tick
-        {
+        let idle_value = match history.newest() {
+            Some((newest_tick, value))
+                if (current_interpolate_tick - newest_tick) >= send_interval_delta_tick =>
+            {
+                Some(value.clone())
+            }
+            _ => None,
+        };
+        if let Some(value) = idle_value {
             trace!(
                 ?entity,
-                ?newest_tick,
                 ?current_interpolate_tick,
                 "rebase idle keyframe to current tick. Kind = {:?}",
                 DebugName::type_name::<C>()
             );
-            let (_, value) = history.pop().unwrap();
-            history.push(current_interpolate_tick, value);
+            while history.pop().is_some() {}
+            history.push(current_interpolate_tick, value.clone());
+            commands.entity(entity).insert(value);
         }
     }
 }
