@@ -81,27 +81,26 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         interpolation_overstep: f32,
         interpolation_registry: &InterpolationRegistry,
     ) -> Option<C> {
-        let (start_tick, start) = self.start()?;
-        if interpolation_tick < start_tick {
-            return None;
+        if let Some((start_tick, start)) = self.start()
+            && let Some((end_tick, end)) = self.end()
+        {
+            if interpolation_tick < start_tick {
+                return None;
+            }
+            let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+                / (end_tick - start_tick) as f32;
+            trace!(
+                ?start_tick,
+                ?end_tick,
+                ?interpolation_tick,
+                ?interpolation_overstep,
+                ?fraction,
+                "Interpolate {:?}",
+                DebugName::type_name::<C>()
+            );
+            return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
         }
-        let Some((end_tick, end)) = self.end() else {
-            // Only one keyframe left: snap to it so the component converges on
-            // the latest confirmed value when updates stop arriving.
-            return Some(start.clone());
-        };
-        let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
-            / (end_tick - start_tick) as f32;
-        trace!(
-            ?start_tick,
-            ?end_tick,
-            ?interpolation_tick,
-            ?interpolation_overstep,
-            ?fraction,
-            "Interpolate {:?}",
-            DebugName::type_name::<C>()
-        );
-        Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction))
+        None
     }
 }
 
@@ -195,21 +194,16 @@ mod tests {
         );
     }
 
-    // Regression: when only one keyframe remains, snap to it instead of returning None.
+    // interpolate() requires two anchors. The idle-convergence case is handled
+    // by update_confirmed_history's rebase branch writing the value directly.
     #[test]
-    fn test_interpolate_snaps_to_single_keyframe() {
+    fn test_interpolate_returns_none_with_single_keyframe() {
         let registry = registry();
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.push(Tick(10), TestComp(42.0));
 
-        assert_eq!(
-            history.interpolate(Tick(10), 0.0, &registry),
-            Some(TestComp(42.0))
-        );
-        assert_eq!(
-            history.interpolate(Tick(50), 0.5, &registry),
-            Some(TestComp(42.0))
-        );
+        assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);
+        assert_eq!(history.interpolate(Tick(50), 0.5, &registry), None);
     }
 
     #[test]
