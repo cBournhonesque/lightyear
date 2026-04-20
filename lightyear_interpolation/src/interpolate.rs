@@ -82,16 +82,18 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             && let Some((history_tick, val)) = history.start()
             && (current_interpolate_tick - history_tick) >= send_interval_delta_tick
         {
-            if !present {
-                trace!(
-                    ?entity,
-                    ?history_tick,
-                    ?current_interpolate_tick,
-                    "insert interpolated comp value because we enough time has passed. Kind = {:?}",
-                    DebugName::type_name::<C>()
-                );
-                commands.entity(entity).insert(val.clone());
-            }
+            // Always re-insert val: interpolate() returns None at len == 1, so
+            // this rebase is the only path that converges the component on the
+            // latest confirmed value while the entity is idle.
+            trace!(
+                ?entity,
+                ?history_tick,
+                ?current_interpolate_tick,
+                ?present,
+                "insert interpolated comp value because we enough time has passed. Kind = {:?}",
+                DebugName::type_name::<C>()
+            );
+            commands.entity(entity).insert(val.clone());
 
             trace!(
                 ?current_interpolate_tick,
