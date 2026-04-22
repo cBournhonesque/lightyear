@@ -69,7 +69,7 @@ fn start_dedicated_server(mut commands: Commands, mut room_allocator: ResMut<Roo
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
-        .insert((ReplicationSender::default(), Name::from("Client")));
+        .insert((ReplicationSender, Name::from("Client")));
 }
 
 /// Spawn an entity for a given client

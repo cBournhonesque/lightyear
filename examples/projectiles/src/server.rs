@@ -62,10 +62,10 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
         trigger.entity
     );
     commands.entity(trigger.entity).insert((
-        ReplicationSender::default(),
+        ReplicationSender,
         // We need a ReplicationReceiver on the server side because the Action entities are spawned
         // on the client and replicated to the server.
-        ReplicationReceiver::default(),
+        ReplicationReceiver,
         Name::from("ClientOf"),
     ));
 }
@@ -260,8 +260,8 @@ mod bot {
         app.world_mut().spawn((
             Client::default(),
             BotClient,
-            ReplicationSender::default(),
-            ReplicationReceiver::default(),
+            ReplicationSender,
+            ReplicationReceiver,
             NetcodeClient::new(
                 auth,
                 lightyear::netcode::client_plugin::NetcodeConfig::default(),
@@ -280,7 +280,7 @@ mod bot {
             ClientOf,
             BotClient,
             crossbeam_server,
-            ReplicationSender::default(),
+            ReplicationSender,
         ));
 
         app.add_systems(Startup, bot_connect);

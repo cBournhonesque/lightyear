@@ -5,6 +5,7 @@ use bevy_state::prelude::*;
 use bevy_replicon::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::{Client, Connected};
+use lightyear_connection::host::HostClient;
 use lightyear_messages::MessageManager;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
@@ -75,9 +76,13 @@ impl Plugin for RepliconClientPlugin {
 
 /// Sync replicon's `ClientState` with lightyear lifecycle.
 ///
-/// Sets `Connected` when any entity has `Connected` component (lightyear's connection marker).
+/// Sets `Connected` only for real remote clients.
+///
+/// Host-clients intentionally keep Replicon's `ClientState` disconnected so the app behaves like
+/// a listen server: replication receive stays disabled and host-local client behavior is emulated
+/// directly in the shared world instead.
 fn sync_client_state(
-    connected: Query<(), (With<Connected>, With<Client>)>,
+    connected: Query<(), (With<Connected>, With<Client>, Without<HostClient>)>,
     state: Res<State<ClientState>>,
     mut next_state: ResMut<NextState<ClientState>>,
 ) {

@@ -297,11 +297,11 @@ impl<C> PredictionHistory<C> {
 
     /// Add a value with a specific state (for predicted values, appends to end)
     fn add_state(&mut self, tick: Tick, state: PredictionState<C>) {
-        if let Some((last_tick, _)) = self.buffer.back() {
-            if *last_tick == tick {
-                // Replace the existing value at this tick
-                self.buffer.pop_back();
-            }
+        if let Some((last_tick, _)) = self.buffer.back()
+            && *last_tick == tick
+        {
+            // Replace the existing value at this tick
+            self.buffer.pop_back();
         }
         self.buffer.push_back((tick, state));
     }

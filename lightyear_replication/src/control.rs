@@ -10,6 +10,7 @@ use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use lightyear_connection::client::Disconnected;
+use lightyear_connection::host::HostClient;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -104,6 +105,35 @@ impl ControlledBy {
     }
 }
 
+/// Host-server local emulation for control when a client becomes a host client after entities
+/// already exist.
+fn emulate_controlled_on_host_client_added(
+    trigger: On<Add, HostClient>,
+    mut commands: Commands,
+    controlled_by: Query<(Entity, &ControlledBy, Option<&Controlled>)>,
+) {
+    for (entity, controlled_by, controlled) in controlled_by.iter() {
+        if controlled.is_none() && controlled_by.owner == trigger.entity {
+            commands.entity(entity).insert(Controlled);
+        }
+    }
+}
+
+/// Host-server local emulation for control when a host-owned controlled entity is created.
+fn emulate_controlled_on_add(
+    trigger: On<Add, ControlledBy>,
+    mut commands: Commands,
+    controlled_by: Query<(&ControlledBy, Option<&Controlled>)>,
+    host_clients: Query<(), With<HostClient>>,
+) {
+    let Ok((controlled_by, controlled)) = controlled_by.get(trigger.entity) else {
+        return;
+    };
+    if controlled.is_none() && host_clients.get(controlled_by.owner).is_ok() {
+        commands.entity(trigger.entity).insert(Controlled);
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Reflect)]
 pub enum Lifetime {
     #[default]
@@ -138,5 +168,7 @@ impl Plugin for ControlPlugin {
         app.add_observer(ControlledBy::on_insert);
         app.add_observer(ControlledBy::on_replace);
         app.add_observer(ControlledBy::handle_disconnection);
+        app.add_observer(emulate_controlled_on_host_client_added);
+        app.add_observer(emulate_controlled_on_add);
     }
 }

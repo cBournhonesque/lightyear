@@ -4,6 +4,7 @@ use crate::stepper::*;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 use lightyear_messages::MessageManager;
+use lightyear_replication::visibility::immediate::VisibilityExt;
 use test_log::test;
 
 // TODO:
@@ -225,5 +226,82 @@ fn test_child_overrides_prediction_target() {
             .world()
             .get::<Interpolated>(client_entity)
             .is_some()
+    );
+}
+
+/// Test that lose_visibility on a parent propagates to ReplicateLike children.
+#[test]
+fn test_hierarchy_visibility_propagates_to_children() {
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let server_parent = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            crate::protocol::CompFull(1.0),
+        ))
+        .id();
+    let server_child = stepper
+        .server_app
+        .world_mut()
+        .spawn((ChildOf(server_parent), crate::protocol::CompFull(2.0)))
+        .id();
+    stepper.frame_step(2);
+
+    // Both parent and child should be visible to both clients initially
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_parent)
+            .is_some(),
+        "client 1 should see parent"
+    );
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_child)
+            .is_some(),
+        "client 1 should see child"
+    );
+
+    // Lose visibility for ONLY the parent on client 1
+    let sender_1 = stepper.client_of_entities[1];
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .lose_visibility(server_parent, sender_1);
+    stepper.frame_step(2);
+
+    // Parent should be hidden for client 1
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_parent)
+            .is_none(),
+        "client 1 should not see parent after lose_visibility"
+    );
+
+    // Child should also be hidden — lose_visibility propagates through the ChildOf hierarchy
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_child)
+            .is_none(),
+        "child should not be visible after lose_visibility on parent"
     );
 }

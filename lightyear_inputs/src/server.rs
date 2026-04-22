@@ -199,12 +199,11 @@ fn receive_input_message<S: ActionStateSequence>(
                     // Resolve PreSpawned targets to server entities before rebroadcasting,
                     // so that other clients can resolve them via normal entity mapping.
                     for input in message.inputs.iter_mut() {
-                        if let InputTarget::PreSpawned(hash) = input.target {
-                            if let Some(server_e) = prespawned.iter()
+                        if let InputTarget::PreSpawned(hash) = input.target
+                            && let Some(server_e) = prespawned.iter()
                                 .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
-                            {
-                                input.target = InputTarget::Entity(server_e);
-                            }
+                        {
+                            input.target = InputTarget::Entity(server_e);
                         }
                     }
                     debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");

@@ -12,7 +12,7 @@ Does that mean that we fully know the state of entity B? How do we determine the
 - either we don't have ServerMutateTicks.T-1 confirmed. We could have:
   - the server did not send any message with an update to B, so B is the same as the previous confirmed value
   - the server sent a message with an update for B, but the message is lost or in-flight. But in that case the server would not have received an ack for that message, so on tick T it would have sent an update for B again! So that is not possible.
-That means that we know for sure that B did not change compared to its last confirmed value.
+    That means that we know for sure that B did not change compared to its last confirmed value.
 
 Then the question becomes, how does that affect how we rollback?
 We need:
@@ -21,10 +21,10 @@ We need:
 - To rollback we have 2 choices:
   - rollback from the earliest confirmed tick across all predicted entities (predicted entities are a subset of all entities so it's possible that this is more recent than ServerMutateTicks.last_tick)
   - rollback from ServerMutateTicks.last_tick
-  For simplicity we will do the second choice
+    For simplicity we will do the second choice
 - When we rollback:
   - if we do a rollback check, we rollback from the earliest mismatch tick. Subtle: if we receive an update for tick T that mismatches but ServerMutateTicks.last_tick < T (meaning we haven't received all the updates for other ticks), then we can just
-  rollback from tick T. The reason is that we can either:
+    rollback from tick T. The reason is that we can either:
     - rollback from tick T (earliest mismatch)
     - or rollback from earliest confirmed tick X (even among entities that haven't received an update). In which case we would resimulate between ticks X to T but we don't have more recent confirmed values than X, so there's no point in doing that! Instead we rollback from T, but we have our best predicted guess for tick T (even for the entity that didn't receive an update)
   - if we don't do a rollback check, we rollback from ServerMutateTicks.last_tick
@@ -394,19 +394,19 @@ fn check_rollback(
             // when receiving a confirmed update (in write_history).
             // The mismatch flags persist across frames since check_rollback may run
             // before receive_replication in the same frame.
-            if state_metadata.should_rollback {
-                if let Some(mismatch_tick) = state_metadata.earliest_mismatch_tick {
-                    debug!(
-                        ?mismatch_tick,
-                        "Rollback from mismatch detected when receiving confirmed update"
-                    );
-                    do_rollback(
-                        mismatch_tick,
-                        &prediction_manager,
-                        &mut commands,
-                        Rollback::FromState,
-                    );
-                }
+            if state_metadata.should_rollback
+                && let Some(mismatch_tick) = state_metadata.earliest_mismatch_tick
+            {
+                debug!(
+                    ?mismatch_tick,
+                    "Rollback from mismatch detected when receiving confirmed update"
+                );
+                do_rollback(
+                    mismatch_tick,
+                    &prediction_manager,
+                    &mut commands,
+                    Rollback::FromState,
+                );
             }
             // Always consume the mismatch state after checking
             state_metadata.reset_mismatch_state();
@@ -500,43 +500,39 @@ fn check_rollback(
         RollbackMode::Always => {
             if prediction_manager.is_rollback() {
                 debug!("Rollback was triggered by state, skipping input rollback checks");
-            } else {
-                if let Some(last_confirmed_input) = last_confirmed_input
-                    && last_confirmed_input.received_input()
-                {
-                    debug!(
-                        ?last_confirmed_input,
-                        "Rollback because we have received a new remote input. (no mismatch check)"
-                    );
-                    let rollback_tick = last_confirmed_input.tick.get();
-                    do_rollback(
-                        rollback_tick,
-                        &prediction_manager,
-                        &mut commands,
-                        Rollback::FromInputs,
-                    );
-                }
+            } else if let Some(last_confirmed_input) = last_confirmed_input
+                && last_confirmed_input.received_input()
+            {
+                debug!(
+                    ?last_confirmed_input,
+                    "Rollback because we have received a new remote input. (no mismatch check)"
+                );
+                let rollback_tick = last_confirmed_input.tick.get();
+                do_rollback(
+                    rollback_tick,
+                    &prediction_manager,
+                    &mut commands,
+                    Rollback::FromInputs,
+                );
             }
         }
         // Rollback from any mismatched input
         RollbackMode::Check => {
             if prediction_manager.is_rollback() {
                 debug!("Rollback was triggered by state, skipping input rollback checks");
-            } else {
-                if prediction_manager.earliest_mismatch_input.has_mismatches() {
-                    // we rollback to the tick right before the mismatch
-                    let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
-                    debug!(
-                        ?rollback_tick,
-                        "Rollback because we have received a remote input that doesn't match our input buffer history"
-                    );
-                    do_rollback(
-                        rollback_tick,
-                        &prediction_manager,
-                        &mut commands,
-                        Rollback::FromInputs,
-                    );
-                }
+            } else if prediction_manager.earliest_mismatch_input.has_mismatches() {
+                // we rollback to the tick right before the mismatch
+                let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
+                debug!(
+                    ?rollback_tick,
+                    "Rollback because we have received a remote input that doesn't match our input buffer history"
+                );
+                do_rollback(
+                    rollback_tick,
+                    &prediction_manager,
+                    &mut commands,
+                    Rollback::FromInputs,
+                );
             }
         }
         RollbackMode::Disabled => {}
@@ -710,36 +706,34 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // For entities that didn't receive an explicit update but we know their value didn't change
         // (because ServerMutateTicks confirms they weren't mutated), mark the latest completed
         // server checkpoint as confirmed using their last explicit confirmed value.
-        if matches!(rollback, Rollback::FromState) {
-            if let Some(confirm_history) = confirm_history {
-                let Some(confirm_tick) =
-                    resolve_confirm_history_tick(&checkpoints, confirm_history)
-                else {
-                    error!(
-                        entity = ?entity,
-                        replicon_tick = ?confirm_history.last_tick(),
-                        "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
-                    );
-                    debug_assert!(
-                        false,
-                        "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
-                    );
-                    continue;
-                };
-                // Only if the entity did not receive an update on `server_confirmed_tick` or later.
-                // The authoritative unchanged checkpoint is `server_confirmed_tick`, not the
-                // entity's older explicit confirm tick.
-                if confirm_tick < server_confirmed_tick {
-                    predicted_history.add_confirmed_unchanged(server_confirmed_tick);
-                }
+        if matches!(rollback, Rollback::FromState)
+            && let Some(confirm_history) = confirm_history
+        {
+            let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
+            else {
+                error!(
+                    entity = ?entity,
+                    replicon_tick = ?confirm_history.last_tick(),
+                    "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
+                );
+                debug_assert!(
+                    false,
+                    "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
+                );
+                continue;
+            };
+            // Only if the entity did not receive an update on `server_confirmed_tick` or later.
+            // The authoritative unchanged checkpoint is `server_confirmed_tick`, not the
+            // entity's older explicit confirm tick.
+            if confirm_tick < server_confirmed_tick {
+                predicted_history.add_confirmed_unchanged(server_confirmed_tick);
             }
         }
 
         let restore_value = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
             predicted_history
                 .pop_until_tick(server_confirmed_tick)
-                .map(|s| s.into_value())
-                .flatten()
+                .and_then(|s| s.into_value())
         } else {
             // Get the value at rollback_tick (predicted or confirmed).
             // It could be predicted if we received a partial update for an entity at tick T (triggering

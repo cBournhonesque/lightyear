@@ -129,9 +129,10 @@ pub struct LightyearRepliconServerBackend;
 #[cfg(feature = "server")]
 impl Plugin for LightyearRepliconServerBackend {
     fn build(&self, app: &mut bevy_app::prelude::App) {
-        let mut server_plugin = bevy_replicon::server::ServerPlugin::default();
-        server_plugin.tick_schedule = None;
-        app.add_plugins(server_plugin);
+        app.add_plugins(bevy_replicon::server::ServerPlugin {
+            tick_schedule: None,
+            ..Default::default()
+        });
         app.add_plugins(server::RepliconServerPlugin);
         app.add_plugins(send::SendPlugin);
         app.add_plugins(control::ControlPlugin);

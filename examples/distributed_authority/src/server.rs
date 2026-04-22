@@ -50,8 +50,8 @@ fn setup(mut commands: Commands) {
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
-        ReplicationReceiver::default(),
-        ReplicationSender::default(),
+        ReplicationReceiver,
+        ReplicationSender,
         Name::from("Client"),
     ));
 }

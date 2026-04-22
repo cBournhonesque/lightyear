@@ -27,9 +27,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::default());
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 // Renamed from init, removed Global resource, assume ball is always predicted

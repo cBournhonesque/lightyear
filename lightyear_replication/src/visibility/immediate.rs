@@ -33,6 +33,8 @@ use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
+use crate::hierarchy::ReplicateLikeChildren;
+
 #[doc(hidden)]
 #[derive(Resource, Deref)]
 pub struct VisibilityBit(FilterBit);
@@ -71,16 +73,40 @@ impl VisibilityExt for Commands<'_, '_> {
 impl VisibilityExt for World {
     fn gain_visibility(&mut self, entity: Entity, sender: Entity) {
         let bit = self.resource::<VisibilityBit>().0;
-        if let Some(mut client_visibility) = self.get_mut::<ClientVisibility>(sender) {
-            client_visibility.set(entity, bit, true);
+        if let Some(mut vis) = self.get_mut::<ClientVisibility>(sender) {
+            vis.set(entity, bit, true);
         }
+        set_replicate_like_children_visibility(self, entity, sender, bit, true);
     }
 
     fn lose_visibility(&mut self, entity: Entity, sender: Entity) {
         let bit = self.resource::<VisibilityBit>().0;
-        if let Some(mut client_visibility) = self.get_mut::<ClientVisibility>(sender) {
-            client_visibility.set(entity, bit, false);
+        if let Some(mut vis) = self.get_mut::<ClientVisibility>(sender) {
+            vis.set(entity, bit, false);
         }
+        set_replicate_like_children_visibility(self, entity, sender, bit, false);
+    }
+}
+
+/// Recursively walk [`ReplicateLikeChildren`] and set the visibility bit for each descendant.
+fn set_replicate_like_children_visibility(
+    world: &mut World,
+    entity: Entity,
+    sender: Entity,
+    bit: FilterBit,
+    visible: bool,
+) {
+    let Some(children) = world.get::<ReplicateLikeChildren>(entity) else {
+        return;
+    };
+    // Copy the entity list to avoid borrowing world while we recurse.
+    // ReplicateLikeChildren is typically very small (1-3 entities).
+    let child_entities: smallvec::SmallVec<[Entity; 8]> = children.iter().collect();
+    for child in child_entities {
+        if let Some(mut vis) = world.get_mut::<ClientVisibility>(sender) {
+            vis.set(child, bit, visible);
+        }
+        set_replicate_like_children_visibility(world, child, sender, bit, visible);
     }
 }
 
@@ -90,113 +116,6 @@ pub struct NetworkVisibilityPlugin;
 
 impl Plugin for NetworkVisibilityPlugin {
     fn build(&self, app: &mut App) {
-        // SYSTEMS
         app.init_resource::<VisibilityBit>();
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    // #[ignore = "Broken on main"]
-    fn test_network_visibility() {
-        let mut app = App::new();
-        app.add_plugins(NetworkVisibilityPlugin);
-        let entity = app.world_mut().spawn(NetworkVisibility::default()).id();
-
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .gain_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Gained
-        );
-
-        // after an update: Gained -> Visible
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // if an entity is already visible, we do not make it Gained
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .gain_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // entity now loses Visibility
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .lose_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Lost
-        );
-
-        // after an update: Lost -> Cleared
-        app.update();
-        assert!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .is_none()
-        );
-
-        // if we Gain/Lose visibility in the same tick, do nothing
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .gain_visibility(sender);
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .lose_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Default
-        );
     }
 }

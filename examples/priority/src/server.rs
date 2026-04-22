@@ -56,7 +56,7 @@ pub(crate) fn setup(mut commands: Commands) {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     info!("New client connected: {:?}", trigger.entity);
     commands.entity(trigger.entity).insert((
-        ReplicationSender::default(),
+        ReplicationSender,
         // limit to 3KB/s
         Transport::new(PriorityConfig::new(3000)),
     ));

@@ -282,8 +282,8 @@ impl ClientServerStepper {
             PingManager::new(PingConfig {
                 ping_interval: Duration::default(),
             }),
-            ReplicationSender::default(),
-            ReplicationReceiver::default(),
+            ReplicationSender,
+            ReplicationReceiver,
             crossbeam_client,
             #[cfg(feature = "test_utils")]
             TestHelper::default(),
@@ -318,8 +318,8 @@ impl ClientServerStepper {
                         ping_interval: Duration::default(),
                     }),
                     // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
-                    ReplicationSender::default(),
-                    ReplicationReceiver::default(),
+                    ReplicationSender,
+                    ReplicationReceiver,
                     // we will act like each client has a different port
                     Link::new(None),
                     PeerAddr(SocketAddr::new(

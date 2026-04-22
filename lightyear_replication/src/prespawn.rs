@@ -179,15 +179,15 @@ impl PreSpawnedPlugin {
         mut signature_ordinals: ResMut<PreSpawnedSignatureOrdinals>,
         mut commands: Commands,
     ) {
-        if let Ok(prespawn) = query.get(trigger.entity) {
-            if let Some(hash) = prespawn.hash {
-                let ordinal = signature_ordinals.by_hash.entry(hash).or_default();
-                let signature_hash = prespawn_signature_hash(hash, *ordinal);
-                *ordinal += 1;
-                commands
-                    .entity(trigger.entity)
-                    .insert(Signature::from(signature_hash));
-            }
+        if let Ok(prespawn) = query.get(trigger.entity)
+            && let Some(hash) = prespawn.hash
+        {
+            let ordinal = signature_ordinals.by_hash.entry(hash).or_default();
+            let signature_hash = prespawn_signature_hash(hash, *ordinal);
+            *ordinal += 1;
+            commands
+                .entity(trigger.entity)
+                .insert(Signature::from(signature_hash));
         }
     }
 
@@ -201,24 +201,23 @@ impl PreSpawnedPlugin {
     ) {
         let entity = trigger.entity;
         if let Ok(prespawn) = query.get(entity) {
-            if let Some(hash) = prespawn.hash {
-                if let Ok(mut receiver) = receiver_query.single_mut() {
-                    if let Some(entities) = receiver.prespawn_hash_to_entities.get_mut(&hash) {
-                        entities.retain(|candidate| *candidate != entity);
-                        if entities.is_empty() {
-                            receiver.prespawn_hash_to_entities.remove(&hash);
-                        }
-                    }
-                    if let Some(index) = receiver
-                        .prespawn_tick_to_hash
-                        .iter()
-                        .position(|(_, candidate_hash)| *candidate_hash == hash)
-                    {
-                        receiver.prespawn_tick_to_hash.remove(index);
+            if let Some(hash) = prespawn.hash
+                && let Ok(mut receiver) = receiver_query.single_mut()
+            {
+                if let Some(entities) = receiver.prespawn_hash_to_entities.get_mut(&hash) {
+                    entities.retain(|candidate| *candidate != entity);
+                    if entities.is_empty() {
+                        receiver.prespawn_hash_to_entities.remove(&hash);
                     }
                 }
+                if let Some(index) = receiver
+                    .prespawn_tick_to_hash
+                    .iter()
+                    .position(|(_, candidate_hash)| *candidate_hash == hash)
+                {
+                    receiver.prespawn_tick_to_hash.remove(index);
+                }
             }
-            // Remove Signature to free the SignatureMap entry
             commands.entity(entity).remove::<Signature>();
         }
     }

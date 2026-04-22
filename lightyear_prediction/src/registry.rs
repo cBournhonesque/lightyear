@@ -369,16 +369,16 @@ impl PredictionRegistry {
         let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
         // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
         let history = unsafe { ptr.deref_mut::<PredictionHistory<C>>() };
-        if let Some(state) = history.pop_until_tick(tick) {
-            if let Some(v) = state.value() {
-                trace!(
-                    "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
-                    DebugName::type_name::<C>(),
-                    tick,
-                    v
-                );
-                f(v, hasher);
-            }
+        if let Some(state) = history.pop_until_tick(tick)
+            && let Some(v) = state.value()
+        {
+            trace!(
+                "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
+                DebugName::type_name::<C>(),
+                tick,
+                v
+            );
+            f(v, hasher);
         }
     }
 }

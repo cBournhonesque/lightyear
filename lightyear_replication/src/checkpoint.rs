@@ -107,10 +107,10 @@ impl ReplicationCheckpointMap {
     pub fn record(&mut self, replicon_tick: RepliconTick, authoritative_tick: Tick) {
         if !self.entries.contains_key(&replicon_tick) {
             self.order.push_back(replicon_tick);
-            if self.order.len() > MAX_STORED_CHECKPOINTS {
-                if let Some(oldest) = self.order.pop_front() {
-                    self.entries.remove(&oldest);
-                }
+            if self.order.len() > MAX_STORED_CHECKPOINTS
+                && let Some(oldest) = self.order.pop_front()
+            {
+                self.entries.remove(&oldest);
             }
         }
         self.entries.insert(replicon_tick, authoritative_tick);

@@ -30,9 +30,7 @@ impl Plugin for ExampleServerPlugin {
 /// `ReplicationSender` (so that the server can send replication updates to that client)
 /// or a `MessageSender`.
 fn handle_new_client(trigger: On<Add, Connected>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::default());
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 /// Start the server

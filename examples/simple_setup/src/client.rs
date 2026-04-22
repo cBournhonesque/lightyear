@@ -45,7 +45,7 @@ fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
                 LocalAddr(CLIENT_ADDR),
                 PeerAddr(SERVER_ADDR),
                 Link::new(None),
-                ReplicationReceiver::default(),
+                ReplicationReceiver,
                 NetcodeClient::new(auth, NetcodeConfig::default())?,
                 UdpIo::default(),
             ))

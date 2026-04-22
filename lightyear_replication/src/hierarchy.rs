@@ -59,27 +59,27 @@ impl HierarchyPlugin {
         root_query: Query<PropagationQuery>,
         mut commands: Commands,
     ) {
-        if let Ok(child) = child_query.get(trigger.entity) {
-            if let Ok(root_propagation) = root_query.get(child.replicate_like.root) {
-                if child.replicate.is_none() {
-                    commands
-                        .entity(trigger.entity)
-                        .insert(root_propagation.replicate.clone());
-                }
-                #[cfg(feature = "prediction")]
-                if child.prediction.is_none() {
-                    if let Some(prediction) = root_propagation.prediction {
-                        commands.entity(trigger.entity).insert(prediction.clone());
-                    }
-                }
-                #[cfg(feature = "interpolation")]
-                if child.interpolation.is_none() {
-                    if let Some(interpolation) = root_propagation.interpolation {
-                        commands
-                            .entity(trigger.entity)
-                            .insert(interpolation.clone());
-                    }
-                }
+        if let Ok(child) = child_query.get(trigger.entity)
+            && let Ok(root_propagation) = root_query.get(child.replicate_like.root)
+        {
+            if child.replicate.is_none() {
+                commands
+                    .entity(trigger.entity)
+                    .insert(root_propagation.replicate.clone());
+            }
+            #[cfg(feature = "prediction")]
+            if child.prediction.is_none()
+                && let Some(prediction) = root_propagation.prediction
+            {
+                commands.entity(trigger.entity).insert(prediction.clone());
+            }
+            #[cfg(feature = "interpolation")]
+            if child.interpolation.is_none()
+                && let Some(interpolation) = root_propagation.interpolation
+            {
+                commands
+                    .entity(trigger.entity)
+                    .insert(interpolation.clone());
             }
         }
     }

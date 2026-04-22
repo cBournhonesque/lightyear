@@ -48,9 +48,7 @@ fn main() {
                 .single(app.world_mut())
                 .unwrap();
             // We are doing client->server replication so we need to include a ReplicationSender for the client
-            app.world_mut()
-                .entity_mut(client)
-                .insert(ReplicationSender::default());
+            app.world_mut().entity_mut(client).insert(ReplicationSender);
         }
         #[cfg(feature = "server")]
         Some(Mode::Server) => {

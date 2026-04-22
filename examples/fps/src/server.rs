@@ -45,9 +45,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::default());
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 pub(crate) fn spawn_player(

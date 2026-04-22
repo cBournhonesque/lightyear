@@ -2,6 +2,7 @@ use crate::protocol::CompA;
 use crate::stepper::*;
 use bevy::prelude::{Entity, With};
 use bevy_replicon::prelude::Remote;
+use lightyear::prelude::{client::Connect, server::Start};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::id::RemoteId;
 use lightyear_core::interpolation::Interpolated;
@@ -12,6 +13,28 @@ use lightyear_replication::control::{Controlled, ControlledBy};
 use lightyear_replication::prelude::*;
 use lightyear_replication::send::ReplicatedFrom;
 use test_log::test;
+
+fn host_only_stepper_before_host_connect() -> ClientServerStepper {
+    let mut config = StepperConfig::from_link_types(vec![ClientType::Host], ServerType::Netcode);
+    config.init = false;
+    let mut stepper = ClientServerStepper::from_config(config);
+    stepper.server_app.finish();
+    stepper.server_app.cleanup();
+    stepper.server_app.world_mut().trigger(Start {
+        entity: stepper.server_entity,
+    });
+    stepper.server_app.world_mut().flush();
+    stepper
+}
+
+fn connect_host(stepper: &mut ClientServerStepper) -> Entity {
+    let host_client_entity = stepper.host_client_entity.unwrap();
+    stepper.server_app.world_mut().trigger(Connect {
+        entity: host_client_entity,
+    });
+    stepper.server_app.world_mut().flush();
+    host_client_entity
+}
 
 /// In host-server mode, spawning an entity with `Replicate` should add
 /// `HasAuthority` (server has authority) and `ReplicatedFrom` (host-client
@@ -108,6 +131,153 @@ fn test_controlled_by_adds_controlled() {
     assert!(
         entity_ref.contains::<Controlled>(),
         "entity should have Controlled via #[require(Controlled)] on ControlledBy"
+    );
+}
+
+#[test]
+fn test_replicate_backfills_when_client_becomes_host_client() {
+    let mut stepper = host_only_stepper_before_host_connect();
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(1);
+
+    let entity_ref = stepper.server_app.world().entity(server_entity);
+    assert!(
+        !entity_ref.contains::<HasAuthority>(),
+        "without any matching sender yet, existing replicated entities do not get authority eagerly"
+    );
+    assert!(
+        !entity_ref.contains::<ReplicatedFrom>(),
+        "ReplicatedFrom should not exist before the client becomes a HostClient"
+    );
+
+    connect_host(&mut stepper);
+    stepper.frame_step(1);
+
+    let entity_ref = stepper.server_app.world().entity(server_entity);
+    assert!(
+        entity_ref.contains::<HasAuthority>(),
+        "late host-client backfill should preserve authority"
+    );
+    assert!(
+        entity_ref.contains::<ReplicatedFrom>(),
+        "late host-client backfill should add ReplicatedFrom for existing replicated entities"
+    );
+}
+
+#[test]
+fn test_prediction_target_still_has_predicted_when_client_becomes_host_client() {
+    let mut stepper = host_only_stepper_before_host_connect();
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<Predicted>(),
+        "Predicted is currently added independently of host-local backfill"
+    );
+
+    connect_host(&mut stepper);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<Predicted>(),
+        "Predicted should still be present after the client becomes a HostClient"
+    );
+}
+
+#[test]
+fn test_interpolation_target_still_has_interpolated_when_client_becomes_host_client() {
+    let mut stepper = host_only_stepper_before_host_connect();
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            InterpolationTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<Interpolated>(),
+        "Interpolated is currently added independently of host-local backfill"
+    );
+
+    connect_host(&mut stepper);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<Interpolated>(),
+        "Interpolated should still be present after the client becomes a HostClient"
+    );
+}
+
+#[test]
+fn test_controlled_backfills_when_client_becomes_host_client() {
+    let mut stepper = host_only_stepper_before_host_connect();
+    let host_client_entity = stepper.host_client_entity.unwrap();
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: host_client_entity,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<Controlled>(),
+        "Controlled is currently added before the host-local observer runs"
+    );
+
+    connect_host(&mut stepper);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .contains::<Controlled>(),
+        "Controlled should still be present after the client becomes a HostClient"
     );
 }
 

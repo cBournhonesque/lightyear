@@ -28,7 +28,7 @@ impl Plugin for ExampleServerPlugin {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands
         .entity(trigger.entity)
-        .insert((ReplicationSender::default(), Name::from("Client")));
+        .insert((ReplicationSender, Name::from("Client")));
 }
 
 /// Server connection system, create a player upon connection

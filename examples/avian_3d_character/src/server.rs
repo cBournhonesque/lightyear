@@ -133,9 +133,7 @@ fn setup(mut commands: Commands) {
 
 /// Add the ReplicationSender component to new clients
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::default());
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 /// Spawn the player entity when a client connects

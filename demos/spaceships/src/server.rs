@@ -84,9 +84,7 @@ fn init(mut commands: Commands) {
 
 /// Add the ReplicationSender component to new clients
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::default());
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 /// Whenever a new client connects, spawn their spaceship

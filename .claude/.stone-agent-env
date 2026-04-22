@@ -1,3 +1,0 @@
-export PYTHONPATH='/apps/stonefs1/stonepy/src/super-py-20260316_165006/stonepy:/apps/stonefs1/bonds/automation/scripts:/apps/stonefs1/stonepy/lstone/stone/stone/codegen/python/:/apps/stonefs1/stonepy/lstone/stone/stone/python/:/apps/stonefs1/stonepy/lstone/gti_client'
-export LD_PRELOAD='/apps/stonefs1/stonepy/venv/dev/20250717.py311-stonelib/lib/lib_mkl_serv_intel_cpu_true.so'
-export PATH='/apps/stonefs1/stonepy/venv/links/000111-stonelib/bin':"$PATH"
