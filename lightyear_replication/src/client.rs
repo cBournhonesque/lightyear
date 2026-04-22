@@ -12,7 +12,7 @@ use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
 use crate::checkpoint::{
-    extract_server_replicon_tick, unwrap_server_payload, ReplicationCheckpointMap,
+    ReplicationCheckpointMap, extract_server_replicon_tick, unwrap_server_payload,
 };
 use lightyear_messages::plugin::MessageSystems;
 use tracing::{debug, error};
@@ -103,6 +103,10 @@ fn receive_client_packets(
             if let Some(receiver) = transport.receivers.get_mut(&channel_id) {
                 while let Some((_, message, _)) = receiver.receiver.read_message() {
                     if idx <= 1 {
+                        // Server update / mutation packets are wrapped by Lightyear with the
+                        // authoritative simulation tick. We unwrap, record the
+                        // RepliconTick -> Tick mapping for prediction/rollback, then hand the
+                        // original inner bytes back to Replicon unchanged.
                         match unwrap_server_payload(message).and_then(|(header, inner)| {
                             let replicon_tick = extract_server_replicon_tick(idx, &inner)?;
                             Ok((header, inner, replicon_tick))

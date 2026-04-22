@@ -20,6 +20,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
 
+        #[cfg(feature = "gui")]
         app.add_systems(
             FixedUpdate,
             handle_hit_event
@@ -93,7 +94,7 @@ fn handle_new_player(
     }
 }
 
-// Generate an explosion effect for bullet collisions
+#[cfg(feature = "gui")]
 fn handle_hit_event(
     time: Res<Time>,
     mut events: MessageReader<BulletHitMessage>,

@@ -13,12 +13,12 @@ use {
 };
 
 use bevy_enhanced_input::prelude::*;
+#[cfg(any(feature = "client", feature = "server"))]
+use bevy_utils::prelude::DebugName;
 #[cfg(all(feature = "client", feature = "server"))]
 use lightyear_connection::host::HostServer;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::PreSpawned;
-#[cfg(any(feature = "client", feature = "server"))]
-use bevy_utils::prelude::DebugName;
 #[allow(unused_imports)]
 use tracing::{debug, info};
 #[cfg(any(feature = "client", feature = "server"))]

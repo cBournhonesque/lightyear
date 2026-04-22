@@ -1,5 +1,5 @@
-use crate::checkpoint_ticks::resolve_message_tick;
 use crate::SyncComponent;
+use crate::checkpoint_ticks::resolve_message_tick;
 use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
 use crate::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
@@ -582,15 +582,19 @@ fn write_history<C: SyncComponent>(
     let (registry, checkpoints, should_check) = {
         let world = unsafe { entity.world_mut() };
         let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
-        let checkpoints =
-            world.resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-                as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
+        let checkpoints = world
+            .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+            as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
         let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
             .get::<PredictionManager>(prediction_link)
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         // SAFETY: registry lives in the World and won't be moved/dropped during this function
-        (unsafe { &*registry }, unsafe { &*checkpoints }, should_check)
+        (
+            unsafe { &*registry },
+            unsafe { &*checkpoints },
+            should_check,
+        )
     };
     let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
         error!(
@@ -628,15 +632,19 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
     let (registry, checkpoints, should_check) = {
         let world = unsafe { entity.world_mut() };
         let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
-        let checkpoints =
-            world.resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-                as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
+        let checkpoints = world
+            .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+            as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
         let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
             .get::<PredictionManager>(prediction_link)
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         // SAFETY: registry lives in the World and won't be moved/dropped during this function
-        (unsafe { &*registry }, unsafe { &*checkpoints }, should_check)
+        (
+            unsafe { &*registry },
+            unsafe { &*checkpoints },
+            should_check,
+        )
     };
     let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
         error!(

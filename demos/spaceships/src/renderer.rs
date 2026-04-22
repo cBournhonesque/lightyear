@@ -16,8 +16,8 @@ use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
 use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
-use lightyear::prelude::input::InputBuffer;
 use lightyear::interpolation::interpolation_history::ConfirmedHistory;
+use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 

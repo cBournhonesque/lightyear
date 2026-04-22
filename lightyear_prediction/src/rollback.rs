@@ -708,11 +708,12 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     ) in predicted_query.iter_mut()
     {
         // For entities that didn't receive an explicit update but we know their value didn't change
-        // (because ServerMutateTicks confirms they weren't mutated), mark the rollback_tick value as confirmed
-        // using their last confirmed value.
+        // (because ServerMutateTicks confirms they weren't mutated), mark the latest completed
+        // server checkpoint as confirmed using their last explicit confirmed value.
         if matches!(rollback, Rollback::FromState) {
             if let Some(confirm_history) = confirm_history {
-                let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
+                let Some(confirm_tick) =
+                    resolve_confirm_history_tick(&checkpoints, confirm_history)
                 else {
                     error!(
                         entity = ?entity,
@@ -725,9 +726,11 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     );
                     continue;
                 };
-                // only if the entity did not receive an update on `server_confirmed_tick` or later
+                // Only if the entity did not receive an update on `server_confirmed_tick` or later.
+                // The authoritative unchanged checkpoint is `server_confirmed_tick`, not the
+                // entity's older explicit confirm tick.
                 if confirm_tick < server_confirmed_tick {
-                    predicted_history.add_confirmed_unchanged(confirm_tick);
+                    predicted_history.add_confirmed_unchanged(server_confirmed_tick);
                 }
             }
         }

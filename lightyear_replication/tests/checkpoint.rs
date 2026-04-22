@@ -37,7 +37,10 @@ fn update_payload_roundtrip_preserves_bytes_and_tick() {
 
     assert_eq!(header, ReplicationCheckpointHeader::new(Tick(42)));
     assert_eq!(inner, payload);
-    assert_eq!(extract_server_replicon_tick(0, &inner).unwrap(), replicon_tick);
+    assert_eq!(
+        extract_server_replicon_tick(0, &inner).unwrap(),
+        replicon_tick
+    );
 }
 
 #[test]
@@ -56,7 +59,10 @@ fn mutation_payload_roundtrip_preserves_bytes_and_tick() {
 
     assert_eq!(header, ReplicationCheckpointHeader::new(Tick(55)));
     assert_eq!(inner, payload);
-    assert_eq!(extract_server_replicon_tick(1, &inner).unwrap(), message_tick);
+    assert_eq!(
+        extract_server_replicon_tick(1, &inner).unwrap(),
+        message_tick
+    );
 }
 
 #[test]

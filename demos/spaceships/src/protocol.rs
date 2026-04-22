@@ -206,7 +206,6 @@ impl Plugin for ProtocolPlugin {
             .add_should_rollback(rotation_should_rollback)
             .add_linear_interpolation()
             .add_linear_correction_fn();
-
     }
 }
 

@@ -249,21 +249,25 @@ impl<C> PredictionHistory<C> {
     ///
     /// This is used in situations where we know the value is unchanged (e.g., ServerMutateTicks confirms no mutation).
     /// Returns true if a new confirmed value was added, false otherwise.
-    pub fn add_confirmed_unchanged(&mut self, tick: Tick) -> bool {
-        // Pop all values before the given tick, keeping track of the most recent confirmed value before tick
-        while let Some((t, state)) = self.buffer.pop_front() {
-            if t < tick {
-                // If it's confirmed, add it as the confirmed value at 'tick'
-                if state.is_confirmed() {
-                    self.clear_until_tick(tick);
-                    self.insert_at_tick(tick, state);
-                    return true;
-                }
-            } else {
-                break;
-            }
+    pub fn add_confirmed_unchanged(&mut self, tick: Tick) -> bool
+    where
+        C: Clone,
+    {
+        let Some((existing_tick, existing_state)) = self
+            .buffer
+            .iter()
+            .rev()
+            .find(|(buffer_tick, state)| *buffer_tick <= tick && state.is_confirmed())
+        else {
+            return false;
+        };
+
+        if *existing_tick == tick {
+            return false;
         }
-        false
+
+        self.insert_at_tick(tick, existing_state.clone());
+        true
     }
 
     /// Add a confirmed value (received from the server)
@@ -559,5 +563,54 @@ mod tests {
         let has_tick_9 = history.buffer.iter().any(|(t, _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
+    }
+
+    #[test]
+    fn test_add_confirmed_unchanged_preserves_existing_history() {
+        let mut history = PredictionHistory::<TestValue>::default();
+
+        history.add_predicted(Tick(21), Some(TestValue(21.0)));
+        history.add_confirmed(Tick(22), Some(TestValue(100.0)));
+        history.add_predicted(Tick(23), Some(TestValue(23.0)));
+        history.add_predicted(Tick(24), Some(TestValue(24.0)));
+
+        assert!(history.add_confirmed_unchanged(Tick(25)));
+        assert_eq!(
+            history
+                .get_confirmed_at(Tick(22))
+                .and_then(|s| s.value())
+                .unwrap()
+                .0,
+            100.0
+        );
+        assert_eq!(
+            history
+                .get_confirmed_at(Tick(25))
+                .and_then(|s| s.value())
+                .unwrap()
+                .0,
+            100.0
+        );
+        assert_eq!(history.get(Tick(22)).unwrap().0, 100.0);
+        assert_eq!(history.get(Tick(24)).unwrap().0, 24.0);
+    }
+
+    #[test]
+    fn test_add_confirmed_unchanged_at_same_tick_is_noop() {
+        let mut history = PredictionHistory::<TestValue>::default();
+
+        history.add_confirmed(Tick(22), Some(TestValue(100.0)));
+        let before_len = history.len();
+
+        assert!(!history.add_confirmed_unchanged(Tick(22)));
+        assert_eq!(history.len(), before_len);
+        assert_eq!(
+            history
+                .get_confirmed_at(Tick(22))
+                .and_then(|s| s.value())
+                .unwrap()
+                .0,
+            100.0
+        );
     }
 }

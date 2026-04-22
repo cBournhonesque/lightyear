@@ -139,6 +139,9 @@ fn send_server_packets(
     for (client, channel_idx, message) in server_messages.drain_sent() {
         let (channel_kind, _) = channel_map.server_channels[channel_idx];
         let message = match channel_idx {
+            // Replicon channels 0/1 feed ConfirmHistory / ServerMutateTicks on the client.
+            // Prefix them with the authoritative server Lightyear tick so prediction can later
+            // translate Replicon checkpoint ticks back into simulation time.
             0 | 1 => wrap_server_payload(timeline.tick(), message),
             _ => message,
         };
