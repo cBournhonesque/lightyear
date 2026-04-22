@@ -383,8 +383,8 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .get::<CompFull>(predicted_b)
             .unwrap()
             .0,
-        201.0,
-        "Later confirmed value on another entity should be preserved and replayed from its confirmed tick"
+        203.0,
+        "Later confirmed value on another entity should be preserved and replayed across the remaining rollback ticks and the current frame tick"
     );
 }
 
