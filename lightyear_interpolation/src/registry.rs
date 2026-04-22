@@ -10,14 +10,17 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
+use bevy_replicon::prelude::RepliconTick;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::Tick;
+use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
+use tracing::error;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -99,6 +102,13 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
         .resource_mut::<InterpolatedMarkerFnRegistry>()
         .kinds
         .insert(kind);
+}
+
+fn resolve_message_tick(
+    checkpoints: &ReplicationCheckpointMap,
+    tick: RepliconTick,
+) -> Option<Tick> {
+    checkpoints.get(tick)
 }
 
 pub trait InterpolationRegistrationExt<C> {
@@ -234,7 +244,7 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
 }
 
 // TODO: ideally we would update the LastConfirmedTick at this point?
-/// Instead of writing into a component directly, it writes data into [`PredictionHistory<C>`].
+/// Instead of writing into a component directly, it writes data into [`ConfirmedHistory<C>`].
 fn write_history<C: Component<Mutability = Mutable>>(
     ctx: &mut WriteCtx,
     rule_fns: &RuleFns<C>,
@@ -242,7 +252,24 @@ fn write_history<C: Component<Mutability = Mutable>>(
     message: &mut Bytes,
 ) -> bevy_ecs::error::Result<()> {
     let component: C = rule_fns.deserialize(ctx, message)?;
-    let tick: Tick = ctx.message_tick.get().into();
+    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+    let checkpoints = {
+        let world = unsafe { entity.world_mut() };
+        let checkpoints =
+            world.resource::<ReplicationCheckpointMap>() as *const ReplicationCheckpointMap;
+        unsafe { &*checkpoints }
+    };
+    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+        error!(
+            message_tick = ?ctx.message_tick,
+            "missing authoritative checkpoint mapping while writing interpolation history"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while writing interpolation history"
+        );
+        return Ok(());
+    };
     if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
         history.push(tick, component);
     } else {
@@ -257,4 +284,36 @@ fn write_history<C: Component<Mutability = Mutable>>(
 fn remove_history<C: Component>(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
     // TODO: only remove once the tick is reached1
     entity.remove::<C>();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn resolve_message_tick_uses_authoritative_tick_for_large_replicon_gap() {
+        let mut checkpoints = ReplicationCheckpointMap::default();
+        checkpoints.record(RepliconTick::new(200), Tick(20));
+
+        assert_eq!(
+            resolve_message_tick(&checkpoints, RepliconTick::new(200)),
+            Some(Tick(20))
+        );
+    }
+
+    #[test]
+    fn resolve_message_tick_collapses_multiple_replicon_ticks_for_same_authoritative_tick() {
+        let mut checkpoints = ReplicationCheckpointMap::default();
+        checkpoints.record(RepliconTick::new(100), Tick(20));
+        checkpoints.record(RepliconTick::new(101), Tick(20));
+
+        assert_eq!(
+            resolve_message_tick(&checkpoints, RepliconTick::new(100)),
+            Some(Tick(20))
+        );
+        assert_eq!(
+            resolve_message_tick(&checkpoints, RepliconTick::new(101)),
+            Some(Tick(20))
+        );
+    }
 }

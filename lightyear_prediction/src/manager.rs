@@ -11,7 +11,6 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
-use lightyear_replication::prelude::ServerMutateTicks;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
@@ -182,39 +181,6 @@ impl StateRollbackMetadata {
             None => true, // First time, always process
             Some(last) => current_tick > last,
         }
-    }
-
-    /// Get the rollback tick based on mode:
-    /// - For Check mode: earliest_mismatch_tick (if any)
-    /// - For Always mode: ServerMutateTicks.last_tick
-    pub fn get_rollback_tick(
-        &self,
-        mode: RollbackMode,
-        server_mutate_ticks: &ServerMutateTicks,
-    ) -> Option<Tick> {
-        match mode {
-            RollbackMode::Check => {
-                if self.should_rollback {
-                    self.earliest_mismatch_tick
-                } else {
-                    None
-                }
-            }
-            RollbackMode::Always => {
-                if self.received_messages_this_frame {
-                    Some(server_mutate_ticks.last_tick().get().into())
-                } else {
-                    None
-                }
-            }
-            RollbackMode::Disabled => None,
-        }
-    }
-
-    /// Get the tick we can safely clear histories up to.
-    /// This is `ServerMutateTicks.last_tick()` since all messages for that tick were received.
-    pub fn get_safe_clear_tick(server_mutate_ticks: &ServerMutateTicks) -> Tick {
-        server_mutate_ticks.last_tick().get().into()
     }
 }
 
