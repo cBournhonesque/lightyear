@@ -10,6 +10,7 @@ use core::fmt::Debug;
 
 #[allow(unused)]
 pub(crate) mod archetypes;
+pub(crate) mod checkpoint_ticks;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
@@ -36,24 +37,6 @@ pub mod prelude {
     pub use crate::rollback::{
         DeterministicPredicted, DisableRollback, DisabledDuringRollback, RollbackSystems,
     };
-}
-
-use lightyear_core::tick::Tick;
-
-pub(crate) trait ToTick {
-    fn tick(&self) -> Tick;
-}
-
-impl ToTick for lightyear_replication::prelude::ConfirmHistory {
-    fn tick(&self) -> Tick {
-        self.last_tick().get().into()
-    }
-}
-
-impl ToTick for lightyear_replication::prelude::ServerMutateTicks {
-    fn tick(&self) -> Tick {
-        self.last_tick().get().into()
-    }
 }
 
 use bevy_ecs::component::{Component, Mutable};

@@ -337,6 +337,15 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
 
     let world = stepper.client_app().world_mut();
     world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(RepliconTick::default(), rollback_tick);
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(rollback_replicon_tick, rollback_tick);
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(later_replicon_tick, later_confirmed_tick);
+    world
         .entity_mut(predicted_a)
         .get_mut::<PredictionHistory<CompFull>>()
         .unwrap()

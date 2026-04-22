@@ -15,6 +15,7 @@ pub mod server;
 
 pub mod authority;
 pub mod channels;
+pub mod checkpoint;
 #[cfg(feature = "client")]
 pub mod client;
 pub mod control;
@@ -40,6 +41,7 @@ pub mod prelude {
 
     pub use crate::ReplicationSystems;
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority};
+    pub use crate::checkpoint::ReplicationCheckpointMap;
     pub use crate::control::{Controlled, ControlledBy, Lifetime};
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
@@ -97,6 +99,7 @@ impl bevy_app::prelude::Plugin for SharedComponentRegistrationPlugin {
         // so it's always available (defaults to empty/harmless state).
         #[cfg(any(feature = "prediction", feature = "interpolation"))]
         app.init_resource::<bevy_replicon::client::server_mutate_ticks::ServerMutateTicks>();
+        app.init_resource::<checkpoint::ReplicationCheckpointMap>();
     }
 }
 

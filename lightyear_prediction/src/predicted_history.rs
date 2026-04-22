@@ -544,12 +544,11 @@ mod tests {
         history.add_predicted(Tick(9), Some(TestValue(9.0)));
 
         // Clear predicted values from tick 4 onwards
-        let restore_value = history.clear_predicted_from(Tick(4));
+        let restore_value = history.get(Tick(4)).cloned();
+        history.clear_predicted_from(Tick(4));
 
         // Should restore to the value at tick 4 (which is the confirmed value at tick 3)
-        assert!(
-            matches!(restore_value, Some(PredictionState::Confirmed(TestValue(v))) if v == 3.0)
-        );
+        assert!(matches!(restore_value, Some(TestValue(v)) if v == 3.0));
 
         // Confirmed value at tick 7 should be preserved
         assert!(history.get_confirmed_at(Tick(7)).is_some());

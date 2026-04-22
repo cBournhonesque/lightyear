@@ -35,7 +35,7 @@ We need:
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, SyncComponent};
-use crate::ToTick;
+use crate::checkpoint_ticks::{resolve_confirm_history_tick, resolve_server_mutate_tick};
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
@@ -203,6 +203,7 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -314,6 +315,7 @@ fn check_rollback(
     timeline: Res<LocalTimeline>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     server_mutate_ticks: Res<ServerMutateTicks>,
+    checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
     receiver_query: Single<
         (
             Entity,
@@ -337,7 +339,19 @@ fn check_rollback(
     let received_state = state_metadata.received_messages_this_frame;
 
     // The tick where ALL messages have been received (guaranteed complete information)
-    let server_confirmed_tick: Tick = server_mutate_ticks.tick();
+    let Some(server_confirmed_tick) =
+        resolve_server_mutate_tick(&checkpoints, &server_mutate_ticks)
+    else {
+        error!(
+            replicon_tick = ?server_mutate_ticks.last_tick(),
+            "missing authoritative checkpoint mapping for ServerMutateTicks"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping for ServerMutateTicks"
+        );
+        return;
+    };
 
     let do_rollback = move |rollback_tick: Tick,
                             prediction_manager: &PredictionManager,
@@ -399,7 +413,7 @@ fn check_rollback(
 
             // Check if ServerMutateTicks has advanced since we last processed it
             let server_ticks_advanced =
-                state_metadata.has_server_mutate_ticks_advanced(&server_mutate_ticks);
+                state_metadata.has_server_mutate_ticks_advanced(server_confirmed_tick);
 
             // Second check: if ServerMutateTicks has advanced, check unchanged entities
             // Only check if we haven't already triggered a rollback and ServerMutateTicks advanced
@@ -423,7 +437,20 @@ fn check_rollback(
                             return
                         }
 
-                        let confirm_history_tick: Tick = confirm_history.last_tick().get().into();
+                        let Some(confirm_history_tick) =
+                            resolve_confirm_history_tick(&checkpoints, confirm_history)
+                        else {
+                            error!(
+                                entity = ?entity_mut.id(),
+                                replicon_tick = ?confirm_history.last_tick(),
+                                "missing authoritative checkpoint mapping for ConfirmHistory"
+                            );
+                            debug_assert!(
+                                false,
+                                "missing authoritative checkpoint mapping for ConfirmHistory"
+                            );
+                            return
+                        };
                         // Only check entities that didn't receive an explicit update at server_confirmed_tick
                         if confirm_history_tick >= server_confirmed_tick {
                             return
@@ -635,6 +662,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
     server_mutate_ticks: Res<ServerMutateTicks>,
+    checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
     mut commands: Commands,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
@@ -657,7 +685,19 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
 
     // The tick where ALL messages have been received (guaranteed complete information)
-    let server_confirmed_tick: Tick = server_mutate_ticks.tick();
+    let Some(server_confirmed_tick) =
+        resolve_server_mutate_tick(&checkpoints, &server_mutate_ticks)
+    else {
+        error!(
+            replicon_tick = ?server_mutate_ticks.last_tick(),
+            "missing authoritative checkpoint mapping for ServerMutateTicks during rollback preparation"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping for ServerMutateTicks during rollback preparation"
+        );
+        return;
+    };
 
     for (
         entity,
@@ -672,7 +712,19 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // using their last confirmed value.
         if matches!(rollback, Rollback::FromState) {
             if let Some(confirm_history) = confirm_history {
-                let confirm_tick: Tick = confirm_history.tick();
+                let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
+                else {
+                    error!(
+                        entity = ?entity,
+                        replicon_tick = ?confirm_history.last_tick(),
+                        "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
+                    );
+                    debug_assert!(
+                        false,
+                        "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
+                    );
+                    continue;
+                };
                 // only if the entity did not receive an update on `server_confirmed_tick` or later
                 if confirm_tick < server_confirmed_tick {
                     predicted_history.add_confirmed_unchanged(confirm_tick);

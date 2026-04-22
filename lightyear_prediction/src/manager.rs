@@ -177,11 +177,7 @@ impl StateRollbackMetadata {
     }
 
     /// Check if ServerMutateTicks has advanced since we last processed it
-    pub fn has_server_mutate_ticks_advanced(
-        &self,
-        server_mutate_ticks: &ServerMutateTicks,
-    ) -> bool {
-        let current_tick: Tick = server_mutate_ticks.last_tick().get().into();
+    pub fn has_server_mutate_ticks_advanced(&self, current_tick: Tick) -> bool {
         match self.last_processed_tick {
             None => true, // First time, always process
             Some(last) => current_tick > last,

@@ -1,3 +1,4 @@
+use crate::checkpoint_ticks::resolve_message_tick;
 use crate::SyncComponent;
 use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
 use crate::plugin::{
@@ -29,7 +30,7 @@ use lightyear_replication::delta::Diffable;
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
-use tracing::{debug, trace, trace_span};
+use tracing::{debug, error, trace, trace_span};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -576,18 +577,31 @@ fn write_history<C: SyncComponent>(
     message: &mut Bytes,
 ) -> Result<()> {
     let component: C = rule_fns.deserialize(ctx, message)?;
-    let tick: Tick = ctx.message_tick.get().into();
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     // We extract all needed values and drop the world borrow before using `entity` again.
-    let (registry, should_check) = {
+    let (registry, checkpoints, should_check) = {
         let world = unsafe { entity.world_mut() };
         let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
+        let checkpoints =
+            world.resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+                as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
         let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
             .get::<PredictionManager>(prediction_link)
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         // SAFETY: registry lives in the World and won't be moved/dropped during this function
-        (unsafe { &*registry }, should_check)
+        (unsafe { &*registry }, unsafe { &*checkpoints }, should_check)
+    };
+    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+        error!(
+            message_tick = ?ctx.message_tick,
+            "missing authoritative checkpoint mapping while writing prediction history"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while writing prediction history"
+        );
+        return Ok(());
     };
 
     // Always add confirmed values to history (needed for rollback in any mode).
@@ -609,18 +623,31 @@ fn write_history<C: SyncComponent>(
 /// 1. Always adds the confirmed removal to the prediction history (needed for rollback in any mode)
 /// 2. If `RollbackMode::Check`, also checks for mismatch and records it
 fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
-    let tick: Tick = ctx.message_tick.get().into();
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     // We extract all needed values and drop the world borrow before using `entity` again.
-    let (registry, should_check) = {
+    let (registry, checkpoints, should_check) = {
         let world = unsafe { entity.world_mut() };
         let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
+        let checkpoints =
+            world.resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+                as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
         let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
             .get::<PredictionManager>(prediction_link)
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         // SAFETY: registry lives in the World and won't be moved/dropped during this function
-        (unsafe { &*registry }, should_check)
+        (unsafe { &*registry }, unsafe { &*checkpoints }, should_check)
+    };
+    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+        error!(
+            message_tick = ?ctx.message_tick,
+            "missing authoritative checkpoint mapping while removing prediction history"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while removing prediction history"
+        );
+        return;
     };
 
     // Always add confirmed removal to history (needed for rollback in any mode).
