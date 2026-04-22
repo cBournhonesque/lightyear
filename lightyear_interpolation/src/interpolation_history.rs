@@ -1,9 +1,12 @@
 use crate::prelude::InterpolationRegistry;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
+use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
+use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::Tick;
+use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -114,11 +117,44 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
     }
 }
 
+/// When `Interpolated` is added after component `C` was already replicated onto the entity,
+/// seed `ConfirmedHistory<C>` from the current value so interpolation has an anchor immediately.
+///
+/// This is the branch-local equivalent of `main`'s `#1421` fix, adapted to the current
+/// Replicon marker-fn receive path. Component updates for interpolated entities are normally
+/// captured by `registry::write_history::<C>`, but that only runs on future network updates.
+/// If `Interpolated` arrives after `C`, we need to synthesize the initial history entry from the
+/// existing component value and the entity's latest confirmed Replicon tick.
+pub(crate) fn insert_confirmed_history_on_interpolated<C: Component + Clone>(
+    trigger: On<Add, Interpolated>,
+    mut commands: Commands,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    query: Query<(&C, &ConfirmHistory), Without<ConfirmedHistory<C>>>,
+) {
+    let Ok((component, confirm_history)) = query.get(trigger.entity) else {
+        return;
+    };
+
+    let Some(tick) = checkpoints.get(confirm_history.last_tick()) else {
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while backfilling ConfirmedHistory"
+        );
+        return;
+    };
+
+    let mut history = ConfirmedHistory::<C>::default();
+    history.push(tick, component.clone());
+    commands.entity(trigger.entity).insert(history);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::registry::InterpolationRegistry;
+    use bevy_app::App;
     use bevy_ecs::component::Component;
+    use bevy_replicon::prelude::RepliconTick;
 
     #[derive(Component, Clone, Debug, PartialEq)]
     struct TestComp(f32);
@@ -158,5 +194,35 @@ mod tests {
         let registry = registry();
         assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);
         assert_eq!(history.interpolate(Tick(50), 0.5, &registry), None);
+    }
+
+    #[test]
+    fn inserts_history_when_interpolated_added_after_component_is_already_replicated() {
+        let mut app = App::new();
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let replicon_tick = RepliconTick::new(11);
+        app.world_mut()
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(replicon_tick, Tick(42));
+
+        let entity = app
+            .world_mut()
+            .spawn((TestComp(2.0), ConfirmHistory::new(replicon_tick)))
+            .id();
+        app.update();
+        app.world_mut().entity_mut(entity).insert(Interpolated);
+        app.update();
+
+        let history = app
+            .world()
+            .entity(entity)
+            .get::<ConfirmedHistory<TestComp>>()
+            .unwrap();
+        assert_eq!(
+            history.start().map(|(tick, value)| (tick, value.clone())),
+            Some((Tick(42), TestComp(2.0)))
+        );
     }
 }

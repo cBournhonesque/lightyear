@@ -1,5 +1,6 @@
 use crate::SyncComponent;
 use crate::interpolate::{interpolate, update_confirmed_history};
+use crate::interpolation_history::insert_confirmed_history_on_interpolated;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, PreUpdate, Update};
@@ -99,6 +100,7 @@ pub enum InterpolationSystems {
 /// Add per-component systems related to interpolation
 pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
+    app.add_observer(insert_confirmed_history_on_interpolated::<C>);
     app.add_systems(
         Update,
         update_confirmed_history::<C>
