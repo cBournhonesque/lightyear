@@ -50,6 +50,14 @@ impl<C> ConfirmedHistory<C> {
         self.get_nth(1)
     }
 
+    /// The most recent value in the history
+    pub fn newest(&self) -> Option<(Tick, &C)> {
+        match self.history.most_recent() {
+            None | Some((_, HistoryState::Removed)) => None,
+            Some((t, HistoryState::Updated(v))) => Some((*t, v)),
+        }
+    }
+
     /// Get the n-th oldest tick in the buffer (starts from n = 0)
     pub(crate) fn get_nth(&self, n: usize) -> Option<(Tick, &C)> {
         match self.history.get_nth(n) {
@@ -81,26 +89,33 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         interpolation_overstep: f32,
         interpolation_registry: &InterpolationRegistry,
     ) -> Option<C> {
-        if let Some((start_tick, start)) = self.start()
-            && let Some((end_tick, end)) = self.end()
-        {
-            if interpolation_tick < start_tick {
-                return None;
-            }
-            let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
-                / (end_tick - start_tick) as f32;
-            trace!(
-                ?start_tick,
-                ?end_tick,
-                ?interpolation_tick,
-                ?interpolation_overstep,
-                ?fraction,
-                "Interpolate {:?}",
-                DebugName::type_name::<C>()
-            );
-            return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
+        let (start_tick, start) = self.start()?;
+        // It is possible that the interpolation_tick is early compared to the updates
+        // in the history: e.g. we received an update H, then no update for a while so
+        // we rebased it forward, and then two new updates arrive ahead of the
+        // interpolation tick (X...H1...H2). In that case interpolation should not run.
+        if interpolation_tick < start_tick {
+            return None;
         }
-        None
+        let (end_tick, end) = self.end()?;
+        // Clamp (rather than extrapolate past end_tick): bounds jerk to
+        // |newest - behind| on direction reversals. Extrapolation would look smoother
+        // in pure continuous motion but amplify the mismatch when the server path
+        // diverges from the extrapolated one. Revisit if we add velocity-aware
+        // interpolation with reconciliation.
+        let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+            / (end_tick - start_tick) as f32)
+            .clamp(0.0, 1.0);
+        trace!(
+            ?start_tick,
+            ?end_tick,
+            ?interpolation_tick,
+            ?interpolation_overstep,
+            ?fraction,
+            "Interpolate {:?}",
+            DebugName::type_name::<C>()
+        );
+        Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction))
     }
 }
 
@@ -160,5 +175,85 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
         //  We enforce this invariant in replication::receive
         history.push(tick, component.0);
         // TODO: here we do not want to update directly the component, that will be done during interpolation
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::component::Component;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct TestComp(f32);
+
+    fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
+        TestComp(start.0 + (end.0 - start.0) * t)
+    }
+
+    fn registry() -> InterpolationRegistry {
+        let mut registry = InterpolationRegistry::default();
+        registry.set_interpolation::<TestComp>(lerp);
+        registry
+    }
+
+    #[test]
+    fn test_interpolate_blends_between_two_keyframes() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        assert_eq!(
+            history.interpolate(Tick(15), 0.0, &registry),
+            Some(TestComp(5.0))
+        );
+    }
+
+    // The idle-rebase path in update_confirmed_history writes the component
+    // directly when the buffer collapses to a single keyframe, so interpolate()
+    // returns None and the previously-written value stands.
+    #[test]
+    fn test_interpolate_returns_none_with_single_keyframe() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(42.0));
+
+        assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);
+        assert_eq!(history.interpolate(Tick(50), 0.5, &registry), None);
+    }
+
+    #[test]
+    fn test_interpolate_clamps_when_past_end_tick() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        assert_eq!(
+            history.interpolate(Tick(30), 0.0, &registry),
+            Some(TestComp(10.0))
+        );
+        assert_eq!(
+            history.interpolate(Tick(20), 0.5, &registry),
+            Some(TestComp(10.0))
+        );
+    }
+
+    #[test]
+    fn test_interpolate_returns_none_when_tick_is_before_start() {
+        let registry = registry();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        assert_eq!(history.interpolate(Tick(5), 0.0, &registry), None);
+    }
+
+    #[test]
+    fn test_interpolate_returns_none_when_history_is_empty() {
+        let registry = registry();
+        let history = ConfirmedHistory::<TestComp>::default();
+
+        assert_eq!(history.interpolate(Tick(0), 0.0, &registry), None);
     }
 }
