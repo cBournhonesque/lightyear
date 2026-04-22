@@ -230,8 +230,8 @@ leafwing-input-manager = { version = "0.20", default-features = false, features 
 bevy_replicon = { version = "=0.39.4" }
 
 # physics
-avian2d = { version = "0.5", default-features = false }
-avian3d = { version = "0.5", default-features = false }
+avian2d = { version = "0.6", default-features = false }
+avian3d = { version = "0.6", default-features = false }
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.36", default-features = false, features = [

@@ -373,8 +373,8 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .get::<CompFull>(predicted_a)
             .unwrap()
             .0,
-        104.0,
-        "Rollback initiator should replay from the older confirmed tick"
+        103.0,
+        "Rollback initiator should replay from the older confirmed tick up to the last completed tick"
     );
     assert_eq!(
         stepper
@@ -383,8 +383,8 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .get::<CompFull>(predicted_b)
             .unwrap()
             .0,
-        202.0,
-        "Later confirmed value on another entity should be preserved during replay"
+        201.0,
+        "Later confirmed value on another entity should be preserved and replayed from its confirmed tick"
     );
 }
 
