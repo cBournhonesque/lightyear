@@ -53,7 +53,7 @@ jobs:
         run: mv htdocs wasm-examples
 
       - name: Setup Pages
-        uses: actions/configure-pages@v5
+        uses: actions/configure-pages@v6
 
       - name: Upload wasm frontend artifact
         uses: actions/upload-pages-artifact@v5
