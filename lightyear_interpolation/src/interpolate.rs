@@ -24,15 +24,15 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
     ((current - start) as f32 + overstep) / (end - start) as f32
 }
 
-/// Update the ConfirmedHistory so that interpolation can simply interpolate between the last 2 updates.
+/// Maintain the confirmed-history anchors used for interpolation.
+///
+/// The goal is to keep the freshest bracketing pair while updates are flowing,
+/// then converge to the newest confirmed value when updates stop arriving.
 pub(crate) fn update_confirmed_history<C: Component + Clone>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
     interpolation: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
     tick_duration: Res<TickDuration>,
-    // we don't insert the component immediately, instead we wait for:
-    // - either 2 updates, so that we can interpolate between them
-    // - or enough time has passed since the initial update
     mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>)>,
     mut commands: Commands,
 ) {
@@ -46,74 +46,50 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
 
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
-        // the ConfirmedHistory contains an ordered list (from oldest to most recent) of Confirmed component updates to interpolate between
-        // The component must always be interpolating between the oldest and the second oldest values in the history.
-        // History: H1...X...H2.....H3
-
-        // We enforce this like so:
-        // - If we have 2 older history values than the current tick, we pop the last value
-        //   History: H1....H2..X..H3  -> pop H1
-        if let Some((history_tick, end_value)) = history.end() {
-            // we have 2 updates, we can start interpolating!
-            if !present {
-                trace!(
-                    ?entity,
-                    ?history_tick,
-                    ?current_interpolate_tick,
-                    "insert interpolated comp value because we have 2 values to interpolate between. Kind = {:?}",
-                    DebugName::type_name::<C>()
-                );
-                // we can insert the end_value because:
-                // - if H1..X...H2, we will do interpolation right after
-                // - if H1...H2..X, H2 is a good starting point for the interpolation
-                commands.entity(entity).insert(end_value.clone());
-            }
-            if current_interpolate_tick >= history_tick {
-                history.pop();
-            }
-        }
-
-        // If it's been too long since we last received an update; we pop the value from the history and
-        // re-insert it as the current interpolation tick.
-        // Otherwise we would be interpolating from a very old value, which would look strange.
-        //   History: H1.....................................X..H2...H3 -> H1.X...H2..H3
-        // We will then wait to have 2 new values before we can interpolate.
-        if history.len() == 1
-            && let Some((history_tick, val)) = history.start()
-            && (current_interpolate_tick - history_tick) >= send_interval_delta_tick
+        // Smart drain: only pop when there are 3+ keyframes and the second-oldest
+        // has already been passed. This keeps a [behind, newest] pair alive during
+        // short loss gaps instead of collapsing immediately to a single keyframe.
+        while history.len() >= 3
+            && history
+                .get_nth(1)
+                .is_some_and(|(t, _)| t <= current_interpolate_tick)
         {
-            if !present {
-                trace!(
-                    ?entity,
-                    ?history_tick,
-                    ?current_interpolate_tick,
-                    "insert interpolated comp value because we enough time has passed. Kind = {:?}",
-                    DebugName::type_name::<C>()
-                );
-                commands.entity(entity).insert(val.clone());
-            }
-
-            trace!(
-                ?current_interpolate_tick,
-                ?history_tick,
-                ?send_interval_delta_tick,
-                "Reset the start_tick because it's been too long since we received an update"
-            );
-            let (_, val) = history.pop().unwrap();
-            // TODO: the correct behaviour would be to know the exact tick at which the component started getting updated
-            //  so that we know exactly which tick to interpolate from!
-            // we reset the value to a more recent tick so that the interpolation is done between two close values.
-            history.push(current_interpolate_tick, val);
+            history.pop();
         }
 
-        // It is possible that the interpolation_tick is early compared to the two updates
-        // (for example we received an update H, then no update for a while so we removed it from the history, and then
-        //  we receive two updates ahead of the interpolation_tick)
-        // X...H1...H2
-        // In which case the interpolation should not run.
+        // Seed the component as soon as we have interpolation state. If we already
+        // have two anchors, the second-oldest is the best initial visible value;
+        // otherwise use the single available anchor.
+        if !present && let Some((_, value)) = history.end().or(history.start()) {
+            commands.entity(entity).insert(value.clone());
+        }
 
-        // TODO: if we don't have 2 values to interpolate between, we should extrapolate
-        //   History: H1....X...  -> extrapolate X
+        // If the newest update is stale, collapse the history to a single anchor at
+        // the current interpolation tick and write the newest confirmed value
+        // directly. This guarantees convergence on the latest authoritative state
+        // once updates stop arriving.
+        let idle_value = match history.newest() {
+            Some((newest_tick, value))
+                if (current_interpolate_tick - newest_tick) >= send_interval_delta_tick =>
+            {
+                Some(value.clone())
+            }
+            _ => None,
+        };
+        if let Some(value) = idle_value {
+            trace!(
+                ?entity,
+                ?current_interpolate_tick,
+                "rebase idle keyframe. Kind = {:?}",
+                DebugName::type_name::<C>()
+            );
+            while history.pop().is_some() {}
+            // TODO: the correct behaviour would be to know the exact tick at which the
+            // component started getting updated so that we know exactly which tick to
+            // interpolate from. Using `current_interpolate_tick` here is a proxy.
+            history.push(current_interpolate_tick, value.clone());
+            commands.entity(entity).insert(value);
+        }
     }
 }
 
@@ -137,10 +113,101 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
 }
 
 // #[cfg(test)]
-// mod tests {
-//     #![allow(unused_imports)]
-//     #![allow(unused_variables)]
-//     #![allow(dead_code)]
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::InterpolationRegistry;
+    use bevy_app::{App, Update};
+    use bevy_ecs::component::Component;
+    use lightyear_core::time::TickInstant;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct TestComp(f32);
+
+    fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
+        TestComp(start.0 + (end.0 - start.0) * t)
+    }
+
+    fn setup_app(current_tick: Tick, send_interval_ms: u64) -> App {
+        let mut app = App::new();
+        app.world_mut()
+            .insert_resource(TickDuration(core::time::Duration::from_millis(10)));
+
+        let mut timeline = InterpolationTimeline::default();
+        timeline.set_now(TickInstant::from(current_tick));
+        timeline.remote_send_interval = core::time::Duration::from_millis(send_interval_ms);
+        app.world_mut()
+            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app
+    }
+
+    #[test]
+    fn update_confirmed_history_converges_to_latest_confirmed_value_when_idle() {
+        let mut app = setup_app(Tick(30), 40);
+        app.add_systems(Update, update_confirmed_history::<TestComp>);
+
+        let entity = app.world_mut().spawn(TestComp(9.5)).id();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+        app.world_mut().entity_mut(entity).insert(history);
+
+        app.update();
+
+        let component = app.world().get::<TestComp>(entity).unwrap();
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestComp>>(entity)
+            .unwrap();
+        assert_eq!(component, &TestComp(10.0));
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            history.start().map(|(t, v)| (t, v.clone())),
+            Some((Tick(30), TestComp(10.0)))
+        );
+    }
+
+    #[test]
+    fn update_confirmed_history_keeps_bracketing_pair_during_loss_gap() {
+        let mut app = setup_app(Tick(25), 40);
+        app.add_systems(
+            Update,
+            (
+                update_confirmed_history::<TestComp>,
+                interpolate::<TestComp>,
+            )
+                .chain(),
+        );
+        let mut registry = InterpolationRegistry::default();
+        registry.set_interpolation::<TestComp>(lerp);
+        app.world_mut().insert_resource(registry);
+
+        let entity = app.world_mut().spawn(TestComp(999.0)).id();
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+        history.push(Tick(30), TestComp(20.0));
+        app.world_mut().entity_mut(entity).insert(history);
+
+        app.update();
+
+        let component = app.world().get::<TestComp>(entity).unwrap();
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestComp>>(entity)
+            .unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(
+            history.start().map(|(t, v)| (t, v.clone())),
+            Some((Tick(20), TestComp(10.0)))
+        );
+        assert_eq!(
+            history.end().map(|(t, v)| (t, v.clone())),
+            Some((Tick(30), TestComp(20.0)))
+        );
+        assert_eq!(component, &TestComp(15.0));
+    }
+}
 //
 //     use std::net::SocketAddr;
 //     use std::str::FromStr;

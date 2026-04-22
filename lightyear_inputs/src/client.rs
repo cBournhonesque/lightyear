@@ -119,6 +119,16 @@ pub enum InputSystems {
     CleanUp,
 }
 
+/// Client-side plugin that buffers local action state each tick and sends
+/// compressed input messages to the server.
+///
+/// The plugin also handles:
+/// - **Input delay**: buffering inputs ahead of time so the server receives
+///   them before it needs them.
+/// - **Redundancy**: each message includes the last N ticks of input to
+///   recover from packet loss.
+/// - **Remote player prediction**: if `rebroadcast_inputs` is enabled,
+///   processes input messages received from the server for other players.
 pub struct ClientInputPlugin<S: ActionStateSequence> {
     config: InputConfig<S::Action>,
 }

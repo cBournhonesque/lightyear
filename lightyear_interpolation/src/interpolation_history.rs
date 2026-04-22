@@ -47,6 +47,14 @@ impl<C> ConfirmedHistory<C> {
         self.get_nth(1)
     }
 
+    /// The most recent value in the history.
+    pub fn newest(&self) -> Option<(Tick, &C)> {
+        match self.history.most_recent() {
+            None | Some((_, HistoryState::Removed)) => None,
+            Some((t, HistoryState::Updated(v))) => Some((*t, v)),
+        }
+    }
+
     /// Get the n-th oldest tick in the buffer (starts from n = 0)
     pub(crate) fn get_nth(&self, n: usize) -> Option<(Tick, &C)> {
         match self.history.get_nth(n) {
@@ -78,25 +86,77 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         interpolation_overstep: f32,
         interpolation_registry: &InterpolationRegistry,
     ) -> Option<C> {
-        if let Some((start_tick, start)) = self.start()
-            && let Some((end_tick, end)) = self.end()
-        {
-            if interpolation_tick < start_tick {
-                return None;
-            }
-            let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)
-                / (end_tick - start_tick) as f32;
-            trace!(
-                ?start_tick,
-                ?end_tick,
-                ?interpolation_tick,
-                ?interpolation_overstep,
-                ?fraction,
-                "Interpolate {:?}",
-                DebugName::type_name::<C>()
-            );
-            return Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction));
+        let (start_tick, start) = self.start()?;
+        // It is possible that the interpolation tick lags behind the buffered
+        // anchors, for example if two fresh updates arrive after a long gap:
+        // X...H1...H2. In that case interpolation should not run yet.
+        if interpolation_tick < start_tick {
+            return None;
         }
-        None
+
+        let (end_tick, end) = self.end()?;
+        // Clamp rather than extrapolate beyond the newest confirmed value. This
+        // makes late packets converge to the freshest server state instead of
+        // overshooting when motion changes direction.
+        let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+            / (end_tick - start_tick) as f32)
+            .clamp(0.0, 1.0);
+        trace!(
+            ?start_tick,
+            ?end_tick,
+            ?interpolation_tick,
+            ?interpolation_overstep,
+            ?fraction,
+            "Interpolate {:?}",
+            DebugName::type_name::<C>()
+        );
+        Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::InterpolationRegistry;
+    use bevy_ecs::component::Component;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct TestComp(f32);
+
+    fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
+        TestComp(start.0 + (end.0 - start.0) * t)
+    }
+
+    fn registry() -> InterpolationRegistry {
+        let mut registry = InterpolationRegistry::default();
+        registry.set_interpolation::<TestComp>(lerp);
+        registry
+    }
+
+    #[test]
+    fn interpolate_clamps_to_newest_value_when_tick_is_past_end() {
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(0.0));
+        history.push(Tick(20), TestComp(10.0));
+
+        let registry = registry();
+        assert_eq!(
+            history.interpolate(Tick(30), 0.0, &registry),
+            Some(TestComp(10.0))
+        );
+        assert_eq!(
+            history.interpolate(Tick(20), 0.5, &registry),
+            Some(TestComp(10.0))
+        );
+    }
+
+    #[test]
+    fn interpolate_returns_none_with_single_keyframe() {
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.push(Tick(10), TestComp(42.0));
+
+        let registry = registry();
+        assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);
+        assert_eq!(history.interpolate(Tick(50), 0.5, &registry), None);
     }
 }

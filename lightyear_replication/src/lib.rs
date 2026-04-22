@@ -1,3 +1,88 @@
+//! Entity replication layer for lightyear, built on top of [`bevy_replicon`].
+//!
+//! This crate handles replicating ECS entities and their components across the
+//! network. It wraps `bevy_replicon`'s low-level replication machinery and adds
+//! lightyear-specific features: prediction/interpolation targets, network
+//! visibility, authority, hierarchy propagation, and pre-spawning.
+//!
+//! # Getting started
+//!
+//! Add [`Replicate`] to an entity to start replicating it. On the server, you
+//! typically specify which clients should receive the entity:
+//!
+//! ```rust,ignore
+//! commands.spawn((
+//!     Replicate::to_clients(NetworkTarget::All),
+//!     PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+//!     InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+//!     MyComponent(42),
+//! ));
+//! ```
+//!
+//! # Key concepts
+//!
+//! ## Replication targets
+//!
+//! [`Replicate`] (alias for [`ReplicationTarget<()>`]) controls which peers
+//! receive an entity. [`PredictionTarget`] and [`InterpolationTarget`] further
+//! control which clients run prediction or interpolation for that entity.
+//! Each target uses a [`ReplicationMode`] to specify the set of recipients.
+//!
+//! A [`ReplicationSender`] component must be present on the link entity
+//! (the entity that represents the connection to a remote peer) to enable
+//! outgoing replication through that link.
+//!
+//! ## Hierarchy propagation
+//!
+//! When an entity with [`Replicate`] has children (via `ChildOf`), those
+//! children automatically receive a [`ReplicateLike`] component pointing back
+//! to the root. This clones the root's replication configuration onto the
+//! child so the entire hierarchy replicates with the same visibility rules.
+//! Use [`DisableReplicateHierarchy`] on a child to opt out.
+//!
+//! You can also manually add [`ReplicateLike`] on any entity.
+//!
+//! ## Visibility
+//!
+//! [`VisibilityExt::gain_visibility`] and [`VisibilityExt::lose_visibility`]
+//! let you dynamically show or hide an entity for a specific client.
+//! Visibility changes propagate through [`ReplicateLikeChildren`] so that
+//! hiding a parent also hides its replicated descendants.
+//!
+//! For interest management based on spatial regions, see [`RoomPlugin`].
+//!
+//! ## Authority and control
+//!
+//! [`ControlledBy`] marks which link entity "owns" a replicated entity.
+//! [`HasAuthority`] indicates the local peer currently has authority.
+//! See [`AuthorityBroker`] for tracking authority across the replication
+//! hierarchy.
+//!
+//! Authority is currently not working since replicon only supports server to client
+//! replication.
+//!
+//! ## Pre-spawning
+//!
+//! [`PreSpawned`] allows both client and server to spawn the same entity
+//! independently, then match them via a deterministic hash. This enables
+//! zero-latency predicted spawns (e.g. bullets, projectiles).
+//!
+//! [`Replicate`]: crate::send::Replicate
+//! [`ReplicationTarget<()>`]: crate::send::ReplicationTarget
+//! [`PredictionTarget`]: crate::send::PredictionTarget
+//! [`InterpolationTarget`]: crate::send::InterpolationTarget
+//! [`ReplicationMode`]: crate::send::ReplicationMode
+//! [`ReplicationSender`]: crate::send::ReplicationSender
+//! [`ReplicateLike`]: crate::hierarchy::ReplicateLike
+//! [`DisableReplicateHierarchy`]: crate::hierarchy::DisableReplicateHierarchy
+//! [`ReplicateLikeChildren`]: crate::hierarchy::ReplicateLikeChildren
+//! [`VisibilityExt::gain_visibility`]: crate::visibility::immediate::VisibilityExt::gain_visibility
+//! [`VisibilityExt::lose_visibility`]: crate::visibility::immediate::VisibilityExt::lose_visibility
+//! [`RoomPlugin`]: crate::visibility::room::RoomPlugin
+//! [`ControlledBy`]: crate::control::ControlledBy
+//! [`HasAuthority`]: crate::authority::HasAuthority
+//! [`AuthorityBroker`]: crate::authority::AuthorityBroker
+//! [`PreSpawned`]: crate::prespawn::PreSpawned
 #![no_std]
 
 extern crate alloc;

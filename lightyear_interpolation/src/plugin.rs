@@ -164,6 +164,8 @@ mod tests {
         let delay = InterpolationDelay {
             delay: PositiveTickDelta::lit("2.4"),
         };
-        assert_eq!(delay.tick_and_overstep(Tick(3)), (Tick(0), 0.6));
+        let (tick, overstep) = delay.tick_and_overstep(Tick(3));
+        assert_eq!(tick, Tick(0));
+        assert!((overstep - 0.6).abs() < 0.001);
     }
 }

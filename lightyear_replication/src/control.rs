@@ -14,9 +14,16 @@ use lightyear_connection::host::HostClient;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
+/// Marker component indicating that the local peer controls this entity.
+///
+/// On the **client**, this is added to replicated entities that this client
+/// "owns" (e.g. the player's own character). It is automatically inserted
+/// by the replication system when the server sends a [`ControlledBy`]
+/// component pointing to this client's link entity.
+///
+/// You can use `With<Controlled>` in queries to distinguish locally
+/// controlled entities from remote ones.
 // TODO: currently we add Controlled on the sender for replication but this could cause issues with authority changes.
-/// Marker component on the receiver side to indicate that the replicated entity
-/// is under the control of the local peer that received the entity
 #[derive(Component, Clone, PartialEq, Debug, Default, Reflect, Serialize, Deserialize)]
 pub struct Controlled;
 

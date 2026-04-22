@@ -1,4 +1,13 @@
-//! Handles visibility rules for Replicate, PredictionTarget, and InterpolationTarget components.
+//! Replication send-side: target components, visibility rules, and replication state.
+//!
+//! The main type here is [`Replicate`] (an alias for [`ReplicationTarget<()>`]),
+//! which you add to an entity to begin replicating it. On the server you also
+//! typically add [`PredictionTarget`] and [`InterpolationTarget`] to control
+//! which clients run prediction or interpolation for that entity.
+//!
+//! Each link entity (the entity representing a connection to a remote peer)
+//! needs a [`ReplicationSender`] component to enable outgoing replication
+//! through that link.
 use crate::authority::{AuthorityBroker, HasAuthority};
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
@@ -41,29 +50,47 @@ use lightyear_core::prelude::LocalTimeline;
 #[cfg(feature = "prediction")]
 pub use prediction::*;
 
+/// Controls which peers an entity is replicated to.
+///
+/// Each [`ReplicationTarget`] stores a `ReplicationMode` that determines
+/// the set of link entities (connections) through which the entity will
+/// be sent. Most users should use the convenience constructors on
+/// [`Replicate`] rather than constructing a mode directly.
 #[derive(Clone, Default, Debug, PartialEq, Reflect)]
 pub enum ReplicationMode {
-    /// Will try to find a single ReplicationSender entity in the world
+    /// Finds the single [`ReplicationSender`] in the world and replicates to it.
     #[default]
     SingleSender,
     #[cfg(feature = "client")]
-    /// Will try to find a single Client entity in the world
+    /// Replicates to the server (finds the single `Client` entity).
     SingleClient,
     #[cfg(feature = "server")]
-    /// Will try to find a single Server entity in the world
+    /// Replicates to a subset of clients connected to the single `Server` entity.
     SingleServer(NetworkTarget),
-    /// Will use this specific entity
+    /// Replicates to one specific link entity.
     Sender(Entity),
     #[cfg(feature = "server")]
-    /// Will use all the clients for that server entity
+    /// Replicates to a subset of clients for a specific server entity.
     Server(Entity, NetworkTarget),
-    /// Will assign to various ReplicationSenders to replicate to
-    /// all peers in the NetworkTarget
+    /// Replicates to all link entities matching the [`NetworkTarget`].
     Target(NetworkTarget),
+    /// Replicates to an explicit list of link entities.
     Manual(Vec<Entity>),
 }
 
-/// Marker component to indicate that this peer should be replicating to its own remote peer
+/// Marker component added to a link entity to enable outgoing replication.
+///
+/// A link entity represents a connection to a remote peer. Adding
+/// `ReplicationSender` to it allows the replication systems to send
+/// entity data through that connection.
+///
+/// On the server, this is typically added in the `On<Add, LinkOf>` observer:
+///
+/// ```rust,ignore
+/// fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+///     commands.entity(trigger.entity).insert(ReplicationSender);
+/// }
+/// ```
 #[derive(Component, Default)]
 pub struct ReplicationSender;
 
@@ -327,6 +354,18 @@ mod prediction {
     use super::*;
     pub(super) use lightyear_core::prediction::Predicted;
 
+    /// Controls which clients run client-side prediction for this entity.
+    ///
+    /// Typically set to the owning client so they get a `Predicted` entity,
+    /// while other clients receive an `Interpolated` entity instead.
+    ///
+    /// ```rust,ignore
+    /// commands.spawn((
+    ///     Replicate::to_clients(NetworkTarget::All),
+    ///     PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+    ///     InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+    /// ));
+    /// ```
     pub type PredictionTarget = ReplicationTarget<Predicted>;
     impl ReplicationTargetT for Predicted {
         type VisibilityBit = PredictedBit;
@@ -393,6 +432,12 @@ mod interpolation {
     use super::*;
     pub(super) use lightyear_core::interpolation::Interpolated;
 
+    /// Controls which clients run server-authoritative interpolation for this entity.
+    ///
+    /// Typically set to all clients *except* the owning client, so remote
+    /// players see a smooth interpolated version of the entity.
+    ///
+    /// See [`PredictionTarget`] for the complementary prediction setting.
     pub type InterpolationTarget = ReplicationTarget<Interpolated>;
     impl ReplicationTargetT for Interpolated {
         type VisibilityBit = InterpolatedBit;
@@ -674,7 +719,7 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
             }
         }
 
-        drop(entity_mut);
+        let _ = entity_mut;
         world.commands().queue(move |world: &mut World| {
             let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
                 return;

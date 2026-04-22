@@ -103,6 +103,15 @@ pub enum AuthorityTransfer {
 ///
 /// This component only makes sense in a client-server setting where an app either has one Client
 /// or one Server.
+/// Marker component present when the local peer has authority over this entity.
+///
+/// Authority means this peer is responsible for simulating the entity and
+/// sending replication updates to other peers. You can use `With<HasAuthority>`
+/// in queries to run simulation logic only on the authoritative peer.
+///
+/// This component is automatically managed by the replication system — do not
+/// insert or remove it manually. Use [`GiveAuthority`] to transfer authority
+/// to another peer.
 #[derive(Component)]
 pub struct HasAuthority;
 

@@ -42,9 +42,15 @@ impl Default for ReplicationMetadata {
     }
 }
 
+/// Event emitted when the receiver learns the sender's replication interval.
+///
+/// This is sent as part of the initial handshake so the receiver can align
+/// its interpolation and timeline logic with the sender's send rate.
 #[derive(Event, Debug)]
 pub struct SenderMetadata {
+    /// How often the sender emits replication updates.
     pub send_interval: PositiveTickDelta,
+    /// The link entity that sent this metadata.
     pub sender_entity: Entity,
 }
 

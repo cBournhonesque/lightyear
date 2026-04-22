@@ -31,7 +31,31 @@ use lightyear_replication::ReplicationSystems;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// Add BEI Input replication to your app.
+/// Adds [`bevy_enhanced_input`] replication for an input context `C`.
+///
+/// This plugin registers the context component `C` for replication, sets up
+/// the [`BEIStateSequence`] message protocol to send compressed action-state
+/// diffs over the network, and configures the BEI scheduling so that inputs
+/// are buffered and restored correctly during prediction rollbacks.
+///
+/// Add one `InputPlugin` per input context type in your protocol:
+///
+/// ```rust,ignore
+/// app.add_plugins(InputPlugin::<Player>::default());
+/// app.register_input_action::<Movement>();
+/// ```
+///
+/// # Action entities
+///
+/// BEI uses separate "action entities" with [`ActionOf<C>`] to represent
+/// individual actions. These entities need to exist on both client and server.
+/// The recommended approach is to use [`PreSpawned`] so both sides spawn them
+/// independently and match via a deterministic hash — this avoids the need
+/// for client-to-server entity replication.
+///
+/// [`BEIStateSequence`]: crate::input_message::BEIStateSequence
+/// [`ActionOf<C>`]: bevy_enhanced_input::prelude::ActionOf
+/// [`PreSpawned`]: lightyear_replication::prelude::PreSpawned
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
 }

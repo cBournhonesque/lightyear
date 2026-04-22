@@ -35,6 +35,11 @@ use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
+/// Server-side plugin that receives input messages from clients and applies
+/// them to [`InputBuffer`](crate::input_buffer::InputBuffer) components.
+///
+/// If `rebroadcast_inputs` is enabled, the server also forwards input messages
+/// to other clients so they can use them for remote-player prediction.
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,
     pub marker: core::marker::PhantomData<S>,
@@ -49,6 +54,8 @@ impl<S> Default for ServerInputPlugin<S> {
     }
 }
 
+/// Runtime configuration for server-side input handling, inserted as a resource
+/// by [`ServerInputPlugin`].
 #[derive(Resource)]
 pub struct ServerInputConfig<S> {
     pub rebroadcast_inputs: bool,

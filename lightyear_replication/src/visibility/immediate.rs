@@ -50,9 +50,34 @@ impl FromWorld for VisibilityBit {
     }
 }
 
+/// Extension trait for dynamically showing or hiding replicated entities.
+///
+/// Implemented for both [`World`] (immediate) and [`Commands`] (deferred).
+///
+/// Visibility changes automatically propagate to descendant entities in the
+/// same replication hierarchy (those with [`ReplicateLikeChildren`]).
+///
+/// # Parameters
+///
+/// - `entity`: the replicated entity to show or hide.
+/// - `sender`: the link entity (connection) for which visibility changes.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Hide an entity from a specific client
+/// commands.lose_visibility(server_entity, client_link_entity);
+///
+/// // Make it visible again
+/// commands.gain_visibility(server_entity, client_link_entity);
+/// ```
+///
+/// [`ReplicateLikeChildren`]: crate::hierarchy::ReplicateLikeChildren
 pub trait VisibilityExt {
+    /// Make `entity` (and its replication-hierarchy descendants) visible to `sender`.
     fn gain_visibility(&mut self, entity: Entity, sender: Entity);
 
+    /// Hide `entity` (and its replication-hierarchy descendants) from `sender`.
     fn lose_visibility(&mut self, entity: Entity, sender: Entity);
 }
 

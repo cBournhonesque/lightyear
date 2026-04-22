@@ -10,7 +10,17 @@ use bevy_replicon::client::confirm_history::ConfirmHistory;
 /// replicon always adds a [`ConfirmHistory`] component on replicated entities, so we can just use that.
 pub type Replicated = ConfirmHistory;
 
-/// Marker component to indicate that this peer is allowed to receive replication messages
+/// Marker component added to a link entity to enable incoming replication.
+///
+/// A link entity represents a connection to a remote peer. Adding
+/// `ReplicationReceiver` to it allows the replication systems to process
+/// entity data received through that connection.
+///
+/// On the server, this is only needed if you want to receive client-to-server
+/// entity replication (e.g. for [`PreSpawned`](crate::prespawn::PreSpawned)
+/// entities). For normal server-to-client replication, only
+/// [`ReplicationSender`](crate::send::ReplicationSender) is required on the
+/// server side.
 #[derive(Component, Default)]
 pub struct ReplicationReceiver;
 
