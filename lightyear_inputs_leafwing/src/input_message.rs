@@ -131,6 +131,45 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
     fn from_snapshot<'w, 's>(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
         *state = snapshot.0.clone();
     }
+
+    fn from_snapshot_transitions<'w>(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
+        use leafwing_input_manager::InputControlKind;
+        use leafwing_input_manager::action_state::ActionKindData;
+
+        state.tick(Instant::now(), Instant::now());
+
+        let new = &snapshot.0;
+        for (action, new_data) in new.all_action_data() {
+            match &new_data.kind_data {
+                ActionKindData::Button(new_button) => {
+                    if new_button.pressed() {
+                        state.press(action);
+                    } else {
+                        state.release(action);
+                    }
+                }
+                ActionKindData::Axis(axis_data) => {
+                    state.set_value(action, axis_data.value);
+                }
+                ActionKindData::DualAxis(dual_data) => {
+                    state.set_axis_pair(action, dual_data.pair);
+                }
+                ActionKindData::TripleAxis(triple_data) => {
+                    state.set_axis_triple(action, triple_data.triple);
+                }
+            }
+        }
+
+        let snapshot_keys: Vec<A> = new.keys();
+        for action in state.keys() {
+            if action.input_control_kind() != InputControlKind::Button {
+                continue;
+            }
+            if !snapshot_keys.contains(&action) && state.pressed(&action) {
+                state.release(&action);
+            }
+        }
+    }
 }
 
 #[cfg(test)]

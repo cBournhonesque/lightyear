@@ -47,7 +47,7 @@ pub(crate) mod action_diff;
 
 mod action_state;
 
-mod input_message;
+pub mod input_message;
 
 mod plugin;
 

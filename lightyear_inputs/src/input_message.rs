@@ -235,6 +235,22 @@ pub trait ActionStateSequence:
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
 
+    /// Apply a snapshot while preserving button transition semantics.
+    ///
+    /// Unlike [`from_snapshot`](Self::from_snapshot) (which raw-clones), this
+    /// compares the current state against the snapshot and calls press/release
+    /// so that `JustPressed`/`JustReleased` transitions are correctly produced
+    /// on the server, where the wire format collapses these into
+    /// `Pressed`/`Released`.
+    ///
+    /// Default implementation falls back to `from_snapshot`.
+    fn from_snapshot_transitions<'w>(
+        state: StateMutItemInner<'w, Self>,
+        snapshot: &Self::Snapshot,
+    ) {
+        Self::from_snapshot(state, snapshot);
+    }
+
     /// Apply decay to the given state for the given tick duration.
     fn decay_tick(state: StateMutItem<Self>, tick_duration: Duration) {
         let mut snapshot =

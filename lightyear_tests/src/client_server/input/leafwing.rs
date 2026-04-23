@@ -162,3 +162,65 @@ fn test_buffer_inputs_with_delay() {
             .just_released(&LeafwingInput1::Jump)
     );
 }
+
+/// Verify that `from_snapshot_transitions` produces correct `just_pressed` /
+/// `just_released` transitions when applying a network snapshot.
+///
+/// The wire format (`ActionDiff`) collapses `JustPressed` into `Pressed`.
+/// `from_snapshot` (raw clone) would lose the transition. `from_snapshot_transitions`
+/// instead compares the current state against the snapshot and calls
+/// `press()` / `release()` to produce the correct transition.
+#[test]
+fn test_from_snapshot_transitions_produces_just_pressed() {
+    use lightyear::input::input_message::ActionStateSequence;
+    use lightyear::input::leafwing::input_message::{LeafwingSequence, LeafwingSnapshot};
+
+    let now = std::time::Instant::now();
+
+    // Start with a released state
+    let mut state = ActionState::<LeafwingInput1>::default();
+
+    // Create a snapshot where the button is pressed (simulating what arrives
+    // over the wire — `Pressed`, not `JustPressed`)
+    let mut pressed_snapshot = ActionState::<LeafwingInput1>::default();
+    pressed_snapshot.press(&LeafwingInput1::Jump);
+    // Tick to advance JustPressed → Pressed (simulating the wire collapse)
+    pressed_snapshot.tick(now, now);
+    assert!(
+        pressed_snapshot.pressed(&LeafwingInput1::Jump),
+        "snapshot should be Pressed"
+    );
+    assert!(
+        !pressed_snapshot.just_pressed(&LeafwingInput1::Jump),
+        "snapshot should NOT be JustPressed (collapsed by wire format)"
+    );
+
+    let snapshot = LeafwingSnapshot(pressed_snapshot);
+
+    // Apply with from_snapshot_transitions: should detect the transition
+    // from Released → Pressed and produce JustPressed
+    LeafwingSequence::<LeafwingInput1>::from_snapshot_transitions(&mut state, &snapshot);
+    assert!(
+        state.just_pressed(&LeafwingInput1::Jump),
+        "from_snapshot_transitions should produce JustPressed"
+    );
+
+    // Apply again — now it's Pressed → Pressed, so just_pressed should be false
+    LeafwingSequence::<LeafwingInput1>::from_snapshot_transitions(&mut state, &snapshot);
+    assert!(
+        state.pressed(&LeafwingInput1::Jump),
+        "should still be pressed"
+    );
+    assert!(
+        !state.just_pressed(&LeafwingInput1::Jump),
+        "should NOT be just_pressed on second application"
+    );
+
+    // Now apply a released snapshot — should produce just_released
+    let released_snapshot = LeafwingSnapshot(ActionState::<LeafwingInput1>::default());
+    LeafwingSequence::<LeafwingInput1>::from_snapshot_transitions(&mut state, &released_snapshot);
+    assert!(
+        state.just_released(&LeafwingInput1::Jump),
+        "from_snapshot_transitions should produce JustReleased"
+    );
+}
