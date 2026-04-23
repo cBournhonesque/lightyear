@@ -177,14 +177,14 @@ fn test_from_snapshot_transitions_produces_just_pressed() {
 
     let now = std::time::Instant::now();
 
-    // Start with a released state
+    // Start with a released state.
     let mut state = ActionState::<LeafwingInput1>::default();
 
     // Create a snapshot where the button is pressed (simulating what arrives
-    // over the wire — `Pressed`, not `JustPressed`)
+    // over the wire — `Pressed`, not `JustPressed`).
     let mut pressed_snapshot = ActionState::<LeafwingInput1>::default();
     pressed_snapshot.press(&LeafwingInput1::Jump);
-    // Tick to advance JustPressed → Pressed (simulating the wire collapse)
+    // Tick to advance JustPressed → Pressed (simulating the wire collapse).
     pressed_snapshot.tick(now, now);
     assert!(
         pressed_snapshot.pressed(&LeafwingInput1::Jump),
@@ -198,14 +198,14 @@ fn test_from_snapshot_transitions_produces_just_pressed() {
     let snapshot = LeafwingSnapshot(pressed_snapshot);
 
     // Apply with from_snapshot_transitions: should detect the transition
-    // from Released → Pressed and produce JustPressed
+    // from Released → Pressed and produce JustPressed.
     LeafwingSequence::<LeafwingInput1>::from_snapshot_transitions(&mut state, &snapshot);
     assert!(
         state.just_pressed(&LeafwingInput1::Jump),
         "from_snapshot_transitions should produce JustPressed"
     );
 
-    // Apply again — now it's Pressed → Pressed, so just_pressed should be false
+    // Apply again — now it's Pressed → Pressed, so just_pressed should be false.
     LeafwingSequence::<LeafwingInput1>::from_snapshot_transitions(&mut state, &snapshot);
     assert!(
         state.pressed(&LeafwingInput1::Jump),
@@ -216,11 +216,79 @@ fn test_from_snapshot_transitions_produces_just_pressed() {
         "should NOT be just_pressed on second application"
     );
 
-    // Now apply a released snapshot — should produce just_released
+    // Now apply a released snapshot — should produce just_released.
     let released_snapshot = LeafwingSnapshot(ActionState::<LeafwingInput1>::default());
     LeafwingSequence::<LeafwingInput1>::from_snapshot_transitions(&mut state, &released_snapshot);
     assert!(
         state.just_released(&LeafwingInput1::Jump),
         "from_snapshot_transitions should produce JustReleased"
+    );
+}
+
+/// Verify that `just_pressed` works correctly on the server after receiving
+/// a client's input.
+///
+/// The wire format (`ActionDiff`) collapses `JustPressed` into `Pressed`,
+/// so the server must reconstruct the transition from the state change.
+/// Currently this test documents the known limitation: `just_pressed()`
+/// returns false on the server because `from_snapshot` raw-clones the
+/// `ActionState` without detecting transitions.
+#[test]
+#[ignore = "known limitation: server-side leafwing input path does not yet reconstruct this transition end-to-end"]
+fn test_server_just_pressed() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client");
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+
+    stepper.frame_step(3);
+
+    let server_action = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .unwrap();
+    assert!(
+        server_action.pressed(&LeafwingInput1::Jump),
+        "Server should see the button as pressed"
+    );
+
+    // Document current behavior until the server-side transition reconstruction
+    // path is fully enabled.
+    assert!(
+        !server_action.just_pressed(&LeafwingInput1::Jump),
+        "KNOWN BUG: just_pressed is lost on the server (see PR #1438)"
     );
 }

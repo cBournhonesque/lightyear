@@ -544,4 +544,35 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(1)), Some(&1));
         assert_eq!(input_buffer.get(Tick(2)), None);
     }
+
+    /// Verify that `get` returns None for ticks past the buffer end,
+    /// while `get_predict` falls back to the last known input.
+    ///
+    /// This matters on the server: when the server tick advances past the
+    /// last received input, `get` silently drops the input (returns None)
+    /// while `get_predict` returns the most recent value.
+    #[test]
+    fn test_get_vs_get_predict_past_buffer_end() {
+        let mut input_buffer = InputBuffer::<i32, i32>::default();
+        input_buffer.set(Tick(10), 42);
+        input_buffer.set(Tick(12), 99);
+
+        // Within range: both return the same value
+        assert_eq!(input_buffer.get(Tick(10)), Some(&42));
+        assert_eq!(input_buffer.get_predict(Tick(10)), Some(&42));
+        assert_eq!(input_buffer.get(Tick(12)), Some(&99));
+        assert_eq!(input_buffer.get_predict(Tick(12)), Some(&99));
+
+        // Past buffer end: get returns None, get_predict returns last known
+        assert_eq!(input_buffer.get(Tick(15)), None);
+        assert_eq!(
+            input_buffer.get_predict(Tick(15)),
+            Some(&99),
+            "get_predict should fall back to the last known input"
+        );
+
+        // Before buffer start: both return None
+        assert_eq!(input_buffer.get(Tick(5)), None);
+        assert_eq!(input_buffer.get_predict(Tick(5)), None);
+    }
 }

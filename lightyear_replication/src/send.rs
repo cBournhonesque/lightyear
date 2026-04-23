@@ -259,8 +259,6 @@ impl ReplicationTargetT for () {
                 ReplicatedFrom {
                     receiver: host_sender,
                 },
-                // TODO: do we still need InitialReplicated?
-                // SpawnedOnHostServer,
             ));
         }
     }
