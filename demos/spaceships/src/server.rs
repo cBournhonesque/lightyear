@@ -235,7 +235,7 @@ fn server_stall_system(mut stall: ResMut<ServerStallStress>, local_timeline: Res
     let tick = local_timeline.tick();
     if let Some(last) = stall.last_stall_tick {
         let delta = tick.0.wrapping_sub(last.0);
-        if delta < stall.interval_ticks as u16 {
+        if delta < stall.interval_ticks {
             return;
         }
     }

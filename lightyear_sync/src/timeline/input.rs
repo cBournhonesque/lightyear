@@ -282,12 +282,12 @@ impl SyncedTimeline for InputTimeline {
             config.sync.jitter_margin(ping_manager.jitter()),
             tick_duration,
         );
-        let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
+        let input_delay: TickDelta = Tick(self.context.input_delay_ticks as u32).into();
         // NOTE: because of input delay, this could be in the past, which causes issues with Prediction
         // let's make sure that we're always ahead of the server
         let mut obj = remote + network_delay + jitter_margin - input_delay;
         if obj < remote {
-            obj = remote + TickDelta::from_i16(1)
+            obj = remote + TickDelta::from_i32(1)
         }
         trace!(
             ?remote,
@@ -300,10 +300,10 @@ impl SyncedTimeline for InputTimeline {
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> i16 {
+    fn resync(&mut self, sync_objective: TickInstant) -> i32 {
         let now = self.now();
         self.now = sync_objective;
-        (sync_objective - now).to_i16()
+        (sync_objective - now).to_i32()
     }
 
     /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
@@ -318,7 +318,7 @@ impl SyncedTimeline for InputTimeline {
         config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<i16> {
+    ) -> Option<i32> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
             return None;

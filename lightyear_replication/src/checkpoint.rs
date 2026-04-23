@@ -54,7 +54,7 @@ use lightyear_core::tick::Tick;
 
 const CHECKPOINT_MAGIC: [u8; 2] = *b"LY";
 const CHECKPOINT_VERSION: u8 = 1;
-const HEADER_LEN: usize = 5;
+const HEADER_LEN: usize = 7;
 const MAX_STORED_CHECKPOINTS: usize = 256;
 
 /// Lightyear-owned header prepended to wrapped Replicon server payloads.
@@ -169,7 +169,9 @@ pub fn unwrap_server_payload(
     if version != CHECKPOINT_VERSION {
         return Err(CheckpointError::UnsupportedVersion(version));
     }
-    let authoritative_tick = Tick(u16::from_le_bytes([payload[3], payload[4]]));
+    let authoritative_tick = Tick(u32::from_le_bytes([
+        payload[3], payload[4], payload[5], payload[6],
+    ]));
     Ok((
         ReplicationCheckpointHeader {
             version,

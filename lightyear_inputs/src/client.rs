@@ -284,7 +284,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     >,
 ) {
     let current_tick = local_timeline.tick();
-    let tick = current_tick + input_timeline.input_delay() as i16;
+    let tick = current_tick + input_timeline.input_delay() as i32;
     for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
         input_buffer.set(tick, S::to_snapshot(action_state));
         trace!(
@@ -332,7 +332,7 @@ fn get_action_state<S: ActionStateSequence>(
     >,
 ) {
     let (input_timeline, input_config, is_rollback) = sender.into_inner();
-    let input_delay = input_timeline.input_delay() as i16;
+    let input_delay = input_timeline.input_delay() as i32;
     let tick = local_timeline.tick();
     if is_rollback && config.ignore_rollbacks {
         return;
@@ -412,7 +412,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     let Ok((input_timeline, is_rollback)) = sender.single() else {
         return;
     };
-    let input_delay_ticks = input_timeline.input_delay() as i16;
+    let input_delay_ticks = input_timeline.input_delay() as i32;
     if is_rollback || input_delay_ticks == 0 {
         return;
     }
@@ -519,7 +519,7 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = timeline.tick();
-    let tick = current_tick + input_timeline.input_delay() as i16;
+    let tick = current_tick + input_timeline.input_delay() as i32;
     // TODO: the number of messages should be in SharedConfig
     trace!(delayed_tick = ?tick, ?current_tick, "prepare_input_message");
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
@@ -532,10 +532,10 @@ fn prepare_input_message<S: ActionStateSequence>(
         .send_frequency;
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let mut num_tick: u16 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
+    let mut num_tick: u32 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
         .try_into()
         .unwrap();
-    num_tick *= input_config.packet_redundancy;
+    num_tick *= input_config.packet_redundancy as u32;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned) in input_buffer_query.iter() {
         trace!(

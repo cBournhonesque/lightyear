@@ -749,9 +749,9 @@ fn update_replication_tick(
         // fixed simulation tick can stay unchanged between render frames, but we
         // still need a unique replication tick to flush spawns/updates that occur
         // between fixed ticks without reusing the previous mutate-confirm tick.
-        let current_tick = replication_tick.get() as u16;
+        let current_tick = replication_tick.get();
         let new_tick = timeline.tick();
-        let delta = (new_tick - current_tick).0 as u32;
+        let delta = (new_tick - current_tick).0;
         replication_tick.increment_by(delta.max(1));
     }
 }

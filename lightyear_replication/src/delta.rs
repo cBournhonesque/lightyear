@@ -196,13 +196,13 @@ impl DeltaManager {
         // }
     }
 
-    /// To avoid tick-wrapping issues, we run a system regularly (every u16::MAX / 3 ticks)
+    /// We run a system regularly (every u16::MAX / 3 ticks)
     /// to clean up old tick data.
     ///
     /// We remove every tick that is too old (which means we cannot do delta compression and
     /// we will be sending a full component value)
     pub(crate) fn tick_cleanup(&mut self, current_tick: Tick) {
-        let delta = (u16::MAX / 3) as i16;
+        let delta = (u32::MAX / 3) as i32;
         self.state.alter_all(|_, mut group_data| {
             group_data.data.retain(|k, _| *k - current_tick > delta);
             group_data

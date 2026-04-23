@@ -199,7 +199,7 @@ pub fn shared_player_firing(
         }
 
         let wrapped_diff = weapon.last_fire_tick - current_tick;
-        if wrapped_diff.abs() <= weapon.cooldown as i16 {
+        if wrapped_diff.abs() <= weapon.cooldown as i32 {
             // cooldown period - can't fire.
             if weapon.last_fire_tick == current_tick {
                 // logging because debugging latency edge conditions where
@@ -231,7 +231,7 @@ pub fn shared_player_firing(
                 ColorComponent((color.0.to_linear() * 5.0).into()), // bloom !
                 BulletLifetime {
                     origin_tick: current_tick,
-                    lifetime: FIXED_TIMESTEP_HZ as i16 * 2,
+                    lifetime: FIXED_TIMESTEP_HZ as i32 * 2,
                 },
                 BulletMarker::new(player.client_id),
                 PhysicsBundle::bullet(),

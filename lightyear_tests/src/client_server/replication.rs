@@ -494,7 +494,11 @@ fn test_late_join_client_gets_latest_state_for_existing_predicted_entity() {
     );
 }
 
-/// Test that replicating updates works even if the update happens after tick wrapping
+/// Test that replicating updates works even after a large tick jump.
+///
+/// With u32 ticks, wrapping takes ~828 days at 60 Hz so it is not a practical
+/// concern. This test verifies that a moderate jump (10 000 ticks) does not
+/// break replication.
 #[test]
 fn test_component_update_after_tick_wrap() {
     for direction in active_replication_directions() {
@@ -509,30 +513,29 @@ fn test_component_update_after_tick_wrap() {
         let mirrored_entity = target_entity(&stepper, direction, source_entity)
             .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
 
-        // we increase the ticks in 2 steps (otherwise we would directly go over tick wrapping and the tick cleanup
-        // systems would not run)
+        // Apply a large tick jump on both client and server
         stepper
             .client_app()
             .world_mut()
             .resource_mut::<LocalTimeline>()
-            .apply_delta((u16::MAX / 3 + 10) as i16);
+            .apply_delta(10_000);
         stepper
             .server_app
             .world_mut()
             .resource_mut::<LocalTimeline>()
-            .apply_delta((u16::MAX / 3 + 10) as i16);
+            .apply_delta(10_000);
         stepper.frame_step(direction.propagation_frames());
 
         stepper
             .client_app()
             .world_mut()
             .resource_mut::<LocalTimeline>()
-            .apply_delta((u16::MAX / 3 + 10) as i16);
+            .apply_delta(10_000);
         stepper
             .server_app
             .world_mut()
             .resource_mut::<LocalTimeline>()
-            .apply_delta((u16::MAX / 3 + 10) as i16);
+            .apply_delta(10_000);
         stepper.frame_step(direction.propagation_frames());
 
         with_source_world(&mut stepper, direction, |world| {
@@ -550,7 +553,7 @@ fn test_component_update_after_tick_wrap() {
         assert_eq!(
             updated_comp,
             Some(CompA(2.0)),
-            "component update should survive tick wrap for {direction:?}"
+            "component update should survive tick jump for {direction:?}"
         );
     }
 }

@@ -324,7 +324,7 @@ impl<C> PredictionHistory<C> {
     }
 
     /// Update ticks in case of a TickEvent (client tick changed)
-    pub fn update_ticks(&mut self, delta: i16) {
+    pub fn update_ticks(&mut self, delta: i32) {
         self.buffer.iter_mut().for_each(|(tick, _)| {
             *tick = *tick + delta;
         });

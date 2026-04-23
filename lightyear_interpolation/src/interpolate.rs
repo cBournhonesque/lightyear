@@ -42,7 +42,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
     let send_interval_delta_tick = (SEND_INTERVAL_TICK_FACTOR
         * timeline.remote_send_interval.as_secs_f32()
         / tick_duration.as_secs_f32())
-    .ceil() as i16;
+    .ceil() as i32;
 
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {

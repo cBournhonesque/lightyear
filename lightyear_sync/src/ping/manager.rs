@@ -60,7 +60,7 @@ impl Default for PingManager {
             config: PingConfig::default(),
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),
-            most_recent_received_ping: PingId(u16::MAX - 1),
+            most_recent_received_ping: PingId(u32::MAX - 1),
             pongs_to_send: vec![],
             rtt_estimator_ewma: RttEstimatorEwma::default(),
             pings_sent: 0,
@@ -73,7 +73,7 @@ impl PingManager {
     pub(crate) fn reset(&mut self) {
         self.ping_timer.reset();
         self.ping_store.reset();
-        self.most_recent_received_ping = PingId(u16::MAX - 1);
+        self.most_recent_received_ping = PingId(u32::MAX - 1);
         self.pongs_to_send.clear();
         self.rtt_estimator_ewma.reset();
         self.pings_sent = 0;
@@ -88,7 +88,7 @@ impl PingManager {
             // pings
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),
-            most_recent_received_ping: PingId(u16::MAX - 1),
+            most_recent_received_ping: PingId(u32::MAX - 1),
             pongs_to_send: vec![],
             // sync
             rtt_estimator_ewma: RttEstimatorEwma::default(),

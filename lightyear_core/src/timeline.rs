@@ -115,7 +115,7 @@ impl LocalTimeline {
     }
 
     /// Increment the LocalTimeline by `delta`
-    pub fn apply_delta(&mut self, delta: i16) {
+    pub fn apply_delta(&mut self, delta: i32) {
         self.tick = self.tick + delta;
     }
 }
@@ -187,12 +187,12 @@ pub struct SyncEvent<T: TimelineConfig> {
     //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
     //  to update the LocalTimeline
     /// Delta in number of ticks to apply to the timeline
-    pub tick_delta: i16,
+    pub tick_delta: i32,
     marker: core::marker::PhantomData<T>,
 }
 
 impl<T: TimelineConfig> SyncEvent<T> {
-    pub fn new(entity: Entity, tick_delta: i16) -> Self {
+    pub fn new(entity: Entity, tick_delta: i32) -> Self {
         SyncEvent {
             entity,
             tick_delta,

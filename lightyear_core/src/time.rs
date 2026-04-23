@@ -9,7 +9,7 @@ use core::ops::{Add, AddAssign, Mul, Neg, Sub, SubAssign};
 use bevy_reflect::Reflect;
 use core::time::Duration;
 use fixed::traits::ToFixed;
-use fixed::types::{I16F16, U0F8, U0F16, U16F16};
+use fixed::types::{I32F32, U0F8, U0F16, U32F32};
 use lightyear_serde::reader::ReadInteger;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
@@ -156,7 +156,7 @@ impl From<Overstep> for f32 {
 #[derive(Default, PartialEq, Eq, PartialOrd, Ord, Clone, Copy, Reflect)]
 #[reflect(opaque)]
 pub struct TickInstant {
-    pub value: U16F16,
+    pub value: U32F32,
 }
 
 impl Debug for TickInstant {
@@ -168,12 +168,12 @@ impl Debug for TickInstant {
 impl TickInstant {
     pub const fn lit(src: &str) -> Self {
         Self {
-            value: U16F16::lit(src),
+            value: U32F32::lit(src),
         }
     }
     pub const fn zero() -> Self {
         Self {
-            value: U16F16::ZERO,
+            value: U32F32::ZERO,
         }
     }
     pub fn tick(&self) -> Tick {
@@ -189,8 +189,8 @@ impl TickInstant {
     /// `tick` is the whole tick count, and `overstep` is the fraction towards
     /// the next tick in the range [0, 1).
     pub fn from_tick_and_overstep(tick: Tick, overstep: Overstep) -> Self {
-        let base: U16F16 = tick.0.into();
-        let frac: U16F16 = overstep.value().into();
+        let base: U32F32 = tick.0.to_fixed();
+        let frac: U32F32 = overstep.value().into();
         Self { value: base + frac }
     }
 
@@ -232,7 +232,7 @@ impl From<TickDelta> for TickInstant {
 impl From<Tick> for TickInstant {
     fn from(value: Tick) -> Self {
         Self {
-            value: value.0.into(),
+            value: value.0.to_fixed(),
         }
     }
 }
@@ -241,9 +241,9 @@ impl From<Tick> for TickInstant {
 #[derive(Clone, Copy, PartialEq, Eq, Reflect)]
 #[reflect(opaque)]
 pub struct TickDelta {
-    /// This is the combined representation of a signed 16-bit tick diff (range -32,768 to 32,767)
-    /// plus an unsigned 16-bit overstep (range 0 to ~0.99998, always positive).
-    value: I16F16,
+    /// This is the combined representation of a signed 32-bit tick diff
+    /// plus an unsigned 32-bit overstep (range 0 to ~0.99998, always positive).
+    value: I32F32,
 }
 
 impl Debug for TickDelta {
@@ -255,15 +255,15 @@ impl Debug for TickDelta {
 impl From<Tick> for TickDelta {
     fn from(value: Tick) -> Self {
         Self {
-            value: value.0.cast_signed().into(),
+            value: value.0.cast_signed().to_fixed(),
         }
     }
 }
 
-impl From<i16> for TickDelta {
-    fn from(value: i16) -> Self {
+impl From<i32> for TickDelta {
+    fn from(value: i32) -> Self {
         Self {
-            value: value.into(),
+            value: value.to_fixed(),
         }
     }
 }
@@ -285,17 +285,17 @@ impl From<TickInstant> for TickDelta {
 }
 
 impl TickDelta {
-    pub fn new(value: I16F16) -> Self {
+    pub fn new(value: I32F32) -> Self {
         Self { value }
     }
     pub const fn lit(src: &str) -> Self {
         Self {
-            value: I16F16::lit(src),
+            value: I32F32::lit(src),
         }
     }
 
-    pub fn tick_diff(&self) -> u16 {
-        self.value.unsigned_abs().to_num::<u16>()
+    pub fn tick_diff(&self) -> u32 {
+        self.value.unsigned_abs().to_num::<u32>()
     }
     pub fn overstep(&self) -> Overstep {
         Overstep::new(self.value.unsigned_abs().wrapping_to_num())
@@ -344,15 +344,15 @@ impl TickDelta {
     }
 
     /// Apply a delta number of ticks with no overstep
-    pub fn from_i16(delta: i16) -> Self {
+    pub fn from_i32(delta: i32) -> Self {
         Self {
-            value: delta.into(),
+            value: delta.to_fixed(),
         }
     }
 
     /// Returns the number of tick difference (positive or negative) that this TickDelta represents,
     /// rounding to the closes integer value
-    pub fn to_i16(&self) -> i16 {
+    pub fn to_i32(&self) -> i32 {
         self.value.to_num()
     }
 
@@ -379,7 +379,7 @@ impl TickDelta {
 
     pub fn zero() -> Self {
         Self {
-            value: I16F16::default(),
+            value: I32F32::default(),
         }
     }
 }
@@ -426,7 +426,7 @@ impl Mul<U0F16> for TickDelta {
     type Output = Self;
 
     fn mul(self, rhs: U0F16) -> Self::Output {
-        let rhs_fixed: I16F16 = rhs.to_fixed();
+        let rhs_fixed: I32F32 = rhs.to_fixed::<I32F32>();
         Self {
             value: self.value.wrapping_mul(rhs_fixed),
         }
@@ -436,17 +436,17 @@ impl Mul<U0F16> for TickDelta {
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Default, Reflect)]
 #[reflect(opaque)]
 pub struct PositiveTickDelta {
-    pub value: U16F16,
+    pub value: U32F32,
 }
 
 impl PositiveTickDelta {
     pub const fn lit(src: &str) -> Self {
         Self {
-            value: U16F16::lit(src),
+            value: U32F32::lit(src),
         }
     }
-    pub fn tick_diff(&self) -> u16 {
-        self.value.to_num::<u16>()
+    pub fn tick_diff(&self) -> u32 {
+        self.value.to_num::<u32>()
     }
     pub fn overstep(&self) -> Overstep {
         Overstep::new(self.value.wrapping_to_num())
@@ -466,12 +466,12 @@ impl From<TickDelta> for PositiveTickDelta {
 
 impl ToBytes for PositiveTickDelta {
     fn bytes_len(&self) -> usize {
-        self.tick_diff().bytes_len() + self.overstep().bytes_len()
+        4 + self.overstep().bytes_len()
     }
 
     // TODO: use varint for the tick_diff since it's probably small
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
-        self.tick_diff().to_bytes(buffer)?;
+        buffer.write_u32(self.tick_diff())?;
         self.overstep().to_bytes(buffer)
     }
 
@@ -479,10 +479,10 @@ impl ToBytes for PositiveTickDelta {
     where
         Self: Sized,
     {
-        let tick_diff = u16::from_bytes(buffer)?;
+        let tick_diff = buffer.read_u32()?;
         let overstep = Overstep::from_bytes(buffer)?;
         Ok(Self {
-            value: U16F16::from(tick_diff) + U16F16::from(overstep.value),
+            value: tick_diff.to_fixed::<U32F32>() + U32F32::from(overstep.value),
         })
     }
 }
@@ -577,7 +577,7 @@ mod tests {
 
         fn default_epsilon() -> Self::Epsilon {
             TickInstant {
-                value: U16F16::DELTA,
+                value: U32F32::DELTA,
             }
         }
 
@@ -591,7 +591,7 @@ mod tests {
 
         fn default_epsilon() -> Self::Epsilon {
             TickDelta {
-                value: I16F16::DELTA,
+                value: I32F32::DELTA,
             }
         }
 
@@ -750,12 +750,12 @@ mod tests {
 
     #[test]
     fn test_tickdelta_signed_addition() {
-        let delta = TickDelta::from_i16(10);
+        let delta = TickDelta::from_i32(10);
 
-        assert_eq!((delta + delta).to_i16(), 20);
-        assert_eq!((delta + (-delta)).to_i16(), 0);
-        assert_eq!(((-delta) + delta).to_i16(), 0);
-        assert_eq!(((-delta) + (-delta)).to_i16(), -20);
+        assert_eq!((delta + delta).to_i32(), 20);
+        assert_eq!((delta + (-delta)).to_i32(), 0);
+        assert_eq!(((-delta) + delta).to_i32(), 0);
+        assert_eq!(((-delta) + (-delta)).to_i32(), -20);
     }
 
     #[test]
@@ -774,13 +774,17 @@ mod tests {
         // Multiplication causing overstep overflow
         let delta = TickDelta::lit("10.8");
         let result = delta * 1.5;
-        assert_abs_diff_eq!(result, TickDelta::lit("16.2"));
+        assert_abs_diff_eq!(
+            result,
+            TickDelta::lit("16.2"),
+            epsilon = TickDelta::lit("0.001")
+        );
     }
 
     #[test]
     fn test_tickdelta_subtraction() {
-        let delta = TickDelta::from(10i16);
-        let sub = delta - TickDelta::from(20i16);
+        let delta = TickDelta::from(10i32);
+        let sub = delta - TickDelta::from(20i32);
         assert_relative_eq!(sub.to_f32(), -10.0);
 
         let a = TickDelta::lit("0.1");

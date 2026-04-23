@@ -266,7 +266,7 @@ impl DeterministicPredicted {
             manager.deterministic_despawn.push((tick, context.entity));
         } else {
             manager.deterministic_skip_despawn.push((
-                tick + (deterministic_predicted.enable_rollback_after as i16),
+                tick + (deterministic_predicted.enable_rollback_after as i32),
                 context.entity,
             ));
         }
@@ -843,7 +843,7 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
 ///
 /// This function assumes that `current_fixed_time`'s timestep remained the
 /// same for the past `num_rollback_ticks` ticks.
-fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i16) -> Time<Fixed> {
+fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i32) -> Time<Fixed> {
     let mut rollback_fixed_time = Time::<Fixed>::from_duration(current_fixed_time.timestep());
     if num_rollback_ticks <= 0 {
         debug!("Cannot rollback fixed time by {} ticks", num_rollback_ticks);

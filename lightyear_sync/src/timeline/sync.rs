@@ -42,7 +42,7 @@ pub trait SyncedTimeline: NetworkTimeline {
 
     /// Resync the timeline if they are too out of sync. Returns the number of tick deltas
     /// that should be applied
-    fn resync(&mut self, sync_objective: TickInstant) -> i16;
+    fn resync(&mut self, sync_objective: TickInstant) -> i32;
 
     /// Sync the current timeline to the other timeline T.
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
@@ -56,7 +56,7 @@ pub trait SyncedTimeline: NetworkTimeline {
         config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<i16>;
+    ) -> Option<i32>;
 
     fn is_synced(&self) -> bool;
 

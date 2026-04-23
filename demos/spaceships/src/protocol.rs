@@ -142,7 +142,7 @@ pub struct Score(pub i32);
 pub(crate) struct BulletLifetime {
     pub(crate) origin_tick: Tick,
     /// number of ticks to live for
-    pub(crate) lifetime: i16,
+    pub(crate) lifetime: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
