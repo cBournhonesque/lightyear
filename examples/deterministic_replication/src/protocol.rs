@@ -48,6 +48,35 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
+/// Replicated component set by the server to indicate the tick at which
+/// physics should start. Both server and client add physics components
+/// when `LocalTimeline::tick() >= PhysicsStartTick.0`.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PhysicsStartTick(pub Tick);
+
+/// Replicated snapshot of a player's physics state. The server updates this
+/// every tick (in Flexible mode only) so that late-joining clients can
+/// initialize physics from the correct state.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct PlayerPhysicsState {
+    pub tick: Tick,
+    pub position: Vec2,
+    pub rotation: f32,
+    pub linear_velocity: Vec2,
+    pub angular_velocity: f32,
+}
+
+/// Replicated snapshot of the ball's physics state. Placed on a dedicated
+/// server entity (in Flexible mode only) so late-joining clients can
+/// initialize their local ball from the correct state.
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct BallPhysicsState {
+    pub tick: Tick,
+    pub position: Vec2,
+    pub linear_velocity: Vec2,
+    pub angular_velocity: f32,
+}
+
 // Messages
 
 #[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -94,13 +123,15 @@ impl Plugin for ProtocolPlugin {
 
         // components
         app.register_component::<PlayerId>();
+        app.register_component::<PhysicsStartTick>();
+        app.register_component::<PlayerPhysicsState>();
+        app.register_component::<BallPhysicsState>();
 
-        // add prediction for non-networked components
+        // Position/Rotation/Velocity are NOT replicated continuously — they
+        // are computed locally from inputs via deterministic simulation.
+        // We register them for rollback and checksums only.
         app.add_rollback::<Position>()
-            // add a hash function to perform a checksum in order to catch desyncs
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            // register a linear interpolation function without actually running Interpolation systems
-            // it will be used for FrameInterpolation
             .register_linear_interpolation()
             .add_linear_correction_fn();
 

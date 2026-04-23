@@ -39,11 +39,29 @@ clippy_examples:
     cargo clippy -p simple_box --all-features -- -D warnings --no-deps
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
+# jq filter shared by all example/demo build recipes
+_example_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression") and (.name != "simple_setup")) | .name'
+# simple_setup is excluded from headless/split builds because it has no client/server/gui feature gates
+
+# Build all examples with default features (GUI)
 build_examples_demos:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 4 $pkgs'
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 $pkgs'
 
 build_examples_demos_release:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build --release -j 4 $pkgs'
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build --release -j 2 $pkgs'
+
+# Build all examples headless (no GUI, no window). Uses a separate target dir
+# to avoid feature unification pulling in bevy_winit. Binaries in target/headless/debug/.
+build_examples_headless:
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'{{ _example_pkgs_filter }}'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 --no-default-features --features=client,server,netcode,udp --target-dir target/headless $pkgs'
+
+# Build all examples with only client features (no server)
+build_examples_client_only:
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'{{ _example_pkgs_filter }}'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 --no-default-features --features=client,gui,netcode,udp $pkgs'
+
+# Build all examples with only server features (no client, no GUI)
+build_examples_server_only:
+    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'{{ _example_pkgs_filter }}'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 --no-default-features --features=server,netcode,udp --target-dir target/server-only $pkgs'
 
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.
@@ -205,7 +223,7 @@ lightyear_frame_interpolation:
     # cargo clippy -p lightyear_frame_interpolation --tests --no-default-features -- -D warnings --no-deps
     # cargo clippy -p lightyear_frame_interpolation --tests --no-default-features --features="std" -- -D warnings --no-deps
     # cargo clippy -p lightyear_frame_interpolation --tests --all-features -- -D warnings --no-deps
-    
+
 lightyear_inputs:
     # `lightyear_inputs` only works with `std`
     # cargo clippy -p lightyear_inputs --no-default-features -- -D warnings --no-deps

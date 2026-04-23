@@ -234,7 +234,6 @@ fn test_from_snapshot_transitions_produces_just_pressed() {
 /// returns false on the server because `from_snapshot` raw-clones the
 /// `ActionState` without detecting transitions.
 #[test]
-#[ignore = "known limitation: server-side leafwing input path does not yet reconstruct this transition end-to-end"]
 fn test_server_just_pressed() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
@@ -291,4 +290,87 @@ fn test_server_just_pressed() {
         !server_action.just_pressed(&LeafwingInput1::Jump),
         "KNOWN BUG: just_pressed is lost on the server (see PR #1438)"
     );
+}
+
+/// Test that leafwing inputs from one client are rebroadcasted to other clients.
+///
+/// Client 0 presses a button. The server receives it, rebroadcasts to client 1.
+/// Client 1 should see the pressed state in its InputBuffer for the remote player.
+#[test]
+fn test_leafwing_input_rebroadcast() {
+    use lightyear_replication::prelude::PredictionTarget;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    // Create an entity replicated to both clients with prediction
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step_server_first(1);
+
+    let client0_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 0");
+
+    let client1_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 1");
+
+    // Client 0 has an InputMap so it can drive inputs
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client0_entity)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+
+    stepper.frame_step(1);
+
+    // Press button on client 0
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+
+    // Let it propagate: client 0 → server → rebroadcast to client 1
+    stepper.frame_step(5);
+
+    // Check that client 1 received the rebroadcasted input
+    let client1_has_buffer = stepper.client_apps[1]
+        .world()
+        .entity(client1_entity)
+        .get::<LeafwingBuffer<LeafwingInput1>>()
+        .is_some();
+
+    assert!(
+        client1_has_buffer,
+        "Client 1 should have an InputBuffer for the remote player after receiving rebroadcasted inputs"
+    );
+
+    if client1_has_buffer {
+        let buffer = stepper.client_apps[1]
+            .world()
+            .entity(client1_entity)
+            .get::<LeafwingBuffer<LeafwingInput1>>()
+            .unwrap();
+        assert!(
+            buffer.last_remote_tick.is_some(),
+            "Client 1's InputBuffer should have a last_remote_tick from the rebroadcast"
+        );
+    }
 }

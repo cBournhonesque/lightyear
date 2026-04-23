@@ -18,9 +18,7 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_link::prelude::Server;
-use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_transport::channel::Channel;
-use tracing::error;
 
 /// SystemParam to help send a message to the different [`ClientOf`] connected to a [`Server`].
 ///
@@ -54,52 +52,18 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         target: &NetworkTarget,
         priority: Priority,
     ) -> Result {
-        // if the message is not map-entities, we can serialize it once and clone the bytes
-        if !self.sender.registry.is_map_entities::<M>()? {
-            // TODO: serialize once for all senders. Figure out how to get a shared writer. Maybe on Server? Or as a global resource?
-            //   or as Local?
-            self.sender.registry.serialize::<M>(
-                message,
-                &mut self.sender.writer,
-                &mut SendEntityMap::default(),
-            )?;
-            let bytes = self.sender.writer.split();
-            target.apply_targets(
-                server.collection().iter().copied(),
-                &self.metadata.mapping,
-                &mut |sender| {
-                    if let Ok((_, transport)) = self.sender.query.get(sender) {
-                        transport
-                            .send_with_priority::<C>(bytes.clone(), priority)
-                            .inspect_err(|e| error!("Failed to send message: {e}"))
-                            .ok();
-                    }
-                },
-            );
-        } else {
-            target.apply_targets(
-                server.collection().iter().copied(),
-                &self.metadata.mapping,
-                &mut |sender| {
-                    if let Ok((_, transport)) = self.sender.query.get(sender) {
-                        self.sender
-                            .registry
-                            .serialize::<M>(
-                                message,
-                                &mut self.sender.writer,
-                                &mut SendEntityMap::default(),
-                            )
-                            .unwrap();
-                        let bytes = self.sender.writer.split();
-                        transport
-                            .send_with_priority::<C>(bytes.clone(), priority)
-                            .inspect_err(|e| error!("Failed to send message: {e}"))
-                            .ok();
-                    }
-                },
-            );
-        }
-        Ok(())
+        // Resolve the NetworkTarget to concrete entities, then delegate to
+        // MultiMessageSender which handles per-client entity mapping correctly.
+        let mut targets = bevy_ecs::entity::EntityHashSet::default();
+        target.apply_targets(
+            server.collection().iter().copied(),
+            &self.metadata.mapping,
+            &mut |entity| {
+                targets.insert(entity);
+            },
+        );
+        self.sender
+            .send_with_priority::<M, C>(message, &targets, priority)
     }
 
     /// Send a message to a set of  [`ClientOf`]s entities associated with the provided [`Server`]

@@ -324,6 +324,204 @@ mod tests {
         assert_eq!(input_buffer.get(Tick(3)).unwrap().0, expected);
     }
 
+    /// Simulates the late-join rebroadcast scenario: client 1 holds [Jump]
+    /// for several ticks, sends an InputMessage. A new client (empty buffer)
+    /// receives the rebroadcast. The new client's buffer should contain
+    /// the pressed action for all ticks in the message.
+    #[test]
+    fn test_rebroadcast_to_empty_buffer() {
+        // Client 1 has been pressing Jump for ticks 5..10
+        let mut sender_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        for tick in 5..=10 {
+            sender_buffer.set(Tick(tick), action_state.clone().into());
+        }
+
+        // Build the message that client 1 sends (history_depth=6, end_tick=10)
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&sender_buffer, 6, Tick(10))
+                .unwrap();
+
+        // New client receives it into an empty buffer
+        let mut receiver_buffer: InputBuffer<LeafwingSnapshot<Action>, Action> =
+            InputBuffer::default();
+        let mismatch = sequence.update_buffer(&mut receiver_buffer, Tick(10), Duration::default());
+
+        // Every tick should have Jump pressed
+        for tick in 5..=10 {
+            let snapshot = receiver_buffer
+                .get(Tick(tick))
+                .unwrap_or_else(|| panic!("missing input at tick {tick}"));
+            assert!(
+                snapshot.pressed(&Action::Jump),
+                "Jump should be pressed at tick {tick}, got: {:?}",
+                snapshot.get_pressed()
+            );
+        }
+
+        // get_last should also return Jump pressed
+        let last = receiver_buffer.get_last().expect("buffer should not be empty");
+        assert!(
+            last.pressed(&Action::Jump),
+            "get_last should return Jump pressed, got: {:?}",
+            last.get_pressed()
+        );
+    }
+
+    /// Like test_rebroadcast_to_empty_buffer, but the sender's buffer uses
+    /// SameAsPrecedent compression (which happens when set() is called with
+    /// the same value on consecutive ticks — the real-world case).
+    #[test]
+    fn test_rebroadcast_to_empty_buffer_with_compression() {
+        let mut sender_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        // set() compresses consecutive identical values to SameAsPrecedent
+        for tick in 5..=10 {
+            sender_buffer.set(Tick(tick), LeafwingSnapshot(action_state.clone()));
+        }
+        // Verify compression is in effect
+        assert!(
+            sender_buffer.get(Tick(5)).is_some(),
+            "tick 5 should be present"
+        );
+        assert!(
+            sender_buffer.get(Tick(10)).is_some(),
+            "tick 10 should be present (via SameAsPrecedent)"
+        );
+
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&sender_buffer, 6, Tick(10))
+                .unwrap();
+
+        let mut receiver_buffer: InputBuffer<LeafwingSnapshot<Action>, Action> =
+            InputBuffer::default();
+        sequence.update_buffer(&mut receiver_buffer, Tick(10), Duration::default());
+
+        for tick in 5..=10 {
+            let snapshot = receiver_buffer
+                .get(Tick(tick))
+                .unwrap_or_else(|| panic!("missing input at tick {tick}"));
+            assert!(
+                snapshot.pressed(&Action::Jump),
+                "Jump should be pressed at tick {tick}, got: {:?}",
+                snapshot.get_pressed()
+            );
+        }
+    }
+
+    /// Test that get_action_state (which uses get(), not get_predict()) returns
+    /// the correct input for ticks within the buffer range after a rebroadcast.
+    /// This simulates the late-join scenario where the client's current tick is
+    /// within the buffer range.
+    #[test]
+    fn test_rebroadcast_get_within_range() {
+        let mut sender_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        for tick in 80..=100 {
+            sender_buffer.set(Tick(tick), LeafwingSnapshot(action_state.clone()));
+        }
+
+        let sequence =
+            LeafwingSequence::<Action>::build_from_input_buffer(&sender_buffer, 20, Tick(100))
+                .unwrap();
+
+        let mut receiver_buffer: InputBuffer<LeafwingSnapshot<Action>, Action> =
+            InputBuffer::default();
+        sequence.update_buffer(&mut receiver_buffer, Tick(100), Duration::default());
+
+        // Message covers ticks 81..=100 (20 ticks), not 80
+        // Simulate what the client does: get(tick) for current simulation tick
+        for tick in 81..=100 {
+            let snapshot = receiver_buffer.get(Tick(tick));
+            assert!(
+                snapshot.is_some(),
+                "get({tick}) should return Some for ticks in the buffer"
+            );
+            assert!(
+                snapshot.unwrap().pressed(&Action::Jump),
+                "Jump should be pressed at tick {tick}"
+            );
+        }
+
+        // get() for ticks BEYOND the buffer should return None (this is the
+        // late-join gap: the client's current tick is often beyond end_tick)
+        assert!(
+            receiver_buffer.get(Tick(101)).is_none(),
+            "get(101) should return None — beyond buffer"
+        );
+
+        // get_predict() should return last value for ticks beyond buffer
+        let predicted = receiver_buffer.get_predict(Tick(105));
+        assert!(predicted.is_some(), "get_predict(105) should return Some");
+        assert!(
+            predicted.unwrap().pressed(&Action::Jump),
+            "predicted should have Jump pressed"
+        );
+    }
+
+    /// Simulates multiple rebroadcast messages arriving in the same frame
+    /// (as happens in practice with redundant input sending).
+    /// After processing all messages, get_last() should return the pressed state.
+    #[test]
+    fn test_multiple_rebroadcast_messages() {
+        let mut sender_buffer = InputBuffer::default();
+        let mut action_state = ActionState::<Action>::default();
+        action_state.press(&Action::Jump);
+        for tick in 470..=490 {
+            sender_buffer.set(Tick(tick), LeafwingSnapshot(action_state.clone()));
+        }
+
+        let mut receiver_buffer: InputBuffer<LeafwingSnapshot<Action>, Action> =
+            InputBuffer::default();
+
+        // Simulate 3 messages arriving with different end_ticks (as the server
+        // forwards each client packet)
+        for end_tick in [485u32, 487, 490] {
+            let sequence = LeafwingSequence::<Action>::build_from_input_buffer(
+                &sender_buffer,
+                20,
+                Tick(end_tick),
+            )
+            .unwrap();
+            sequence.update_buffer(&mut receiver_buffer, Tick(end_tick), Duration::default());
+        }
+
+        // Buffer should cover through tick 490
+        assert_eq!(receiver_buffer.end_tick(), Some(Tick(490)));
+
+        // get_last should have Jump pressed
+        let last = receiver_buffer.get_last().expect("buffer should not be empty");
+        assert!(
+            last.pressed(&Action::Jump),
+            "get_last should return Jump pressed after multiple messages, got: {:?}",
+            last.get_pressed()
+        );
+
+        // Check specific ticks
+        for tick in 471..=490 {
+            let snapshot = receiver_buffer.get(Tick(tick));
+            assert!(
+                snapshot.is_some_and(|s| s.pressed(&Action::Jump)),
+                "Jump should be pressed at tick {tick}"
+            );
+        }
+
+        // Extending the buffer (as extend_input_buffers_for_late_join does)
+        // should preserve the pressed state
+        if let Some(last_val) = receiver_buffer.get_last().cloned() {
+            receiver_buffer.set(Tick(496), last_val);
+        }
+        let extended = receiver_buffer.get(Tick(496)).expect("tick 496 should exist");
+        assert!(
+            extended.pressed(&Action::Jump),
+            "After extension, tick 496 should have Jump pressed, got: {:?}",
+            extended.get_pressed()
+        );
+    }
+
     /// Check that if the input buffer has ticks beyond the previous mismatch, we still find the mismatch correctly
     #[test]
     fn test_update_buffer_mismatch() {

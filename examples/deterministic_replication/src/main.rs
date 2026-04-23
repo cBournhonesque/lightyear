@@ -76,21 +76,16 @@ fn add_input_delay(app: &mut App) {
         .entity_mut(client)
         .insert(PredictionManager {
             rollback_policy: RollbackPolicy {
-                // we only replicate inputs, so state-based rollback is disabled
                 state: RollbackMode::Disabled,
-                // we rollback only when remote inputs don't match what we were predicting
                 input: RollbackMode::Check,
-                // do not limit the max number of rollback ticks
                 max_rollback_ticks: 100,
             },
             ..default()
         })
         .insert(
             InputTimelineConfig::default()
-                // Enable `no_prediction()` to do deterministic_lockstep! 100% of the latency will be covered
-                // by input delay so there won't be any rollbacks
-                // .with_input_delay(InputDelayConfig::no_prediction()),
-                // Otherwise control the input delay manually
+                // In deterministic mode, input delay must be large enough for
+                // inputs to arrive on the server before the tick is simulated.
                 .with_input_delay(InputDelayConfig::fixed_input_delay(INPUT_DELAY_TICKS)),
         );
 }

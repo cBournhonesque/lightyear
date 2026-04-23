@@ -1,7 +1,7 @@
 use avian2d::prelude::Position;
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
-use leafwing_input_manager::prelude::ActionState;
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 use lightyear::prelude::*;
 use lightyear_examples_common::automation::{
     HeadlessInputPlugin, env_flag, env_string, sync_pressed_keys,
@@ -70,7 +70,7 @@ mod client {
 
     pub(super) fn drive_action_state(
         settings: Res<AutomationSettings>,
-        mut query: Query<&mut ActionState<PlayerActions>>,
+        mut query: Query<&mut ActionState<PlayerActions>, With<InputMap<PlayerActions>>>,
     ) {
         for mut action_state in &mut query {
             for action in [

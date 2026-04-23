@@ -18,6 +18,26 @@ use lightyear_frame_interpolation::FrameInterpolate;
 pub(crate) const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 
+/// Controls when player physics are activated in deterministic mode.
+#[derive(Resource, Clone, Debug, PartialEq)]
+pub enum GameStartMode {
+    /// Wait until `num_players` players have connected and sent their first
+    /// input, then activate physics for everyone at the same tick.
+    AllReady { num_players: usize },
+    /// Activate each player's physics individually as soon as their first
+    /// input is received. Allows late-joining.
+    Flexible,
+}
+
+impl Default for GameStartMode {
+    fn default() -> Self {
+        match std::env::var("LIGHTYEAR_GAME_MODE").as_deref() {
+            Ok("flexible") => GameStartMode::Flexible,
+            _ => GameStartMode::AllReady { num_players: 2 },
+        }
+    }
+}
+
 /// SharedPlugin between the client and server.
 ///
 /// We can choose to make the server a pure relay server (with 0 simulation), or to make it simulate some elements.
@@ -26,6 +46,7 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<GameStartMode>();
         app.add_plugins(ProtocolPlugin);
         // bundles
         app.add_systems(Startup, init);

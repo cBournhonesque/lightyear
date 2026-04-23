@@ -68,6 +68,7 @@ fn main() {
             });
             // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
             app.add_plugins(SharedPlugin);
+            app.insert_resource(ServerStartupConfig::default());
             app.add_plugins(server::ExampleServerPlugin);
         }
         Mode::HostClient { client_id } => {

@@ -147,13 +147,15 @@ fn test_host_client_action_rebroadcasts_to_remote_client() {
 
     // The host client lives in the server app, so driving the server-side action entity
     // exercises the host-client local input path.
-    stepper.server_app.world_mut().entity_mut(server_action).insert(
-        ActionMock::new(
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_action)
+        .insert(ActionMock::new(
             TriggerState::Fired,
             ActionValue::Bool(true),
             MockSpan::Manual,
-        ),
-    );
+        ));
 
     stepper.frame_step(4);
 

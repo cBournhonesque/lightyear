@@ -336,6 +336,7 @@ pub fn new_headless_app() -> App {
     app.add_plugins((
         MinimalPlugins,
         TransformPlugin,
+        bevy::input::InputPlugin,
         log_plugin(),
         StatesPlugin,
         DiagnosticsPlugin,

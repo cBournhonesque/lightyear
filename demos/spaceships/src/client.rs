@@ -19,6 +19,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_ball_physics);
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
+        app.add_observer(handle_controlled_player);
 
         #[cfg(feature = "gui")]
         app.add_systems(
@@ -64,33 +65,44 @@ fn add_bullet_physics(
 }
 
 /// Decorate newly connecting players with physics components
-/// ..and if it's our own player, set up input stuff
+/// The local input wiring is handled by `handle_controlled_player`, not here.
+///
+/// In host-server mode, the local player does not come through the same deferred
+/// replicated receive path as a remote client, so checking `Has<Controlled>`
+/// inside `Add<Predicted>` is brittle. We instead wait for `Controlled`
+/// explicitly and then add the `InputMap` once ownership is definitely known.
 fn handle_new_player(
     trigger: On<Add, (Player, Predicted)>,
     mut commands: Commands,
-    player_query: Query<(&Player, Has<Controlled>), With<Predicted>>,
+    player_query: Query<&Player, With<Predicted>>,
 ) {
     let entity = trigger.entity;
-    if let Ok((player, is_controlled)) = player_query.get(entity) {
-        info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
-        // is this our own entity?
-        if is_controlled {
-            info!("Own player replicated to us, adding inputmap {entity:?} {player:?}");
-            commands.entity(entity).insert(InputMap::new([
-                (PlayerActions::Up, KeyCode::ArrowUp),
-                (PlayerActions::Down, KeyCode::ArrowDown),
-                (PlayerActions::Left, KeyCode::ArrowLeft),
-                (PlayerActions::Right, KeyCode::ArrowRight),
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-                (PlayerActions::Fire, KeyCode::Space),
-            ]));
-        } else {
-            info!("Remote player replicated to us: {entity:?} {player:?}");
-        }
+    if let Ok(player) = player_query.get(entity) {
+        info!("Predicted player replicated to us: {entity:?} {player:?}");
         commands.entity(entity).insert(PhysicsBundle::player_ship());
+    }
+}
+
+/// Add the local InputMap once ownership is definitely known.
+fn handle_controlled_player(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    player_query: Query<&Player, (With<Predicted>, Without<InputMap<PlayerActions>>)>,
+) {
+    let entity = trigger.entity;
+    if let Ok(player) = player_query.get(entity) {
+        info!("Own player is now controlled, adding inputmap {entity:?} {player:?}");
+        commands.entity(entity).insert(InputMap::new([
+            (PlayerActions::Up, KeyCode::ArrowUp),
+            (PlayerActions::Down, KeyCode::ArrowDown),
+            (PlayerActions::Left, KeyCode::ArrowLeft),
+            (PlayerActions::Right, KeyCode::ArrowRight),
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
+            (PlayerActions::Fire, KeyCode::Space),
+        ]));
     }
 }
 

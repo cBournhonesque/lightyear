@@ -31,6 +31,9 @@ impl Plugin for ExampleClientPlugin {
             task: None,
         });
 
+        #[cfg(not(feature = "gui"))]
+        app.add_systems(Startup, begin_connect_token_request_on_startup);
+
         #[cfg(feature = "gui")]
         {
             // despawn the existing connect button from the Renderer if it exists
@@ -67,6 +70,13 @@ pub(crate) fn begin_connect_token_request(task_state: &mut ConnectTokenRequestTa
         get_connect_token_from_auth_backend(auth_backend_addr).await
     }));
     task_state.task = Some(task);
+}
+
+#[cfg(not(feature = "gui"))]
+fn begin_connect_token_request_on_startup(
+    mut connect_token_request: ResMut<ConnectTokenRequestTask>,
+) {
+    begin_connect_token_request(&mut connect_token_request);
 }
 
 /// If we have an io task that is waiting for a `ConnectToken`, we poll the task until completion,

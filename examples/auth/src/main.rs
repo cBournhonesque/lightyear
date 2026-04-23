@@ -27,6 +27,7 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::auth_backend_address;
 use lightyear::connection::server::Start;
+use lightyear::prelude::ComponentRegistry;
 #[cfg(feature = "client")]
 use lightyear_examples_common::client::{ClientTransports, ExampleClient};
 #[cfg(feature = "server")]
@@ -44,6 +45,11 @@ fn main() {
     let auth_backend_address = auth_backend_address();
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
+    // This example does not register any replicated protocol components, but the shared example
+    // harness still enables prediction/replication features on the client. Seed the registry so
+    // PredictionPlugin::finish has the expected resource even when the example itself has no
+    // protocol setup.
+    app.init_resource::<ComponentRegistry>();
 
     match cli.mode {
         None => {}

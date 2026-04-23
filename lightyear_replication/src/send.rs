@@ -255,11 +255,9 @@ impl ReplicationTargetT for () {
             entity_mut.insert(HasAuthority);
         }
         if let Some(host_sender) = context.0 {
-            entity_mut.insert((
-                ReplicatedFrom {
-                    receiver: host_sender,
-                },
-            ));
+            entity_mut.insert((ReplicatedFrom {
+                receiver: host_sender,
+            },));
         }
     }
 
