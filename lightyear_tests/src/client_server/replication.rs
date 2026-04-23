@@ -1413,8 +1413,6 @@ fn test_prediction_target_visibility_sequential_spawn() {
 /// the other client's entity as Interpolated.
 #[test]
 fn test_simple_box_pattern_prediction_visibility() {
-    use lightyear_connection::client::Connected;
-    use lightyear_connection::client_of::ClientOf;
     use lightyear_core::id::RemoteId;
 
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
@@ -1784,7 +1782,6 @@ fn test_prediction_target_visibility_late_join() {
 #[test]
 fn test_prediction_visibility_observer_spawn_late_join() {
     use lightyear_connection::client::Connected;
-    use lightyear_connection::client_of::ClientOf;
     use lightyear_core::id::RemoteId;
 
     // Start with 1 client only

@@ -4,7 +4,6 @@ use avian2d::math::Vector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;

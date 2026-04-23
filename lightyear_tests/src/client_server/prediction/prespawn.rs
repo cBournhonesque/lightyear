@@ -5,7 +5,6 @@ use bevy::prelude::{ChildOf, Entity, IntoScheduleConfigs, With};
 use bevy::utils::default;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;

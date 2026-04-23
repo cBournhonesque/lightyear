@@ -6,7 +6,6 @@ use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::prelude::*;
-use bevy_replicon::prelude::Remote;
 use lightyear::input::bei;
 use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIStateSequence};
 use lightyear::input::bei::prelude::BEIBuffer;
@@ -762,7 +761,7 @@ fn test_input_broadcasting_prediction() {
             state: TriggerState::Fired,
             value: ActionValue::Bool(true),
             time: ActionTime::default(),
-            events: ActionEvents::STARTED | ActionEvents::FIRED
+            events: ActionEvents::START | ActionEvents::FIRE
         }
     );
     assert_eq!(
@@ -780,7 +779,7 @@ fn test_input_broadcasting_prediction() {
                 elapsed_secs: 0.01,
                 fired_secs: 0.01
             },
-            events: ActionEvents::FIRED
+            events: ActionEvents::FIRE
         }
     );
     // check that a rollback was triggered on client 1
@@ -811,7 +810,7 @@ fn test_input_broadcasting_prediction() {
                 elapsed_secs: 0.02,
                 fired_secs: 0.02
             },
-            events: ActionEvents::FIRED
+            events: ActionEvents::FIRE
         }
     );
     // check that this time there was no new rollback since we predicted the correct input value

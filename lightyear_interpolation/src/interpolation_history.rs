@@ -147,7 +147,6 @@ pub(crate) fn insert_confirmed_history_on_interpolated<C: Component + Clone>(
     history.push(tick, component.clone());
     commands.entity(trigger.entity).insert(history);
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;
