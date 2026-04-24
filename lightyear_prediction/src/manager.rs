@@ -102,6 +102,9 @@ pub struct PredictionManager {
 /// Store the most recent confirmed input across all remote clients.
 #[derive(Component, Debug, Default, Reflect)]
 pub struct LastConfirmedInput {
+    /// Updated via [`set_if_lower`] to track the minimum last-confirmed tick
+    /// across all remote clients. Reset to a high value each frame by
+    /// [`reset_input_rollback_tracker`] so the minimum is computed correctly.
     pub tick: lightyear_core::tick::AtomicTick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
 }
@@ -185,10 +188,22 @@ impl StateRollbackMetadata {
 }
 
 /// Store the earliest mismatched input across all remote clients.
-#[derive(Debug, Default, Reflect)]
+#[derive(Debug, Reflect)]
 pub struct EarliestMismatchedInput {
+    /// Initialized to `Tick::MAX` so the first [`set_if_lower`] call wins.
+    /// Updated via [`set_if_lower`] to track the minimum mismatch tick
+    /// across all remote clients.
     pub tick: lightyear_core::tick::AtomicTick,
     pub has_mismatches: bevy_platform::sync::atomic::AtomicBool,
+}
+
+impl Default for EarliestMismatchedInput {
+    fn default() -> Self {
+        Self {
+            tick: lightyear_core::tick::AtomicTick::new_max(),
+            has_mismatches: bevy_platform::sync::atomic::AtomicBool::new(false),
+        }
+    }
 }
 
 impl EarliestMismatchedInput {

@@ -5,7 +5,6 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::{GameRooms, SharedPlugin, color_from_id};
 use avian2d::prelude::*;
-use bevy::input::InputPlugin;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::EnhancedInputSystems;
@@ -242,7 +241,6 @@ mod bot {
         // cannot use headless app because the frame rate is too fast so
         // the bot sends too many packets
         // let mut app = new_gui_app(false);
-        app.add_plugins(InputPlugin);
         app.add_plugins(lightyear::prelude::client::ClientPlugins {
             tick_duration: tick_duration.0,
         });

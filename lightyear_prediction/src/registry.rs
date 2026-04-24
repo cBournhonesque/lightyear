@@ -24,6 +24,7 @@ use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
+use crate::rollback::DeterministicPredicted;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::tick::Tick;
 use lightyear_replication::delta::Diffable;
@@ -389,6 +390,19 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
+    /// Register replicon marker write functions for `DeterministicPredicted`
+    /// entities so that one-time replicated values (via `replicate_once`) are
+    /// stored as confirmed state in `PredictionHistory` instead of overwriting
+    /// the component directly. This allows input-triggered rollbacks to snap
+    /// back to the confirmed value.
+    ///
+    /// Use this alongside `add_rollback` when the component is normally
+    /// non-networked (computed from deterministic inputs) but needs an initial
+    /// value from replication for late-joining clients.
+    fn add_confirmed_write(self) -> Self
+    where
+        C: SyncComponent;
+
     /// Enables correction for this component, without adding the correction systems.
     ///
     /// This can be useful if you want to implement the Correction logic yourself,
@@ -423,6 +437,23 @@ pub trait PredictionRegistrationExt<C> {
 }
 
 impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
+    fn add_confirmed_write(self) -> Self
+    where
+        C: SyncComponent,
+    {
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
+            return self;
+        }
+        self.app
+            .register_marker_with::<DeterministicPredicted>(MarkerConfig {
+                priority: 100,
+                need_history: true,
+            });
+        self.app
+            .set_marker_fns::<DeterministicPredicted, C>(write_history::<C>, remove_history::<C>);
+        self
+    }
+
     fn add_prediction(self) -> Self
     where
         C: SyncComponent,

@@ -87,7 +87,7 @@ fn handle_new_player(
 fn handle_controlled_player(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    player_query: Query<&Player, (With<Predicted>, Without<InputMap<PlayerActions>>)>,
+    player_query: Query<&Player, (With<Player>, Without<InputMap<PlayerActions>>)>,
 ) {
     let entity = trigger.entity;
     if let Ok(player) = player_query.get(entity) {

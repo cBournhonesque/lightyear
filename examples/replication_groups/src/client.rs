@@ -44,16 +44,32 @@ impl Plugin for ExampleClientPlugin {
 pub(crate) fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
+    mut last_direction: Local<Option<Direction>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-            action_state.0 = Inputs::Direction(Direction::Up);
-        } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-            action_state.0 = Inputs::Direction(Direction::Down);
-        } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-            action_state.0 = Inputs::Direction(Direction::Left);
-        } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-            action_state.0 = Inputs::Direction(Direction::Right);
+        let requested_direction =
+            if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
+                Some(Direction::Up)
+            } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+                Some(Direction::Down)
+            } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+                Some(Direction::Left)
+            } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+                Some(Direction::Right)
+            } else {
+                None
+            };
+
+        if let Some(direction) = requested_direction {
+            let accepted_direction = if last_direction
+                .is_some_and(|previous| previous.is_opposite(direction))
+            {
+                last_direction.unwrap()
+            } else {
+                direction
+            };
+            *last_direction = Some(accepted_direction);
+            action_state.0 = Inputs::Direction(accepted_direction);
         } else {
             // we always set the value, so that the server can distinguish between no inputs received
             // and no keys pressed

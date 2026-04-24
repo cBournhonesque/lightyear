@@ -4,7 +4,9 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
+use bevy_replicon::prelude::AppRuleExt;
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -54,29 +56,6 @@ pub struct BallMarker;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PhysicsStartTick(pub Tick);
 
-/// Replicated snapshot of a player's physics state. The server updates this
-/// every tick (in Flexible mode only) so that late-joining clients can
-/// initialize physics from the correct state.
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
-pub struct PlayerPhysicsState {
-    pub tick: Tick,
-    pub position: Vec2,
-    pub rotation: f32,
-    pub linear_velocity: Vec2,
-    pub angular_velocity: f32,
-}
-
-/// Replicated snapshot of the ball's physics state. Placed on a dedicated
-/// server entity (in Flexible mode only) so late-joining clients can
-/// initialize their local ball from the correct state.
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
-pub struct BallPhysicsState {
-    pub tick: Tick,
-    pub position: Vec2,
-    pub linear_velocity: Vec2,
-    pub angular_velocity: f32,
-}
-
 // Messages
 
 #[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -124,25 +103,30 @@ impl Plugin for ProtocolPlugin {
         // components
         app.register_component::<PlayerId>();
         app.register_component::<PhysicsStartTick>();
-        app.register_component::<PlayerPhysicsState>();
-        app.register_component::<BallPhysicsState>();
-
-        // Position/Rotation/Velocity are NOT replicated continuously — they
-        // are computed locally from inputs via deterministic simulation.
-        // We register them for rollback and checksums only.
+        // Physics components are replicated once (initial value on entity spawn)
+        // so that late-joining clients get the correct starting state.
+        // add_rollback registers PredictionHistory for rollback/checksums.
+        // add_confirmed_write ensures the replicated value goes to
+        // PredictionHistory as confirmed state (instead of overwriting the
+        // component), so input-triggered rollbacks snap to the correct value.
+        app.replicate_once::<Position>();
         app.add_rollback::<Position>()
+            .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
+        app.replicate_once::<Rotation>();
         app.add_rollback::<Rotation>()
+            .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        // NOTE: interpolation/correction is only needed for components that are visually displayed!
-        // we still need prediction to be able to correctly predict the physics on the client
-        app.add_rollback::<LinearVelocity>();
-        app.add_rollback::<AngularVelocity>();
+        app.replicate_once::<LinearVelocity>();
+        app.add_rollback::<LinearVelocity>().add_confirmed_write();
+
+        app.replicate_once::<AngularVelocity>();
+        app.add_rollback::<AngularVelocity>().add_confirmed_write();
     }
 }

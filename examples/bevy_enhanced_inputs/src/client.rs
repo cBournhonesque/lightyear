@@ -71,7 +71,7 @@ fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     controlled_players: Query<
         (&PlayerId, Has<InputMarker<Player>>),
-        (With<Player>, Without<Interpolated>),
+        With<Player>,
     >,
     mut commands: Commands,
 ) {

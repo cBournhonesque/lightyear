@@ -1,14 +1,13 @@
-use avian2d::parry::shape::Ball;
 use avian2d::prelude::*;
-use bevy::app::PluginGroupBuilder;
 use bevy::prelude::*;
-use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::predicted_history::PredictionHistory;
-use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+use lightyear_replication::prelude::ConfirmHistory;
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
@@ -28,14 +27,11 @@ impl Plugin for ExampleClientPlugin {
             PreUpdate,
             add_input_map_after_sync.after(ReplicationSystems::Receive),
         );
+        app.add_systems(FixedPreUpdate, activate_physics_at_tick);
         app.add_systems(
-            FixedPreUpdate,
-            extend_input_buffers_for_late_join
-                .before(lightyear::input::client::InputSystems::BufferClientInputs),
-        );
-        app.add_systems(
-            FixedPreUpdate,
-            (apply_ball_snapshot, activate_physics_at_tick).chain(),
+            FixedPostUpdate,
+            seed_confirmed_history
+                .run_if(resource_equals(GameStartMode::Flexible)),
         );
     }
 }
@@ -43,8 +39,12 @@ impl Plugin for ExampleClientPlugin {
 #[derive(Component)]
 struct InputMapAdded;
 
-#[derive(Resource)]
-struct BallSnapshotApplied;
+#[derive(Component)]
+struct PhysicsActivated;
+
+/// Marker: confirmed history has been seeded from the replicate_once value.
+#[derive(Component)]
+struct ConfirmedHistorySeeded;
 
 fn add_input_map_after_sync(
     client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
@@ -71,60 +71,61 @@ fn add_input_map_after_sync(
     }
 }
 
-fn apply_ball_snapshot(
+/// When a replicate_once Position arrives on an entity, write it (and the
+/// other physics components) into PredictionHistory as confirmed state at the
+/// server tick that produced the value. This lets input-triggered rollbacks
+/// snap to the correct initial state for late-joined entities.
+/// After activation adds DeterministicPredicted (which creates PredictionHistory),
+/// write the replicate_once Position/Velocity into PredictionHistory as confirmed
+/// state at the correct server tick. This lets input-triggered rollbacks snap to
+/// the exact server state for late-joined entities.
+fn seed_confirmed_history(
+    checkpoints: Res<ReplicationCheckpointMap>,
     mut commands: Commands,
-    timeline: Res<LocalTimeline>,
-    applied: Option<Res<BallSnapshotApplied>>,
-    ball_state: Query<&BallPhysicsState>,
-    mut ball: Query<(&mut Position, &mut LinearVelocity, &mut AngularVelocity), With<BallMarker>>,
-    pending_players: Query<&PhysicsStartTick, Without<DeterministicPredicted>>,
-) {
-    if applied.is_some() {
-        return;
-    }
-    let tick = timeline.tick();
-    let has_late_join = pending_players.iter().any(|start| tick > start.0);
-    if !has_late_join {
-        return;
-    }
-    let Ok(state) = ball_state.single() else {
-        return;
-    };
-    let Ok((mut pos, mut lin_vel, mut ang_vel)) = ball.single_mut() else {
-        return;
-    };
-    info!(
-        "Client: late-join — applying ball snapshot: pos={:?}",
-        state.position
-    );
-    pos.0 = state.position;
-    lin_vel.0 = state.linear_velocity;
-    ang_vel.0 = state.angular_velocity;
-    commands.insert_resource(BallSnapshotApplied);
-}
-
-fn extend_input_buffers_for_late_join(
-    timeline: Res<LocalTimeline>,
-    mut buffers: Query<
+    mut entities: Query<
         (
-            &PlayerId,
-            &PhysicsStartTick,
-            &mut LeafwingBuffer<PlayerActions>,
+            Entity,
+            &Position,
+            &Rotation,
+            &LinearVelocity,
+            &AngularVelocity,
+            &ConfirmHistory,
+            &mut PredictionHistory<Position>,
+            &mut PredictionHistory<Rotation>,
+            &mut PredictionHistory<LinearVelocity>,
+            &mut PredictionHistory<AngularVelocity>,
         ),
-        Without<DeterministicPredicted>,
+        (
+            With<DeterministicPredicted>,
+            Without<ConfirmedHistorySeeded>,
+        ),
     >,
 ) {
-    let tick = timeline.tick();
-    for (player_id, start, mut buffer) in buffers.iter_mut() {
-        if tick > start.0 {
-            if let Some(last) = buffer.get_last().cloned() {
-                info!(
-                    "Client: extending input buffer for player {:?} to tick {:?}, last input: {:?}",
-                    player_id.0, tick, last
-                );
-                buffer.set(tick, last);
-            }
-        }
+    for (
+        entity,
+        pos,
+        rot,
+        lin_vel,
+        ang_vel,
+        confirm,
+        mut pos_hist,
+        mut rot_hist,
+        mut lv_hist,
+        mut av_hist,
+    ) in entities.iter_mut()
+    {
+        let Some(tick) = checkpoints.get(confirm.last_tick()) else {
+            continue;
+        };
+        info!(
+            "Client: seeding confirmed history at tick {:?} for entity {:?}: pos={:?}",
+            tick, entity, pos.0
+        );
+        pos_hist.add_confirmed(tick, Some(pos.clone()));
+        rot_hist.add_confirmed(tick, Some(rot.clone()));
+        lv_hist.add_confirmed(tick, Some(lin_vel.clone()));
+        av_hist.add_confirmed(tick, Some(ang_vel.clone()));
+        commands.entity(entity).insert(ConfirmedHistorySeeded);
     }
 }
 
@@ -133,13 +134,8 @@ fn activate_physics_at_tick(
     timeline: Res<LocalTimeline>,
     mut commands: Commands,
     pending: Query<
-        (
-            Entity,
-            &PlayerId,
-            &PhysicsStartTick,
-            Option<&PlayerPhysicsState>,
-        ),
-        Without<DeterministicPredicted>,
+        (Entity, &PlayerId, &PhysicsStartTick, Option<&Position>),
+        Without<PhysicsActivated>,
     >,
 ) {
     let Some(client) = client else {
@@ -147,7 +143,7 @@ fn activate_physics_at_tick(
     };
     let local_id = client.into_inner();
     let tick = timeline.tick();
-    for (entity, player_id, start, physics_state) in pending.iter() {
+    for (entity, player_id, start, existing_position) in pending.iter() {
         if tick >= start.0 {
             let late_join = tick > start.0;
             info!(
@@ -163,24 +159,11 @@ fn activate_physics_at_tick(
                     skip_despawn: true,
                     ..default()
                 },
+                PhysicsActivated,
             ));
-            if late_join {
-                if let Some(state) = physics_state {
-                    info!(
-                        "Client: late-join — using replicated state for player {:?}: pos={:?}, vel={:?}",
-                        player_id.0, state.position, state.linear_velocity
-                    );
-                    entity_mut.insert((
-                        Position::from(state.position),
-                        Rotation::radians(state.rotation),
-                        LinearVelocity(state.linear_velocity),
-                        AngularVelocity(state.angular_velocity),
-                    ));
-                } else {
-                    let y = (player_id.0.to_bits() as f32 * 50.0) % 500.0 - 250.0;
-                    entity_mut.insert(Position::from(Vec2::new(-50.0, y)));
-                }
-            } else {
+            // For on-time activation, set Position from the spawn formula.
+            // For late-join, Position already arrived via replicate_once.
+            if !late_join || existing_position.is_none() {
                 let y = (player_id.0.to_bits() as f32 * 50.0) % 500.0 - 250.0;
                 entity_mut.insert(Position::from(Vec2::new(-50.0, y)));
             }

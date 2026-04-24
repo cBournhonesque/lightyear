@@ -113,7 +113,7 @@ mod game {
     /// This is only for the HostServer mode (for the dedicated server mode, the clients are already connected to the server
     /// to join the lobby list)
     pub(crate) fn handle_connections(
-        trigger: On<Add, (Connected, HostClient)>,
+        trigger: On<Add, Connected>,
         query: Query<&RemoteId, With<ClientOf>>,
         mut commands: Commands,
     ) {
@@ -220,6 +220,7 @@ mod lobby {
     pub(super) fn handle_start_game(
         server: Single<&Server>,
         mut events: Query<(Entity, &RemoteId, &mut MessageReceiver<StartGame>), With<Connected>>,
+        clients: Query<(Entity, &RemoteId), (With<Connected>, With<ClientOf>)>,
         mut multi_sender: ServerMultiMessageSender,
         mut lobbies: Single<&mut Lobbies>,
         mut commands: Commands,
@@ -232,6 +233,7 @@ mod lobby {
                 let lobby_id = event.lobby_id;
                 let host = event.host;
                 let lobby = lobbies.lobbies.get_mut(lobby_id).unwrap();
+                let lobby_was_in_game = lobby.in_game;
 
                 // Setting lobby ingame
                 if !lobby.in_game {
@@ -260,14 +262,34 @@ mod lobby {
                         &NetworkTarget::Single(client_id),
                     )?;
                 } else {
+                    if lobby_was_in_game {
+                        info!(
+                            "Ignoring duplicate start game request for lobby {lobby_id:?} from {client_id:?}"
+                        );
+                        continue;
+                    }
                     if host.is_none() {
                         info!(
                             "Received start game for lobby {lobby_id:?}. Dedicated server is hosting."
                         );
                         // one of the players asked for the game to start
                         for player in &lobby.players {
+                            let Some((player_client_entity, _)) =
+                                clients.iter().find(|(_, remote_id)| remote_id.0 == *player)
+                            else {
+                                warn!(
+                                    ?player,
+                                    "Skipping player spawn because no matching client entity was found"
+                                );
+                                continue;
+                            };
                             info!("Spawning player  {player:?} in server hosted  game");
-                            spawn_player_entity(&mut commands, sender, *player, Some(room_id));
+                            spawn_player_entity(
+                                &mut commands,
+                                player_client_entity,
+                                *player,
+                                Some(room_id),
+                            );
                         }
                     }
                     // redirect the StartGame message to all other clients in the lobby

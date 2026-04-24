@@ -32,9 +32,11 @@ impl Plugin for ExampleServerPlugin {
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(FixedUpdate, interpolated_bot_movement);
         app.add_systems(
-            PhysicsSchedule,
-            // lag compensation collisions must run after the SpatialQuery has been updated
-            compute_hit_lag_compensation.in_set(LagCompensationSystems::Collisions),
+            FixedPostUpdate,
+            // Run after physics has produced the current-frame spatial query state.
+            compute_hit_lag_compensation
+                .in_set(LagCompensationSystems::Collisions)
+                .after(PhysicsSystems::StepSimulation),
         );
         app.add_systems(
             FixedPostUpdate,

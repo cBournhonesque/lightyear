@@ -38,14 +38,11 @@ impl Plugin for ExampleServerPlugin {
             FixedPreUpdate,
             (schedule_physics_start, activate_physics_at_tick).chain(),
         );
-        app.add_systems(
-            FixedPostUpdate,
-            (sync_player_physics_state, sync_ball_physics_state)
-                .run_if(resource_equals(GameStartMode::Flexible)),
-        );
+        // In Flexible mode, add Replicate to the ball so that late-joining
+        // clients receive its Position/Velocity via replicate_once.
         app.add_systems(
             Startup,
-            spawn_ball_state_entity.run_if(resource_equals(GameStartMode::Flexible)),
+            add_replicate_to_ball.run_if(resource_equals(GameStartMode::Flexible)),
         );
     }
 }
@@ -57,21 +54,17 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 pub(crate) fn handle_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
-    game_mode: Res<GameStartMode>,
     mut commands: Commands,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
     };
     info!("Spawning player entity for client {:?}", remote_id);
-    let mut entity = commands.spawn((
+    commands.spawn((
         Replicate::to_clients(NetworkTarget::All),
         PlayerId(remote_id.0),
         WaitingForFirstInput,
     ));
-    if matches!(*game_mode, GameStartMode::Flexible) {
-        entity.insert(PlayerPhysicsState::default());
-    }
 }
 
 #[derive(Component)]
@@ -118,7 +111,9 @@ fn schedule_physics_start(
     );
     for (entity, _player_id) in ready_entities {
         commands.entity(entity).remove::<WaitingForFirstInput>();
-        commands.entity(entity).insert(PhysicsStartTick(start_tick));
+        commands
+            .entity(entity)
+            .insert(PhysicsStartTick(start_tick));
     }
 }
 
@@ -140,59 +135,10 @@ fn activate_physics_at_tick(
     }
 }
 
-/// Mirror server-side physics into the replicated snapshot so late-joiners
-/// receive up-to-date state.
-fn sync_player_physics_state(
-    timeline: Res<LocalTimeline>,
-    mut players: Query<(
-        &mut PlayerPhysicsState,
-        &Position,
-        &Rotation,
-        &LinearVelocity,
-        &AngularVelocity,
-    )>,
-) {
-    let tick = timeline.tick();
-    for (mut state, pos, rot, lin_vel, ang_vel) in players.iter_mut() {
-        let new_state = PlayerPhysicsState {
-            tick,
-            position: pos.0,
-            rotation: rot.as_radians(),
-            linear_velocity: lin_vel.0,
-            angular_velocity: ang_vel.0,
-        };
-        if *state != new_state {
-            *state = new_state;
-        }
-    }
-}
-
-fn spawn_ball_state_entity(mut commands: Commands) {
-    commands.spawn((
-        Replicate::to_clients(NetworkTarget::All),
-        BallPhysicsState::default(),
-    ));
-}
-
-fn sync_ball_physics_state(
-    timeline: Res<LocalTimeline>,
-    ball: Query<(&Position, &LinearVelocity, &AngularVelocity), With<BallMarker>>,
-    mut state_query: Query<&mut BallPhysicsState>,
-) {
-    let tick = timeline.tick();
-    let Ok((pos, lin_vel, ang_vel)) = ball.single() else {
-        return;
-    };
-    let Ok(mut state) = state_query.single_mut() else {
-        return;
-    };
-    let new_state = BallPhysicsState {
-        tick,
-        position: pos.0,
-        linear_velocity: lin_vel.0,
-        angular_velocity: ang_vel.0,
-    };
-    if *state != new_state {
-        *state = new_state;
+fn add_replicate_to_ball(mut commands: Commands, ball: Query<Entity, With<BallMarker>>) {
+    for entity in ball.iter() {
+        commands
+            .entity(entity)
+            .insert(Replicate::to_clients(NetworkTarget::All));
     }
 }

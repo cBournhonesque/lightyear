@@ -23,16 +23,28 @@ impl From<u32> for AtomicTick {
 }
 
 impl AtomicTick {
+    /// Initialize the tick to the maximum value.
+    ///
+    /// This is useful for trackers that compute the minimum tick across multiple
+    /// sources via [`set_if_lower`](Self::set_if_lower): starting from the max
+    /// ensures the first recorded value always wins.
+    pub fn new_max() -> Self {
+        AtomicTick(AtomicU32::new(u32::MAX))
+    }
+
     /// Gets the current value of the tick.
     pub fn get(&self) -> Tick {
         Tick(self.0.load(Ordering::Relaxed))
     }
 
-    /// Update the value only if the new tick is lower than the current value.
+    /// Update the value only if the new tick is strictly lower than the current value.
+    ///
+    /// Uses plain (non-wrapping) comparison: with u32 ticks, wrapping never occurs
+    /// during a game session (~828 days at 60 Hz), so a simple `<` is correct.
     pub fn set_if_lower(&self, new_value: Tick) {
         let mut current = self.0.load(Ordering::Acquire);
         loop {
-            if wrapping_id::wrapping_diff(current, new_value.0) >= 0 {
+            if new_value.0 >= current {
                 break;
             }
             match self.0.compare_exchange(
@@ -57,10 +69,12 @@ mod tests {
 
     #[test]
     fn test_shared_atomic_tick_minimum() {
+        // Plain comparison: minimum is the numerically smallest value.
+        // With u32 ticks, wrapping never occurs in practice.
         let min_value_tracker = AtomicTick::from(10u32);
 
         let values_to_test = vec![u32::MAX - 5, 5, 100, u32::MAX];
-        let expected_minimum = Tick(u32::MAX - 5);
+        let expected_minimum = Tick(5);
 
         let tracker_clone = &min_value_tracker;
         thread::scope(|s| {
@@ -71,5 +85,23 @@ mod tests {
             }
         });
         assert_eq!(min_value_tracker.get(), expected_minimum);
+    }
+
+    #[test]
+    fn test_new_max_allows_any_tick_to_win() {
+        // An AtomicTick initialized to MAX must accept any subsequent value
+        // as "lower". This is the intended usage for minimum trackers.
+        let tracker = AtomicTick::new_max();
+        assert_eq!(tracker.get(), Tick(u32::MAX));
+
+        tracker.set_if_lower(Tick(483));
+        assert_eq!(tracker.get(), Tick(483));
+
+        tracker.set_if_lower(Tick(200));
+        assert_eq!(tracker.get(), Tick(200));
+
+        // Higher tick should NOT update
+        tracker.set_if_lower(Tick(300));
+        assert_eq!(tracker.get(), Tick(200));
     }
 }

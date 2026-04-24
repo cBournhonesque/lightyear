@@ -358,8 +358,12 @@ fn check_rollback(
                             commands: &mut Commands,
                             rollback: Rollback| {
         let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
-        let delta = tick - rollback_tick;
-        if delta < 0 || delta as u16 > max_rollback_ticks {
+        // Use plain comparison on the raw u32 values. Wrapping arithmetic
+        // would wrongly accept a rollback_tick that is far in the future
+        // (e.g. u32::MAX from an uninitialized tracker) as a small positive
+        // delta, because wrapping_diff collapses the ring distance.
+        if rollback_tick.0 > tick.0 || tick.0 - rollback_tick.0 > max_rollback_ticks as u32 {
+            let delta = tick - rollback_tick;
             warn!(
                 ?rollback_tick,
                 ?tick,
@@ -603,28 +607,27 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
-    timeline: Res<LocalTimeline>,
     client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<IsSynced<InputTimeline>>>,
 ) {
     let (last_confirmed_input, prediction_manager) = client.into_inner();
-    let tick = timeline.tick();
 
-    // set a high value to the AtomicTick so we can then compute the minimum last_confirmed_tick among all clients
+    // Reset to u32::MAX so the next `set_if_lower` call always wins and we
+    // compute the true minimum across all remote clients for this frame.
     if let Some(last_confirmed_input) = last_confirmed_input {
-        last_confirmed_input.tick.0.store(
-            (tick + 1000).0,
-            bevy_platform::sync::atomic::Ordering::Relaxed,
-        );
+        last_confirmed_input
+            .tick
+            .0
+            .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
         last_confirmed_input
             .received_any_messages
             .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
     }
     if let Some(prediction_manager) = prediction_manager {
-        // set a high value to the AtomicTick so we can then compute the minimum earliest_mismatch_tick among all clients
-        prediction_manager.earliest_mismatch_input.tick.0.store(
-            (tick + 1000).0,
-            bevy_platform::sync::atomic::Ordering::Relaxed,
-        );
+        prediction_manager
+            .earliest_mismatch_input
+            .tick
+            .0
+            .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
         prediction_manager
             .earliest_mismatch_input
             .has_mismatches

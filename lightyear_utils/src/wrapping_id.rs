@@ -22,7 +22,7 @@ macro_rules! wrapping_id {
             use core::cmp::Ordering;
             use bevy_reflect::Reflect;
             use lightyear_serde::{SerializationError, reader::{Reader, ReadInteger}, writer::WriteInteger, ToBytes};
-            use lightyear_utils::wrapping_id::{wrapping_diff, WrappedId};
+            use lightyear_utils::wrapping_id::WrappedId;
 
             #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect
             )]
@@ -66,12 +66,7 @@ macro_rules! wrapping_id {
 
             impl Ord for $struct_name {
                 fn cmp(&self, other: &Self) -> Ordering {
-                    match wrapping_diff(self.0, other.0) {
-                        0 => Ordering::Equal,
-                        x if x > 0 => Ordering::Less,
-                        x if x < 0 => Ordering::Greater,
-                        _ => unreachable!(),
-                    }
+                    self.0.cmp(&other.0)
                 }
             }
 
@@ -85,7 +80,7 @@ macro_rules! wrapping_id {
                 type Output = i32;
 
                 fn sub(self, rhs: Self) -> Self::Output {
-                    wrapping_diff(rhs.0, self.0)
+                    (self.0 as i64 - rhs.0 as i64) as i32
                 }
             }
 
@@ -93,7 +88,7 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn sub(self, rhs: u32) -> Self::Output {
-                    Self(self.0.wrapping_sub(rhs))
+                    Self(self.0.saturating_sub(rhs))
                 }
             }
 
@@ -101,13 +96,13 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn add(self, rhs: Self) -> Self::Output {
-                    Self(self.0.wrapping_add(rhs.0))
+                    Self(self.0.saturating_add(rhs.0))
                 }
             }
 
             impl AddAssign<u32> for $struct_name {
                 fn add_assign(&mut self, rhs: u32) {
-                    self.0 = self.0.wrapping_add(rhs);
+                    self.0 = self.0.saturating_add(rhs);
                 }
             }
 
@@ -115,7 +110,7 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn add(self, rhs: i32) -> Self::Output {
-                    Self(self.0.wrapping_add_signed(rhs))
+                    Self(self.0.saturating_add_signed(rhs))
                 }
             }
         }

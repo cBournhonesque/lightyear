@@ -23,6 +23,7 @@ impl Plugin for ExampleClientPlugin {
             Update,
             (handle_new_floor, handle_new_block, handle_new_character),
         );
+        app.add_observer(handle_controlled_character);
     }
 }
 
@@ -63,28 +64,32 @@ fn handle_character_actions(
 /// the character then add an input component.
 fn handle_new_character(
     mut commands: Commands,
-    mut character_query: Query<
-        (Entity, &ColorComponent, Has<Controlled>),
-        (Added<Predicted>, With<CharacterMarker>),
-    >,
+    mut character_query: Query<(Entity, &ColorComponent), (Added<Predicted>, With<CharacterMarker>)>,
 ) {
-    for (entity, _color, is_controlled) in &mut character_query {
-        if is_controlled {
-            info!("Adding InputMap to controlled and predicted entity {entity:?}");
-            commands.entity(entity).insert(
-                InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-                    .with(CharacterAction::Jump, GamepadButton::South)
-                    .with(CharacterAction::Shoot, KeyCode::KeyQ)
-                    .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
-                    .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
-            );
-        } else {
-            info!("Remote character predicted for us: {entity:?}");
-        }
+    for (entity, _color) in &mut character_query {
+        info!("Predicted character ready on client: {entity:?}");
         info!(?entity, "Adding physics to character");
         commands
             .entity(entity)
             .insert(CharacterPhysicsBundle::default());
+    }
+}
+
+fn handle_controlled_character(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    character_query: Query<Entity, (With<CharacterMarker>, Without<InputMap<CharacterAction>>)>,
+) {
+    let entity = trigger.entity;
+    if character_query.get(entity).is_ok() {
+        info!("Adding InputMap to controlled character {entity:?}");
+        commands.entity(entity).insert(
+            InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
+                .with(CharacterAction::Jump, GamepadButton::South)
+                .with(CharacterAction::Shoot, KeyCode::KeyQ)
+                .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
+                .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
+        );
     }
 }
 
