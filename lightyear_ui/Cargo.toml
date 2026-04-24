@@ -5,32 +5,16 @@ authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Runtime debug UI for lightyear"
+description = "Compatibility shim for Lightyear runtime debug UI"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = []
-test_utils = []
+std = ["lightyear_tools/std"]
+test_utils = ["lightyear_tools/test_utils"]
 
 [dependencies]
-lightyear_metrics.workspace = true
-
-# utils
-metrics.workspace = true
-metrics-util.workspace = true
-tracing.workspace = true
-
-# bevy
-bevy_app.workspace = true
-bevy_color.workspace = true
-bevy_ecs.workspace = true
-bevy_platform.workspace = true
-bevy_reflect.workspace = true
-bevy_ui.workspace = true
-bevy_utils.workspace = true
-bevy_text.workspace = true
-bevy_time.workspace = true
+lightyear_tools.workspace = true
 
 [lints]
 workspace = true

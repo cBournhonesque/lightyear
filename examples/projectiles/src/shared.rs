@@ -55,8 +55,8 @@ impl Plugin for SharedPlugin {
         app.add_systems(PreUpdate, despawn_after);
 
         // debug systems
-        app.add_systems(FixedLast, fixed_update_log);
-        app.add_systems(Last, last_log);
+        app.add_systems(FixedLast, emit_fixed_last_players);
+        app.add_systems(Last, emit_last_entities);
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
@@ -149,7 +149,7 @@ pub(crate) fn move_player(
     }
 }
 
-pub(crate) fn fixed_update_log(
+pub(crate) fn emit_fixed_last_players(
     timeline: Res<LocalTimeline>,
     player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>)>,
     // predicted_bullet: Query<
@@ -159,7 +159,16 @@ pub(crate) fn fixed_update_log(
 ) {
     let tick = timeline.tick();
     for (entity, pos) in player.iter() {
-        debug!(?tick, ?entity, ?pos, "Player after fixed update");
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "player_after_fixed_update",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?pos,
+            "Player after fixed update"
+        );
     }
     // for (entity, transform, history) in predicted_bullet.iter() {
     //     debug!(
@@ -172,7 +181,7 @@ pub(crate) fn fixed_update_log(
     // }
 }
 
-pub(crate) fn last_log(
+pub(crate) fn emit_last_entities(
     timeline: Res<LocalTimeline>,
     interpolation_timeline: Query<&InterpolationTimeline>,
     player: Query<
@@ -197,22 +206,30 @@ pub(crate) fn last_log(
     let tick = timeline.tick();
     let interpolate_tick = interpolation_timeline.iter().next().map(|t| t.tick());
     for (entity, pos, rotation, transform) in player.iter() {
-        debug!(
-            ?tick,
-            ?entity,
-            ?pos,
-            ?rotation,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::Last,
+            "Last",
+            "player_after_last",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?pos,
+            rotation = ?rotation,
             transform = ?transform.map(|t| t.translation.truncate()),
             "Player after last"
         );
     }
     for (entity, position, history, transform) in interpolated_bullet.iter() {
-        debug!(
-            ?tick,
-            ?interpolate_tick,
-            ?entity,
-            ?position,
-            ?history,
+        lightyear_debug_event!(
+            DebugCategory::Interpolation,
+            DebugSamplePoint::Last,
+            "Last",
+            "interpolated_bullet_after_last",
+            tick = ?tick,
+            interpolation_tick = ?interpolate_tick,
+            entity = ?entity,
+            position = ?position,
+            history = ?history,
             transform = ?transform.map(|t| t.translation.truncate()),
             "Bullet after fixed update"
         );

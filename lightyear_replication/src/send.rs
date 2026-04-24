@@ -749,6 +749,17 @@ fn update_replication_tick(
         let new_tick = timeline.tick();
         let delta = (new_tick - current_tick).0;
         replication_tick.increment_by(delta.max(1));
+        trace!(
+            target: "lightyear_debug::timeline",
+            kind = "server_replication_tick",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            local_tick = new_tick.0,
+            server_tick = ?replication_tick.get(),
+            previous_server_tick = ?current_tick,
+            tick_delta = delta.max(1),
+            "replication server tick advanced"
+        );
     }
 }
 

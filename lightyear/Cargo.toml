@@ -43,7 +43,7 @@ std = [
   "lightyear_steam?/std",
   "lightyear_sync/std",
   "lightyear_transport/std",
-  "lightyear_ui?/std",
+  "lightyear_tools?/std",
   "lightyear_utils/std",
 ]
 ## enable client plugins
@@ -128,7 +128,7 @@ metrics = [
   "lightyear_utils/metrics",
   "lightyear_udp?/metrics",
 ]
-debug = ["dep:lightyear_ui", "metrics"]
+debug = ["dep:lightyear_tools", "metrics"]
 
 ## INPUTS
 ## Add support for handling inputs where you can define your own input structs
@@ -205,7 +205,7 @@ lightyear_raw_connection = { workspace = true, optional = true }
 lightyear_webtransport = { workspace = true, optional = true }
 lightyear_websocket = { workspace = true, optional = true }
 lightyear_steam = { workspace = true, optional = true }
-lightyear_ui = { workspace = true, optional = true }
+lightyear_tools = { workspace = true, optional = true }
 
 # bevy
 bevy_app.workspace = true

@@ -83,6 +83,18 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
                 "rebase idle keyframe. Kind = {:?}",
                 DebugName::type_name::<C>()
             );
+            trace!(
+                target: "lightyear_debug::interpolation",
+                kind = "confirmed_history_idle_rebase",
+                schedule = "Update",
+                sample_point = "Update",
+                entity = ?entity,
+                component = ?DebugName::type_name::<C>(),
+                interpolation_tick = current_interpolate_tick.0,
+                history_len = history.len(),
+                send_interval_delta_tick,
+                "rebased idle interpolation history"
+            );
             while history.pop().is_some() {}
             // TODO: the correct behaviour would be to know the exact tick at which the
             // component started getting updated so that we know exactly which tick to
@@ -107,6 +119,17 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
             interpolation_overstep,
             interpolation_registry.as_ref(),
         ) {
+            trace!(
+                target: "lightyear_debug::interpolation",
+                kind = "interpolation_apply",
+                schedule = "Update",
+                sample_point = "Update",
+                component = ?DebugName::type_name::<C>(),
+                interpolation_tick = interpolation_tick.0,
+                interpolation_overstep,
+                history_len = history.len(),
+                "applied interpolation"
+            );
             *component = interpolated;
         }
     }

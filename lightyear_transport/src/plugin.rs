@@ -60,7 +60,7 @@ impl TransportPlugin {
         time: Res<Time<Real>>,
         #[cfg(feature = "std")] par_commands: ParallelCommands,
         #[cfg(not(feature = "std"))] mut commands: Commands,
-        #[cfg(feature = "metrics")] channel_registry: Res<ChannelRegistry>,
+        channel_registry: Res<ChannelRegistry>,
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
@@ -101,6 +101,16 @@ impl TransportPlugin {
                     .try_for_each(|lost_packet| {
                         #[cfg(feature = "metrics")]
                         metrics::counter!("transport/packets_lost").increment(1);
+                        trace!(
+                            target: "lightyear_debug::transport",
+                            kind = "packet_lost",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            packet_id = ?lost_packet,
+                            packet_loss = true,
+                            "transport packet marked lost"
+                        );
                         if let Some(message_map) =
                             transport.packet_to_message_map.remove(&lost_packet)
                         {
@@ -129,14 +139,27 @@ impl TransportPlugin {
                 link.recv
                     .drain()
                     .try_for_each(|packet| {
+                        let packet_len = packet.len();
                         #[cfg(feature = "metrics")]
-                        metrics::gauge!("transport/recv_bytes").increment(packet.len() as f64);
+                        metrics::gauge!("transport/recv_bytes").increment(packet_len as f64);
 
                         let mut cursor = Reader::from(packet);
 
                         // Parse the packet
                         let header = PacketHeader::from_bytes(&mut cursor)?;
                         let tick = header.tick;
+                        trace!(
+                            target: "lightyear_debug::transport",
+                            kind = "packet_recv",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            packet_id = ?header.packet_id,
+                            remote_tick = tick.0,
+                            bytes = packet_len,
+                            packet_type = ?header.get_packet_type(),
+                            "received transport packet"
+                        );
 
                         // TODO: maybe switch to event buffer instead of triggers?
                         #[cfg(feature = "std")]
@@ -163,12 +186,25 @@ impl TransportPlugin {
                             // read the fragment data
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
                             let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                            let channel_name = channel_registry.get_name_from_net_id(channel_id);
                             #[cfg(feature = "metrics")]
                             {
-                                let channel_name = channel_registry.get_name_from_net_id(channel_id);
                                 metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(1);
                                 metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(fragment_data.bytes.len() as f64);
                             }
+                            trace!(
+                                target: "lightyear_debug::transport",
+                                kind = "channel_recv_fragment",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                packet_id = ?header.packet_id,
+                                remote_tick = tick.0,
+                                channel_id,
+                                channel = channel_name,
+                                bytes = fragment_data.bytes.len(),
+                                "received channel fragment"
+                            );
                             transport
                                 .receivers
                                 .get_mut(&channel_id)
@@ -182,17 +218,42 @@ impl TransportPlugin {
                         // read single message data
                         while cursor.has_remaining() {
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                            #[cfg(feature = "metrics")]
                             let channel_name = channel_registry.get_name_from_net_id(channel_id);
                             let num_messages =
                                 cursor.read_u8().map_err(SerializationError::from)?;
                             #[cfg(feature = "metrics")]
                             metrics::gauge!("channel/recv_messages", "channel" => channel_name).increment(num_messages as f64);
                             trace!(?channel_id, ?num_messages);
+                            trace!(
+                                target: "lightyear_debug::transport",
+                                kind = "channel_recv_batch",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                packet_id = ?header.packet_id,
+                                remote_tick = tick.0,
+                                channel_id,
+                                channel = channel_name,
+                                num_messages,
+                                "received channel message batch"
+                            );
                             for _ in 0..num_messages {
                                 let single_data = SingleData::from_bytes(&mut cursor)?;
                                 #[cfg(feature = "metrics")]
                                 metrics::gauge!("channel/recv_bytes", "channel" => channel_name).increment(single_data.bytes.len() as f64);
+                                trace!(
+                                    target: "lightyear_debug::transport",
+                                    kind = "channel_recv_message",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity,
+                                    packet_id = ?header.packet_id,
+                                    remote_tick = tick.0,
+                                    channel_id,
+                                    channel = channel_name,
+                                    bytes = single_data.bytes.len(),
+                                    "received channel message bytes"
+                                );
                                 transport
                                     .receivers
                                     .get_mut(&channel_id)
@@ -219,6 +280,15 @@ impl TransportPlugin {
                     .drain(..)
                     .try_for_each(|acked_packet| {
                         trace!("Acked packet {:?}", acked_packet);
+                        trace!(
+                            target: "lightyear_debug::transport",
+                            kind = "packet_acked",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            packet_id = ?acked_packet,
+                            "transport packet acked"
+                        );
                         if let Some(message_acks) =
                             transport.packet_to_message_map.remove(&acked_packet)
                         {
@@ -316,6 +386,20 @@ impl TransportPlugin {
             let mut total_bytes_sent = 0;
             for mut packet in packets {
                 trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
+                let packet_id = packet.packet_id;
+                let num_messages = packet.num_messages();
+                let packet_len = packet.payload.len();
+                trace!(
+                    target: "lightyear_debug::transport",
+                    kind = "packet_send",
+                    schedule = "PostUpdate",
+                    sample_point = "PostUpdate",
+                    packet_id = ?packet_id,
+                    local_tick = tick.0,
+                    bytes = packet_len,
+                    num_messages,
+                    "sending transport packet"
+                );
 
                 // TODO: should we update this to include fragment info as well?
                 // Update the packet_to_message_id_map (only for channels that care about acks)
@@ -358,6 +442,17 @@ impl TransportPlugin {
                 // Upload the packets to the link
                 total_bytes_sent += packet.payload.len() as u32;
                 link.send.push(Bytes::from(packet.payload));
+            }
+            if total_bytes_sent > 0 {
+                trace!(
+                    target: "lightyear_debug::transport",
+                    kind = "send_flush",
+                    schedule = "PostUpdate",
+                    sample_point = "PostUpdate",
+                    local_tick = tick.0,
+                    send_bytes = total_bytes_sent,
+                    "flushed transport packets to link"
+                );
             }
 
             #[cfg(feature = "metrics")]

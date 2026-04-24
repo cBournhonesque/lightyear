@@ -27,6 +27,7 @@ members = [
   "lightyear_steam",
   "lightyear_sync",
   "lightyear_tests",
+  "lightyear_tools",
   "lightyear_udp",
   "lightyear_ui",
   "lightyear_utils",
@@ -99,6 +100,7 @@ lightyear_replication = { path = "./lightyear_replication", version = "0.26.4", 
 lightyear_serde = { path = "./lightyear_serde", version = "0.26.4", default-features = false }
 lightyear_steam = { path = "./lightyear_steam", version = "0.26.4", default-features = false }
 lightyear_sync = { path = "./lightyear_sync", version = "0.26.4", default-features = false }
+lightyear_tools = { path = "./lightyear_tools", version = "0.26.4", default-features = false }
 lightyear_udp = { path = "./lightyear_udp", version = "0.26.4", default-features = false }
 lightyear_ui = { path = "./lightyear_ui", version = "0.26.4", default-features = false }
 lightyear_utils = { path = "./lightyear_utils", version = "0.26.4", default-features = false }
@@ -145,6 +147,7 @@ serde = { version = "1", default-features = false, features = [
   "alloc",
   "derive",
 ] }
+serde_json = "1"
 
 # netcode
 chacha20poly1305 = { version = "0.10" }
@@ -201,6 +204,7 @@ bevy = { version = "0.18", default-features = false, features = [
 ] }
 bevy_app = { version = "0.18", default-features = false }
 bevy_derive = { version = "0.18", default-features = false }
+bevy_log = { version = "0.18", default-features = false }
 bevy_diagnostic = { version = "0.18", default-features = false }
 bevy_color = { version = "0.18", default-features = false }
 bevy_ecs = { version = "0.18", default-features = false }

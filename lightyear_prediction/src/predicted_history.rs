@@ -5,8 +5,8 @@
 //! 2. Rollback to a past state and replay the simulation
 //! 3. Preserve confirmed values during rollback so we can snap to them during re-simulation
 
-use crate::Predicted;
 use crate::rollback::DeterministicPredicted;
+use crate::{Predicted, SyncComponent};
 use alloc::collections::VecDeque;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
@@ -387,7 +387,7 @@ impl<C: Clone> PredictionHistory<C> {
 /// We store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
-pub(crate) fn update_prediction_history<T: Component + Clone>(
+pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
     mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
@@ -399,6 +399,17 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
             history.add_predicted(tick, Some(component.deref().clone()));
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "prediction_history_predicted",
+                schedule = "FixedPostUpdate",
+                sample_point = "FixedPostUpdate",
+                component = ?DebugName::type_name::<T>(),
+                local_tick = tick.0,
+                history_len = history.len(),
+                value = ?component.deref(),
+                "recorded predicted component history"
+            );
         }
     }
 }
@@ -416,6 +427,17 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
             trigger.tick_delta
         );
         history.update_ticks(trigger.tick_delta);
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "prediction_history_tick_delta",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            entity = ?trigger.entity,
+            component = ?DebugName::type_name::<C>(),
+            tick_delta = trigger.tick_delta,
+            history_len = history.len(),
+            "shifted prediction history ticks"
+        );
     }
 }
 
@@ -428,6 +450,17 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     let tick = timeline.tick();
     if let Ok(mut history) = predicted_query.get_mut(trigger.entity) {
         history.add_predicted(tick, None);
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "prediction_history_removed",
+            schedule = "FixedPostUpdate",
+            sample_point = "FixedPostUpdate",
+            entity = ?trigger.entity,
+            component = ?DebugName::type_name::<C>(),
+            local_tick = tick.0,
+            history_len = history.len(),
+            "recorded predicted component removal"
+        );
     }
 }
 
@@ -454,16 +487,98 @@ pub(crate) fn add_prediction_history<C: Component>(
             DebugName::type_name::<C>(),
             trigger.entity
         );
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "prediction_history_insert",
+            entity = ?trigger.entity,
+            component = ?DebugName::type_name::<C>(),
+            "inserted prediction history component"
+        );
         commands
             .entity(trigger.entity)
-            .insert(PredictionHistory::<C>::default());
+            .insert_if_new(PredictionHistory::<C>::default());
+    }
+}
+
+/// Seed [`PredictionHistory<C>`] with a confirmed entry at the init tick
+/// when a prediction marker is added via an init message.
+///
+/// **Why this exists:** replicon reads entity markers on the empty newly-spawned
+/// entity BEFORE init components are applied. As a result, the marker-gated
+/// `write_history` function does NOT fire for init messages — the component
+/// value is written directly to the entity via the default write, and
+/// `PredictionHistory<C>` gets no confirmed entry for the init tick.
+///
+/// This observer fires once when [`Predicted`] / [`PreSpawned`] /
+/// [`DeterministicPredicted`] is added and copies the current `C` value into
+/// history as confirmed at the tick resolved from [`ConfirmHistory`].
+///
+/// Runs at most once per entity per component because of the
+/// `Without<PredictionHistoryInitSeeded<C>>` filter.
+pub(crate) fn seed_prediction_history_from_init<C: SyncComponent>(
+    trigger: On<Add, (Predicted, PreSpawned, DeterministicPredicted)>,
+    checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
+    query: Query<
+        (&C, &lightyear_replication::prelude::ConfirmHistory),
+        Without<PredictionHistoryInitSeeded<C>>,
+    >,
+    mut commands: Commands,
+) {
+    let Ok((component, confirm)) = query.get(trigger.entity) else {
+        return;
+    };
+    let Some(tick) = checkpoints.get(confirm.last_tick()) else {
+        return;
+    };
+    trace!(
+        entity = ?trigger.entity,
+        ?tick,
+        component = ?DebugName::type_name::<C>(),
+        "seeding PredictionHistory with confirmed value from init message"
+    );
+    // Defer the mutation through a closure so that any concurrently-queued
+    // `PredictionHistory::default()` insert (e.g. from `add_prediction_history`)
+    // runs first and is preserved if-new, while our closure mutates the
+    // (now existing) history to add the confirmed value.
+    let entity = trigger.entity;
+    let component = component.clone();
+    commands.queue(move |world: &mut World| {
+        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            return;
+        };
+        if entity_mut.contains::<PredictionHistoryInitSeeded<C>>() {
+            return;
+        }
+        if !entity_mut.contains::<PredictionHistory<C>>() {
+            entity_mut.insert(PredictionHistory::<C>::default());
+        }
+        if let Some(mut history) = entity_mut.get_mut::<PredictionHistory<C>>() {
+            history.add_confirmed(tick, Some(component));
+        }
+        entity_mut.insert(PredictionHistoryInitSeeded::<C>::default());
+    });
+}
+
+/// Marker component inserted once per entity per C after
+/// [`seed_prediction_history_from_init`] has seeded the confirmed value.
+/// Prevents re-seeding if another prediction marker is later added.
+#[derive(Component)]
+pub struct PredictionHistoryInitSeeded<C: Component> {
+    _phantom: core::marker::PhantomData<C>,
+}
+
+impl<C: Component> Default for PredictionHistoryInitSeeded<C> {
+    fn default() -> Self {
+        Self {
+            _phantom: core::marker::PhantomData,
+        }
     }
 }
 
 /// During rollback re-simulation, check if we have a confirmed value for this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
 pub(crate) fn snap_to_confirmed_during_rollback<
-    C: Component<Mutability = Mutable> + Clone + PartialEq,
+    C: Component<Mutability = Mutable> + Clone + PartialEq + Debug,
 >(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
@@ -486,6 +601,18 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                                 "Snapping to confirmed value during rollback for {:?}",
                                 DebugName::type_name::<C>()
                             );
+                            trace!(
+                                target: "lightyear_debug::prediction",
+                                kind = "snap_to_confirmed",
+                                schedule = "FixedPreUpdate",
+                                sample_point = "FixedPreUpdate",
+                                entity = ?entity,
+                                component = ?DebugName::type_name::<C>(),
+                                local_tick = tick.0,
+                                confirmed_tick = tick.0,
+                                value = ?confirmed_value,
+                                "snapped predicted component to confirmed value during rollback"
+                            );
                             *comp = confirmed_value.clone();
                         }
                     } else {
@@ -495,6 +622,18 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                             ?tick,
                             "Inserting confirmed component during rollback for {:?}",
                             DebugName::type_name::<C>()
+                        );
+                        trace!(
+                            target: "lightyear_debug::prediction",
+                            kind = "snap_to_confirmed_insert",
+                            schedule = "FixedPreUpdate",
+                            sample_point = "FixedPreUpdate",
+                            entity = ?entity,
+                            component = ?DebugName::type_name::<C>(),
+                            local_tick = tick.0,
+                            confirmed_tick = tick.0,
+                            value = ?confirmed_value,
+                            "inserted confirmed component during rollback"
                         );
                         commands.entity(entity).insert(confirmed_value.clone());
                     }
@@ -507,6 +646,17 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                             ?tick,
                             "Removing component during rollback (confirmed removal) for {:?}",
                             DebugName::type_name::<C>()
+                        );
+                        trace!(
+                            target: "lightyear_debug::prediction",
+                            kind = "snap_to_confirmed_remove",
+                            schedule = "FixedPreUpdate",
+                            sample_point = "FixedPreUpdate",
+                            entity = ?entity,
+                            component = ?DebugName::type_name::<C>(),
+                            local_tick = tick.0,
+                            confirmed_tick = tick.0,
+                            "removed component for confirmed removal during rollback"
                         );
                         commands.entity(entity).remove::<C>();
                     }

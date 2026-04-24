@@ -21,7 +21,15 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, (client::update_aim, client::log_entities));
+        app.add_systems(
+            Update,
+            (
+                client::update_aim,
+                client::mark_debug_players,
+                client::mark_debug_bullets,
+                client::mark_debug_modes,
+            ),
+        );
     }
 }
 
@@ -31,8 +39,14 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(Update, server::log_entities);
+        app.add_systems(
+            Update,
+            (
+                server::mark_debug_players,
+                server::mark_debug_bullets,
+                server::mark_debug_modes,
+            ),
+        );
     }
 }
 
@@ -44,7 +58,6 @@ mod client {
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
         auto_shoot: bool,
-        log_client: bool,
     }
 
     #[derive(Default)]
@@ -58,7 +71,6 @@ mod client {
             Self {
                 pressed_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
                 auto_shoot: env_flag("LIGHTYEAR_AUTOSHOOT"),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -102,51 +114,38 @@ mod client {
         }
     }
 
-    pub(super) fn log_entities(
-        settings: Option<Res<AutomationSettings>>,
-        players: Query<
-            (&PlayerId, &Position, Option<&Score>, Has<Controlled>),
-            (With<PlayerMarker>, Changed<Position>),
-        >,
-        bullets: Query<(&Position, &BulletMarker), Added<BulletMarker>>,
-        modes: Query<
-            (&GameReplicationMode, &ProjectileReplicationMode),
-            (
-                With<ClientContext>,
-                Or<(
-                    Changed<GameReplicationMode>,
-                    Changed<ProjectileReplicationMode>,
-                )>,
-            ),
-        >,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (player_id, position, score, controlled) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                score = ?score.map(|score| score.0),
-                controlled,
-                "projectiles client player update"
+        for entity in &players {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<Score>([DebugSamplePoint::Update]),
             );
         }
-        for (position, bullet) in &bullets {
-            info!(
-                shooter = ?bullet.shooter,
-                position = ?position.0,
-                "projectiles client bullet spawned"
+    }
+
+    pub(super) fn mark_debug_bullets(
+        mut commands: Commands,
+        bullets: Query<Entity, Added<BulletMarker>>,
+    ) {
+        for entity in &bullets {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update]),
             );
         }
-        for (game_mode, projectile_mode) in &modes {
-            info!(
-                ?game_mode,
-                ?projectile_mode,
-                "projectiles client mode update"
+    }
+
+    pub(super) fn mark_debug_modes(
+        mut commands: Commands,
+        modes: Query<Entity, Added<ClientContext>>,
+    ) {
+        for entity in &modes {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
+                    .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
             );
         }
     }
@@ -174,60 +173,38 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_entities(
-        settings: Res<DebugSettings>,
-        players: Query<
-            (&PlayerId, &Position, &Score),
-            (With<PlayerMarker>, Or<(Changed<Position>, Changed<Score>)>),
-        >,
-        bullets: Query<(&Position, &BulletMarker), Added<BulletMarker>>,
-        modes: Query<
-            (&GameReplicationMode, &ProjectileReplicationMode),
-            (
-                With<ClientContext>,
-                Or<(
-                    Changed<GameReplicationMode>,
-                    Changed<ProjectileReplicationMode>,
-                )>,
-            ),
-        >,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (player_id, position, score) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                score = score.0,
-                "projectiles server player update"
+        for entity in &players {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<Score>([DebugSamplePoint::Update]),
             );
         }
-        for (position, bullet) in &bullets {
-            info!(
-                shooter = ?bullet.shooter,
-                position = ?position.0,
-                "projectiles server bullet spawned"
+    }
+
+    pub(super) fn mark_debug_bullets(
+        mut commands: Commands,
+        bullets: Query<Entity, Added<BulletMarker>>,
+    ) {
+        for entity in &bullets {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update]),
             );
         }
-        for (game_mode, projectile_mode) in &modes {
-            info!(
-                ?game_mode,
-                ?projectile_mode,
-                "projectiles server mode update"
+    }
+
+    pub(super) fn mark_debug_modes(
+        mut commands: Commands,
+        modes: Query<Entity, Added<ClientContext>>,
+    ) {
+        for entity in &modes {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
+                    .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
             );
         }
     }

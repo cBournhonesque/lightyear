@@ -19,7 +19,14 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, (client::update_aim, client::log_entities));
+        app.add_systems(
+            Update,
+            (
+                client::update_aim,
+                client::mark_debug_players,
+                client::mark_debug_bullets,
+            ),
+        );
     }
 }
 
@@ -29,8 +36,10 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(FixedUpdate, server::log_entities);
+        app.add_systems(
+            Update,
+            (server::mark_debug_players, server::mark_debug_bullets),
+        );
     }
 }
 
@@ -42,7 +51,6 @@ mod client {
     pub(super) struct AutomationSettings {
         base_keys: Vec<KeyCode>,
         auto_shoot: bool,
-        log_client: bool,
     }
 
     #[derive(Default)]
@@ -56,7 +64,6 @@ mod client {
             Self {
                 base_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
                 auto_shoot: env_flag("LIGHTYEAR_AUTOSHOOT"),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -100,34 +107,26 @@ mod client {
         }
     }
 
-    pub(super) fn log_entities(
-        settings: Option<Res<AutomationSettings>>,
-        players: Query<
-            (&PlayerId, &Position, Option<&Score>, Has<Controlled>),
-            (With<PlayerMarker>, Changed<Position>),
-        >,
-        bullets: Query<(&Position, &PlayerId), (With<BulletMarker>, Added<BulletMarker>)>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (player_id, position, score, controlled) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                score = ?score.map(|score| score.0),
-                controlled,
-                "fps client player update"
+        for entity in &players {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<Score>([DebugSamplePoint::Update]),
             );
         }
-        for (position, player_id) in &bullets {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                "fps client bullet spawned"
+    }
+
+    pub(super) fn mark_debug_bullets(
+        mut commands: Commands,
+        bullets: Query<Entity, Added<BulletMarker>>,
+    ) {
+        for entity in &bullets {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<PlayerId>([DebugSamplePoint::Update]),
             );
         }
     }
@@ -155,43 +154,26 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_entities(
-        settings: Res<DebugSettings>,
-        players: Query<
-            (&PlayerId, &Position, &Score),
-            (With<PlayerMarker>, Or<(Changed<Position>, Changed<Score>)>),
-        >,
-        bullets: Query<(&Position, &PlayerId), (With<BulletMarker>, Added<BulletMarker>)>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (player_id, position, score) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                score = score.0,
-                "fps server player update"
+        for entity in &players {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<Score>([DebugSamplePoint::FixedUpdate]),
             );
         }
-        for (position, player_id) in &bullets {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                "fps server bullet spawned"
+    }
+
+    pub(super) fn mark_debug_bullets(
+        mut commands: Commands,
+        bullets: Query<Entity, Added<BulletMarker>>,
+    ) {
+        for entity in &bullets {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<PlayerId>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }

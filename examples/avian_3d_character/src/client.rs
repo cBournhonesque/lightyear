@@ -64,7 +64,10 @@ fn handle_character_actions(
 /// the character then add an input component.
 fn handle_new_character(
     mut commands: Commands,
-    mut character_query: Query<(Entity, &ColorComponent), (Added<Predicted>, With<CharacterMarker>)>,
+    mut character_query: Query<
+        (Entity, &ColorComponent),
+        (Added<Predicted>, With<CharacterMarker>),
+    >,
 ) {
     for (entity, _color) in &mut character_query {
         info!("Predicted character ready on client: {entity:?}");

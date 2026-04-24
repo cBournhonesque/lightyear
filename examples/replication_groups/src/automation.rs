@@ -1,9 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
-};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{
     Direction, Inputs, PlayerId, PlayerParent, PlayerPosition, TailLength, TailPoints,
@@ -21,9 +19,9 @@ impl Plugin for AutomationClientPlugin {
         app.add_systems(
             Update,
             (
-                client::log_players,
-                client::log_tails,
-                client::log_interpolated_snake_consistency,
+                client::mark_debug_players,
+                client::mark_debug_tails,
+                client::emit_interpolated_snake_consistency,
             ),
         );
     }
@@ -35,8 +33,10 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(FixedUpdate, (server::log_players, server::log_tails));
+        app.add_systems(
+            Update,
+            (server::mark_debug_players, server::mark_debug_tails),
+        );
     }
 }
 
@@ -48,7 +48,6 @@ mod client {
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
         move_script: Option<Vec<(f32, Vec<KeyCode>)>>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
@@ -56,7 +55,6 @@ mod client {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
                 move_script: parse_move_script(env_string("LIGHTYEAR_AUTOMOVE_SCRIPT")),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -79,54 +77,35 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &keys);
     }
 
-    pub(super) fn log_players(
-        settings: Option<Res<AutomationSettings>>,
-        query: Query<
-            (
-                Entity,
-                &PlayerId,
-                &PlayerPosition,
-                Has<Predicted>,
-                Has<Interpolated>,
-            ),
-            Changed<PlayerPosition>,
-        >,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (entity, player_id, position, predicted, interpolated) in &query {
-            info!(
-                ?entity,
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                interpolated,
-                "replication_groups client head update"
-            );
+        for (entity, predicted, interpolated) in &query {
+            if predicted || interpolated {
+                commands
+                    .entity(entity)
+                    .insert(LightyearDebug::component_at::<PlayerPosition>([
+                        DebugSamplePoint::Update,
+                    ]));
+            }
         }
     }
 
-    pub(super) fn log_tails(
-        settings: Option<Res<AutomationSettings>>,
-        tails: Query<(Entity, &PlayerParent, &TailPoints), Changed<TailPoints>>,
+    pub(super) fn mark_debug_tails(
+        mut commands: Commands,
+        tails: Query<Entity, Added<TailPoints>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (entity, parent, tail) in &tails {
-            info!(?entity, parent = ?parent.0, ?tail, "replication_groups client tail update");
+        for entity in &tails {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<TailPoints>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
-    pub(super) fn log_interpolated_snake_consistency(
-        settings: Option<Res<AutomationSettings>>,
+    pub(super) fn emit_interpolated_snake_consistency(
         players: Query<
             (
                 Entity,
@@ -147,16 +126,17 @@ mod client {
             With<Interpolated>,
         >,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-
         for (tail_entity, parent, tail, tail_length, tail_history) in &tails {
             let Ok((head_entity, player_id, head, head_history)) = players.get(parent.0) else {
-                warn!(?tail_entity, parent = ?parent.0, "interpolated tail missing head");
+                lightyear_debug_event!(
+                    DebugCategory::Component,
+                    DebugSamplePoint::Update,
+                    "Update",
+                    "replication_groups_missing_head",
+                    tail_entity = ?tail_entity,
+                    parent = ?parent.0,
+                    "interpolated tail missing head"
+                );
                 continue;
             };
 
@@ -167,7 +147,11 @@ mod client {
                 continue;
             }
 
-            info!(
+            lightyear_debug_event!(
+                DebugCategory::Component,
+                DebugSamplePoint::Update,
+                "Update",
+                "replication_groups_snake_inconsistency",
                 ?player_id,
                 ?head_entity,
                 ?tail_entity,
@@ -296,49 +280,28 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_players(
-        settings: Res<DebugSettings>,
-        players: Query<
-            (Entity, &PlayerId, &PlayerPosition, &ActionState<Inputs>),
-            Changed<PlayerPosition>,
-        >,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, Added<PlayerId>>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (entity, player_id, position, input) in &players {
-            info!(
-                ?entity,
-                ?player_id,
-                position = ?position.0,
-                ?input,
-                "replication_groups server head update"
+        for entity in &players {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }
 
-    pub(super) fn log_tails(
-        settings: Res<DebugSettings>,
-        tails: Query<(Entity, &PlayerParent, &TailPoints), Changed<TailPoints>>,
+    pub(super) fn mark_debug_tails(
+        mut commands: Commands,
+        tails: Query<Entity, Added<TailPoints>>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (entity, parent, tail) in &tails {
-            info!(?entity, parent = ?parent.0, ?tail, "replication_groups server tail update");
+        for entity in &tails {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<TailPoints>([
+                    DebugSamplePoint::FixedUpdate,
+                ]));
         }
     }
 }

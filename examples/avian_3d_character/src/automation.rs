@@ -1,9 +1,7 @@
 use avian3d::prelude::Position;
 use bevy::prelude::*;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
-};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{BlockMarker, CharacterMarker, ColorComponent, ProjectileMarker};
 
@@ -16,7 +14,7 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, client::log_entities);
+        app.add_systems(Update, client::mark_debug_entities);
     }
 }
 
@@ -26,8 +24,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(FixedUpdate, server::log_entities);
+        app.add_systems(Update, server::mark_debug_entities);
     }
 }
 
@@ -38,14 +35,12 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -62,34 +57,26 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
     }
 
-    pub(super) fn log_entities(
-        settings: Option<Res<AutomationSettings>>,
-        characters: Query<
-            (&Position, Has<Predicted>, Has<Controlled>),
-            (With<CharacterMarker>, Changed<Position>),
+    pub(super) fn mark_debug_entities(
+        mut commands: Commands,
+        entities: Query<
+            Entity,
+            (
+                With<Position>,
+                Or<(
+                    Added<CharacterMarker>,
+                    Added<BlockMarker>,
+                    Added<ProjectileMarker>,
+                )>,
+            ),
         >,
-        blocks: Query<&Position, (With<BlockMarker>, Changed<Position>)>,
-        projectiles: Query<&Position, (With<ProjectileMarker>, Changed<Position>)>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (position, predicted, controlled) in &characters {
-            info!(
-                position = ?position.0,
-                predicted,
-                controlled,
-                "avian_3d_character client character update"
-            );
-        }
-        for position in &blocks {
-            info!(position = ?position.0, "avian_3d_character client block update");
-        }
-        for position in &projectiles {
-            info!(position = ?position.0, "avian_3d_character client projectile update");
+        for entity in &entities {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
@@ -118,36 +105,26 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_entities(
-        settings: Res<DebugSettings>,
-        characters: Query<&Position, (With<CharacterMarker>, Changed<Position>)>,
-        blocks: Query<&Position, (With<BlockMarker>, Changed<Position>)>,
-        projectiles: Query<&Position, (With<ProjectileMarker>, Changed<Position>)>,
+    pub(super) fn mark_debug_entities(
+        mut commands: Commands,
+        entities: Query<
+            Entity,
+            (
+                With<Position>,
+                Or<(
+                    Added<CharacterMarker>,
+                    Added<BlockMarker>,
+                    Added<ProjectileMarker>,
+                )>,
+            ),
+        >,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for position in &characters {
-            info!(position = ?position.0, "avian_3d_character server character update");
-        }
-        for position in &blocks {
-            info!(position = ?position.0, "avian_3d_character server block update");
-        }
-        for position in &projectiles {
-            info!(position = ?position.0, "avian_3d_character server projectile update");
+        for entity in &entities {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::FixedUpdate,
+                ]));
         }
     }
 }

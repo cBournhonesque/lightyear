@@ -1,12 +1,12 @@
 use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use bevy_replicon::prelude::AppRuleExt;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
-use lightyear::prelude::input::leafwing;
 use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
-use bevy_replicon::prelude::AppRuleExt;
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;

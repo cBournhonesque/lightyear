@@ -13,6 +13,8 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use core::ops::{Deref, DerefMut};
 use core::time::Duration;
+#[allow(unused_imports)]
+use tracing::trace;
 
 /// A timeline defines an independent progression of time.
 ///
@@ -123,6 +125,14 @@ impl LocalTimeline {
 /// Increment the local tick at each FixedUpdate
 pub(crate) fn increment_local_tick(mut timeline: ResMut<LocalTimeline>) {
     timeline.tick += 1;
+    trace!(
+        target: "lightyear_debug::timeline",
+        kind = "local_tick",
+        sample_point = "FixedFirst",
+        schedule = "FixedFirst",
+        local_tick = timeline.tick.0,
+        "local timeline tick advanced"
+    );
 }
 
 pub struct NetworkTimelinePlugin<T> {
@@ -212,7 +222,7 @@ impl<T: TimelineConfig> Copy for SyncEvent<T> {}
 /// Marker component inserted on the Link if we are currently in rollback
 ///
 /// This is in `lightyear_core` to avoid circular dependencies. Many other plugins behave differently during rollback
-#[derive(Component)]
+#[derive(Component, Debug, Clone, Copy)]
 pub enum Rollback {
     /// The rollback is initiated because we have received new Confirmed state from the server
     /// that doesn't match our prediction history.

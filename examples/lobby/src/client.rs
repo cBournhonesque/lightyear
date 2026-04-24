@@ -434,8 +434,13 @@ mod lobby {
                         reason: "Client becoming Host".to_string(),
                     });
 
-                    // Remove any previous networking components
-                    commands.entity(local_client).remove::<NetcodeClient>();
+                    // Convert the existing remote client into an in-process host-client by
+                    // removing the external transport pieces before linking it to the local server.
+                    commands.entity(local_client).remove::<(
+                        NetcodeClient,
+                        PeerAddr,
+                        lightyear::webtransport::client::WebTransportClientIo,
+                    )>();
 
                     // Any entity that is both a Client and a LinkOf will be a host-client.
                     // The corresponding server will be a HostServer.

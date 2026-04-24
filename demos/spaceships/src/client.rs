@@ -9,6 +9,7 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::*;
 
@@ -16,6 +17,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(add_ball_physics);
         app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
@@ -79,7 +81,10 @@ fn handle_new_player(
     let entity = trigger.entity;
     if let Ok(player) = player_query.get(entity) {
         info!("Predicted player replicated to us: {entity:?} {player:?}");
-        commands.entity(entity).insert(PhysicsBundle::player_ship());
+        commands.entity(entity).insert((
+            PhysicsBundle::player_ship(),
+            Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
+        ));
     }
 }
 

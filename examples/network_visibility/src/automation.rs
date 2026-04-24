@@ -1,9 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
-};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{CircleMarker, Inputs, PlayerId, Position};
 
@@ -16,7 +14,10 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, (client::log_players, client::log_circles));
+        app.add_systems(
+            Update,
+            (client::mark_debug_players, client::mark_debug_circles),
+        );
     }
 }
 
@@ -26,8 +27,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(FixedUpdate, server::log_players);
+        app.add_systems(Update, server::mark_debug_players);
     }
 }
 
@@ -38,14 +38,12 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -62,39 +60,31 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
     }
 
-    pub(super) fn log_players(
-        settings: Option<Res<AutomationSettings>>,
-        query: Query<(&PlayerId, &Position, Has<Predicted>, Has<Interpolated>), Changed<Position>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (player_id, position, predicted, interpolated) in &query {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                interpolated,
-                "network_visibility client player update"
-            );
+        for (entity, predicted, interpolated) in &query {
+            if predicted || interpolated {
+                commands
+                    .entity(entity)
+                    .insert(LightyearDebug::component_at::<Position>([
+                        DebugSamplePoint::Update,
+                    ]));
+            }
         }
     }
 
-    pub(super) fn log_circles(
-        settings: Option<Res<AutomationSettings>>,
-        added: Query<&Position, (With<CircleMarker>, Added<CircleMarker>)>,
+    pub(super) fn mark_debug_circles(
+        mut commands: Commands,
+        added: Query<Entity, Added<CircleMarker>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for position in &added {
-            info!(position = ?position.0, "network_visibility client circle visible");
+        for entity in &added {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
@@ -121,32 +111,14 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_players(
-        settings: Res<DebugSettings>,
-        query: Query<(&PlayerId, &Position, &ActionState<Inputs>), Changed<Position>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<Entity, Added<PlayerId>>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (player_id, position, input) in &query {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                ?input,
-                "network_visibility server player update"
+        for entity in &query {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }

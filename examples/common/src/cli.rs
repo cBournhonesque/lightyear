@@ -296,11 +296,18 @@ pub fn window_plugin() -> WindowPlugin {
 }
 
 pub fn log_plugin() -> LogPlugin {
-    LogPlugin {
+    let plugin = LogPlugin {
         level: Level::INFO,
         filter: "wgpu=error,bevy_render=info,bevy_ecs=warn,bevy_time=warn,naga=warn,bevy_enhanced_input::action::fns=error".to_string(),
         ..default()
-    }
+    };
+    #[cfg(feature = "structured-debug")]
+    let plugin = LogPlugin {
+        custom_layer: lightyear_debug_custom_layer,
+        fmt_layer: non_lightyear_debug_fmt_layer,
+        ..plugin
+    };
+    plugin
 }
 
 #[cfg(any(feature = "gui2d", feature = "gui3d"))]

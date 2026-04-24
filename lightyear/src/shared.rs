@@ -22,6 +22,9 @@ impl Plugin for SharedPlugins {
         .add_plugins(lightyear_messages::plugin::MessagePlugin)
         .add_plugins(lightyear_connection::ConnectionPlugin);
 
+        #[cfg(feature = "debug")]
+        app.add_plugins(lightyear_tools::prelude::LightyearDebugPlugin);
+
         #[cfg(feature = "replication")]
         app.add_plugins(crate::protocol::ProtocolCheckPlugin);
 

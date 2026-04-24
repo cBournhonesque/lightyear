@@ -69,10 +69,7 @@ pub(crate) fn handle_predicted_spawn(
 /// `InputMarker` and spawn the local BEI action entities.
 fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
-    controlled_players: Query<
-        (&PlayerId, Has<InputMarker<Player>>),
-        With<Player>,
-    >,
+    controlled_players: Query<(&PlayerId, Has<InputMarker<Player>>), With<Player>>,
     mut commands: Commands,
 ) {
     let entity = trigger.entity;

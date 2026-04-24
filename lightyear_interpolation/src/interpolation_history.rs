@@ -113,6 +113,18 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
             "Interpolate {:?}",
             DebugName::type_name::<C>()
         );
+        trace!(
+            target: "lightyear_debug::interpolation",
+            kind = "interpolation_history_sample",
+            component = ?DebugName::type_name::<C>(),
+            interpolation_tick = interpolation_tick.0,
+            start_tick = start_tick.0,
+            end_tick = end_tick.0,
+            interpolation_overstep,
+            fraction,
+            history_len = self.len(),
+            "sampled interpolation history"
+        );
         Some(interpolation_registry.interpolate(start.clone(), end.clone(), fraction))
     }
 }

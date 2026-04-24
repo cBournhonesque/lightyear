@@ -94,7 +94,9 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(trigger.entity).insert(PhysicsBundle::player());
+        commands
+            .entity(trigger.entity)
+            .insert(PhysicsBundle::player());
     }
 }
 

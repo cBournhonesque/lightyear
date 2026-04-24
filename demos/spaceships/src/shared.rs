@@ -194,7 +194,10 @@ pub fn shared_player_firing(
         //     // visually distracting to temporarily see a fake bullet that then disappears.
         //     continue;
         // }
-        if !action.just_pressed(&PlayerActions::Fire) {
+        // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
+        // relying on a frame-edge `just_pressed`, and the weapon cooldown already
+        // guarantees we only spawn bullets at the intended rate.
+        if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
 

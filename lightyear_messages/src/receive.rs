@@ -30,6 +30,7 @@ use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
+use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{error, trace};
 
 /// Bevy Trigger emitted when a remote trigger is received and processed.
@@ -114,6 +115,7 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
     receiver: MutUntyped,
     reader: &mut Reader,
     channel_kind: ChannelKind,
+    channel_name: &'static str,
     remote_tick: Tick,
     message_id: Option<MessageId>,
     serialize_metadata: &ErasedSerializeFns,
@@ -131,6 +133,7 @@ impl<M: Message> MessageReceiver<M> {
         receiver: MutUntyped,
         reader: &mut Reader,
         channel_kind: ChannelKind,
+        channel_name: &'static str,
         remote_tick: Tick,
         message_id: Option<MessageId>,
         serialize_metadata: &ErasedSerializeFns,
@@ -150,6 +153,17 @@ impl<M: Message> MessageReceiver<M> {
             "Received message {:?} on channel {channel_kind:?}",
             DebugName::type_name::<M>()
         );
+        trace!(
+            target: "lightyear_debug::message",
+            kind = "message_receive_typed",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            message_name = core::any::type_name::<M>(),
+            channel = channel_name,
+            remote_tick = remote_tick.0,
+            message_id = ?message_id,
+            "deserialized message into receiver"
+        );
         receiver.recv.push(received_message);
         Ok(())
     }
@@ -168,6 +182,7 @@ impl MessagePlugin {
         receiver_query: &mut Query<FilteredEntityMut>,
         entity: Entity,
         channel_kind: ChannelKind,
+        channel_name: &'static str,
         tick: Tick,
         message_id: Option<MessageId>,
         message_manager: &mut MessageManager,
@@ -185,6 +200,21 @@ impl MessagePlugin {
             .kind_map
             .kind(message_net_id)
             .ok_or(MessageError::UnrecognizedMessageId(message_net_id))?;
+        let message_name = registry.kind_map.name(message_kind).unwrap_or("Unknown");
+        trace!(
+            target: "lightyear_debug::message",
+            kind = "message_receive_bytes",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            entity = ?entity,
+            message_name = message_name,
+            message_net_id = message_net_id,
+            channel = channel_name,
+            remote_tick = tick.0,
+            message_id = ?message_id,
+            remote_peer = ?remote_peer_id,
+            "received message bytes"
+        );
         let serialize_fns = registry
             .serialize_fns_map
             .get(message_kind)
@@ -202,6 +232,7 @@ impl MessagePlugin {
                     receiver,
                     &mut reader,
                     channel_kind,
+                    channel_name,
                     tick,
                     message_id,
                     serialize_fns,
@@ -216,6 +247,7 @@ impl MessagePlugin {
                     commands,
                     &mut reader,
                     channel_kind,
+                    channel_name,
                     tick,
                     message_id,
                     serialize_fns,
@@ -251,6 +283,7 @@ impl MessagePlugin {
         // List of ChannelReceivers<M> present on that entity
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
+        channel_registry: Res<ChannelRegistry>,
         commands: ParallelCommands,
     ) {
         let tick = timeline.tick();
@@ -286,6 +319,8 @@ impl MessagePlugin {
                                         &mut receiver_query,
                                         entity,
                                         ChannelKind(channel_type_id),
+                                        channel_registry
+                                            .get_name_from_kind(&ChannelKind(channel_type_id)),
                                         tick,
                                         None,
                                         &mut message_manager,
@@ -304,6 +339,7 @@ impl MessagePlugin {
                         .values_mut()
                         .try_for_each(|receiver_metadata| {
                             let channel_kind = receiver_metadata.channel_kind;
+                            let channel_name = channel_registry.get_name_from_kind(&channel_kind);
                             while let Some((tick, bytes, message_id)) =
                                 receiver_metadata.receiver.read_message()
                             {
@@ -313,6 +349,7 @@ impl MessagePlugin {
                                     &mut receiver_query,
                                     entity,
                                     channel_kind,
+                                    channel_name,
                                     tick,
                                     message_id,
                                     &mut message_manager,

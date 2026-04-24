@@ -1,9 +1,7 @@
 use bevy::prelude::*;
 use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
-};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 #[cfg(feature = "client")]
 use crate::client::AppState;
@@ -23,8 +21,8 @@ impl Plugin for AutomationClientPlugin {
             (
                 client::auto_join_lobby,
                 client::auto_start_game,
-                client::log_lobbies,
-                client::log_positions,
+                client::mark_debug_lobbies,
+                client::mark_debug_players,
             ),
         );
     }
@@ -36,9 +34,10 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(Update, server::log_lobbies);
-        app.add_systems(FixedUpdate, server::log_positions);
+        app.add_systems(
+            Update,
+            (server::mark_debug_lobbies, server::mark_debug_players),
+        );
     }
 }
 
@@ -56,7 +55,6 @@ mod client {
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
         auto_start: Option<AutoStartMode>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
@@ -71,7 +69,6 @@ mod client {
             Self {
                 pressed_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
                 auto_start,
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -149,47 +146,31 @@ mod client {
         *sent = true;
     }
 
-    pub(super) fn log_lobbies(
-        settings: Option<Res<AutomationSettings>>,
-        lobbies: Query<&Lobbies, Changed<Lobbies>>,
+    pub(super) fn mark_debug_lobbies(
+        mut commands: Commands,
+        lobbies: Query<Entity, Added<Lobbies>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for lobbies in &lobbies {
-            info!(?lobbies, "lobby client lobbies update");
+        for entity in &lobbies {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Lobbies>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
-    pub(super) fn log_positions(
-        settings: Option<Res<AutomationSettings>>,
-        players: Query<
-            (
-                &PlayerId,
-                &PlayerPosition,
-                Has<Predicted>,
-                Has<Interpolated>,
-            ),
-            Changed<PlayerPosition>,
-        >,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (player_id, position, predicted, interpolated) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                interpolated,
-                "lobby client player update"
-            );
+        for (entity, predicted, interpolated) in &players {
+            if predicted || interpolated {
+                commands
+                    .entity(entity)
+                    .insert(LightyearDebug::component_at::<PlayerPosition>([
+                        DebugSamplePoint::Update,
+                    ]));
+            }
         }
     }
 
@@ -216,44 +197,27 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_lobbies(
-        settings: Res<DebugSettings>,
-        lobbies: Query<&Lobbies, Changed<Lobbies>>,
+    pub(super) fn mark_debug_lobbies(
+        mut commands: Commands,
+        lobbies: Query<Entity, Added<Lobbies>>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for lobbies in &lobbies {
-            info!(?lobbies, "lobby server lobbies update");
+        for entity in &lobbies {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Lobbies>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
-    pub(super) fn log_positions(
-        settings: Res<DebugSettings>,
-        players: Query<(&PlayerId, &PlayerPosition, &ActionState<Inputs>), Changed<PlayerPosition>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, Added<PlayerId>>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (player_id, position, input) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                ?input,
-                "lobby server player update"
+        for entity in &players {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }

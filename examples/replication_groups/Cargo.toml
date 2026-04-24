@@ -43,7 +43,7 @@ lightyear = { "workspace" = true, features = [
   "input_native",
 ] }
 lightyear_frame_interpolation.workspace = true
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
 
 serde.workspace = true
 tracing.workspace = true

@@ -15,6 +15,7 @@ use crate::channels::RepliconChannelMap;
 use crate::checkpoint::{
     ReplicationCheckpointMap, extract_server_replicon_tick, unwrap_server_payload,
 };
+use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::{debug, error};
 
@@ -163,7 +164,7 @@ fn send_client_packets(
 /// since they arrive as replicated components.
 fn despawn_replicated_on_disconnect(
     mut commands: Commands,
-    replicated: Query<Entity, With<Replicated>>,
+    replicated: Query<Entity, (With<Replicated>, Without<Replicate>)>,
 ) {
     for entity in replicated.iter() {
         debug!("Despawning replicated entity {:?} on disconnect", entity);

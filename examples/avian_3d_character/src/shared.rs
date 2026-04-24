@@ -98,8 +98,8 @@ impl Plugin for SharedPlugin {
         );
 
         // Debug
-        app.add_systems(FixedLast, fixed_last_log);
-        app.add_systems(Last, last_log);
+        app.add_systems(FixedLast, emit_fixed_last_characters);
+        app.add_systems(Last, emit_last_characters);
     }
 }
 
@@ -186,7 +186,7 @@ pub fn apply_character_action(
     forces.apply_force(required_acceleration * mass.value());
 }
 
-pub(crate) fn fixed_last_log(
+pub(crate) fn emit_fixed_last_characters(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
@@ -204,19 +204,23 @@ pub(crate) fn fixed_last_log(
     for (entity, position, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.axis_pair(&CharacterAction::Move));
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "character_fixed_last",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
+            correction = ?correction,
+            pressed = ?pressed,
+            last_buffer_tick = ?last_buffer_tick,
             "Player - FixedLast"
         );
     }
 }
 
-pub(crate) fn last_log(
+pub(crate) fn emit_last_characters(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
@@ -232,13 +236,17 @@ pub(crate) fn last_log(
     let tick = timeline.tick();
 
     for (entity, position, transform, interpolate, correction) in players.iter() {
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?transform,
-            ?interpolate,
-            ?correction,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::Last,
+            "Last",
+            "character_last",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
+            transform = ?transform,
+            interpolate = ?interpolate,
+            correction = ?correction,
             "Player - Last"
         );
     }

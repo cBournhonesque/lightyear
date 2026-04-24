@@ -5,19 +5,13 @@
 //!
 //! - [`RepliconTick`] is a replication checkpoint / message-ordering index. It is owned by
 //!   Replicon and is what [`ConfirmHistory`] and [`ServerMutateTicks`] report.
+//!   [`RepliconTick`] is incremented by one whenever the 'send' side of replication runs.
 //! - [`Tick`] is Lightyear's authoritative simulation tick. Prediction history, rollback,
 //!   timeline resync, and mismatch detection must operate in this tick domain.
+//!   [`Tick`] is incremented by one whenever the FixedUpdate schedule runs.
 //!
-//! Those domains only happen to line up in simple cases. They diverge when:
-//!
-//! - replication is sent less frequently than every simulation tick
-//! - multiple replication sends happen for the same simulation tick
-//! - the client timeline is resynced while Replicon confirmation data remains in checkpoint space
-//!
-//! If prediction code stores or compares raw [`RepliconTick`] values as if they were simulation
-//! ticks, rollback can restore from the wrong point in history. The bridge therefore carries an
-//! explicit mapping from each received Replicon checkpoint to the authoritative server simulation
-//! tick that produced that checkpoint.
+//! The bridge therefore carries an explicit mapping from each received Replicon checkpoint to the
+//! authoritative server simulation.
 //!
 //! # How the mapping is carried
 //! Lightyear does not modify Replicon's internal message format. Instead, the Lightyear transport

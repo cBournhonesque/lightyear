@@ -190,6 +190,22 @@ fn receive_input_message<S: ActionStateSequence>(
             //     return Ok(())
             // }
             trace!(?tick, ?client_id, action = ?DebugName::type_name::<S::Action>().shortname(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_input_message_recv",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?client_entity,
+                server_entity = ?server_entity,
+                client_id = ?client_id.0,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                end_tick = message.end_tick.0,
+                num_targets = message.inputs.len(),
+                rebroadcast = message.rebroadcast,
+                message = ?message,
+                "server received input message"
+            );
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
@@ -215,6 +231,21 @@ fn receive_input_message<S: ActionStateSequence>(
                     }
                     debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
                     message.rebroadcast = true;
+                    trace!(
+                        target: "lightyear_debug::input",
+                        kind = "server_input_rebroadcast",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?client_entity,
+                        server_entity = ?server_entity,
+                        client_id = ?client_id.0,
+                        action = ?DebugName::type_name::<S::Action>(),
+                        local_tick = tick.0,
+                        end_tick = message.end_tick.0,
+                        rebroadcaster = ?rebroadcaster,
+                        num_targets = message.inputs.len(),
+                        "server rebroadcasting input message"
+                    );
                     match rebroadcaster {
                         None => {
                             sender.send::<_, InputChannel>(
@@ -273,10 +304,38 @@ fn receive_input_message<S: ActionStateSequence>(
                             data.states
                         );
                         data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        trace!(
+                            target: "lightyear_debug::input",
+                            kind = "server_input_buffer_update",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            client_id = ?client_id.0,
+                            action = ?DebugName::type_name::<S::Action>(),
+                            local_tick = tick.0,
+                            end_tick = message.end_tick.0,
+                            buffer_len = buffer.len(),
+                            input_buffer = %*buffer,
+                            "server updated input buffer"
+                        );
                     } else {
                         debug!("Adding InputBuffer and ActionState which are missing on the entity");
                         let mut buffer = InputBuffer::<S::Snapshot, S::Action>::default();
                         data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        trace!(
+                            target: "lightyear_debug::input",
+                            kind = "server_input_buffer_insert",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            client_id = ?client_id.0,
+                            action = ?DebugName::type_name::<S::Action>(),
+                            local_tick = tick.0,
+                            end_tick = message.end_tick.0,
+                            buffer_len = buffer.len(),
+                            input_buffer = %buffer,
+                            "server inserted input buffer"
+                        );
                         commands.entity(entity).insert((
                             buffer,
                             S::State::base_value()
@@ -328,6 +387,22 @@ fn update_action_state<S: ActionStateSequence>(
                 ?entity,
                 "action state after update. Input Buffer: {}",
                 input_buffer.as_ref()
+            );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_update_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                server_entity = ?server,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                host_client,
+                snapshot = ?snapshot,
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer.as_ref(),
+                "server applied input buffer to action state"
             );
 
             #[cfg(feature = "metrics")]

@@ -10,10 +10,7 @@ pub struct AutomationClientPlugin;
 impl Plugin for AutomationClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, client::init_automation_settings);
-        app.add_systems(
-            Update,
-            (client::debug_player_entities, client::log_position_updates),
-        );
+        app.add_systems(Update, client::mark_debug_player_entities);
     }
 }
 
@@ -23,8 +20,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Startup, server::init_debug_logging);
-        app.add_systems(FixedUpdate, server::log_player_updates);
+        app.add_systems(Update, server::mark_debug_player_entities);
     }
 }
 
@@ -34,7 +30,6 @@ pub(crate) mod client {
     #[derive(Resource, Clone, Default)]
     pub(crate) struct AutomationSettings {
         direction: Option<Direction>,
-        log_positions: bool,
     }
 
     impl AutomationSettings {
@@ -43,13 +38,7 @@ pub(crate) mod client {
             let direction = std::env::var("LIGHTYEAR_SIMPLE_BOX_AUTOMOVE")
                 .ok()
                 .and_then(|value| parse_direction(&value));
-            let log_positions = std::env::var("LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS")
-                .map(|value| value != "0")
-                .unwrap_or(false);
-            Self {
-                direction,
-                log_positions,
-            }
+            Self { direction }
         }
 
         #[cfg(target_family = "wasm")]
@@ -62,9 +51,6 @@ pub(crate) mod client {
         let settings = AutomationSettings::from_env();
         if let Some(direction) = &settings.direction {
             info!(?direction, "Using automated client input");
-        }
-        if settings.log_positions {
-            info!("Logging predicted and interpolated player position updates");
         }
         commands.insert_resource(settings);
     }
@@ -93,62 +79,25 @@ pub(crate) mod client {
         settings.and_then(|settings| settings.direction.clone())
     }
 
-    pub(crate) fn debug_player_entities(
-        query: Query<
-            (
-                Entity,
-                &PlayerId,
-                Has<Predicted>,
-                Has<Interpolated>,
-                Has<Controlled>,
-                Has<Replicated>,
-            ),
-            Added<PlayerId>,
-        >,
+    pub(crate) fn mark_debug_player_entities(
+        mut commands: Commands,
+        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
     ) {
-        for (entity, player_id, predicted, interpolated, controlled, replicated) in query.iter() {
-            warn!(
-                ?entity,
-                ?player_id,
-                predicted,
-                interpolated,
-                controlled,
-                replicated,
-                "Player entity status on client"
-            );
-        }
-    }
-
-    pub(crate) fn log_position_updates(
-        settings: Option<Res<AutomationSettings>>,
-        query: Query<
-            (
-                Entity,
-                &PlayerId,
-                &PlayerPosition,
-                Has<Predicted>,
-                Has<Interpolated>,
-                Has<Controlled>,
-            ),
-            Changed<PlayerPosition>,
-        >,
-    ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_positions {
-            return;
-        }
-        for (entity, player_id, position, predicted, interpolated, controlled) in query.iter() {
+        for (entity, predicted, interpolated) in query.iter() {
             if predicted || interpolated {
-                info!(
-                    ?entity,
-                    ?player_id,
-                    position = ?position.0,
-                    predicted,
-                    interpolated,
-                    controlled,
-                    "Player position update on client"
+                commands.entity(entity).insert(
+                    LightyearDebug::component_at::<PlayerPosition>([
+                        DebugSamplePoint::Update,
+                        DebugSamplePoint::PostUpdate,
+                    ])
+                    .with_component_at::<Predicted>([
+                        DebugSamplePoint::Update,
+                        DebugSamplePoint::PostUpdate,
+                    ])
+                    .with_component_at::<Interpolated>([
+                        DebugSamplePoint::Update,
+                        DebugSamplePoint::PostUpdate,
+                    ]),
                 );
             }
         }
@@ -158,59 +107,19 @@ pub(crate) mod client {
 pub(crate) mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(crate) struct DebugLogging {
-        enabled: bool,
-    }
-
-    impl DebugLogging {
-        #[cfg(not(target_family = "wasm"))]
-        fn from_env() -> Self {
-            let enabled = std::env::var("LIGHTYEAR_SIMPLE_BOX_LOG_SERVER")
-                .map(|value| value != "0")
-                .unwrap_or(false);
-            Self { enabled }
-        }
-
-        #[cfg(target_family = "wasm")]
-        fn from_env() -> Self {
-            Self::default()
-        }
-    }
-
-    pub(crate) fn init_debug_logging(mut commands: Commands) {
-        let logging = DebugLogging::from_env();
-        if logging.enabled {
-            info!("Logging server-side player inputs and position updates");
-        }
-        commands.insert_resource(logging);
-    }
-
-    pub(crate) fn log_player_updates(
-        logging: Res<DebugLogging>,
-        query: Query<
-            (
-                Entity,
-                &PlayerId,
-                &PlayerPosition,
-                &ActionState<Inputs>,
-                Has<Predicted>,
-            ),
-            Or<(Changed<PlayerPosition>, Changed<ActionState<Inputs>>)>,
-        >,
+    pub(crate) fn mark_debug_player_entities(
+        mut commands: Commands,
+        query: Query<Entity, Added<PlayerId>>,
     ) {
-        if !logging.enabled {
-            return;
-        }
-        for (entity, player_id, position, inputs, predicted) in query.iter() {
-            info!(
-                ?entity,
-                ?player_id,
-                position = ?position.0,
-                ?inputs,
-                predicted,
-                "Server player update"
-            );
+        for entity in query.iter() {
+            let input_sample_points = [
+                DebugSamplePoint::FixedPreUpdate,
+                DebugSamplePoint::FixedUpdate,
+            ];
+            let debug =
+                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<ActionState<Inputs>>(input_sample_points);
+            commands.entity(entity).insert(debug);
         }
     }
 }

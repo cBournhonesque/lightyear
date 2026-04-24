@@ -61,13 +61,12 @@ pub(crate) fn buffer_input(
             };
 
         if let Some(direction) = requested_direction {
-            let accepted_direction = if last_direction
-                .is_some_and(|previous| previous.is_opposite(direction))
-            {
-                last_direction.unwrap()
-            } else {
-                direction
-            };
+            let accepted_direction =
+                if last_direction.is_some_and(|previous| previous.is_opposite(direction)) {
+                    last_direction.unwrap()
+                } else {
+                    direction
+                };
             *last_direction = Some(accepted_direction);
             action_state.0 = Inputs::Direction(accepted_direction);
         } else {

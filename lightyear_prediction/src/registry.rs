@@ -6,6 +6,7 @@ use crate::plugin::{
 };
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
+use crate::rollback::DeterministicPredicted;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
@@ -24,7 +25,6 @@ use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use crate::rollback::DeterministicPredicted;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::tick::Tick;
 use lightyear_replication::delta::Diffable;
@@ -199,6 +199,14 @@ impl PredictionRegistry {
                     debug!(
                         "Should Rollback! Confirmed value {c:?} is different from predicted value {p:?}",
                     );
+                    trace!(
+                        target: "lightyear_debug::prediction",
+                        kind = "rollback_value_mismatch",
+                        component = ?DebugName::type_name::<C>(),
+                        confirmed = ?c,
+                        predicted = ?p,
+                        "confirmed value differs from prediction history"
+                    );
                     #[cfg(feature = "metrics")]
                     metrics::counter!(format!(
                         "prediction::rollbacks::causes::{}::value_mismatch",
@@ -212,6 +220,13 @@ impl PredictionRegistry {
                 debug!(
                     "Should Rollback! Confirmed component exists ({c:?}), but predicted value does not exists",
                 );
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "rollback_missing_on_predicted",
+                    component = ?DebugName::type_name::<C>(),
+                    confirmed = ?c,
+                    "confirmed component missing from prediction history"
+                );
                 #[cfg(feature = "metrics")]
                 metrics::counter!(format!(
                     "prediction::rollbacks::causes::{}::missing_on_predicted",
@@ -223,6 +238,13 @@ impl PredictionRegistry {
             (None, Some(p)) => {
                 debug!(
                     "Should Rollback! Confirmed component does not exist, but predicted value exists ({p:?})",
+                );
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "rollback_missing_on_confirmed",
+                    component = ?DebugName::type_name::<C>(),
+                    predicted = ?p,
+                    "predicted component missing from confirmed state"
                 );
                 #[cfg(feature = "metrics")]
                 metrics::counter!(format!(
@@ -330,6 +352,16 @@ impl PredictionRegistry {
             // Mark as confirmed since this came from the server
             history.add_confirmed(confirmed_tick, confirmed_component);
             entity_mut.insert(history);
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "confirmed_history_insert",
+                entity = ?entity,
+                component = ?name,
+                confirmed_tick = confirmed_tick.0,
+                check_mismatch,
+                should_rollback = check_mismatch,
+                "created prediction history from confirmed value"
+            );
             // If there was no history, we can't compare, so we should rollback to be safe
             return check_mismatch;
         };
@@ -351,6 +383,17 @@ impl PredictionRegistry {
 
         // Always add confirmed value to history - this value will be preserved during rollback
         predicted_history.add_confirmed(confirmed_tick, confirmed_component);
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "confirmed_history_update",
+            entity = ?entity,
+            component = ?name,
+            confirmed_tick = confirmed_tick.0,
+            check_mismatch,
+            should_rollback,
+            history_len = predicted_history.len(),
+            "recorded confirmed value in prediction history"
+        );
         should_rollback
     }
 
@@ -390,15 +433,19 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
-    /// Register replicon marker write functions for `DeterministicPredicted`
-    /// entities so that one-time replicated values (via `replicate_once`) are
-    /// stored as confirmed state in `PredictionHistory` instead of overwriting
-    /// the component directly. This allows input-triggered rollbacks to snap
-    /// back to the confirmed value.
+    /// Register `write_history` as the default replicon receive function for
+    /// this component, so that replicated values are stored in
+    /// `PredictionHistory<C>` as confirmed state (and optionally trigger a
+    /// state rollback) rather than overwriting the component directly.
     ///
     /// Use this alongside `add_rollback` when the component is normally
     /// non-networked (computed from deterministic inputs) but needs an initial
-    /// value from replication for late-joining clients.
+    /// value from replication (e.g. `replicate_once` on a physics component
+    /// for late-joining clients).
+    ///
+    /// Unlike marker-gated write functions, this fires for every replicated
+    /// update of the component — including init messages where marker
+    /// components haven't been applied yet to the newly-spawned entity.
     fn add_confirmed_write(self) -> Self
     where
         C: SyncComponent;

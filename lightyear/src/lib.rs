@@ -369,7 +369,7 @@ pub mod prelude {
     pub use lightyear_interpolation::prelude::*;
 
     #[cfg(feature = "debug")]
-    pub use lightyear_ui::prelude::*;
+    pub use lightyear_tools::prelude::*;
 
     #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]
     pub mod input {

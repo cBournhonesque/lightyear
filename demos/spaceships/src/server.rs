@@ -15,6 +15,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{apply_action_state_to_player_movement, color_from_id};
@@ -24,6 +25,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, init);
 

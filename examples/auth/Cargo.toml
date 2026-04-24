@@ -21,7 +21,7 @@ udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
 [dependencies]
 lightyear = { workspace = true, default-features = false }
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
 
 async-compat.workspace = true
 anyhow.workspace = true

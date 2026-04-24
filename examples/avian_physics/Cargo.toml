@@ -31,7 +31,7 @@ lightyear = { workspace = true, features = [
   "leafwing",
   "avian2d",
 ] }
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true
 avian2d = { workspace = true, features = [

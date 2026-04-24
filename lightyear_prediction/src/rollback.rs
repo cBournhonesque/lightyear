@@ -358,22 +358,43 @@ fn check_rollback(
                             commands: &mut Commands,
                             rollback: Rollback| {
         let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
-        // Use plain comparison on the raw u32 values. Wrapping arithmetic
-        // would wrongly accept a rollback_tick that is far in the future
-        // (e.g. u32::MAX from an uninitialized tracker) as a small positive
-        // delta, because wrapping_diff collapses the ring distance.
-        if rollback_tick.0 > tick.0 || tick.0 - rollback_tick.0 > max_rollback_ticks as u32 {
-            let delta = tick - rollback_tick;
+        let delta = tick - rollback_tick;
+        if delta < 0 || delta > max_rollback_ticks as i32 {
             warn!(
                 ?rollback_tick,
                 ?tick,
                 "Trying to do a rollback of {delta:?} ticks. The max is {max_rollback_ticks:?}! Aborting"
+            );
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "rollback_rejected",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?manager_entity,
+                local_tick = tick.0,
+                rollback_tick = rollback_tick.0,
+                rollback_delta = delta,
+                max_rollback_ticks,
+                rollback = ?rollback,
+                "rollback request rejected"
             );
             prediction_manager.set_non_rollback();
             return;
         }
         prediction_manager.set_rollback_tick(rollback_tick);
         commands.entity(manager_entity).insert(rollback);
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "rollback_requested",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            entity = ?manager_entity,
+            local_tick = tick.0,
+            rollback_tick = rollback_tick.0,
+            rollback_delta = delta,
+            rollback = ?rollback,
+            "rollback requested"
+        );
     };
 
     // if there we check for rollback on both state and input, state takes precedence
@@ -404,6 +425,16 @@ fn check_rollback(
                 debug!(
                     ?mismatch_tick,
                     "Rollback from mismatch detected when receiving confirmed update"
+                );
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "state_mismatch_consumed",
+                    schedule = "PreUpdate",
+                    sample_point = "PreUpdate",
+                    local_tick = tick.0,
+                    confirmed_tick = server_confirmed_tick.0,
+                    rollback_tick = mismatch_tick.0,
+                    "state mismatch consumed by rollback checker"
                 );
                 do_rollback(
                     mismatch_tick,
@@ -482,6 +513,17 @@ fn check_rollback(
                                     ?server_confirmed_tick,
                                     "Rollback because of mismatch on unchanged entity"
                                 );
+                                trace!(
+                                    target: "lightyear_debug::prediction",
+                                    kind = "unchanged_entity_mismatch",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity_mut.id(),
+                                    local_tick = tick.0,
+                                    confirmed_tick = server_confirmed_tick.0,
+                                    rollback_tick = server_confirmed_tick.0,
+                                    "rollback mismatch detected on unchanged entity"
+                                );
                                 parallel_commands.command_scope(|mut c| {
                                     do_rollback(server_confirmed_tick, &prediction_manager, &mut c, Rollback::FromState);
                                 });
@@ -512,6 +554,16 @@ fn check_rollback(
                     "Rollback because we have received a new remote input. (no mismatch check)"
                 );
                 let rollback_tick = last_confirmed_input.tick.get();
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "input_rollback_always",
+                    schedule = "PreUpdate",
+                    sample_point = "PreUpdate",
+                    local_tick = tick.0,
+                    rollback_tick = rollback_tick.0,
+                    last_confirmed_input = ?last_confirmed_input,
+                    "input rollback requested from latest confirmed input"
+                );
                 do_rollback(
                     rollback_tick,
                     &prediction_manager,
@@ -530,6 +582,16 @@ fn check_rollback(
                 debug!(
                     ?rollback_tick,
                     "Rollback because we have received a remote input that doesn't match our input buffer history"
+                );
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "input_mismatch_rollback",
+                    schedule = "PreUpdate",
+                    sample_point = "PreUpdate",
+                    local_tick = tick.0,
+                    rollback_tick = rollback_tick.0,
+                    mismatch_tick = prediction_manager.earliest_mismatch_input.tick.get().0,
+                    "input mismatch rollback requested"
                 );
                 do_rollback(
                     rollback_tick,
@@ -759,6 +821,21 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             kind,
             predicted_history.len()
         );
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "prepare_rollback_component",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            entity = ?entity,
+            component = ?kind,
+            local_tick = current_tick.0,
+            rollback_tick = rollback_tick.0,
+            confirmed_tick = server_confirmed_tick.0,
+            rollback = ?rollback,
+            restore_value = ?restore_value,
+            history_len = predicted_history.len(),
+            "prepared component rollback"
+        );
 
         let mut entity_mut = commands.entity(entity);
 
@@ -784,6 +861,18 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 ?entity,
                                 previous_visual = ?predicted_component,
                                 "Storing PreviousVisual for correction"
+                            );
+                            trace!(
+                                target: "lightyear_debug::prediction",
+                                kind = "previous_visual_stored",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                component = ?kind,
+                                local_tick = current_tick.0,
+                                rollback_tick = rollback_tick.0,
+                                previous_visual = ?predicted_component,
+                                "stored previous visual for correction"
                             );
                         }
 
@@ -902,6 +991,16 @@ pub(crate) fn run_rollback(world: &mut World) {
         "Rollback between {:?} and {:?}",
         rollback_start_tick, current_tick
     );
+    trace!(
+        target: "lightyear_debug::prediction",
+        kind = "rollback_start",
+        schedule = "PreUpdate",
+        sample_point = "PreUpdate",
+        local_tick = current_tick.0,
+        rollback_tick = rollback_start_tick.0,
+        num_rollback_ticks,
+        "starting rollback"
+    );
     #[cfg(feature = "metrics")]
     {
         metrics::counter!("prediction/rollback/count").increment(1);
@@ -938,6 +1037,17 @@ pub(crate) fn run_rollback(world: &mut World) {
         let rollback_tick = rollback_start_tick + i + 1;
         let _span = debug_span!("rollback", tick = ?rollback_tick).entered();
         debug!(?rollback_tick, "rollback");
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "rollback_tick",
+            schedule = "FixedMain",
+            sample_point = "FixedUpdate",
+            local_tick = rollback_tick.0,
+            rollback_tick = rollback_tick.0,
+            rollback_iteration = i,
+            num_rollback_ticks,
+            "running rollback tick"
+        );
         // Set the rollback tick's generic time resource to the fixed time
         // resource that was just advanced.
         *world.resource_mut::<Time>() = world.resource::<Time<Fixed>>().as_generic();
@@ -967,6 +1077,16 @@ pub(crate) fn run_rollback(world: &mut World) {
     // Restore the generic time resource.
     *world.resource_mut::<Time>() = time_resource;
     debug!("Finished rollback. Current tick: {:?}", current_tick);
+    trace!(
+        target: "lightyear_debug::prediction",
+        kind = "rollback_finish",
+        schedule = "PreUpdate",
+        sample_point = "PreUpdate",
+        local_tick = current_tick.0,
+        rollback_tick = rollback_start_tick.0,
+        num_rollback_ticks,
+        "finished rollback"
+    );
 
     let mut metrics = world.get_resource_mut::<PredictionMetrics>().unwrap();
     metrics.rollbacks += 1;
@@ -978,6 +1098,16 @@ pub(crate) fn end_rollback(
     mut commands: Commands,
 ) {
     let (entity, prediction_manager) = prediction_manager.into_inner();
+    let rollback_tick = prediction_manager.get_rollback_start_tick();
+    trace!(
+        target: "lightyear_debug::prediction",
+        kind = "rollback_end",
+        schedule = "PreUpdate",
+        sample_point = "PreUpdate",
+        entity = ?entity,
+        rollback_tick = ?rollback_tick,
+        "ending rollback"
+    );
     prediction_manager.set_non_rollback();
     commands.entity(entity).remove::<Rollback>();
 }

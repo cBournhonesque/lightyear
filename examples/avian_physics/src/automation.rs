@@ -1,9 +1,7 @@
 use avian2d::prelude::Position;
 use bevy::prelude::*;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
-};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{BallMarker, PlayerId};
 
@@ -16,7 +14,10 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, client::log_entities);
+        app.add_systems(
+            Update,
+            (client::mark_debug_players, client::mark_debug_balls),
+        );
     }
 }
 
@@ -26,8 +27,10 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(FixedUpdate, server::log_entities);
+        app.add_systems(
+            Update,
+            (server::mark_debug_players, server::mark_debug_balls),
+        );
     }
 }
 
@@ -38,14 +41,12 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -62,28 +63,29 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
     }
 
-    pub(super) fn log_entities(
-        settings: Option<Res<AutomationSettings>>,
-        players: Query<(&PlayerId, &Position, Has<Predicted>, Has<Controlled>), Changed<Position>>,
-        balls: Query<&Position, (With<BallMarker>, Changed<Position>)>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, (Added<PlayerId>, With<Position>)>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
+        for entity in &players {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::Update,
+                ]));
         }
-        for (player_id, position, predicted, controlled) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                controlled,
-                "avian_physics client player update"
-            );
-        }
-        for position in &balls {
-            info!(position = ?position.0, "avian_physics client ball update");
+    }
+
+    pub(super) fn mark_debug_balls(
+        mut commands: Commands,
+        balls: Query<Entity, (Added<BallMarker>, With<Position>)>,
+    ) {
+        for entity in &balls {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
@@ -110,32 +112,29 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_entities(
-        settings: Res<DebugSettings>,
-        players: Query<(&PlayerId, &Position), Changed<Position>>,
-        balls: Query<&Position, (With<BallMarker>, Changed<Position>)>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, (Added<PlayerId>, With<Position>)>,
     ) {
-        if !settings.log_server {
-            return;
+        for entity in &players {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::FixedUpdate,
+                ]));
         }
-        for (player_id, position) in &players {
-            info!(?player_id, position = ?position.0, "avian_physics server player update");
-        }
-        for position in &balls {
-            info!(position = ?position.0, "avian_physics server ball update");
+    }
+
+    pub(super) fn mark_debug_balls(
+        mut commands: Commands,
+        balls: Query<Entity, (Added<BallMarker>, With<Position>)>,
+    ) {
+        for entity in &balls {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::FixedUpdate,
+                ]));
         }
     }
 }

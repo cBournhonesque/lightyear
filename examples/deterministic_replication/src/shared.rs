@@ -76,23 +76,23 @@ impl Plugin for SharedPlugin {
         // DEBUG
         // app.add_systems(
         //     RunFixedMainLoop,
-        //     debug.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+        //     emit_fixed_loop_start.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         // );
         // app.add_systems(
         //     FixedPreUpdate,
-        //     fixed_pre_log.after(InputSet::BufferClientInputs),
+        //     emit_fixed_pre_inputs.after(InputSet::BufferClientInputs),
         // );
-        // app.add_systems(FixedPostUpdate, fixed_pre_prepare
+        // app.add_systems(FixedPostUpdate, emit_before_prepare
         //     .after(PhysicsSet::First)
         //     .before(PhysicsSet::Prepare));
         app.add_systems(
             FixedPostUpdate,
-            fixed_pre_physics
+            emit_before_physics
                 .after(PhysicsSystems::Prepare)
                 .before(PhysicsSystems::StepSimulation),
         );
-        app.add_systems(FixedLast, fixed_last_log);
-        // app.add_systems(Last, last_log);
+        app.add_systems(FixedLast, emit_fixed_last_players);
+        // app.add_systems(Last, emit_last_players);
     }
 }
 
@@ -194,11 +194,17 @@ fn player_movement(
     }
 }
 
-fn debug() {
-    trace!("Fixed Start");
+fn emit_fixed_loop_start() {
+    lightyear_debug_event!(
+        DebugCategory::Timeline,
+        DebugSamplePoint::RunFixedMainLoop,
+        "RunFixedMainLoop",
+        "fixed_loop_start",
+        "Fixed Start"
+    );
 }
 
-pub(crate) fn fixed_pre_log(
+pub(crate) fn emit_fixed_pre_inputs(
     timeline: Res<LocalTimeline>,
     remote_client_inputs: Query<
         (
@@ -212,16 +218,21 @@ pub(crate) fn fixed_pre_log(
     let tick = timeline.tick();
     for (entity, action_state, buffer) in remote_client_inputs.iter() {
         let pressed = action_state.get_pressed();
-        info!(
-            ?tick,
-            ?entity,
-            ?pressed,
-            %buffer,
-            "Remote client input before FixedUpdate");
+        lightyear_debug_event!(
+            DebugCategory::Input,
+            DebugSamplePoint::FixedPreUpdate,
+            "FixedPreUpdate",
+            "remote_input_before_fixed_update",
+            tick = ?tick,
+            entity = ?entity,
+            pressed = ?pressed,
+            buffer = %buffer,
+            "Remote client input before FixedUpdate"
+        );
     }
 }
 
-pub(crate) fn fixed_pre_prepare(
+pub(crate) fn emit_before_prepare(
     timeline: Res<LocalTimeline>,
     remote_client_inputs: Query<
         (
@@ -236,18 +247,22 @@ pub(crate) fn fixed_pre_prepare(
     let tick = timeline.tick();
     for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
         let pressed = action_state.get_pressed();
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?velocity,
-            ?pressed,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedPostUpdate,
+            "FixedPostUpdate",
+            "player_before_prepare",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
+            velocity = ?velocity,
+            pressed = ?pressed,
             "Client in FixedPostUpdate right before prepare"
         );
     }
 }
 
-pub(crate) fn fixed_pre_physics(
+pub(crate) fn emit_before_physics(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
@@ -265,20 +280,24 @@ pub(crate) fn fixed_pre_physics(
     for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?interpolate,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedUpdateBeforePhysics,
+            "FixedPostUpdate",
+            "player_before_physics",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
+            interpolate = ?interpolate,
+            correction = ?correction,
+            pressed = ?pressed,
+            last_buffer_tick = ?last_buffer_tick,
             "Player right before Physics::StepSimulation"
         );
     }
 }
 
-pub(crate) fn fixed_last_log(
+pub(crate) fn emit_fixed_last_players(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
@@ -297,14 +316,18 @@ pub(crate) fn fixed_last_log(
     for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?interpolate,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "player_fixed_last",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
+            interpolate = ?interpolate,
+            correction = ?correction,
+            pressed = ?pressed,
+            last_buffer_tick = ?last_buffer_tick,
             "Player in FixedLast"
         );
     }
@@ -313,7 +336,7 @@ pub(crate) fn fixed_last_log(
     // }
 }
 
-pub(crate) fn last_log(
+pub(crate) fn emit_last_players(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
@@ -337,15 +360,19 @@ pub(crate) fn last_log(
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         let translation = transform.translation.truncate();
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?translation,
-            ?interpolate,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::Last,
+            "Last",
+            "player_last",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
+            translation = ?translation,
+            interpolate = ?interpolate,
+            correction = ?correction,
+            pressed = ?pressed,
+            last_buffer_tick = ?last_buffer_tick,
             "Player in Last"
         );
     }

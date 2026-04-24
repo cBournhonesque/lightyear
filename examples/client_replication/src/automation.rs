@@ -31,9 +31,10 @@ impl Plugin for AutomationClientPlugin {
             Update,
             (
                 client::move_cursor,
-                client::log_entities,
-                client::debug_log_server_entity_map,
-                client::log_client_state,
+                client::mark_debug_cursors,
+                client::mark_debug_players,
+                client::emit_server_entity_map_change,
+                client::emit_client_state,
             ),
         );
     }
@@ -45,8 +46,10 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(Update, server::log_entities);
+        app.add_systems(
+            Update,
+            (server::mark_debug_cursors, server::mark_debug_players),
+        );
     }
 }
 
@@ -64,8 +67,6 @@ mod client {
         movement: Vec2,
         auto_spawn: bool,
         auto_despawn: bool,
-        log_client: bool,
-        log_client_state: bool,
     }
 
     #[derive(Default)]
@@ -79,8 +80,6 @@ mod client {
                 movement: parse_movement(env_string("LIGHTYEAR_AUTOMOVE")),
                 auto_spawn: env_flag("LIGHTYEAR_AUTOSPAWN"),
                 auto_despawn: env_flag("LIGHTYEAR_AUTODESPAWN"),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
-                log_client_state: env_flag("LIGHTYEAR_LOG_CLIENT_STATE"),
             }
         }
     }
@@ -165,60 +164,34 @@ mod client {
         }
     }
 
-    pub(super) fn log_entities(
-        settings: Option<Res<AutomationSettings>>,
-        cursors: Query<
-            (
-                Entity,
-                &PlayerId,
-                &CursorPosition,
-                Has<Interpolated>,
-                Has<Replicate>,
-                Has<Remote>,
-            ),
-            Changed<CursorPosition>,
-        >,
-        players: Query<
-            (
-                &PlayerId,
-                &PlayerPosition,
-                Has<Predicted>,
-                Has<Interpolated>,
-            ),
-            Or<(Added<PlayerPosition>, Changed<PlayerPosition>)>,
-        >,
+    pub(super) fn mark_debug_cursors(
+        mut commands: Commands,
+        cursors: Query<Entity, Added<CursorPosition>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (entity, player_id, cursor, interpolated, replicate, remote) in &cursors {
-            info!(
-                ?entity,
-                ?player_id,
-                cursor = ?cursor.0,
-                interpolated,
-                replicate,
-                remote,
-                "client_replication client cursor update"
-            );
-        }
-        for (player_id, position, predicted, interpolated) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                interpolated,
-                "client_replication client player update"
-            );
+        for entity in &cursors {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<CursorPosition>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
-    pub(super) fn log_client_state(
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, Added<PlayerPosition>>,
+    ) {
+        for entity in &players {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<PlayerPosition>([
+                    DebugSamplePoint::Update,
+                ]));
+        }
+    }
+
+    pub(super) fn emit_client_state(
         time: Res<Time>,
-        settings: Option<Res<AutomationSettings>>,
         clients: Query<
             (
                 Entity,
@@ -242,24 +215,22 @@ mod client {
             ),
             With<PlayerId>,
         >,
-        mut last_log_at: Local<f32>,
+        mut last_emit_at: Local<f32>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client_state {
-            return;
-        }
         let now = time.elapsed_secs();
-        if now - *last_log_at < 0.5 {
+        if now - *last_emit_at < 0.5 {
             return;
         }
-        *last_log_at = now;
+        *last_emit_at = now;
 
         for (entity, netcode, connected, connecting, disconnected, linked, linking, unlinked) in
             &clients
         {
-            info!(
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_client_state",
                 ?entity,
                 netcode,
                 connected,
@@ -272,7 +243,11 @@ mod client {
             );
         }
         for (entity, replicate, remote, replicated, position) in &cursors {
-            info!(
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_cursor_state",
                 ?entity,
                 replicate,
                 remote,
@@ -284,20 +259,19 @@ mod client {
         }
     }
 
-    fn debug_enabled() -> bool {
-        env_flag("LIGHTYEAR_LOG_CLIENT_STATE")
-    }
-
-    pub(super) fn debug_log_server_entity_map(entity_map: Res<ServerEntityMap>) {
-        if debug_enabled() && entity_map.is_changed() {
+    pub(super) fn emit_server_entity_map_change(entity_map: Res<ServerEntityMap>) {
+        if entity_map.is_changed() {
             let pairs: Vec<_> = entity_map
                 .to_client()
                 .iter()
                 .map(|(server, client)| format!("{server:?}->{client:?}"))
                 .collect();
-            eprintln!(
-                "client_replication debug: ServerEntityMap changed: [{}]",
-                pairs.join(", ")
+            lightyear_debug_event!(
+                DebugCategory::Message,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_server_entity_map_changed",
+                entity_map = ?pairs
             );
         }
     }
@@ -306,10 +280,13 @@ mod client {
         trigger: On<Add, Connected>,
         clients: Query<(), With<Client>>,
     ) {
-        if debug_enabled() && clients.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: Connected added to client entity {:?}",
-                trigger.entity
+        if clients.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_connected_added",
+                entity = ?trigger.entity
             );
         }
     }
@@ -318,19 +295,25 @@ mod client {
         trigger: On<Add, Disconnected>,
         clients: Query<(), With<Client>>,
     ) {
-        if debug_enabled() && clients.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: Disconnected added to client entity {:?}",
-                trigger.entity
+        if clients.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_disconnected_added",
+                entity = ?trigger.entity
             );
         }
     }
 
     pub(super) fn debug_add_linked(trigger: On<Add, Linked>, clients: Query<(), With<Client>>) {
-        if debug_enabled() && clients.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: Linked added to client entity {:?}",
-                trigger.entity
+        if clients.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_linked_added",
+                entity = ?trigger.entity
             );
         }
     }
@@ -339,13 +322,15 @@ mod client {
         trigger: On<Add, Unlinked>,
         clients: Query<&Unlinked, With<Client>>,
     ) {
-        if debug_enabled() {
-            if let Ok(unlinked) = clients.get(trigger.entity) {
-                eprintln!(
-                    "client_replication debug: Unlinked added to client entity {:?}: {:?}",
-                    trigger.entity, unlinked.reason
-                );
-            }
+        if let Ok(unlinked) = clients.get(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_unlinked_added",
+                entity = ?trigger.entity,
+                reason = ?unlinked.reason
+            );
         }
     }
 
@@ -353,10 +338,13 @@ mod client {
         trigger: On<Remove, Replicate>,
         cursors: Query<(), With<PlayerId>>,
     ) {
-        if debug_enabled() && cursors.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: Replicate removed from cursor entity {:?}",
-                trigger.entity
+        if cursors.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_replicate_removed",
+                entity = ?trigger.entity
             );
         }
     }
@@ -365,10 +353,13 @@ mod client {
         trigger: On<Remove, Connected>,
         clients: Query<(), With<Client>>,
     ) {
-        if debug_enabled() && clients.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: Connected removed from client entity {:?}",
-                trigger.entity
+        if clients.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_connected_removed",
+                entity = ?trigger.entity
             );
         }
     }
@@ -377,23 +368,28 @@ mod client {
         trigger: On<Remove, Client>,
         clients: Query<(), With<Client>>,
     ) {
-        if debug_enabled() {
-            let still_has_client = clients.contains(trigger.entity);
-            eprintln!(
-                "client_replication debug: Client removed from entity {:?}, still_has_client={still_has_client}",
-                trigger.entity
-            );
-        }
+        let still_has_client = clients.contains(trigger.entity);
+        lightyear_debug_event!(
+            DebugCategory::Manual,
+            DebugSamplePoint::Update,
+            "Update",
+            "client_replication_client_removed",
+            entity = ?trigger.entity,
+            still_has_client
+        );
     }
 
     pub(super) fn debug_remove_linked(
         trigger: On<Remove, Linked>,
         clients: Query<(), With<Client>>,
     ) {
-        if debug_enabled() && clients.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: Linked removed from client entity {:?}",
-                trigger.entity
+        if clients.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_linked_removed",
+                entity = ?trigger.entity
             );
         }
     }
@@ -402,10 +398,13 @@ mod client {
         trigger: On<Remove, NetcodeClient>,
         clients: Query<(), With<Client>>,
     ) {
-        if debug_enabled() && clients.contains(trigger.entity) {
-            eprintln!(
-                "client_replication debug: NetcodeClient removed from client entity {:?}",
-                trigger.entity
+        if clients.contains(trigger.entity) {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::Update,
+                "Update",
+                "client_replication_netcode_client_removed",
+                entity = ?trigger.entity
             );
         }
     }
@@ -433,46 +432,29 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_entities(
-        settings: Res<DebugSettings>,
-        cursors: Query<
-            (&PlayerId, &CursorPosition),
-            Or<(Added<CursorPosition>, Changed<CursorPosition>)>,
-        >,
-        players: Query<
-            (&PlayerId, &PlayerPosition),
-            Or<(Added<PlayerPosition>, Changed<PlayerPosition>)>,
-        >,
+    pub(super) fn mark_debug_cursors(
+        mut commands: Commands,
+        cursors: Query<Entity, Added<CursorPosition>>,
     ) {
-        if !settings.log_server {
-            return;
+        for entity in &cursors {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<CursorPosition>([
+                    DebugSamplePoint::Update,
+                ]));
         }
-        for (player_id, cursor) in &cursors {
-            info!(
-                ?player_id,
-                cursor = ?cursor.0,
-                "client_replication server cursor update"
-            );
-        }
-        for (player_id, position) in &players {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                "client_replication server player update"
-            );
+    }
+
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        players: Query<Entity, Added<PlayerPosition>>,
+    ) {
+        for entity in &players {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<PlayerPosition>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 }

@@ -1,8 +1,7 @@
 use bevy::prelude::*;
+use leafwing_input_manager::action_state::ActionState;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
-};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{Inputs, PlayerId, Position, Shape};
 
@@ -15,7 +14,10 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, (client::log_players, client::log_shapes));
+        app.add_systems(
+            Update,
+            (client::mark_debug_players, client::mark_debug_shapes),
+        );
     }
 }
 
@@ -25,9 +27,10 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(FixedUpdate, server::log_players);
-        app.add_systems(Update, server::log_shapes);
+        app.add_systems(
+            Update,
+            (server::mark_debug_players, server::mark_debug_shapes),
+        );
     }
 }
 
@@ -38,14 +41,12 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -62,39 +63,27 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
     }
 
-    pub(super) fn log_players(
-        settings: Option<Res<AutomationSettings>>,
-        query: Query<(&PlayerId, &Position, Has<Predicted>, Has<Interpolated>), Changed<Position>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (player_id, position, predicted, interpolated) in &query {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                predicted,
-                interpolated,
-                "priority client player update"
-            );
+        for (entity, predicted, interpolated) in &query {
+            if predicted || interpolated {
+                commands
+                    .entity(entity)
+                    .insert(LightyearDebug::component_at::<Position>([
+                        DebugSamplePoint::Update,
+                    ]));
+            }
         }
     }
 
-    pub(super) fn log_shapes(
-        settings: Option<Res<AutomationSettings>>,
-        shapes: Query<(&Position, &Shape), Changed<Shape>>,
-    ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (position, shape) in &shapes {
-            info!(position = ?position.0, ?shape, "priority client shape update");
+    pub(super) fn mark_debug_shapes(mut commands: Commands, shapes: Query<Entity, Added<Shape>>) {
+        for entity in &shapes {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<Shape>([DebugSamplePoint::Update]),
+            );
         }
     }
 
@@ -120,47 +109,25 @@ mod client {
 #[cfg(feature = "server")]
 mod server {
     use super::*;
-    use leafwing_input_manager::action_state::ActionState;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_players(
-        settings: Res<DebugSettings>,
-        query: Query<(&PlayerId, &Position, &ActionState<Inputs>), Changed<Position>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<Entity, Added<PlayerId>>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for (player_id, position, input) in &query {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                ?input,
-                "priority server player update"
+        for entity in &query {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }
 
-    pub(super) fn log_shapes(
-        settings: Res<DebugSettings>,
-        shapes: Query<(&Position, &Shape), Changed<Shape>>,
-    ) {
-        if !settings.log_server {
-            return;
-        }
-        for (position, shape) in &shapes {
-            info!(position = ?position.0, ?shape, "priority server shape update");
+    pub(super) fn mark_debug_shapes(mut commands: Commands, shapes: Query<Entity, Added<Shape>>) {
+        for entity in &shapes {
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<Shape>([DebugSamplePoint::Update]),
+            );
         }
     }
 }

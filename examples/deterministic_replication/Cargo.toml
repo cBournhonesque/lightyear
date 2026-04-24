@@ -32,7 +32,7 @@ lightyear = { workspace = true, features = [
   "deterministic",
 ] }
 lightyear_deterministic_replication.workspace = true
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true
 # add avian2d directly to customize the plugin 
@@ -49,7 +49,6 @@ avian2d = { workspace = true, features = [
 serde.workspace = true
 bevy.workspace = true
 bevy_replicon.workspace = true
-lightyear_replication.workspace = true
 
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

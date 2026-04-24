@@ -3,9 +3,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{
-    HeadlessInputPlugin, env_flag, env_string, sync_pressed_keys,
-};
+use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
 use crate::protocol::{PlayerActions, PlayerId};
 
@@ -22,7 +20,7 @@ impl Plugin for AutomationClientPlugin {
             PreUpdate,
             client::drive_action_state.in_set(InputManagerSystem::ManualControl),
         );
-        app.add_systems(Update, client::log_players);
+        app.add_systems(Update, client::mark_debug_players);
     }
 }
 
@@ -32,8 +30,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(server::DebugSettings::from_env());
-        app.add_systems(Update, server::log_players);
+        app.add_systems(Update, server::mark_debug_players);
     }
 }
 
@@ -44,14 +41,12 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
-        log_client: bool,
     }
 
     impl AutomationSettings {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
-                log_client: env_flag("LIGHTYEAR_LOG_CLIENT"),
             }
         }
     }
@@ -93,23 +88,16 @@ mod client {
         }
     }
 
-    pub(super) fn log_players(
-        settings: Option<Res<AutomationSettings>>,
-        query: Query<(&PlayerId, &Position, Has<Controlled>), Changed<Position>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<Entity, (Added<PlayerId>, With<Position>)>,
     ) {
-        let Some(settings) = settings else {
-            return;
-        };
-        if !settings.log_client {
-            return;
-        }
-        for (player_id, position, controlled) in &query {
-            info!(
-                ?player_id,
-                position = ?position.0,
-                controlled,
-                "deterministic_replication client player update"
-            );
+        for entity in &query {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 
@@ -136,31 +124,16 @@ mod client {
 mod server {
     use super::*;
 
-    #[derive(Resource, Default)]
-    pub(super) struct DebugSettings {
-        log_server: bool,
-    }
-
-    impl DebugSettings {
-        pub(super) fn from_env() -> Self {
-            Self {
-                log_server: env_flag("LIGHTYEAR_LOG_SERVER"),
-            }
-        }
-    }
-
-    pub(super) fn log_players(
-        settings: Res<DebugSettings>,
-        query: Query<&PlayerId, Added<PlayerId>>,
+    pub(super) fn mark_debug_players(
+        mut commands: Commands,
+        query: Query<Entity, (Added<PlayerId>, With<Position>)>,
     ) {
-        if !settings.log_server {
-            return;
-        }
-        for player_id in &query {
-            info!(
-                ?player_id,
-                "deterministic_replication server player spawned"
-            );
+        for entity in &query {
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::Update,
+                ]));
         }
     }
 }

@@ -34,8 +34,8 @@ impl Plugin for SharedPlugin {
         app.add_systems(PreUpdate, despawn_after);
 
         // debug systems
-        app.add_systems(FixedLast, fixed_update_log);
-        app.add_systems(FixedLast, log_predicted_bot_transform);
+        app.add_systems(FixedLast, emit_fixed_last_entities);
+        app.add_systems(FixedLast, emit_predicted_bot_transform);
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
@@ -125,17 +125,26 @@ fn predicted_bot_movement(
     });
 }
 
-fn log_predicted_bot_transform(
+fn emit_predicted_bot_transform(
     timeline: Res<LocalTimeline>,
     query: Query<(&Position, &Transform), With<PredictedBot>>,
 ) {
     let tick = timeline.tick();
     query.iter().for_each(|(pos, transform)| {
-        debug!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "predicted_bot_transform",
+            tick = ?tick,
+            position = ?pos,
+            transform = ?transform,
+            "PredictedBot FixedLast"
+        );
     })
 }
 
-pub(crate) fn fixed_update_log(
+pub(crate) fn emit_fixed_last_entities(
     timeline: Res<LocalTimeline>,
     player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>)>,
     predicted_bullet: Query<
@@ -150,20 +159,28 @@ pub(crate) fn fixed_update_log(
 ) {
     let tick = timeline.tick();
     for (entity, transform) in player.iter() {
-        debug!(
-            ?tick,
-            ?entity,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "player_transform",
+            tick = ?tick,
+            entity = ?entity,
             pos = ?transform.translation.truncate(),
             "Player after fixed update"
         );
     }
     for (entity, position, transform, history) in predicted_bullet.iter() {
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "bullet_transform_history",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
             transform = ?transform.translation.truncate(),
-            ?history,
+            history = ?history,
             "Bullet after fixed update"
         );
     }

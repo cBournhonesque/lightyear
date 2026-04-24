@@ -11,8 +11,10 @@ use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
+use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated};
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
 /// How many ticks in the future to schedule physics start, giving clients
@@ -31,6 +33,17 @@ impl Plugin for ExampleServerPlugin {
         {
             app.add_plugins(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
         }
+        // Register the late-join catch-up plugin. The client sends
+        // `CatchUpForEntity` requests over `Channel1` (ordered reliable),
+        // and the server flips per-component visibility on receipt.
+        app.add_plugins(
+            lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin::<Channel1>::default(),
+        );
+        // Register the physics components as catch-up-gated: they are
+        // hidden from each client by default and only sent once, after
+        // the client explicitly requests catch-up (see the docs on
+        // `lightyear_deterministic_replication::late_join`).
+        app.register_catchup_components::<(Position, Rotation, LinearVelocity, AngularVelocity)>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
@@ -64,6 +77,12 @@ pub(crate) fn handle_connected(
         Replicate::to_clients(NetworkTarget::All),
         PlayerId(remote_id.0),
         WaitingForFirstInput,
+        // CatchUpGated: hide registered physics components from every client
+        // until that client sends `CatchUpForEntity`. Structural components
+        // (PlayerId, DeterministicPredicted, PhysicsStartTick) are still
+        // replicated normally, so clients know the entity exists and can
+        // subscribe to input rebroadcasts for it.
+        CatchUpGated,
     ));
 }
 
@@ -111,9 +130,7 @@ fn schedule_physics_start(
     );
     for (entity, _player_id) in ready_entities {
         commands.entity(entity).remove::<WaitingForFirstInput>();
-        commands
-            .entity(entity)
-            .insert(PhysicsStartTick(start_tick));
+        commands.entity(entity).insert(PhysicsStartTick(start_tick));
     }
 }
 
