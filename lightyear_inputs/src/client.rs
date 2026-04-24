@@ -652,7 +652,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     *tick_duration
                 );
             } else {
-                // add the ActionState or InputBuffer if they are missing
+                // add the ActionState and InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot, S::Action>::default();
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
@@ -663,10 +663,19 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     prediction_manager,
                     *tick_duration
                 );
-                // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
+                // Initialize ActionState from the latest buffered input rather
+                // than from base_value(). When the remote player's end_tick is
+                // in the past, get_action_state will call get(current_tick)
+                // which returns None and leaves ActionState unchanged. If we
+                // initialized to base_value() the player would simulate with
+                // empty/released inputs until the buffer catches up.
+                let mut action_state = S::State::base_value();
+                if let Some(last) = input_buffer.get_last() {
+                    S::from_snapshot(S::State::as_mut(&mut action_state), last);
+                }
                 commands.entity(entity).insert((
                     input_buffer,
-                    S::State::base_value()
+                    action_state,
                 ));
             };
         }

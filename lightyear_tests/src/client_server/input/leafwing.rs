@@ -292,6 +292,78 @@ fn test_server_just_pressed() {
     );
 }
 
+/// When a rebroadcast creates a new InputBuffer on an entity that didn't have
+/// one yet, the ActionState should be initialized from the latest buffered input,
+/// not from base_value(). Otherwise the remote player simulates with empty/released
+/// inputs until the buffer catches up to the current tick.
+#[test]
+fn test_rebroadcast_initializes_action_state_from_buffer() {
+    use lightyear_replication::prelude::PredictionTarget;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step_server_first(1);
+
+    let client0_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 0");
+
+    let client1_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to client 1");
+
+    // Client 0 drives inputs
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client0_entity)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+
+    stepper.frame_step(1);
+
+    // Press button on client 0
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+
+    // Let it propagate
+    stepper.frame_step(5);
+
+    // Client 1's ActionState for the remote player should reflect the pressed
+    // button, not be empty
+    let action_state = stepper.client_apps[1]
+        .world()
+        .entity(client1_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .expect("Client 1 should have ActionState for remote player");
+
+    assert!(
+        action_state.pressed(&LeafwingInput1::Jump),
+        "ActionState on client 1 should have Jump pressed after rebroadcast, got: {:?}",
+        action_state.get_pressed()
+    );
+}
+
 /// Test that leafwing inputs from one client are rebroadcasted to other clients.
 ///
 /// Client 0 presses a button. The server receives it, rebroadcasts to client 1.
