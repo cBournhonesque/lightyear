@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
+use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
 use crate::protocol::{PlayerId, PlayerPosition};
 
@@ -62,11 +62,10 @@ mod client {
     ) {
         for (entity, predicted, interpolated) in &query {
             if predicted || interpolated {
-                commands
-                    .entity(entity)
-                    .insert(LightyearDebug::component_at::<PlayerPosition>([
-                        DebugSamplePoint::Update,
-                    ]));
+                commands.entity(entity).insert(
+                    LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::Update])
+                        .with_component_at::<PlayerId>([DebugSamplePoint::Update]),
+                );
             }
         }
     }
@@ -99,11 +98,10 @@ mod server {
         query: Query<Entity, Added<PlayerId>>,
     ) {
         for entity in &query {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<PlayerPosition>([
-                    DebugSamplePoint::FixedUpdate,
-                ]));
+            commands.entity(entity).insert(
+                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<PlayerId>([DebugSamplePoint::FixedUpdate]),
+            );
         }
     }
 }

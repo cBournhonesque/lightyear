@@ -74,21 +74,34 @@ fn add_input_map_after_sync(
     }
 }
 
-/// Mark every *remote* player entity (not our own) as waiting for a
-/// late-join catch-up snapshot.
+/// Mark every *remote* player entity that genuinely needs a late-join
+/// catch-up snapshot (its `PhysicsStartTick` is already in the past by
+/// the time we see it) with `PendingCatchUp`.
+///
+/// Peers that connect *after* we did — so their `PhysicsStartTick` is in
+/// the future when we first see their entity — do NOT need a catch-up
+/// snapshot; the deterministic simulation starts at `PhysicsStartTick`
+/// identically on every peer, so skipping catch-up avoids sending a
+/// useless request and (more importantly) avoids keeping
+/// `AwaitingCatchUpSnapshot` on the entity, which would suppress our
+/// checksum send for every tick the entity is present.
 ///
 /// We only insert `PendingCatchUp` once per entity: a `CatchUpRequested`
 /// marker is added at the same time so subsequent runs skip the entity.
+/// Entities without a replicated `PhysicsStartTick` yet are left alone
+/// so we revisit them once it arrives.
 fn request_catch_up_for_remote_players(
     client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
+    timeline: Res<LocalTimeline>,
     mut commands: Commands,
-    players: Query<(Entity, &PlayerId), Without<CatchUpRequested>>,
+    players: Query<(Entity, &PlayerId, &PhysicsStartTick), Without<CatchUpRequested>>,
 ) {
     let Some(client) = client else {
         return;
     };
     let local_id = client.into_inner();
-    for (entity, player_id) in players.iter() {
+    let tick = timeline.tick();
+    for (entity, player_id, start) in players.iter() {
         if local_id.0 == player_id.0 {
             // Local player: no catch-up needed, it starts at the spawn
             // formula and is driven by local inputs. Mark so we don't
@@ -96,10 +109,26 @@ fn request_catch_up_for_remote_players(
             commands.entity(entity).insert(CatchUpRequested);
             continue;
         }
+        if tick <= start.0 {
+            // Remote player whose physics hasn't started yet: both
+            // sides will begin simulating from an identical empty
+            // state at `start.0`, so catch-up is unnecessary.
+            debug!(
+                ?entity,
+                ?player_id,
+                ?tick,
+                ?start,
+                "skipping catch-up for on-time remote player"
+            );
+            commands.entity(entity).insert(CatchUpRequested);
+            continue;
+        }
         debug!(
             ?entity,
             ?player_id,
-            "inserting PendingCatchUp on remote player"
+            ?tick,
+            ?start,
+            "inserting PendingCatchUp on late-join remote player"
         );
         commands
             .entity(entity)

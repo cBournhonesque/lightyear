@@ -275,6 +275,7 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
         app.init_resource::<CatchUpRegistry>();
         app.add_observer(on_catch_up_gated_added);
         app.add_observer(on_client_connected_hide_gated);
+        app.add_observer(on_pending_catch_up_added);
         app.add_systems(
             PreUpdate,
             handle_catch_up_requests.after(MessageSystems::Receive),
@@ -404,6 +405,45 @@ fn send_catchup_requests<C: Channel>(
     }
 }
 
+/// Observer: when [`PendingCatchUp`] is added to an entity, also insert
+/// [`AwaitingCatchUpSnapshot`] so that the entity is excluded from
+/// checksum computation for the whole duration of the catch-up flow —
+/// including the frames between "user inserts `PendingCatchUp`" and
+/// "plugin sends the request" where the state is known to not match
+/// the server. Removal is the caller's responsibility via
+/// [`request_forced_rollback_from_confirm_history`].
+fn on_pending_catch_up_added(
+    trigger: On<Add, PendingCatchUp>,
+    already_awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
+    mut commands: Commands,
+) {
+    if already_awaiting.get(trigger.entity).is_ok() {
+        return;
+    }
+    commands
+        .entity(trigger.entity)
+        .insert(AwaitingCatchUpSnapshot);
+}
+
+/// Marker inserted on an entity when the client has sent its
+/// [`CatchUpForEntity`] request, and removed by
+/// [`request_forced_rollback_from_confirm_history`] once the snapshot has
+/// landed and the forced rollback has been scheduled.
+///
+/// While this marker is present the entity's state is known to not match
+/// the server (the client is still waiting for the catch-up snapshot or
+/// the post-snapshot rollback to converge). The entity is excluded from
+/// [`ChecksumSendPlugin`] while the marker is present, which avoids two
+/// problems:
+/// - the client would otherwise send obviously-mismatched checksums that
+///   the server has to log and discard;
+/// - the checksum's destructive `pop_until_tick(LastConfirmedInput.tick)`
+///   would drain history entries that the forced rollback later needs to
+///   restore from (the catch-up tick `S` can be strictly less than
+///   `LastConfirmedInput.tick`, so entries at tick `S` would be gone).
+#[derive(Component, Debug, Default)]
+pub struct AwaitingCatchUpSnapshot;
+
 /// Resolve the server tick at which `entity`'s most recent replication
 /// update was produced (via [`ConfirmHistory`] + [`ReplicationCheckpointMap`])
 /// and request a forced rollback to that tick via
@@ -445,6 +485,12 @@ pub fn request_forced_rollback_from_confirm_history(world: &mut World, entity: E
         "requesting forced rollback from catch-up snapshot"
     );
     state_metadata.request_forced_rollback(server_tick);
+    // The snapshot has landed and the rollback is scheduled — the entity's
+    // state will be in sync with the server after the rollback runs, so
+    // we can resume including it in checksums.
+    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+        entity_mut.remove::<AwaitingCatchUpSnapshot>();
+    }
     true
 }
 

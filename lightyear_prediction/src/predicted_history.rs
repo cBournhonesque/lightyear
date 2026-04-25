@@ -399,6 +399,10 @@ pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
             history.add_predicted(tick, Some(component.deref().clone()));
+            // Structured per-entity snapshot — `entity` is included so queries
+            // against the JSONL can segment history growth/reset by entity
+            // (e.g. to tell a deterministic-only ball's history apart from a
+            // just-arrived replicated player's history).
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "prediction_history_predicted",

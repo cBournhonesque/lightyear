@@ -6,6 +6,7 @@
 //! Because of this, we will compute an order-independent checksum by only hashing component data and then XOR-ing the results together.
 
 use crate::archetypes::ChecksumWorld;
+use crate::late_join::AwaitingCatchUpSnapshot;
 use crate::plugin::DeterministicReplicationPlugin;
 use alloc::collections::BTreeMap;
 use bevy_app::{App, FixedLast, Plugin, PostUpdate};
@@ -55,6 +56,7 @@ impl ChecksumSendPlugin {
             ),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
+        awaiting_query: Query<(), With<AwaitingCatchUpSnapshot>>,
     ) {
         let mut checksum = 0u64;
         let current_tick = local_timeline.tick();
@@ -62,6 +64,20 @@ impl ChecksumSendPlugin {
         let tick = last_confirmed_input.tick.get();
         // only compute the checksum when we have received remote inputs
         if tick > current_tick {
+            return;
+        }
+        // Skip the whole tick if any entity is still waiting for its
+        // catch-up snapshot. Two reasons:
+        // 1. The client's state for that entity is known to not match the
+        //    server, so a checksum comparison would always mismatch and
+        //    flood logs with noise.
+        // 2. `pop_until_tick_and_hash` is destructive — it drains history
+        //    up to `LastConfirmedInput.tick`. A subsequent forced rollback
+        //    for catch-up targets tick `S ≤ LastConfirmedInput.tick`, and
+        //    if history has been drained past `S` the rollback can't find
+        //    a value to restore. Skipping the whole send keeps history
+        //    intact for the impending rollback.
+        if !awaiting_query.is_empty() {
             return;
         }
 

@@ -31,9 +31,9 @@ pub mod prelude {
         ChecksumHistory, ChecksumMessage, ChecksumReceivePlugin, ChecksumSendPlugin,
     };
     pub use crate::late_join::{
-        AppCatchUpExt, CatchUpBit, CatchUpForEntity, CatchUpGated, CatchUpReady, CatchUpRegistry,
-        LateJoinCatchUpPlugin, PendingCatchUp, apply_catch_up_for_entity,
-        request_forced_rollback_from_confirm_history,
+        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpBit, CatchUpForEntity, CatchUpGated,
+        CatchUpReady, CatchUpRegistry, LateJoinCatchUpPlugin, PendingCatchUp,
+        apply_catch_up_for_entity, request_forced_rollback_from_confirm_history,
     };
     pub use crate::plugin::DeterministicReplicationPlugin;
 }
