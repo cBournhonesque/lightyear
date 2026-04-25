@@ -361,7 +361,9 @@ mod tests {
         }
 
         // get_last should also return Jump pressed
-        let last = receiver_buffer.get_last().expect("buffer should not be empty");
+        let last = receiver_buffer
+            .get_last()
+            .expect("buffer should not be empty");
         assert!(
             last.pressed(&Action::Jump),
             "get_last should return Jump pressed, got: {:?}",
@@ -493,7 +495,9 @@ mod tests {
         assert_eq!(receiver_buffer.end_tick(), Some(Tick(490)));
 
         // get_last should have Jump pressed
-        let last = receiver_buffer.get_last().expect("buffer should not be empty");
+        let last = receiver_buffer
+            .get_last()
+            .expect("buffer should not be empty");
         assert!(
             last.pressed(&Action::Jump),
             "get_last should return Jump pressed after multiple messages, got: {:?}",
@@ -514,7 +518,9 @@ mod tests {
         if let Some(last_val) = receiver_buffer.get_last().cloned() {
             receiver_buffer.set(Tick(496), last_val);
         }
-        let extended = receiver_buffer.get(Tick(496)).expect("tick 496 should exist");
+        let extended = receiver_buffer
+            .get(Tick(496))
+            .expect("tick 496 should exist");
         assert!(
             extended.pressed(&Action::Jump),
             "After extension, tick 496 should have Jump pressed, got: {:?}",

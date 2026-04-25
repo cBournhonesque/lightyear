@@ -45,12 +45,11 @@ fn test_history_added_when_prespawned_added() {
 /// empty entity (only `Remote` marker present) — so `Predicted` is NOT visible,
 /// and the `write_history` marker-fn does NOT fire for init messages.
 ///
-/// The fix: an observer (`seed_prediction_history_from_init`) fires on
-/// `Add<Predicted>` / `Add<PreSpawned>` / `Add<DeterministicPredicted>`. After
-/// the init flush, `Predicted` is on the entity and C has been written
-/// directly via the default write. The observer reads C and the resolved
-/// server tick from `ConfirmHistory + ReplicationCheckpointMap`, then seeds
-/// `PredictionHistory<C>` with a confirmed entry.
+/// The fix: `add_prediction_history` fires on
+/// `Add<(C, Predicted, PreSpawned, DeterministicPredicted)>` and, when it
+/// creates the history for the first time, reads C and the resolved server
+/// tick from `ConfirmHistory + ReplicationCheckpointMap` and seeds
+/// `PredictionHistory<C>` with a confirmed entry before inserting it.
 #[test]
 fn test_prediction_history_seeded_from_init_message() {
     use crate::stepper::*;

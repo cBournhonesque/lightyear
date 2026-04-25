@@ -15,9 +15,16 @@ use bevy_ecs::reflect::{AppTypeRegistry, ReflectComponent};
 use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::world::EntityRef;
 use bevy_reflect::{TypeRegistration, TypeRegistry};
-use tracing::error;
+use lightyear_core::prelude::{LocalTimeline, Tick};
+#[cfg(feature = "std")]
+use serde::Serialize;
+#[cfg(feature = "std")]
+use serde_json::Value;
+use tracing::{Level, error};
 
-use crate::debug::schema::{DebugCategory, DebugSamplePoint};
+use crate::debug::schema::{DebugCategory, DebugSamplePoint, LIGHTYEAR_DEBUG_TARGET_COMPONENT};
+#[cfg(feature = "std")]
+use crate::debug::tracing_layer::JsonDebugValue;
 
 /// Marker component for entities whose component values should be sampled.
 #[derive(Component, Debug, Clone, Default)]
@@ -55,6 +62,23 @@ impl LightyearDebug {
         Self::default().with_component_at::<C>(sample_points)
     }
 
+    /// Log one serializable component type as structured JSON wherever a sampler runs.
+    ///
+    /// Unlike [`Self::component`], this emits `value` as a JSON object/array/scalar instead
+    /// of a `Debug` string. This makes downstream DuckDB analysis avoid regex parsing.
+    #[cfg(feature = "std")]
+    pub fn component_structured<C: Component + Serialize>() -> Self {
+        Self::default().with_component_structured::<C>()
+    }
+
+    /// Log one serializable component type as structured JSON at the specified sample points.
+    #[cfg(feature = "std")]
+    pub fn component_structured_at<C: Component + Serialize>(
+        sample_points: impl IntoIterator<Item = DebugSamplePoint>,
+    ) -> Self {
+        Self::default().with_component_structured_at::<C>(sample_points)
+    }
+
     /// Log every debug-registered component on the entity at the specified sample points.
     pub fn all_at(sample_points: impl IntoIterator<Item = DebugSamplePoint>) -> Self {
         Self {
@@ -88,6 +112,33 @@ impl LightyearDebug {
         self.components.push(LightyearDebugComponentRule {
             component: Some(LightyearDebugComponentSelector::PendingTyped(
                 LightyearDebugComponentFormatter::of::<C>(),
+            )),
+            sample_points: sample_points.into_iter().collect(),
+        });
+        self
+    }
+
+    /// Add a serializable component type to this marker, sampled wherever a sampler runs.
+    #[cfg(feature = "std")]
+    pub fn with_component_structured<C: Component + Serialize>(mut self) -> Self {
+        self.components.push(LightyearDebugComponentRule {
+            component: Some(LightyearDebugComponentSelector::PendingTyped(
+                LightyearDebugComponentFormatter::structured::<C>(),
+            )),
+            sample_points: Vec::new(),
+        });
+        self
+    }
+
+    /// Add a serializable component type to this marker at the specified sample points.
+    #[cfg(feature = "std")]
+    pub fn with_component_structured_at<C: Component + Serialize>(
+        mut self,
+        sample_points: impl IntoIterator<Item = DebugSamplePoint>,
+    ) -> Self {
+        self.components.push(LightyearDebugComponentRule {
+            component: Some(LightyearDebugComponentSelector::PendingTyped(
+                LightyearDebugComponentFormatter::structured::<C>(),
             )),
             sample_points: sample_points.into_iter().collect(),
         });
@@ -228,7 +279,7 @@ struct LightyearDebugComponentFormatter {
     type_id: TypeId,
     name: &'static str,
     short_name: &'static str,
-    format: for<'w> fn(&EntityRef<'w>) -> Option<String>,
+    format: for<'w> fn(&EntityRef<'w>) -> Option<LightyearDebugComponentValue>,
 }
 
 impl Debug for LightyearDebugComponentFormatter {
@@ -250,7 +301,21 @@ impl LightyearDebugComponentFormatter {
             type_id: TypeId::of::<C>(),
             name: type_name::<C>(),
             short_name: short_type_name(type_name::<C>()),
-            format: format_component::<C>,
+            format: format_debug_component::<C>,
+        }
+    }
+
+    /// Build a formatter that can read `C` from an [`EntityRef`] and serialize it to JSON.
+    #[cfg(feature = "std")]
+    fn structured<C>() -> Self
+    where
+        C: Component + Serialize,
+    {
+        Self {
+            type_id: TypeId::of::<C>(),
+            name: type_name::<C>(),
+            short_name: short_type_name(type_name::<C>()),
+            format: format_structured_component::<C>,
         }
     }
 
@@ -324,7 +389,11 @@ impl LightyearDebugAppExt for App {
             schedule,
             move |query: Query<EntityRef, With<LightyearDebug>>,
                   registry: Res<LightyearDebugComponentRegistry>,
-                  app_type_registry: Option<Res<AppTypeRegistry>>| {
+                  app_type_registry: Option<Res<AppTypeRegistry>>,
+                  timeline: Option<Res<LocalTimeline>>| {
+                if !component_tracing_enabled() {
+                    return;
+                }
                 log_marked_debug_entities(
                     query,
                     &registry,
@@ -332,6 +401,7 @@ impl LightyearDebugAppExt for App {
                     sample_point,
                     schedule_name,
                     "component_value",
+                    timeline.as_deref().map(LocalTimeline::tick),
                 );
             },
         );
@@ -430,7 +500,11 @@ where
             self.schedule.clone(),
             move |query: Query<EntityRef, With<LightyearDebug>>,
                   registry: Res<LightyearDebugComponentRegistry>,
-                  app_type_registry: Option<Res<AppTypeRegistry>>| {
+                  app_type_registry: Option<Res<AppTypeRegistry>>,
+                  timeline: Option<Res<LocalTimeline>>| {
+                if !component_tracing_enabled() {
+                    return;
+                }
                 log_marked_debug_entities(
                     query,
                     &registry,
@@ -438,6 +512,7 @@ where
                     sample_point,
                     schedule_name,
                     kind,
+                    timeline.as_deref().map(LocalTimeline::tick),
                 );
             },
         );
@@ -453,6 +528,9 @@ pub fn log_component_value<C: Component + Debug>(
     schedule: &'static str,
     kind: &'static str,
 ) {
+    if !component_tracing_enabled() {
+        return;
+    }
     crate::lightyear_debug_event!(
         DebugCategory::Component,
         sample_point,
@@ -462,6 +540,40 @@ pub fn log_component_value<C: Component + Debug>(
         component = type_name::<C>(),
         value = ?component,
         "component debug value"
+    );
+}
+
+/// Emit one structured component snapshot row.
+#[cfg(feature = "std")]
+#[inline]
+pub fn log_component_json_value<C: Component + Serialize>(
+    entity: Entity,
+    component: &C,
+    sample_point: DebugSamplePoint,
+    schedule: &'static str,
+    kind: &'static str,
+) {
+    if !component_tracing_enabled() {
+        return;
+    }
+    let Ok(value) = serde_json::to_value(component) else {
+        error!(
+            target: LIGHTYEAR_DEBUG_TARGET_COMPONENT,
+            kind = "component_serialize_error",
+            entity = ?entity,
+            component = type_name::<C>(),
+            "failed to serialize component debug value"
+        );
+        return;
+    };
+    log_component_structured_value(
+        entity,
+        type_name::<C>(),
+        value,
+        sample_point,
+        schedule,
+        kind,
+        None,
     );
 }
 
@@ -533,6 +645,7 @@ fn log_marked_debug_entities(
     sample_point: DebugSamplePoint,
     schedule: &'static str,
     kind: &'static str,
+    tick: Option<Tick>,
 ) {
     let type_registry = app_type_registry.as_ref().map(|registry| registry.read());
     let type_registry = type_registry.as_deref();
@@ -548,6 +661,7 @@ fn log_marked_debug_entities(
             kind,
             registry,
             type_registry,
+            tick,
         );
     }
 }
@@ -561,6 +675,7 @@ fn log_debug_entity_components(
     kind: &'static str,
     registry: &LightyearDebugComponentRegistry,
     type_registry: Option<&TypeRegistry>,
+    tick: Option<Tick>,
 ) {
     if debug.components.is_empty() {
         return;
@@ -579,11 +694,19 @@ fn log_debug_entity_components(
                         sample_point,
                         schedule,
                         kind,
+                        tick,
                     );
                 }
             }
             Some(LightyearDebugComponentSelector::PendingTyped(formatter)) => {
-                log_formatter_component_value(entity_ref, formatter, sample_point, schedule, kind);
+                log_formatter_component_value(
+                    entity_ref,
+                    formatter,
+                    sample_point,
+                    schedule,
+                    kind,
+                    tick,
+                );
             }
             Some(selector @ LightyearDebugComponentSelector::Name(_)) => {
                 log_named_entity_component(
@@ -594,6 +717,7 @@ fn log_debug_entity_components(
                     kind,
                     registry,
                     type_registry,
+                    tick,
                 );
             }
             None => {
@@ -604,6 +728,7 @@ fn log_debug_entity_components(
                     kind,
                     registry,
                     type_registry,
+                    tick,
                 );
             }
         }
@@ -619,10 +744,18 @@ fn log_named_entity_component(
     kind: &'static str,
     registry: &LightyearDebugComponentRegistry,
     type_registry: Option<&TypeRegistry>,
+    tick: Option<Tick>,
 ) {
     for formatter in registry.iter() {
         if selector.matches_formatter(formatter)
-            && log_formatter_component_value(entity_ref, formatter, sample_point, schedule, kind)
+            && log_formatter_component_value(
+                entity_ref,
+                formatter,
+                sample_point,
+                schedule,
+                kind,
+                tick,
+            )
         {
             return;
         }
@@ -641,6 +774,7 @@ fn log_named_entity_component(
                     sample_point,
                     schedule,
                     kind,
+                    tick,
                 )
             {
                 return;
@@ -657,9 +791,10 @@ fn log_all_entity_components(
     kind: &'static str,
     registry: &LightyearDebugComponentRegistry,
     _type_registry: Option<&TypeRegistry>,
+    tick: Option<Tick>,
 ) {
     for formatter in registry.iter() {
-        log_formatter_component_value(entity_ref, formatter, sample_point, schedule, kind);
+        log_formatter_component_value(entity_ref, formatter, sample_point, schedule, kind, tick);
     }
 }
 
@@ -670,17 +805,19 @@ fn log_formatter_component_value(
     sample_point: DebugSamplePoint,
     schedule: &'static str,
     kind: &'static str,
+    tick: Option<Tick>,
 ) -> bool {
     let Some(value) = (formatter.format)(entity_ref) else {
         return false;
     };
-    log_component_debug_string(
+    log_component_value_inner(
         entity_ref.id(),
         formatter.name,
-        &value,
+        value,
         sample_point,
         schedule,
         kind,
+        tick,
     );
     true
 }
@@ -693,47 +830,145 @@ fn log_reflected_component_value(
     sample_point: DebugSamplePoint,
     schedule: &'static str,
     kind: &'static str,
+    tick: Option<Tick>,
 ) -> bool {
     let Some(value) = reflect_component.reflect(entity_ref) else {
         return false;
     };
-    log_component_debug_string(
+    log_component_value_inner(
         entity_ref.id(),
         registration.type_info().type_path(),
-        &format!("{value:?}"),
+        LightyearDebugComponentValue::Debug(format!("{value:?}")),
         sample_point,
         schedule,
         kind,
+        tick,
     );
     true
 }
 
-/// Emit a component row when the value is already formatted as a string.
-fn log_component_debug_string(
+/// Emit a component row when the value is already formatted.
+fn log_component_value_inner(
     entity: Entity,
     component: &str,
-    value: &str,
+    value: LightyearDebugComponentValue,
     sample_point: DebugSamplePoint,
     schedule: &'static str,
     kind: &'static str,
+    tick: Option<Tick>,
 ) {
-    crate::lightyear_debug_event!(
-        DebugCategory::Component,
-        sample_point,
-        schedule,
-        kind,
-        entity = ?entity,
-        component = component,
-        value = value,
-        "component debug value"
-    );
+    if !component_tracing_enabled() {
+        return;
+    }
+    match value {
+        LightyearDebugComponentValue::Debug(value) => {
+            if let Some(tick) = tick {
+                crate::lightyear_debug_event!(
+                    DebugCategory::Component,
+                    sample_point,
+                    schedule,
+                    kind,
+                    entity = ?entity,
+                    component = component,
+                    value = value,
+                    tick = ?tick,
+                    tick_id = tick.0,
+                    "component debug value"
+                );
+            } else {
+                crate::lightyear_debug_event!(
+                    DebugCategory::Component,
+                    sample_point,
+                    schedule,
+                    kind,
+                    entity = ?entity,
+                    component = component,
+                    value = value,
+                    "component debug value"
+                );
+            }
+        }
+        #[cfg(feature = "std")]
+        LightyearDebugComponentValue::Structured(value) => {
+            log_component_structured_value(
+                entity,
+                component,
+                value,
+                sample_point,
+                schedule,
+                kind,
+                tick,
+            );
+        }
+    }
+}
+
+#[cfg(feature = "std")]
+fn log_component_structured_value(
+    entity: Entity,
+    component: &str,
+    value: Value,
+    sample_point: DebugSamplePoint,
+    schedule: &'static str,
+    kind: &'static str,
+    tick: Option<Tick>,
+) {
+    if let Some(tick) = tick {
+        crate::lightyear_debug_event!(
+            DebugCategory::Component,
+            sample_point,
+            schedule,
+            kind,
+            entity = ?entity,
+            component = component,
+            value = ?JsonDebugValue(value),
+            tick = ?tick,
+            tick_id = tick.0,
+            "component debug value"
+        );
+    } else {
+        crate::lightyear_debug_event!(
+            DebugCategory::Component,
+            sample_point,
+            schedule,
+            kind,
+            entity = ?entity,
+            component = component,
+            value = ?JsonDebugValue(value),
+            "component debug value"
+        );
+    }
 }
 
 /// Read a typed component from an entity and format it with `Debug`.
-fn format_component<C: Component + Debug>(entity_ref: &EntityRef<'_>) -> Option<String> {
+fn format_debug_component<C: Component + Debug>(
+    entity_ref: &EntityRef<'_>,
+) -> Option<LightyearDebugComponentValue> {
     entity_ref
         .get::<C>()
-        .map(|component| format!("{component:?}"))
+        .map(|component| LightyearDebugComponentValue::Debug(format!("{component:?}")))
+}
+
+#[cfg(feature = "std")]
+fn format_structured_component<C: Component + Serialize>(
+    entity_ref: &EntityRef<'_>,
+) -> Option<LightyearDebugComponentValue> {
+    entity_ref.get::<C>().map(|component| {
+        serde_json::to_value(component)
+            .map(LightyearDebugComponentValue::Structured)
+            .unwrap_or_else(|_| LightyearDebugComponentValue::Debug("<serialize error>".into()))
+    })
+}
+
+enum LightyearDebugComponentValue {
+    Debug(String),
+    #[cfg(feature = "std")]
+    Structured(Value),
+}
+
+#[inline]
+fn component_tracing_enabled() -> bool {
+    tracing::enabled!(target: LIGHTYEAR_DEBUG_TARGET_COMPONENT, Level::TRACE)
 }
 
 /// Return the last Rust path segment of a type path.

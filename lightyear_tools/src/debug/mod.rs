@@ -8,6 +8,8 @@ pub mod schema;
 pub mod tracing_layer;
 
 pub mod prelude {
+    #[cfg(feature = "std")]
+    pub use crate::debug::component::log_component_json_value;
     pub use crate::debug::component::{
         LightyearDebug, LightyearDebugAppExt, LightyearDebugComponentPlugin,
         LightyearDebugComponentRule, LightyearDebugComponentSamplerPlugin, log_component_value,
@@ -25,6 +27,8 @@ pub mod prelude {
         LIGHTYEAR_DEBUG_TARGET_TIMELINE, LIGHTYEAR_DEBUG_TARGET_TRANSPORT,
         is_lightyear_debug_target,
     };
+    #[cfg(feature = "std")]
+    pub use crate::lightyear_debug_component_json;
     pub use crate::{lightyear_debug_component, lightyear_debug_event};
 
     #[cfg(feature = "std")]
@@ -42,6 +46,12 @@ pub mod __private {
 /// Emit a user-authored row into the structured debug stream.
 #[inline]
 pub fn manual_log(message: &str) {
+    if !tracing::enabled!(
+        target: crate::debug::schema::LIGHTYEAR_DEBUG_TARGET_MANUAL,
+        tracing::Level::TRACE
+    ) {
+        return;
+    }
     crate::lightyear_debug_event!(
         crate::debug::schema::DebugCategory::Manual,
         crate::debug::schema::DebugSamplePoint::Update,
@@ -80,6 +90,30 @@ macro_rules! lightyear_debug_component {
     }};
     ($entity:expr, $component:expr, $sample_point:expr, $schedule:expr, $kind:expr) => {{
         $crate::debug::component::log_component_value(
+            $entity,
+            $component,
+            $sample_point,
+            $schedule,
+            $kind,
+        );
+    }};
+}
+
+/// Emit a structured component snapshot row when the component implements `Serialize`.
+#[cfg(feature = "std")]
+#[macro_export]
+macro_rules! lightyear_debug_component_json {
+    ($entity:expr, $component:expr, $sample_point:expr, $schedule:expr) => {{
+        $crate::debug::component::log_component_json_value(
+            $entity,
+            $component,
+            $sample_point,
+            $schedule,
+            "component_value",
+        );
+    }};
+    ($entity:expr, $component:expr, $sample_point:expr, $schedule:expr, $kind:expr) => {{
+        $crate::debug::component::log_component_json_value(
             $entity,
             $component,
             $sample_point,

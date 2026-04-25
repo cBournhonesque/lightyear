@@ -33,15 +33,11 @@ impl Plugin for ExampleServerPlugin {
         {
             app.add_plugins(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
         }
-        // Register the late-join catch-up plugin. The client sends
-        // `CatchUpForEntity` requests over `Channel1` (ordered reliable),
-        // and the server flips per-component visibility on receipt.
-        app.add_plugins(
-            lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin::<Channel1>::default(),
-        );
-        // Register the physics components as catch-up-gated: they are
-        // hidden from each client by default and only sent once, after
-        // the client explicitly requests catch-up (see the docs on
+        // The LateJoinCatchUpPlugin itself is added by ProtocolPlugin
+        // (in SharedPlugin) so it runs before `cli.spawn_connections`.
+        // Here we register which components are catch-up-gated: they
+        // are hidden from each client by default and only sent once
+        // after the client explicitly requests catch-up (see
         // `lightyear_deterministic_replication::late_join`).
         app.register_catchup_components::<(Position, Rotation, LinearVelocity, AngularVelocity)>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
@@ -51,12 +47,11 @@ impl Plugin for ExampleServerPlugin {
             FixedPreUpdate,
             (schedule_physics_start, activate_physics_at_tick).chain(),
         );
-        // In Flexible mode, add Replicate to the ball so that late-joining
-        // clients receive its Position/Velocity via replicate_once.
-        app.add_systems(
-            Startup,
-            add_replicate_to_ball.run_if(resource_equals(GameStartMode::Flexible)),
-        );
+        // In Flexible mode we used to replicate the ball to late-joining
+        // clients, but with deterministic replication the ball simulates
+        // identically on every peer (same initial state, no inputs) so
+        // replicating it just creates a second unused entity on the
+        // client. Left disabled intentionally.
     }
 }
 
@@ -149,13 +144,5 @@ fn activate_physics_at_tick(
             );
             commands.entity(entity).insert(player_bundle(player_id.0));
         }
-    }
-}
-
-fn add_replicate_to_ball(mut commands: Commands, ball: Query<Entity, With<BallMarker>>) {
-    for entity in ball.iter() {
-        commands
-            .entity(entity)
-            .insert(Replicate::to_clients(NetworkTarget::All));
     }
 }

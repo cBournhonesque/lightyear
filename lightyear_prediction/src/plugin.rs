@@ -11,8 +11,8 @@ use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
     add_prediction_history, apply_component_removal_predicted,
-    handle_tick_event_prediction_history, seed_prediction_history_from_init,
-    snap_to_confirmed_during_rollback, update_prediction_history,
+    handle_tick_event_prediction_history, snap_to_confirmed_during_rollback,
+    update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
@@ -77,7 +77,11 @@ pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
 pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
-    app.add_observer(seed_prediction_history_from_init::<C>);
+    // Without this observer, the component's `PredictionHistory<C>` buffer
+    // would not get its tick values shifted on timeline-sync, so any
+    // history entries accumulated pre-sync would point to stale
+    // (pre-sync) ticks after the client clock jumps forward.
+    app.add_observer(handle_tick_event_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
         prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
@@ -158,7 +162,6 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(handle_tick_event_prediction_history::<C>);
     app.add_observer(add_prediction_history::<C>);
-    app.add_observer(seed_prediction_history_from_init::<C>);
 
     app.add_systems(
         PreUpdate,

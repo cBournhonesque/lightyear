@@ -10,6 +10,7 @@ use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
 use lightyear::prelude::client::input::*;
+use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
 
@@ -18,6 +19,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
+        app.add_systems(Startup, configure_input_delay);
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set
@@ -30,6 +32,12 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
     }
+}
+
+fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Commands) {
+    commands
+        .entity(client.into_inner())
+        .insert(InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced()));
 }
 
 /// System that reads from peripherals and adds inputs to the buffer
@@ -72,9 +80,13 @@ fn buffer_input(
 /// This works because we only predict the user's controlled entity.
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     // timeline: Single<&LocalTimeline>,
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
+    if synced_client.is_empty() {
+        return;
+    }
     // let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");

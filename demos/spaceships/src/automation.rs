@@ -1,4 +1,4 @@
-use avian2d::prelude::Position;
+use avian2d::prelude::{LinearVelocity, Position, Rotation};
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::prelude::*;
@@ -6,7 +6,7 @@ use lightyear_examples_common::automation::{
     HeadlessInputPlugin, env_flag, env_string, sync_pressed_keys,
 };
 
-use crate::protocol::{BulletMarker, Player, PlayerActions, Score, Weapon};
+use crate::protocol::{BulletMarker, ColorComponent, Player, PlayerActions, Score, Weapon};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -95,6 +95,9 @@ mod client {
         for entity in &players {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<Rotation>([DebugSamplePoint::Update])
+                    .with_component_at::<LinearVelocity>([DebugSamplePoint::Update])
+                    .with_component_at::<ColorComponent>([DebugSamplePoint::Update])
                     .with_component_at::<Player>([DebugSamplePoint::Update])
                     .with_component_at::<Score>([DebugSamplePoint::Update])
                     .with_component_at::<Weapon>([DebugSamplePoint::Update])
@@ -145,6 +148,9 @@ mod server {
         for entity in &players {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<Rotation>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<LinearVelocity>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<ColorComponent>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<Player>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<Score>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<Weapon>([DebugSamplePoint::FixedUpdate])

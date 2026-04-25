@@ -5,7 +5,7 @@ use alloc::format;
 use alloc::string::{String, ToString};
 use std::eprintln;
 use std::fs::{File, OpenOptions};
-use std::io::{self, Write};
+use std::io::{self, BufWriter, Write};
 use std::path::Path;
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -67,6 +67,7 @@ const PROMOTED_FIELDS: &[&str] = &[
     "system",
     "system_set",
     "tick",
+    "tick_id",
     "num_messages",
     "priority",
     "value",
@@ -74,14 +75,12 @@ const PROMOTED_FIELDS: &[&str] = &[
 
 /// JSONL formatter layer for events whose target starts with `lightyear_debug`.
 pub struct LightyearDebugLayer {
-    writer: Mutex<Box<dyn Write + Send + 'static>>,
+    writer: Mutex<BufWriter<Box<dyn Write + Send + 'static>>>,
 }
 
 impl LightyearDebugLayer {
     pub fn stderr() -> Self {
-        Self {
-            writer: Mutex::new(Box::new(io::stderr())),
-        }
+        Self::writer(io::stderr())
     }
 
     pub fn file(path: impl AsRef<Path>) -> io::Result<Self> {
@@ -90,8 +89,13 @@ impl LightyearDebugLayer {
     }
 
     pub fn from_file(file: File) -> Self {
+        Self::writer(file)
+    }
+
+    /// Build a debug layer from any writer.
+    pub fn writer(writer: impl Write + Send + 'static) -> Self {
         Self {
-            writer: Mutex::new(Box::new(file)),
+            writer: Mutex::new(BufWriter::new(Box::new(writer))),
         }
     }
 
@@ -138,6 +142,14 @@ impl LightyearDebugLayer {
         };
         if serde_json::to_writer(&mut *writer, &Value::Object(root)).is_ok() {
             let _ = writer.write_all(b"\n");
+        }
+    }
+}
+
+impl Drop for LightyearDebugLayer {
+    fn drop(&mut self) {
+        if let Ok(writer) = self.writer.get_mut() {
+            let _ = writer.flush();
         }
     }
 }
@@ -254,9 +266,88 @@ impl Visit for JsonFieldVisitor {
 
     fn record_debug(&mut self, field: &Field, value: &dyn core::fmt::Debug) {
         let formatted = format!("{value:?}");
-        let value = serde_json::from_str::<String>(&formatted)
-            .map(Value::from)
+        let value = JsonDebugValue::decode(&formatted)
+            .or_else(|| serde_json::from_str::<Value>(&formatted).ok())
             .unwrap_or(Value::from(formatted));
         self.insert(field, value);
+    }
+}
+
+pub(crate) struct JsonDebugValue(pub Value);
+
+impl JsonDebugValue {
+    const PREFIX: &'static str = "__lightyear_json__:";
+
+    fn decode(formatted: &str) -> Option<Value> {
+        formatted
+            .strip_prefix(Self::PREFIX)
+            .and_then(|json| serde_json::from_str(json).ok())
+    }
+}
+
+impl core::fmt::Debug for JsonDebugValue {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "{}{}", Self::PREFIX, self.0)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use alloc::sync::Arc;
+    use alloc::vec::Vec;
+    use std::sync::Mutex as StdMutex;
+    use tracing::dispatcher;
+    use tracing_subscriber::prelude::*;
+
+    #[derive(Clone, Default)]
+    struct SharedWriter(Arc<StdMutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn lightyear_layer_writes_promoted_fields_and_filters_other_targets() {
+        let writer = SharedWriter::default();
+        let output = writer.0.clone();
+        let layer = LightyearDebugLayer::writer(writer);
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let dispatch = dispatcher::Dispatch::new(subscriber);
+
+        dispatcher::with_default(&dispatch, || {
+            tracing::trace!(
+                target: "lightyear_debug::component",
+                kind = "component_value",
+                component = "my_crate::Position",
+                value = ?JsonDebugValue(serde_json::json!({"x": 1.0, "y": 2.0})),
+                message_name = ?"example::Message",
+                "component row"
+            );
+            tracing::trace!(target: "not_lightyear_debug", kind = "ignored");
+        });
+        drop(dispatch);
+
+        let bytes = output.lock().unwrap().clone();
+        let text = String::from_utf8(bytes).unwrap();
+        let lines: Vec<_> = text.lines().collect();
+        assert_eq!(lines.len(), 1);
+
+        let row: Value = serde_json::from_str(lines[0]).unwrap();
+        assert_eq!(row["target"], "lightyear_debug::component");
+        assert_eq!(row["category"], "component");
+        assert_eq!(row["kind"], "component_value");
+        assert_eq!(row["component"], "my_crate::Position");
+        assert_eq!(row["message_name"], "example::Message");
+        assert_eq!(row["value"], serde_json::json!({"x": 1.0, "y": 2.0}));
+        assert!(row.get("timestamp").is_some());
+        assert!(row.get("frame_id").is_some());
     }
 }

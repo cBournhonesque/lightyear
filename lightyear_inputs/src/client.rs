@@ -72,7 +72,7 @@ use lightyear_interpolation::prelude::*;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 use lightyear_prediction::prelude::*;
-use lightyear_replication::prelude::PreSpawned;
+use lightyear_replication::prelude::{ControlledBy, PreSpawned};
 use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
@@ -261,6 +261,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
 // equivalent to &ActionState<S::Action>
 
+fn is_owned_by_client_link(
+    controlled_by: Option<&ControlledBy>,
+    clients: &Query<(), With<Client>>,
+) -> bool {
+    match controlled_by {
+        Some(controlled_by) => clients.get(controlled_by.owner).is_ok(),
+        None => true,
+    }
+}
+
 /// Write the value of the ActionState in the InputBuffer.
 /// (so that we can pull it for rollback or for delayed inputs)
 ///
@@ -274,18 +284,23 @@ fn buffer_action_state<S: ActionStateSequence>(
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
     input_timeline: Single<&InputTimeline, (With<Client>, Without<Rollback>)>,
+    clients: Query<(), With<Client>>,
     mut action_state_query: Query<
         (
             Entity,
             StateRef<S>,
             &mut InputBuffer<S::Snapshot, S::Action>,
+            Option<&ControlledBy>,
         ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i32;
-    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, mut input_buffer, controlled_by) in action_state_query.iter_mut() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         input_buffer.set(tick, S::to_snapshot(action_state));
         trace!(
             ?entity,
@@ -451,8 +466,14 @@ fn get_action_state<S: ActionStateSequence>(
 fn get_delayed_action_state<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     sender: Query<(&InputTimeline, Has<Rollback>), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    clients: Query<(), With<Client>>,
     mut action_state_query: Query<
-        (Entity, StateMut<S>, &InputBuffer<S::Snapshot, S::Action>),
+        (
+            Entity,
+            StateMut<S>,
+            &InputBuffer<S::Snapshot, S::Action>,
+            Option<&ControlledBy>,
+        ),
         // Filter so that this is only for directly controlled players, not remote players
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
@@ -466,7 +487,10 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     }
     let tick = timeline.tick();
     let delayed_tick = tick + input_delay_ticks;
-    for (entity, action_state, input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer, controlled_by) in action_state_query.iter_mut() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
@@ -563,11 +587,13 @@ fn prepare_input_message<S: ActionStateSequence>(
         ),
     >,
     channel_registry: Res<ChannelRegistry>,
+    clients: Query<(), With<Client>>,
     input_buffer_query: Query<
         (
             Entity,
             &InputBuffer<S::Snapshot, S::Action>,
             Option<&PreSpawned>,
+            Option<&ControlledBy>,
         ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
@@ -617,7 +643,10 @@ fn prepare_input_message<S: ActionStateSequence>(
         .unwrap();
     num_tick *= input_config.packet_redundancy as u32;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, pre_spawned) in input_buffer_query.iter() {
+    for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         trace!(
             ?tick,
             ?entity,
@@ -1068,7 +1097,10 @@ fn receive_tick_events<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
     clients: Query<(), With<Client>>,
     mut input_buffer_query: Query<
-        &mut InputBuffer<S::Snapshot, S::Action>,
+        (
+            &mut InputBuffer<S::Snapshot, S::Action>,
+            Option<&ControlledBy>,
+        ),
         Allow<PredictionDisable>,
     >,
 ) {
@@ -1076,7 +1108,10 @@ fn receive_tick_events<S: ActionStateSequence>(
         return;
     }
     let delta = trigger.tick_delta;
-    for mut input_buffer in input_buffer_query.iter_mut() {
+    for (mut input_buffer, controlled_by) in input_buffer_query.iter_mut() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         if let Some(start_tick) = input_buffer.start_tick {
             input_buffer.start_tick = Some(start_tick + delta);
             debug!(

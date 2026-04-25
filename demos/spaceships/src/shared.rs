@@ -10,7 +10,6 @@ use crate::renderer::ExampleRendererPlugin;
 use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
-use lightyear::connection::client_of::ClientOf;
 use lightyear::input::leafwing::prelude::LeafwingSnapshot;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
@@ -158,8 +157,8 @@ pub(crate) fn player_movement(
 pub fn shared_player_firing(
     mut q: Query<(
         &Position,
-        &Rotation,
-        &LinearVelocity,
+        Option<&Rotation>,
+        Option<&LinearVelocity>,
         &ColorComponent,
         &ActionState<PlayerActions>,
         &mut Weapon,
@@ -168,9 +167,9 @@ pub fn shared_player_firing(
     )>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    is_server: Single<Has<Server>, Without<ClientOf>>,
+    server: Query<(), With<Server>>,
 ) {
-    let is_server = is_server.into_inner();
+    let is_server = !server.is_empty();
     if q.is_empty() {
         return;
     }
@@ -215,13 +214,15 @@ pub fn shared_player_firing(
         }
         let prev_last_fire_tick = weapon.last_fire_tick;
         weapon.last_fire_tick = current_tick;
+        let player_rotation = player_rotation.copied().unwrap_or_default();
 
         // bullet spawns just in front of the nose of the ship, in the direction the ship is facing,
         // and inherits the speed of the ship.
         let bullet_spawn_offset = Vec2::Y * (2.0 + (SHIP_LENGTH + BULLET_SIZE) / 2.0);
 
         let bullet_origin = player_position.0 + player_rotation * bullet_spawn_offset;
-        let bullet_linvel = player_rotation * (Vec2::Y * weapon.bullet_speed) + player_velocity.0;
+        let player_velocity = player_velocity.map_or(Vec2::ZERO, |velocity| velocity.0);
+        let bullet_linvel = player_rotation * (Vec2::Y * weapon.bullet_speed) + player_velocity;
 
         // the default hashing algorithm uses the tick and component list. in order to disambiguate
         // between two players spawning a bullet on the same tick, we add client_id to the mix.
@@ -263,9 +264,7 @@ pub(crate) fn lifetime_despawner(
     q: Query<(Entity, &BulletLifetime)>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    is_server: Single<Has<Server>, Without<ClientOf>>,
 ) {
-    let is_server = is_server.into_inner();
     for (e, ttl) in q.iter() {
         if (timeline.tick() - ttl.origin_tick) > ttl.lifetime {
             commands.entity(e).prediction_despawn();
@@ -316,10 +315,10 @@ pub(crate) fn process_collisions(
     player_q: Query<&Player>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    is_server: Single<Has<Server>, Without<ClientOf>>,
+    server: Query<(), With<Server>>,
     mut hit_ev_writer: MessageWriter<BulletHitMessage>,
 ) {
-    let is_server = is_server.into_inner();
+    let is_server = !server.is_empty();
     let tick = timeline.tick();
     // when A and B collide, it can be reported as one of:
     // * A collides with B

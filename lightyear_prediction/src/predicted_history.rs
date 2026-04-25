@@ -388,14 +388,14 @@ impl<C: Clone> PredictionHistory<C> {
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
-    mut query: Query<(Ref<T>, &mut PredictionHistory<T>)>,
+    mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
 
     // update history if the predicted component changed
-    for (component, mut history) in query.iter_mut() {
+    for (entity, component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
             history.add_predicted(tick, Some(component.deref().clone()));
@@ -404,6 +404,7 @@ pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
                 kind = "prediction_history_predicted",
                 schedule = "FixedPostUpdate",
                 sample_point = "FixedPostUpdate",
+                entity = ?entity,
                 component = ?DebugName::type_name::<T>(),
                 local_tick = tick.0,
                 history_len = history.len(),
@@ -464,14 +465,31 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     }
 }
 
-/// If a predicted component gets added to [`Predicted`] entity, add a [`PredictionHistory`] component.
-pub(crate) fn add_prediction_history<C: Component>(
+/// When any of `C`, [`Predicted`], [`PreSpawned`], or [`DeterministicPredicted`]
+/// is added to an entity, ensure [`PredictionHistory<C>`] is present, and if
+/// `C` has just been applied via an init message, seed the history with a
+/// confirmed entry at the server tick that produced the init.
+///
+/// # Why seeding is needed
+///
+/// Replicon reads entity markers on the empty newly-spawned entity BEFORE
+/// init components are applied. As a result, the marker-gated `write_history`
+/// function does NOT fire for init messages — the component value is written
+/// directly to the entity via the default write, and `PredictionHistory<C>`
+/// gets no confirmed entry for the init tick. We plug that hole here.
+///
+/// # Once-only semantics
+///
+/// Seeding only happens when we are creating the history on this observation
+/// — if `PredictionHistory<C>` is already present, the markers were added
+/// in a different order (e.g. after the component was first added and then
+/// mutated by local prediction) and we must not overwrite those predicted
+/// values with a stale confirmed snapshot.
+pub(crate) fn add_prediction_history<C: SyncComponent>(
     trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
-    mut commands: Commands,
     query: Query<
         (),
         (
-            Without<PredictionHistory<C>>,
             With<C>,
             Or<(
                 With<Predicted>,
@@ -480,99 +498,67 @@ pub(crate) fn add_prediction_history<C: Component>(
             )>,
         ),
     >,
-) {
-    if query.get(trigger.entity).is_ok() {
-        trace!(
-            "Add prediction history for {:?} on entity {:?}",
-            DebugName::type_name::<C>(),
-            trigger.entity
-        );
-        trace!(
-            target: "lightyear_debug::prediction",
-            kind = "prediction_history_insert",
-            entity = ?trigger.entity,
-            component = ?DebugName::type_name::<C>(),
-            "inserted prediction history component"
-        );
-        commands
-            .entity(trigger.entity)
-            .insert_if_new(PredictionHistory::<C>::default());
-    }
-}
-
-/// Seed [`PredictionHistory<C>`] with a confirmed entry at the init tick
-/// when a prediction marker is added via an init message.
-///
-/// **Why this exists:** replicon reads entity markers on the empty newly-spawned
-/// entity BEFORE init components are applied. As a result, the marker-gated
-/// `write_history` function does NOT fire for init messages — the component
-/// value is written directly to the entity via the default write, and
-/// `PredictionHistory<C>` gets no confirmed entry for the init tick.
-///
-/// This observer fires once when [`Predicted`] / [`PreSpawned`] /
-/// [`DeterministicPredicted`] is added and copies the current `C` value into
-/// history as confirmed at the tick resolved from [`ConfirmHistory`].
-///
-/// Runs at most once per entity per component because of the
-/// `Without<PredictionHistoryInitSeeded<C>>` filter.
-pub(crate) fn seed_prediction_history_from_init<C: SyncComponent>(
-    trigger: On<Add, (Predicted, PreSpawned, DeterministicPredicted)>,
-    checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
-    query: Query<
-        (&C, &lightyear_replication::prelude::ConfirmHistory),
-        Without<PredictionHistoryInitSeeded<C>>,
-    >,
     mut commands: Commands,
 ) {
-    let Ok((component, confirm)) = query.get(trigger.entity) else {
+    if query.get(trigger.entity).is_err() {
         return;
-    };
-    let Some(tick) = checkpoints.get(confirm.last_tick()) else {
-        return;
-    };
+    }
     trace!(
-        entity = ?trigger.entity,
-        ?tick,
-        component = ?DebugName::type_name::<C>(),
-        "seeding PredictionHistory with confirmed value from init message"
+        "Add prediction history for {:?} on entity {:?}",
+        DebugName::type_name::<C>(),
+        trigger.entity
     );
-    // Defer the mutation through a closure so that any concurrently-queued
-    // `PredictionHistory::default()` insert (e.g. from `add_prediction_history`)
-    // runs first and is preserved if-new, while our closure mutates the
-    // (now existing) history to add the confirmed value.
+    trace!(
+        target: "lightyear_debug::prediction",
+        kind = "prediction_history_insert",
+        entity = ?trigger.entity,
+        component = ?DebugName::type_name::<C>(),
+        "inserted prediction history component"
+    );
     let entity = trigger.entity;
-    let component = component.clone();
     commands.queue(move |world: &mut World| {
+        let Ok(entity_mut) = world.get_entity_mut(entity) else {
+            return;
+        };
+        // Skip if history already exists — either another observer run
+        // created it, or local prediction already populated it and we
+        // must not overwrite predicted values.
+        if entity_mut.contains::<PredictionHistory<C>>() {
+            return;
+        }
+        // Try to capture a confirmed entry from the current C value + the
+        // server tick resolved via ConfirmHistory. This path only fires
+        // when all of `C`, `ConfirmHistory`, and a checkpoint mapping
+        // are present — i.e. when this is an init-message write.
+        let seed: Option<(Tick, C)> = {
+            let component = entity_mut.get::<C>().cloned();
+            let confirm_last = entity_mut
+                .get::<lightyear_replication::prelude::ConfirmHistory>()
+                .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
+            match (component, confirm_last) {
+                (Some(component), Some(confirm_tick)) => world
+                    .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+                    .get(confirm_tick)
+                    .map(|tick| (tick, component)),
+                _ => None,
+            }
+        };
+        // Re-fetch the entity after the world-level resource access above.
         let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
             return;
         };
-        if entity_mut.contains::<PredictionHistoryInitSeeded<C>>() {
-            return;
-        }
-        if !entity_mut.contains::<PredictionHistory<C>>() {
-            entity_mut.insert(PredictionHistory::<C>::default());
-        }
-        if let Some(mut history) = entity_mut.get_mut::<PredictionHistory<C>>() {
+        let mut history = PredictionHistory::<C>::default();
+        if let Some((tick, component)) = seed {
+            trace!(
+                ?entity,
+                ?tick,
+                component = ?DebugName::type_name::<C>(),
+                "seeding PredictionHistory with confirmed value from init message"
+            );
             history.add_confirmed(tick, Some(component));
         }
-        entity_mut.insert(PredictionHistoryInitSeeded::<C>::default());
+        entity_mut.insert(history);
     });
-}
-
-/// Marker component inserted once per entity per C after
-/// [`seed_prediction_history_from_init`] has seeded the confirmed value.
-/// Prevents re-seeding if another prediction marker is later added.
-#[derive(Component)]
-pub struct PredictionHistoryInitSeeded<C: Component> {
-    _phantom: core::marker::PhantomData<C>,
-}
-
-impl<C: Component> Default for PredictionHistoryInitSeeded<C> {
-    fn default() -> Self {
-        Self {
-            _phantom: core::marker::PhantomData,
-        }
-    }
 }
 
 /// During rollback re-simulation, check if we have a confirmed value for this tick.

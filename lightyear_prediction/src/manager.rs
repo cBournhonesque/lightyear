@@ -139,6 +139,14 @@ pub struct StateRollbackMetadata {
 
     /// Set to true if we detected a mismatch and should rollback (for RollbackMode::Check)
     pub(crate) should_rollback: bool,
+
+    /// Tick at which an external caller has requested a one-shot rollback.
+    ///
+    /// Consumed by `check_rollback` regardless of the `rollback_policy.state`
+    /// setting — this is an explicit request, not a mismatch-triggered one.
+    /// Set via [`StateRollbackMetadata::request_forced_rollback`]. Cleared
+    /// when consumed.
+    pub(crate) forced_rollback_tick: Option<Tick>,
 }
 
 impl StateRollbackMetadata {
@@ -149,6 +157,25 @@ impl StateRollbackMetadata {
         match self.earliest_mismatch_tick {
             None => self.earliest_mismatch_tick = Some(tick),
             Some(existing) if tick < existing => self.earliest_mismatch_tick = Some(tick),
+            _ => {}
+        }
+    }
+
+    /// Request a one-shot rollback from `tick`, regardless of the
+    /// `rollback_policy.state` mode.
+    ///
+    /// Intended for scenarios where an external system (e.g. late-join
+    /// catch-up) has deposited confirmed state at a specific tick and
+    /// needs the simulation to re-run from there. Unlike
+    /// [`record_mismatch`], this does not track the earliest across
+    /// multiple calls in a frame — the caller is authoritative about the
+    /// tick. Subsequent calls within the same frame take the earliest.
+    ///
+    /// [`record_mismatch`]: StateRollbackMetadata::record_mismatch
+    pub fn request_forced_rollback(&mut self, tick: Tick) {
+        match self.forced_rollback_tick {
+            None => self.forced_rollback_tick = Some(tick),
+            Some(existing) if tick < existing => self.forced_rollback_tick = Some(tick),
             _ => {}
         }
     }

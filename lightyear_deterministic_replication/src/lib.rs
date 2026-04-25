@@ -11,6 +11,8 @@
 
 extern crate alloc;
 extern crate core;
+#[cfg(test)]
+extern crate std;
 
 use bevy_ecs::component::Component;
 
@@ -30,7 +32,8 @@ pub mod prelude {
     };
     pub use crate::late_join::{
         AppCatchUpExt, CatchUpBit, CatchUpForEntity, CatchUpGated, CatchUpReady, CatchUpRegistry,
-        LateJoinCatchUpPlugin, PendingCatchUp,
+        LateJoinCatchUpPlugin, PendingCatchUp, apply_catch_up_for_entity,
+        request_forced_rollback_from_confirm_history,
     };
     pub use crate::plugin::DeterministicReplicationPlugin;
 }

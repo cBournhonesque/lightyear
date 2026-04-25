@@ -10,10 +10,12 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
+cli = ["std", "dep:clap"]
 std = [
   "lightyear_link/std",
   "lightyear_metrics/std",
   "dep:bevy_log",
+  "dep:serde",
   "dep:serde_json",
   "dep:tracing-subscriber",
 ]
@@ -28,6 +30,8 @@ lightyear_metrics.workspace = true
 # utils
 metrics.workspace = true
 metrics-util.workspace = true
+clap = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 tracing.workspace = true
 tracing-subscriber = { workspace = true, optional = true }
@@ -43,6 +47,11 @@ bevy_ui.workspace = true
 bevy_utils.workspace = true
 bevy_text.workspace = true
 bevy_time.workspace = true
+
+[[bin]]
+name = "lightyear-debug"
+path = "src/bin/lightyear-debug.rs"
+required-features = ["cli"]
 
 [lints]
 workspace = true

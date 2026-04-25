@@ -92,6 +92,7 @@ impl Plugin for SharedPlugin {
                 .before(PhysicsSystems::StepSimulation),
         );
         app.add_systems(FixedLast, emit_fixed_last_players);
+        app.add_systems(FixedLast, debug_positions_at_tick);
         // app.add_systems(Last, emit_last_players);
     }
 }
@@ -108,26 +109,30 @@ pub(crate) fn init(mut commands: Commands) {
         },
         Name::from("Ball"),
     ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
+    // Walls temporarily disabled to test whether avian's ContactGraph is
+    // the source of automove-mode late-join drift.
+    //
+    // commands.spawn(WallBundle::new(
+    //     Vec2::new(-WALL_SIZE, -WALL_SIZE),
+    //     Vec2::new(-WALL_SIZE, WALL_SIZE),
+    //     Color::WHITE,
+    // ));
+    // commands.spawn(WallBundle::new(
+    //     Vec2::new(-WALL_SIZE, WALL_SIZE),
+    //     Vec2::new(WALL_SIZE, WALL_SIZE),
+    //     Color::WHITE,
+    // ));
+    // commands.spawn(WallBundle::new(
+    //     Vec2::new(WALL_SIZE, WALL_SIZE),
+    //     Vec2::new(WALL_SIZE, -WALL_SIZE),
+    //     Color::WHITE,
+    // ));
+    // commands.spawn(WallBundle::new(
+    //     Vec2::new(WALL_SIZE, -WALL_SIZE),
+    //     Vec2::new(-WALL_SIZE, -WALL_SIZE),
+    //     Color::WHITE,
+    // ));
+    let _ = WALL_SIZE;
 }
 
 pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {
@@ -294,6 +299,19 @@ pub(crate) fn emit_before_physics(
             last_buffer_tick = ?last_buffer_tick,
             "Player right before Physics::StepSimulation"
         );
+    }
+}
+
+pub(crate) fn debug_positions_at_tick(
+    timeline: Res<LocalTimeline>,
+    players: Query<(Entity, &Position, &LinearVelocity, &PlayerId), Without<BallMarker>>,
+) {
+    let tick = timeline.tick();
+    if tick.0 != 1400 {
+        return;
+    }
+    for (e, p, v, id) in players.iter() {
+        info!(?tick, entity=?e, player_id=?id.0, pos=?p.0, vel=?v.0, "POS PLAYER");
     }
 }
 

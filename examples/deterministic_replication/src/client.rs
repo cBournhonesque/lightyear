@@ -5,9 +5,7 @@ use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{
-    CatchUpReady, LateJoinCatchUpPlugin, PendingCatchUp,
-};
+use lightyear_deterministic_replication::prelude::{CatchUpReady, PendingCatchUp};
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
@@ -29,10 +27,15 @@ impl Plugin for ExampleClientPlugin {
         {
             app.add_plugins(lightyear_deterministic_replication::prelude::ChecksumSendPlugin);
         }
-        app.add_plugins(LateJoinCatchUpPlugin::<Channel1>::default());
+        // LateJoinCatchUpPlugin itself is added by ProtocolPlugin (in
+        // SharedPlugin) so message registration precedes client-entity
+        // spawn in `cli.spawn_connections`.
         app.add_systems(
             PreUpdate,
-            (add_input_map_after_sync, request_catch_up_for_remote_players)
+            (
+                add_input_map_after_sync,
+                request_catch_up_for_remote_players,
+            )
                 .after(ReplicationSystems::Receive),
         );
         app.add_systems(Update, mark_catch_up_ready);
@@ -93,6 +96,11 @@ fn request_catch_up_for_remote_players(
             commands.entity(entity).insert(CatchUpRequested);
             continue;
         }
+        debug!(
+            ?entity,
+            ?player_id,
+            "inserting PendingCatchUp on remote player"
+        );
         commands
             .entity(entity)
             .insert((PendingCatchUp, CatchUpRequested));
@@ -102,34 +110,45 @@ fn request_catch_up_for_remote_players(
 #[derive(Component)]
 struct CatchUpRequested;
 
-/// When the remote input buffer for a `PendingCatchUp` entity has caught up
-/// to roughly the current remote tick, insert `CatchUpReady` so the plugin
-/// sends the catch-up message.
+/// When the remote input buffer for a `PendingCatchUp` entity has received
+/// any real remote inputs (i.e. rebroadcast data has arrived), insert
+/// `CatchUpReady` so the plugin sends the catch-up message.
 ///
-/// We intentionally use the strict "covers ~current remote tick" condition
-/// so that by the time the server replies with the snapshot at tick S, the
-/// client already has inputs for `[S, now]` in its rebroadcast buffer.
+/// # Readiness condition
+///
+/// Each input rebroadcast batch carries roughly `HISTORY_DEPTH` ticks of
+/// history, so as soon as `last_remote_tick` becomes `Some(_)` the client
+/// has a buffered window of real inputs ending at the server's current
+/// tick. That is enough for a post-catch-up input rollback to replay from
+/// the snapshot tick `S` forward — by the time the server's snapshot
+/// arrives, the client will still have remote inputs for `[S, now]`
+/// (subsequent rebroadcasts overlap).
+///
+/// We don't try to compare against `RemoteTimeline::tick()` — that value
+/// starts at 0 and converges slowly, so comparing against it would make
+/// the readiness condition fire too eagerly in the first handful of
+/// ticks after the client connects.
 fn mark_catch_up_ready(
     mut commands: Commands,
-    remote_timeline: Option<
-        Single<&RemoteTimeline, (With<Client>, With<IsSynced<InputTimeline>>)>,
-    >,
+    client: Option<Single<(), (With<Client>, With<IsSynced<InputTimeline>>)>>,
     pending: Query<
         (Entity, &LeafwingBuffer<PlayerActions>),
         (With<PendingCatchUp>, Without<CatchUpReady>),
     >,
 ) {
-    let Some(remote_timeline) = remote_timeline else {
+    if client.is_none() {
         return;
-    };
-    let remote_tick = remote_timeline.into_inner().tick();
+    }
+    // Avoid unused-const lint: we dropped the tick-gap comparison, so
+    // `CATCH_UP_READINESS_MARGIN` is currently unused — keep it documented
+    // for now in case we reintroduce a stricter check.
+    let _ = CATCH_UP_READINESS_MARGIN;
     for (entity, buffer) in pending.iter() {
-        let Some(end_tick) = buffer.end_tick() else {
+        let Some(last_remote_tick) = buffer.last_remote_tick else {
             continue;
         };
-        if end_tick + CATCH_UP_READINESS_MARGIN >= remote_tick {
-            commands.entity(entity).insert(CatchUpReady);
-        }
+        debug!(?entity, ?last_remote_tick, "marking CatchUpReady");
+        commands.entity(entity).insert(CatchUpReady);
     }
 }
 
@@ -193,6 +212,19 @@ fn activate_physics_at_tick(
                 (PlayerActions::Left, KeyCode::KeyA),
                 (PlayerActions::Right, KeyCode::KeyD),
             ]));
+        }
+        // For remote late-join we requested a catch-up snapshot and it
+        // has just landed (Position is present). Schedule a one-shot
+        // rollback to the server tick at which the snapshot was
+        // produced. With `rollback_policy.state = Disabled` the
+        // prediction system would otherwise never re-run from that
+        // confirmed state, and the client would diverge forever.
+        if late_join && !is_local && existing_position.is_some() {
+            commands.queue(move |world: &mut World| {
+                lightyear_deterministic_replication::prelude::request_forced_rollback_from_confirm_history(
+                    world, entity,
+                );
+            });
         }
     }
 }

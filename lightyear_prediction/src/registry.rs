@@ -397,7 +397,14 @@ impl PredictionRegistry {
         should_rollback
     }
 
-    /// Type-erased function for calling `pop_until_tick` on a [`PredictionHistory<C>`] component.
+    /// Type-erased function for reading the value at `tick` from a
+    /// [`PredictionHistory<C>`] component and hashing it.
+    ///
+    /// Non-destructive — the buffer is not mutated. This matters because
+    /// the same history buffer is used by `prepare_rollback`, which may
+    /// need to read entries at `tick` during a later rollback (for
+    /// example when a forced rollback targets a tick earlier than the
+    /// last-confirmed-input tick used for checksums).
     ///
     /// Safety
     ///
@@ -413,11 +420,9 @@ impl PredictionRegistry {
         let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
         // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
         let history = unsafe { ptr.deref_mut::<PredictionHistory<C>>() };
-        if let Some(state) = history.pop_until_tick(tick)
-            && let Some(v) = state.value()
-        {
+        if let Some(v) = history.get(tick) {
             trace!(
-                "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
+                "Read value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
                 DebugName::type_name::<C>(),
                 tick,
                 v

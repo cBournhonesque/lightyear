@@ -100,6 +100,16 @@ impl Plugin for ProtocolPlugin {
         app.register_event::<Ready>()
             .add_direction(NetworkDirection::ClientToServer);
 
+        // Late-join catch-up: shared between client and server so it must
+        // be registered before `cli.spawn_connections` adds the Client /
+        // ClientOf entities (otherwise `register_required_components`
+        // would fail because the archetype already exists). Registered in
+        // ProtocolPlugin (loaded by SharedPlugin) so it runs before the
+        // CLI spawns the networking entities.
+        app.add_plugins(
+            lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin::<Channel1>::default(),
+        );
+
         // components
         app.register_component::<PlayerId>();
         app.register_component::<PhysicsStartTick>();

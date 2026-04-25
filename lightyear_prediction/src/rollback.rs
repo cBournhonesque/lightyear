@@ -397,6 +397,33 @@ fn check_rollback(
         );
     };
 
+    // Forced rollbacks (requested externally via
+    // `StateRollbackMetadata::request_forced_rollback`) take precedence over
+    // policy-driven rollbacks and fire regardless of `rollback_policy.state`.
+    // This lets one-shot mechanisms (e.g. late-join catch-up) trigger a
+    // rollback even on a client whose normal rollback policy is `Disabled`.
+    if let Some(forced_tick) = state_metadata.forced_rollback_tick.take() {
+        debug!(
+            ?forced_tick,
+            "Forced rollback requested via StateRollbackMetadata::request_forced_rollback"
+        );
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "forced_rollback",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            local_tick = tick.0,
+            rollback_tick = forced_tick.0,
+            "forced rollback requested"
+        );
+        do_rollback(
+            forced_tick,
+            &prediction_manager,
+            &mut commands,
+            Rollback::FromState,
+        );
+    }
+
     // if there we check for rollback on both state and input, state takes precedence
     match prediction_manager.rollback_policy.state {
         // if we received a state update, we don't check for mismatches and just set the rollback tick

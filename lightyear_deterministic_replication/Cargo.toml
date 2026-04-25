@@ -41,6 +41,9 @@ bevy_replicon.workspace = true
 # serde
 serde.workspace = true
 
+[dev-dependencies]
+test-log.workspace = true
+
 [lints]
 workspace = true
 
