@@ -92,8 +92,7 @@ use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_transport::prelude::Channel;
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use tracing::{debug, info, trace, warn};
+use tracing::{debug, warn};
 
 /// Message sent from client to server requesting the one-time snapshot of
 /// catch-up-gated components for the given entity.
@@ -113,6 +112,7 @@ impl MapEntities for CatchUpForEntity {
 
 /// Stores the single replicon [`FilterBit`] that controls visibility for
 /// every catch-up-gated component on every [`CatchUpGated`] entity.
+/// Populated by [`AppCatchUpExt::register_catchup_components`].
 ///
 /// # One bit, not one bit per component
 ///
@@ -126,12 +126,6 @@ impl MapEntities for CatchUpForEntity {
 /// This also matches the intended semantics: catch-up is atomic (you either
 /// have the full state snapshot or you don't), so per-component flipping is
 /// never useful.
-#[derive(Resource, Clone, Copy)]
-pub struct CatchUpBit(pub FilterBit);
-
-/// Lookup resource populated at plugin-build time. Holds the single
-/// [`CatchUpBit`] (allocated via [`AppCatchUpExt::register_catchup_components`])
-/// and nothing else — the visibility flip is a single set-bit operation.
 #[derive(Resource, Default)]
 pub struct CatchUpRegistry {
     bit: Option<FilterBit>,
@@ -144,7 +138,7 @@ impl CatchUpRegistry {
         self.bit.is_some()
     }
 
-    fn bit(&self) -> Option<FilterBit> {
+    pub(crate) fn bit(&self) -> Option<FilterBit> {
         self.bit
     }
 }
@@ -191,7 +185,7 @@ pub trait AppCatchUpExt {
     /// catch-up scope.
     ///
     /// Allocates a single replicon [`FilterBit`] covering all components
-    /// in `T` at once, stored in [`CatchUpBit`] and [`CatchUpRegistry`].
+    /// in `T` at once, stored in [`CatchUpRegistry`].
     ///
     /// Calling this more than once is a no-op — the plugin supports a
     /// single catch-up scope. If you need multiple independent scopes
@@ -216,7 +210,6 @@ impl AppCatchUpExt for App {
                         filter_registry.register_scope::<T>(world, &mut registry)
                     })
                 });
-        self.world_mut().insert_resource(CatchUpBit(bit));
         self.world_mut().resource_mut::<CatchUpRegistry>().bit = Some(bit);
         self
     }
@@ -239,20 +232,59 @@ pub struct CatchUpGated;
 /// Marker component added by client-side user code to indicate that an
 /// entity is waiting for a catch-up snapshot from the server.
 ///
-/// While present, [`send_catchup_requests`] polls the entity. Once the
-/// entity's remote input buffer covers roughly the current remote tick
-/// (see the doc on [`send_catchup_requests`] for the exact check), it
+/// Once the entity also carries [`CatchUpReady`], [`send_catchup_requests`]
 /// sends a [`CatchUpForEntity`] to the server and removes this marker.
 ///
 /// The example code should insert this on remote entities (for instance
 /// on `Add<DeterministicPredicted>` where the entity is not the local
 /// player) — the plugin intentionally does not add it automatically so
 /// that user code stays in control of which entities use catch-up.
+///
+/// On insertion, [`AwaitingCatchUpSnapshot`] is also inserted via an
+/// observer, to gate checksum computation until the catch-up rollback
+/// completes.
 #[derive(Component, Default)]
 pub struct PendingCatchUp;
 
-/// Insert `PendingCatchUp` + `CatchUpGated` to bootstrap the plugin on
-/// late-joining clients.
+/// Inserted by user code on an entity with [`PendingCatchUp`] once the
+/// readiness condition (e.g. "remote input buffer covers current tick")
+/// is satisfied.
+///
+/// Keeping readiness as a separate component lets the plugin be agnostic
+/// to the specific input type used by the user. The example wires up a
+/// small system that checks `LeafwingBuffer<PlayerActions>::last_remote_tick`
+/// and inserts this marker when it becomes `Some`.
+#[derive(Component, Default)]
+pub struct CatchUpReady;
+
+/// Marker inserted automatically when [`PendingCatchUp`] is added, and
+/// removed by [`request_forced_rollback_from_confirm_history`] once the
+/// catch-up snapshot has landed and the forced rollback has been scheduled.
+///
+/// While this marker is present the entity's state is known to not match
+/// the server. [`ChecksumSendPlugin`] skips the whole checksum send if any
+/// entity carries this marker — filtering the mismatched entity out of an
+/// order-independent XOR checksum would instead leave the server computing
+/// the checksum over all entities while the client computes it over a
+/// subset, producing a sustained mismatch for every other entity too.
+///
+/// The complementary gate — covering the window from "rollback scheduled"
+/// to "rollback executed" — is handled inside [`ChecksumSendPlugin`] by
+/// checking [`StateRollbackMetadata::forced_rollback_tick`], because by
+/// then this marker has already been removed.
+///
+/// [`ChecksumSendPlugin`]: crate::prelude::ChecksumSendPlugin
+/// [`StateRollbackMetadata::forced_rollback_tick`]: lightyear_prediction::manager::StateRollbackMetadata::forced_rollback_tick
+#[derive(Component, Debug, Default)]
+pub struct AwaitingCatchUpSnapshot;
+
+/// Plugin that wires up the late-join catch-up machinery.
+///
+/// Clients insert [`PendingCatchUp`] on remote entities that need a
+/// snapshot; the plugin waits for user code to add [`CatchUpReady`] and
+/// then sends [`CatchUpForEntity`] on channel `C`. The server receives
+/// the message and flips the catch-up visibility bit to *visible* so
+/// that replicon sends the gated components as a one-shot init insertion.
 pub struct LateJoinCatchUpPlugin<C: Channel> {
     _marker: core::marker::PhantomData<fn() -> C>,
 }
@@ -375,14 +407,14 @@ fn handle_catch_up_requests(world: &mut World) {
     }
 }
 
-/// Client system: for every entity with [`PendingCatchUp`], check whether
-/// the client has rebroadcast inputs covering roughly the current remote
-/// tick; if so, send a [`CatchUpForEntity`] request and remove the marker.
+/// Client system: for every entity with both [`PendingCatchUp`] and
+/// [`CatchUpReady`], send a [`CatchUpForEntity`] request to the server
+/// and remove the markers.
 ///
 /// The channel type parameter `C` is the channel the request is sent on;
 /// use a reliable channel so the request is not lost.
 fn send_catchup_requests<C: Channel>(
-    mut pending: Query<(Entity, Option<&CatchUpReady>), With<PendingCatchUp>>,
+    pending: Query<Entity, (With<PendingCatchUp>, With<CatchUpReady>)>,
     client: Option<
         Single<&mut MessageSender<CatchUpForEntity>, With<lightyear_connection::client::Client>>,
     >,
@@ -392,10 +424,7 @@ fn send_catchup_requests<C: Channel>(
         return;
     };
     let mut sender = client.into_inner();
-    for (entity, ready) in pending.iter_mut() {
-        if ready.is_none() {
-            continue;
-        }
+    for entity in pending.iter() {
         debug!(?entity, "sending CatchUpForEntity request to server");
         sender.send::<C>(CatchUpForEntity(entity));
         commands
@@ -407,11 +436,8 @@ fn send_catchup_requests<C: Channel>(
 
 /// Observer: when [`PendingCatchUp`] is added to an entity, also insert
 /// [`AwaitingCatchUpSnapshot`] so that the entity is excluded from
-/// checksum computation for the whole duration of the catch-up flow —
-/// including the frames between "user inserts `PendingCatchUp`" and
-/// "plugin sends the request" where the state is known to not match
-/// the server. Removal is the caller's responsibility via
-/// [`request_forced_rollback_from_confirm_history`].
+/// checksum computation for the whole duration of the catch-up flow.
+/// Removal is handled by [`request_forced_rollback_from_confirm_history`].
 fn on_pending_catch_up_added(
     trigger: On<Add, PendingCatchUp>,
     already_awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
@@ -424,25 +450,6 @@ fn on_pending_catch_up_added(
         .entity(trigger.entity)
         .insert(AwaitingCatchUpSnapshot);
 }
-
-/// Marker inserted on an entity when the client has sent its
-/// [`CatchUpForEntity`] request, and removed by
-/// [`request_forced_rollback_from_confirm_history`] once the snapshot has
-/// landed and the forced rollback has been scheduled.
-///
-/// While this marker is present the entity's state is known to not match
-/// the server (the client is still waiting for the catch-up snapshot or
-/// the post-snapshot rollback to converge). The entity is excluded from
-/// [`ChecksumSendPlugin`] while the marker is present, which avoids two
-/// problems:
-/// - the client would otherwise send obviously-mismatched checksums that
-///   the server has to log and discard;
-/// - the checksum's destructive `pop_until_tick(LastConfirmedInput.tick)`
-///   would drain history entries that the forced rollback later needs to
-///   restore from (the catch-up tick `S` can be strictly less than
-///   `LastConfirmedInput.tick`, so entries at tick `S` would be gone).
-#[derive(Component, Debug, Default)]
-pub struct AwaitingCatchUpSnapshot;
 
 /// Resolve the server tick at which `entity`'s most recent replication
 /// update was produced (via [`ConfirmHistory`] + [`ReplicationCheckpointMap`])
@@ -493,18 +500,6 @@ pub fn request_forced_rollback_from_confirm_history(world: &mut World, entity: E
     }
     true
 }
-
-/// Inserted by user code on an entity with [`PendingCatchUp`] once the
-/// readiness condition (e.g. "remote input buffer covers current tick")
-/// is satisfied.
-///
-/// Keeping readiness as a separate component lets the plugin be agnostic
-/// to the specific input type used by the example. The example wires up
-/// a small system that checks `LeafwingBuffer<PlayerActions>::end_tick()`
-/// against `RemoteTimeline::tick()` and inserts this marker when the gap
-/// is small enough.
-#[derive(Component, Default)]
-pub struct CatchUpReady;
 
 #[cfg(test)]
 mod tests {
@@ -583,14 +578,13 @@ mod tests {
         assert!(!app.world().resource::<CatchUpRegistry>().is_initialized());
 
         app.register_catchup_components::<(A, B, C)>();
-        assert!(app.world().resource::<CatchUpRegistry>().is_initialized());
-        assert!(app.world().contains_resource::<CatchUpBit>());
+        let first_bit = app.world().resource::<CatchUpRegistry>().bit();
+        assert!(first_bit.is_some());
 
         // Second call is a no-op — a second scope is NOT registered.
-        let first_bit = *app.world().resource::<CatchUpBit>();
         app.register_catchup_components::<(A, B, C)>();
-        let second_bit = *app.world().resource::<CatchUpBit>();
-        assert_eq!(first_bit.0, second_bit.0);
+        let second_bit = app.world().resource::<CatchUpRegistry>().bit();
+        assert_eq!(first_bit, second_bit);
     }
 
     #[test]

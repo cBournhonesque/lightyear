@@ -8,8 +8,9 @@ use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 #[cfg(feature = "client")]
 use {
-    bevy_enhanced_input::context::ExternallyMocked, lightyear_connection::client::Client,
-    lightyear_replication::prelude::Replicate,
+    bevy_enhanced_input::context::ExternallyMocked,
+    lightyear_connection::client::Client,
+    lightyear_replication::prelude::{Controlled, Replicate},
 };
 
 use bevy_enhanced_input::prelude::*;
@@ -260,9 +261,13 @@ impl InputRegistryPlugin {
         trigger: On<Add, ActionOf<C>>,
         single: Single<(), (With<Client>, Without<HostClient>)>,
         query: Query<&ActionOf<C>, With<Remote>>,
+        controlled: Query<(), With<Controlled>>,
         mut commands: Commands,
     ) {
         if let Ok(action_of) = query.get(trigger.entity) {
+            if controlled.contains(action_of.get()) {
+                return;
+            }
             let entity = trigger.entity;
             debug!(
                 ?entity,

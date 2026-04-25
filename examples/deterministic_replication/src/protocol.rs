@@ -1,10 +1,8 @@
-use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_replicon::prelude::AppRuleExt;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
-use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -56,11 +54,6 @@ pub struct BallMarker;
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PhysicsStartTick(pub Tick);
 
-// Messages
-
-#[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Ready;
-
 // Channel
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -89,16 +82,12 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        // channel
+        // Reliable channel used for late-join catch-up requests.
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         })
         .add_direction(NetworkDirection::ClientToServer);
-
-        // messages
-        app.register_event::<Ready>()
-            .add_direction(NetworkDirection::ClientToServer);
 
         // Late-join catch-up: shared between client and server so it must
         // be registered before `cli.spawn_connections` adds the Client /

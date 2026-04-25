@@ -329,7 +329,6 @@ impl Plugin for ProtocolPlugin {
         app.register_input_action::<MovePlayer>();
         app.register_input_action::<MoveCursor>();
         app.register_input_action::<Shoot>();
-        app.register_input_action::<CycleWeapon>();
 
         app.add_plugins(InputPlugin::new(InputConfig::<ClientContext> {
             // we don't want these actions to be replayed when a rollback happens
@@ -338,6 +337,7 @@ impl Plugin for ProtocolPlugin {
         }));
         app.register_input_action::<CycleProjectileMode>();
         app.register_input_action::<CycleReplicationMode>();
+        app.register_input_action::<CycleWeapon>();
 
         // channel
         app.add_channel::<HitChannel>(ChannelSettings {

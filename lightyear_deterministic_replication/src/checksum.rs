@@ -21,15 +21,13 @@ use lightyear_core::tick::Tick;
 use lightyear_inputs::InputChannel;
 use lightyear_inputs::client::InputSystems;
 use lightyear_link::server::{LinkOf, Server};
-use lightyear_messages::MessageManager;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageSender};
 use lightyear_messages::receive::MessageReceiver;
-use lightyear_prediction::manager::LastConfirmedInput;
+use lightyear_prediction::manager::{LastConfirmedInput, StateRollbackMetadata};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use serde::{Deserialize, Serialize};
-#[allow(unused_imports)]
-use tracing::{debug, error, info, trace};
+use tracing::{debug, error, trace};
 
 /// History of the checksums on the server to validate client checksums against.
 #[derive(Component, Debug, Default)]
@@ -44,57 +42,51 @@ pub struct ChecksumHistory {
 pub struct ChecksumSendPlugin;
 
 impl ChecksumSendPlugin {
-    /// Compute a checksum for all deterministic entities with hashable components.
+    /// Compute a checksum over all deterministic entities' hashable
+    /// components at `LastConfirmedInput.tick` and send it to the server.
     fn compute_and_send_checksum(
         mut world: ChecksumWorld<'_, '_, true>,
         local_timeline: Res<LocalTimeline>,
         client: Single<
-            (
-                &LastConfirmedInput,
-                &MessageManager,
-                &mut MessageSender<ChecksumMessage>,
-            ),
+            (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
         awaiting_query: Query<(), With<AwaitingCatchUpSnapshot>>,
+        state_metadata: Res<StateRollbackMetadata>,
     ) {
         let mut checksum = 0u64;
         let current_tick = local_timeline.tick();
-        let (last_confirmed_input, message_manager, mut sender) = client.into_inner();
+        let (last_confirmed_input, mut sender) = client.into_inner();
         let tick = last_confirmed_input.tick.get();
         // only compute the checksum when we have received remote inputs
         if tick > current_tick {
             return;
         }
         // Skip the whole tick if any entity is still waiting for its
-        // catch-up snapshot. Two reasons:
-        // 1. The client's state for that entity is known to not match the
-        //    server, so a checksum comparison would always mismatch and
-        //    flood logs with noise.
-        // 2. `pop_until_tick_and_hash` is destructive — it drains history
-        //    up to `LastConfirmedInput.tick`. A subsequent forced rollback
-        //    for catch-up targets tick `S ≤ LastConfirmedInput.tick`, and
-        //    if history has been drained past `S` the rollback can't find
-        //    a value to restore. Skipping the whole send keeps history
-        //    intact for the impending rollback.
+        // catch-up snapshot. The client's state for that entity is known
+        // to not match the server, and filtering it out of the XOR would
+        // leave the server computing over a superset — producing a
+        // sustained mismatch for every other entity too.
         if !awaiting_query.is_empty() {
+            return;
+        }
+        // Skip if a one-shot forced rollback is scheduled but not yet
+        // consumed. Hashing via `pop_until_tick_and_hash` is destructive:
+        // it drains history entries up to `LastConfirmedInput.tick`.
+        // `check_rollback` will fire next `PreUpdate` and `prepare_rollback`
+        // will read `history.get(forced_tick)` to restore the component —
+        // if we drained past `forced_tick` here, that lookup returns `None`
+        // and the component gets removed from the entity. Skip until after
+        // the rollback has run.
+        if state_metadata.forced_rollback_tick().is_some() {
             return;
         }
 
         world.update_archetypes();
         // SAFETY: world.update_archetypes() has been called
         unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
-            // TODO: how can we guarantee that the order is the same on client and server? We need a stable order for entities, otherwise the checksum will differ even if the data is the same.
+            // TODO: guarantee stable entity iteration order across peers.
             archetype.entities().iter().for_each(|entity| {
-                // // TODO: currently this only works if the entity was replicated from the server
-                // //  if the entity was created locally on the client, it won't have a mapping to a remote entity and will be ignored
-                // // convert to a remote entity
-                // if let Some(mapped_entity) = message_manager.entity_mapper.get_remote(entity.id()) {
-                //     trace!("Adding entity {:?} (mapped to remote entity {:?}) to checksum for tick {:?}", entity.id(), mapped_entity, tick);
-                //     // hasher.write_u64(mapped_entity.to_bits());
-                // }
-                // TODO: in deterministic lockstep mode, we need to fetch directly from the component! There is no
-                //  prediction-history and the LastConfirmedTick is always the current tick.
                 checksum_archetype.components.iter().for_each(|(component_id, storage_type)| {
                     trace!("Adding component {:?} from entity {:?} to checksum for tick {:?}",
                         component_id, entity.id(), tick);
@@ -158,7 +150,9 @@ impl Plugin for ChecksumSendPlugin {
 pub struct ChecksumReceivePlugin;
 
 impl ChecksumReceivePlugin {
-    /// Compute a checksum for all deterministic entities with hashable components.
+    /// Compute a checksum over all deterministic entities' hashable
+    /// components at the current server tick and store it for later
+    /// comparison against incoming client checksums.
     fn compute_and_store_checksum(
         mut world: ChecksumWorld<'_, '_, false>,
         timeline: Res<LocalTimeline>,
@@ -168,14 +162,11 @@ impl ChecksumReceivePlugin {
         let tick = timeline.tick();
         let mut history = server.into_inner();
 
-        // SAFETY: world.update_archetypes() has been called
         world.update_archetypes();
+        // SAFETY: world.update_archetypes() has been called
         unsafe { world.iter_archetypes() }.for_each(|(archetype, checksum_archetype)| {
-            // TODO: how can we ensure that we are iterating entities in a stable order on both client and server?
+            // TODO: guarantee stable entity iteration order across peers.
             archetype.entities().iter().for_each(|entity| {
-                // TODO: we don't write entities in the checksum because if there are some non-replicated entities, the entity ids will differ between client and server.
-                //  We should maybe wait for the ability to reserve ranges of entities so that entity ids match perfectly.
-                // hasher.write_u64(entity.id().to_bits());
                 checksum_archetype
                     .components
                     .iter()
@@ -222,15 +213,13 @@ impl ChecksumReceivePlugin {
         messages.iter_mut().for_each(|(mut receiver, link_of, remote_id)| {
             if let Ok(history) = server.get(link_of.server) {
                 receiver.receive().for_each(|message| {
-                    let expected = history.history.get(&message.tick);
-                    if let Some(&expected) = expected {
-                        if expected != message.checksum {
-                            if message.checksum != 0 {
-                                error!("Checksum mismatch from client {:?} at tick {:?}: expected {:016x}, got {:016x}", remote_id, message.tick, expected, message.checksum);
-                            }
-                        } else {
-                            debug!("Checksum match from client {:?} at tick {:?}: {:016x}", remote_id, message.tick, message.checksum);
-                        }
+                    let Some(&expected) = history.history.get(&message.tick) else {
+                        return;
+                    };
+                    if expected == message.checksum {
+                        debug!("Checksum match from client {:?} at tick {:?}: {:016x}", remote_id, message.tick, message.checksum);
+                    } else if message.checksum != 0 {
+                        error!("Checksum mismatch from client {:?} at tick {:?}: expected {:016x}, got {:016x}", remote_id, message.tick, expected, message.checksum);
                     }
                 })
             }

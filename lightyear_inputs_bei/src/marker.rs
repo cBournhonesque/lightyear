@@ -5,7 +5,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
-use lightyear_replication::prelude::HasAuthority;
+use lightyear_replication::prelude::{Controlled, HasAuthority};
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -123,6 +123,23 @@ pub(crate) fn add_input_marker_from_network_action<C: Component>(
     mut commands: Commands,
 ) {
     if action.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .insert(InputMarker::<C>::default());
+    }
+}
+
+/// If a prespawned action entity is confirmed but still targets a locally controlled context,
+/// keep using it as a local input source.
+pub(crate) fn add_input_marker_from_confirmed_controlled_action<C: Component>(
+    trigger: On<Add, ConfirmHistory>,
+    action: Query<&ActionOf<C>, (With<ConfirmHistory>, Or<(With<Bindings>, With<ActionMock>)>)>,
+    controlled: Query<(), With<Controlled>>,
+    mut commands: Commands,
+) {
+    if let Ok(action_of) = action.get(trigger.entity)
+        && controlled.contains(action_of.get())
+    {
         commands
             .entity(trigger.entity)
             .insert(InputMarker::<C>::default());

@@ -180,6 +180,15 @@ impl StateRollbackMetadata {
         }
     }
 
+    /// Tick at which a one-shot rollback has been requested but not yet
+    /// consumed by `check_rollback`. While this is `Some`, prediction
+    /// history buffers on the entities targeted by the rollback must not
+    /// be mutated (e.g. checksum systems that use destructive reads must
+    /// skip), otherwise `prepare_rollback` won't find the restore value.
+    pub fn forced_rollback_tick(&self) -> Option<Tick> {
+        self.forced_rollback_tick
+    }
+
     /// Reset the per-frame state tracking.
     /// Note: `should_rollback` and `earliest_mismatch_tick` are NOT reset here
     /// because they need to persist until consumed by `check_rollback`.

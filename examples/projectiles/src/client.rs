@@ -4,8 +4,6 @@ use crate::shared;
 use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_enhanced_input::action::TriggerState;
-use bevy_enhanced_input::action::mock::ActionMock;
 use bevy_enhanced_input::bindings;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
@@ -63,7 +61,7 @@ pub(crate) fn handle_predicted_spawn(
             "Adding actions to predicted player {:?}", trigger.entity
         );
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
-        add_actions(&mut commands, trigger.entity);
+        shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
     }
 }
 
@@ -89,7 +87,7 @@ pub(crate) fn handle_interpolated_spawn(
         if let GameReplicationMode::AllInterpolated = mode
             && client_id.0 == player_id.0
         {
-            add_actions(&mut commands, trigger.entity);
+            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
         }
     }
 }
@@ -120,33 +118,9 @@ pub(crate) fn handle_deterministic_spawn(
                 "Spawning actions for DeterministicPredicted player {:?}",
                 player_id
             );
-            add_actions(&mut commands, trigger.entity);
+            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
         }
     }
-}
-
-fn add_actions(commands: &mut Commands, player: Entity) {
-    commands.entity(player).insert(PlayerContext);
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<MovePlayer>::new(),
-        Bindings::spawn(Cardinal::wasd_keys()),
-    ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<MoveCursor>::new(),
-        // we use a mock to manually set the ActionState and ActionValue from the mouse position
-        ActionMock::new(
-            TriggerState::Fired,
-            ActionValue::zero(ActionValueDim::Axis2D),
-            MockSpan::Manual,
-        ),
-    ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<Shoot>::new(),
-        Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
-    ));
 }
 
 pub(crate) fn add_global_actions(trigger: On<Add, ClientContext>, mut commands: Commands) {

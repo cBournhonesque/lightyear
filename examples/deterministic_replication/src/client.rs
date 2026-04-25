@@ -9,13 +9,7 @@ use lightyear_deterministic_replication::prelude::{CatchUpReady, PendingCatchUp}
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
-use crate::shared::{self, GameStartMode, color_from_id, player_bundle};
-
-/// How close the remote input buffer must be to the current `RemoteTimeline`
-/// tick before we request a catch-up snapshot. Ticks inside this margin are
-/// still considered "covered" because rebroadcast inputs arrive slightly
-/// behind the remote's current tick.
-const CATCH_UP_READINESS_MARGIN: i32 = 4;
+use crate::shared::color_from_id;
 
 pub struct ExampleClientPlugin;
 
@@ -139,24 +133,14 @@ fn request_catch_up_for_remote_players(
 #[derive(Component)]
 struct CatchUpRequested;
 
-/// When the remote input buffer for a `PendingCatchUp` entity has received
-/// any real remote inputs (i.e. rebroadcast data has arrived), insert
-/// `CatchUpReady` so the plugin sends the catch-up message.
-///
-/// # Readiness condition
+/// Insert `CatchUpReady` as soon as the remote input buffer for a
+/// `PendingCatchUp` entity has received any real remote inputs.
 ///
 /// Each input rebroadcast batch carries roughly `HISTORY_DEPTH` ticks of
 /// history, so as soon as `last_remote_tick` becomes `Some(_)` the client
-/// has a buffered window of real inputs ending at the server's current
-/// tick. That is enough for a post-catch-up input rollback to replay from
-/// the snapshot tick `S` forward — by the time the server's snapshot
-/// arrives, the client will still have remote inputs for `[S, now]`
-/// (subsequent rebroadcasts overlap).
-///
-/// We don't try to compare against `RemoteTimeline::tick()` — that value
-/// starts at 0 and converges slowly, so comparing against it would make
-/// the readiness condition fire too eagerly in the first handful of
-/// ticks after the client connects.
+/// has a buffered window of real inputs covering the server's most recent
+/// ticks. That is enough for the post-catch-up rollback to replay from
+/// the snapshot tick `S` forward using buffered inputs.
 fn mark_catch_up_ready(
     mut commands: Commands,
     client: Option<Single<(), (With<Client>, With<IsSynced<InputTimeline>>)>>,
@@ -168,10 +152,6 @@ fn mark_catch_up_ready(
     if client.is_none() {
         return;
     }
-    // Avoid unused-const lint: we dropped the tick-gap comparison, so
-    // `CATCH_UP_READINESS_MARGIN` is currently unused — keep it documented
-    // for now in case we reintroduce a stricter check.
-    let _ = CATCH_UP_READINESS_MARGIN;
     for (entity, buffer) in pending.iter() {
         let Some(last_remote_tick) = buffer.last_remote_tick else {
             continue;

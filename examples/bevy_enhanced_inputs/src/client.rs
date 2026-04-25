@@ -8,8 +8,10 @@
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
-use lightyear::input::bei::prelude::Fire;
+use lightyear::connection::host::HostServer;
+use lightyear::input::bei::prelude::{Action, ActionOf, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::bei::InputMarker;
 use lightyear::prelude::*;
@@ -39,9 +41,14 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
 fn player_movement(
     trigger: On<Fire<Movement>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    host_server: Query<(), With<HostServer>>,
+    server_actions: Query<(), (With<Action<Movement>>, With<Replicate>)>,
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
 ) {
     if synced_client.is_empty() {
+        return;
+    }
+    if !host_server.is_empty() && server_actions.contains(trigger.action) {
         return;
     }
     if let Ok(position) = position_query.get_mut(trigger.context) {
@@ -82,6 +89,7 @@ pub(crate) fn handle_predicted_spawn(
 fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     controlled_players: Query<(&PlayerId, Has<InputMarker<Player>>), With<Player>>,
+    actions: Query<&ActionOf<Player>, With<Action<Movement>>>,
     mut commands: Commands,
 ) {
     let entity = trigger.entity;
@@ -94,7 +102,9 @@ fn handle_controlled_spawn(
     commands
         .entity(entity)
         .insert(InputMarker::<Player>::default());
-    shared::spawn_action_entities(&mut commands, entity, player_id.0, false);
+    if !actions.iter().any(|action_of| action_of.get() == entity) {
+        shared::spawn_action_entities(&mut commands, entity, player_id.0, false);
+    }
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

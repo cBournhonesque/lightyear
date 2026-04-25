@@ -150,6 +150,13 @@ pub(crate) fn spawn_player(
         if is_bot {
             commands.entity(player_entity).insert(Bot);
         }
+        shared::spawn_player_actions(
+            &mut commands,
+            player_entity,
+            client_id,
+            replication_mode,
+            true,
+        );
         info!("Spawning player {player_entity:?} for room: {room_id:?}");
     }
 }

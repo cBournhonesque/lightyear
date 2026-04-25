@@ -1,6 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
-use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
+use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{PlayerId, PlayerPosition};
 

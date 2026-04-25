@@ -1,11 +1,18 @@
-//! # Lightyear Core
+//! # Lightyear Deterministic Replication
 //!
-//! This crate provides fundamental types and utilities shared across the Lightyear networking library.
-//! It includes core concepts such as:
-//! - Ticking and time management (`tick`, `time`, `timeline`).
-//! - Network identifiers and abstractions (`network`, `id`).
-//! - History buffers for state management (`history_buffer`).
-//! - Core plugin structures (`plugin`).
+//! Utilities for lockstep-style deterministic simulation on top of Lightyear:
+//! - [`ChecksumSendPlugin`] / [`ChecksumReceivePlugin`] compute and verify
+//!   XOR checksums of prediction history across client and server.
+//! - [`LateJoinCatchUpPlugin`] lets a client that connects mid-game request
+//!   a one-time snapshot of a remote entity's state so it can fast-forward
+//!   to the current tick via a forced rollback.
+//! - [`DeterministicReplicationPlugin`] wires up the shared archetype
+//!   index used by both features.
+//!
+//! [`ChecksumSendPlugin`]: crate::prelude::ChecksumSendPlugin
+//! [`ChecksumReceivePlugin`]: crate::prelude::ChecksumReceivePlugin
+//! [`LateJoinCatchUpPlugin`]: crate::prelude::LateJoinCatchUpPlugin
+//! [`DeterministicReplicationPlugin`]: crate::prelude::DeterministicReplicationPlugin
 
 #![no_std]
 
@@ -21,19 +28,17 @@ mod checksum;
 /// Late-join catch-up: client-driven per-component snapshot replication
 /// so that mid-game joiners can catch up to already-simulated entities.
 pub mod late_join;
-/// Messages exchanged between client and server
-pub mod messages;
 mod plugin;
 
-/// Commonly used items from the `lightyear_core` crate.
+/// Commonly used items from the `lightyear_deterministic_replication` crate.
 pub mod prelude {
     pub use crate::checksum::{
         ChecksumHistory, ChecksumMessage, ChecksumReceivePlugin, ChecksumSendPlugin,
     };
     pub use crate::late_join::{
-        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpBit, CatchUpForEntity, CatchUpGated,
-        CatchUpReady, CatchUpRegistry, LateJoinCatchUpPlugin, PendingCatchUp,
-        apply_catch_up_for_entity, request_forced_rollback_from_confirm_history,
+        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpForEntity, CatchUpGated, CatchUpReady,
+        CatchUpRegistry, LateJoinCatchUpPlugin, PendingCatchUp, apply_catch_up_for_entity,
+        request_forced_rollback_from_confirm_history,
     };
     pub use crate::plugin::DeterministicReplicationPlugin;
 }

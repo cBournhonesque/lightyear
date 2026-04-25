@@ -1,17 +1,9 @@
 use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
-use crate::shared::{
-    self, GameStartMode, SharedPlugin, WallBundle, color_from_id, player_bundle,
-    shared_movement_behaviour,
-};
+use crate::shared::{GameStartMode, player_bundle};
 use avian2d::prelude::*;
-use bevy::color::palettes::css;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
-use core::time::Duration;
-use leafwing_input_manager::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated};
@@ -47,11 +39,6 @@ impl Plugin for ExampleServerPlugin {
             FixedPreUpdate,
             (schedule_physics_start, activate_physics_at_tick).chain(),
         );
-        // In Flexible mode we used to replicate the ball to late-joining
-        // clients, but with deterministic replication the ball simulates
-        // identically on every peer (same initial state, no inputs) so
-        // replicating it just creates a second unused entity on the
-        // client. Left disabled intentionally.
     }
 }
 

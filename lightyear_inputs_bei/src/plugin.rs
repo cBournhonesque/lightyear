@@ -121,6 +121,7 @@ impl<
         {
             use crate::marker::{
                 add_input_marker_from_authority, add_input_marker_from_binding,
+                add_input_marker_from_confirmed_controlled_action,
                 add_input_marker_from_network_action, add_input_marker_from_parent,
                 propagate_input_marker,
             };
@@ -133,6 +134,7 @@ impl<
             app.add_observer(add_input_marker_from_binding::<C>);
             app.add_observer(add_input_marker_from_authority::<C>);
             app.add_observer(add_input_marker_from_network_action::<C>);
+            app.add_observer(add_input_marker_from_confirmed_controlled_action::<C>);
 
             if self.config.rebroadcast_inputs {
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);

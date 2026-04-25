@@ -1,15 +1,10 @@
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
-use avian2d::prelude::Position;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
@@ -65,6 +60,7 @@ fn main() {
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
     use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
+    use lightyear::prelude::{Client, PredictionManager, RollbackMode, RollbackPolicy};
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()

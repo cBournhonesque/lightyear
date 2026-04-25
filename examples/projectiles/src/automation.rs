@@ -57,6 +57,7 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
+        extra_keys: Vec<KeyCode>,
         auto_shoot: bool,
     }
 
@@ -70,6 +71,7 @@ mod client {
         fn from_env() -> Self {
             Self {
                 pressed_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
+                extra_keys: parse_keys(env_string("LIGHTYEAR_AUTOKEYS")),
                 auto_shoot: env_flag("LIGHTYEAR_AUTOSHOOT"),
             }
         }
@@ -87,6 +89,7 @@ mod client {
         mut buttons: ResMut<ButtonInput<KeyCode>>,
     ) {
         let mut keys = settings.pressed_keys.clone();
+        keys.extend(settings.extra_keys.iter().copied());
         if settings.auto_shoot {
             let timer = pulse
                 .timer
@@ -121,6 +124,7 @@ mod client {
         for entity in &players {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<PlayerId>([DebugSamplePoint::Update])
                     .with_component_at::<Score>([DebugSamplePoint::Update]),
             );
         }
@@ -161,8 +165,12 @@ mod client {
                 "down" | "d" => keys.push(KeyCode::KeyS),
                 "left" | "l" => keys.push(KeyCode::KeyA),
                 "right" | "r" => keys.push(KeyCode::KeyD),
+                "q" | "keyq" => keys.push(KeyCode::KeyQ),
+                "e" | "keye" => keys.push(KeyCode::KeyE),
+                "keyr" => keys.push(KeyCode::KeyR),
+                "space" | "shoot" => keys.push(KeyCode::Space),
                 "" | "none" => {}
-                other => warn!(token = other, "Ignoring unknown LIGHTYEAR_AUTOMOVE token"),
+                other => warn!(token = other, "Ignoring unknown headless key token"),
             }
         }
         keys
@@ -180,6 +188,7 @@ mod server {
         for entity in &players {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<PlayerId>([DebugSamplePoint::Update])
                     .with_component_at::<Score>([DebugSamplePoint::Update]),
             );
         }
