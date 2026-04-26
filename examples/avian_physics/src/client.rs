@@ -103,7 +103,7 @@ pub(crate) fn handle_predicted_spawn(
 fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    player_query: Query<&PlayerId, (With<Predicted>, Without<InputMap<PlayerActions>>)>,
+    player_query: Query<&PlayerId, Without<InputMap<PlayerActions>>>,
 ) {
     if player_query.get(trigger.entity).is_ok() {
         commands.entity(trigger.entity).insert(InputMap::new([

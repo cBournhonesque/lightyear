@@ -29,6 +29,7 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
 
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
@@ -103,15 +104,30 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
         // add visual interpolation for the head position of the predicted entity
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        commands.entity(entity).insert((
-            FrameInterpolate::<PlayerPosition>::default(),
-            InputMarker::<Inputs>::default(),
-        ));
+        commands
+            .entity(entity)
+            .insert(FrameInterpolate::<PlayerPosition>::default());
+    }
+}
+
+/// Add the local input marker once ownership is known.
+///
+/// In host-client worlds `Predicted` and `Controlled` may be added in different orders, so local
+/// input setup should follow `Controlled` instead of the predicted-spawn visual setup.
+pub(crate) fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    players: Query<Entity, (With<PlayerId>, Without<InputMarker<Inputs>>)>,
+) {
+    let entity = trigger.entity;
+    if players.get(entity).is_ok() {
+        commands
+            .entity(entity)
+            .insert(InputMarker::<Inputs>::default());
     }
 }
 

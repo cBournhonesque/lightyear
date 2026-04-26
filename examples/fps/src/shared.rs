@@ -8,6 +8,8 @@ use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::connection::host::HostServer;
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::*;
@@ -98,17 +100,25 @@ pub(crate) fn shared_player_movement(
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
     timeline: Res<LocalTimeline>,
+    client: Query<(), With<Client>>,
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     mut player_query: Query<
         (
             &mut Position,
             &mut Rotation,
             &ActionState<PlayerActions>,
             &PlayerId,
+            Has<Predicted>,
         ),
         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
-    for (position, rotation, action_state, player_id) in player_query.iter_mut() {
+    let has_client = !client.is_empty();
+    let client_is_synced = !synced_client.is_empty();
+    for (position, rotation, action_state, player_id, is_predicted) in player_query.iter_mut() {
+        if has_client && is_predicted && !client_is_synced {
+            continue;
+        }
         debug!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
         shared_player_movement(position, rotation, action_state);
     }
@@ -193,23 +203,40 @@ pub(crate) fn emit_fixed_last_entities(
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
+    client: Query<(), With<Client>>,
+    host_server: Query<(), With<HostServer>>,
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     mut query: Query<
         (
             &PlayerId,
             &Transform,
             &ColorComponent,
-            &mut ActionState<PlayerActions>,
+            &ActionState<PlayerActions>,
+            &LeafwingBuffer<PlayerActions>,
             Option<&ControlledBy>,
+            Has<Predicted>,
         ),
         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
     let tick = timeline.tick();
-    for (id, transform, color, action, controlled_by) in query.iter_mut() {
+    let has_client = !client.is_empty();
+    let is_host_server = !host_server.is_empty();
+    let client_is_synced = !synced_client.is_empty();
+    for (id, transform, color, action, input_buffer, controlled_by, is_predicted) in
+        query.iter_mut()
+    {
+        if has_client && is_predicted && !client_is_synced {
+            continue;
+        }
         let is_server = controlled_by.is_some();
-        // NOTE: pressed lets you shoot many bullets, which can be cool
-        if action.just_pressed(&PlayerActions::Shoot) {
-            error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
+        let should_shoot = if is_host_server || !is_server {
+            shoot_pressed_this_tick(input_buffer, tick)
+        } else {
+            action.just_pressed(&PlayerActions::Shoot)
+        };
+        if should_shoot {
+            debug!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
             // for delta in [-0.2, 0.2] {
             for delta in [0.0] {
                 let salt: u64 = if delta < 0.0 { 0 } else { 1 };
@@ -258,6 +285,16 @@ pub(crate) fn shoot_bullet(
             }
         }
     }
+}
+
+fn shoot_pressed_this_tick(input_buffer: &LeafwingBuffer<PlayerActions>, tick: Tick) -> bool {
+    let current_pressed = input_buffer
+        .get(tick)
+        .is_some_and(|snapshot| snapshot.0.pressed(&PlayerActions::Shoot));
+    let previous_pressed = input_buffer
+        .get(tick - 1)
+        .is_some_and(|snapshot| snapshot.0.pressed(&PlayerActions::Shoot));
+    current_pressed && !previous_pressed
 }
 
 #[derive(Component)]

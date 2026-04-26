@@ -35,7 +35,7 @@ pub fn sync_pressed_keys(
             buttons.release(key);
         }
     }
-    for key in next.iter().copied() {
+    for key in next.iter().copied().filter(|key| !previous.contains(key)) {
         buttons.press(key);
     }
     *previous = next.to_vec();

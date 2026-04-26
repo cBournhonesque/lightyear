@@ -243,11 +243,12 @@ mod bot {
         info!("Spawning bot app");
         let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
 
-        let mut app = new_headless_app();
-        // TODO: just spawn a bot player entity without creating a new client
-        // cannot use headless app because the frame rate is too fast so
-        // the bot sends too many packets
-        // let mut app = new_gui_app(false);
+        // Bots are client apps; pace their main loop to ~60 FPS so they
+        // don't flood the server with packets under the
+        // MinimalPlugins-default run-as-fast-as-possible scheduler.
+        let mut app = new_headless_app(Some(Duration::from_secs_f64(
+            1.0 / lightyear_examples_common::cli::HEADLESS_CLIENT_LOOP_HZ,
+        )));
         app.add_plugins(lightyear::prelude::client::ClientPlugins {
             tick_duration: tick_duration.0,
         });

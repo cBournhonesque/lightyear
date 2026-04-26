@@ -46,6 +46,7 @@ impl Plugin for ExampleClientPlugin {
             Update,
             (
                 game::handle_predicted_spawn,
+                game::handle_controlled_spawn,
                 game::handle_interpolated_spawn,
             )
                 .run_if(in_state(AppState::Game)),
@@ -150,10 +151,8 @@ mod game {
 
     /// When the predicted copy of the client-owned entity is spawned, do stuff
     /// - assign it a different saturation
-    /// - add an InputMarker so that we can control the entity
     pub(crate) fn handle_predicted_spawn(
         mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
-        mut commands: Commands,
     ) {
         for (entity, mut color) in predicted.iter_mut() {
             let hsva = Hsva {
@@ -161,6 +160,31 @@ mod game {
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
+        }
+    }
+
+    /// Add the local input marker once ownership is known.
+    pub(crate) fn handle_controlled_spawn(
+        controlled: Query<
+            (Entity, Option<&ControlledBy>),
+            (
+                With<Controlled>,
+                With<PlayerId>,
+                Without<InputMarker<Inputs>>,
+            ),
+        >,
+        local_clients: Query<(), With<Client>>,
+        mut commands: Commands,
+    ) {
+        for (entity, controlled_by) in controlled.iter() {
+            // In host-client mode, server-owned entities also carry `Controlled`
+            // because `ControlledBy` requires it on the sender side. Only the
+            // entity owned by the local host-client should receive local input.
+            if controlled_by
+                .is_some_and(|controlled_by| local_clients.get(controlled_by.owner).is_err())
+            {
+                continue;
+            }
             commands
                 .entity(entity)
                 .insert(InputMarker::<Inputs>::default());

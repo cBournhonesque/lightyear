@@ -10,7 +10,7 @@ use crate::renderer::ExampleRendererPlugin;
 use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
-use lightyear::input::leafwing::prelude::LeafwingSnapshot;
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use tracing::Level;
@@ -161,14 +161,20 @@ pub fn shared_player_firing(
         Option<&LinearVelocity>,
         &ColorComponent,
         &ActionState<PlayerActions>,
+        &LeafwingBuffer<PlayerActions>,
         &mut Weapon,
         Has<Controlled>,
+        Option<&ControlledBy>,
         &Player,
     )>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
+    client: Query<(), With<Client>>,
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     server: Query<(), With<Server>>,
 ) {
+    let has_client = !client.is_empty();
+    let client_is_synced = !synced_client.is_empty();
     let is_server = !server.is_empty();
     if q.is_empty() {
         return;
@@ -181,22 +187,29 @@ pub fn shared_player_firing(
         player_velocity,
         color,
         action,
+        input_buffer,
         mut weapon,
         is_local,
+        controlled_by,
         player,
     ) in q.iter_mut()
     {
-        // if !is_server && !is_local {
-        //     // we only want to spawn bullets on the server, or for our own player
-        //     // We could also pre-spawn bullets for remote players, but the problem is that if we incorrectly
-        //     // pre-spawn a bullet (because we receive the 'Release' button too late) it would be very
-        //     // visually distracting to temporarily see a fake bullet that then disappears.
-        //     continue;
-        // }
+        if is_server {
+            if controlled_by.is_none() {
+                continue;
+            }
+        } else {
+            if !is_local || (has_client && !client_is_synced) {
+                continue;
+            }
+        }
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
         // relying on a frame-edge `just_pressed`, and the weapon cooldown already
         // guarantees we only spawn bullets at the intended rate.
         if !action.pressed(&PlayerActions::Fire) {
+            continue;
+        }
+        if !is_server && !client_should_fire(input_buffer, &weapon, current_tick) {
             continue;
         }
 
@@ -258,6 +271,24 @@ pub fn shared_player_firing(
     }
 }
 
+fn client_should_fire(
+    input_buffer: &LeafwingBuffer<PlayerActions>,
+    weapon: &Weapon,
+    tick: Tick,
+) -> bool {
+    // Let the server own the first shot. Before the first replicated Weapon update, a held Fire
+    // input can be older than the client's synced timeline and produce an unmatched prespawn.
+    if weapon.last_fire_tick == Tick(0) {
+        return false;
+    }
+    let current_pressed = input_buffer
+        .get(tick)
+        .is_some_and(|snapshot| snapshot.0.pressed(&PlayerActions::Fire));
+    let has_previous_sample = input_buffer.get(tick - 1).is_some();
+
+    current_pressed && has_previous_sample
+}
+
 // we want clients to predict the despawn due to TTL expiry, so this system runs on both client and server.
 // servers despawn without replicating that fact.
 pub(crate) fn lifetime_despawner(
@@ -311,7 +342,7 @@ impl WallBundle {
 // might overtake / collide on spawn with your own bullets that spawn in front of you.
 pub(crate) fn process_collisions(
     collisions: Collisions,
-    bullet_q: Query<(&BulletMarker, &ColorComponent, &Position)>,
+    bullet_q: Query<(&BulletMarker, &ColorComponent, &Position, Has<PreSpawned>)>,
     player_q: Query<&Player>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
@@ -325,7 +356,11 @@ pub(crate) fn process_collisions(
     // * B collides with A
     // which is why logic is duplicated twice here
     for contacts in collisions.iter() {
-        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.collider1) {
+        if let Ok((bullet, col, bullet_pos, is_prespawned)) = bullet_q.get(contacts.collider1) {
+            // Keep unconfirmed client prespawns alive until the server entity can match them.
+            if !is_server && is_prespawned {
+                continue;
+            }
             if let Ok(owner) = player_q.get(contacts.collider2)
                 && bullet.owner == owner.client_id
             {
@@ -347,7 +382,11 @@ pub(crate) fn process_collisions(
             };
             hit_ev_writer.write(ev);
         }
-        if let Ok((bullet, col, bullet_pos)) = bullet_q.get(contacts.collider2) {
+        if let Ok((bullet, col, bullet_pos, is_prespawned)) = bullet_q.get(contacts.collider2) {
+            // Keep unconfirmed client prespawns alive until the server entity can match them.
+            if !is_server && is_prespawned {
+                continue;
+            }
             if let Ok(owner) = player_q.get(contacts.collider1)
                 && bullet.owner == owner.client_id
             {

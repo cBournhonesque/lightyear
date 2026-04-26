@@ -55,17 +55,34 @@ impl Cli {
         }
     }
 
-    pub fn create_app(add_inspector: bool) -> App {
+    pub fn create_app(add_inspector: bool, mode: Option<&Mode>) -> App {
         #[cfg(any(feature = "gui2d", feature = "gui3d"))]
-        let app = new_gui_app(add_inspector);
+        {
+            let _ = mode;
+            return new_gui_app(add_inspector);
+        }
         #[cfg(not(any(feature = "gui2d", feature = "gui3d")))]
-        let app = new_headless_app();
-
-        app
+        {
+            // For client-side apps (Client / HostClient), pace the main loop
+            // to ~60 FPS so that headless automation behaves closer to a
+            // real windowed client. Dedicated servers stay unthrottled.
+            let loop_wait = match mode {
+                #[cfg(feature = "client")]
+                Some(Mode::Client { .. }) => {
+                    Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
+                }
+                #[cfg(all(feature = "client", feature = "server"))]
+                Some(Mode::HostClient { .. }) | Some(Mode::Separate { .. }) => {
+                    Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
+                }
+                _ => None,
+            };
+            new_headless_app(loop_wait)
+        }
     }
 
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
-        let mut app = Cli::create_app(add_inspector);
+        let mut app = Cli::create_app(add_inspector, self.mode.as_ref());
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
@@ -338,10 +355,35 @@ pub fn new_gui_app(add_inspector: bool) -> App {
     app
 }
 
-pub fn new_headless_app() -> App {
+/// Default frame rate for headless client / host-client apps.
+///
+/// A dedicated game server usually runs at whatever tick rate it needs with
+/// no display, but a *client* binary that happens to be running headless
+/// (CI, automation, soak testing) behaves much more like a real client
+/// when its main loop is paced to a realistic frame rate. Without this,
+/// `MinimalPlugins`' `ScheduleRunnerPlugin` runs the app as fast as the
+/// CPU allows, which can burn a core and produce unrealistic input /
+/// replication timing.
+pub const HEADLESS_CLIENT_LOOP_HZ: f64 = 60.0;
+
+/// Build a headless app.
+///
+/// `loop_wait` throttles the app's main loop via
+/// `ScheduleRunnerPlugin::run_loop(loop_wait)`. Pass `None` to run as
+/// fast as possible (the previous default; appropriate for dedicated
+/// servers where wall-clock pacing doesn't help), or
+/// `Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))` to
+/// emulate a ~60 FPS client loop.
+pub fn new_headless_app(loop_wait: Option<Duration>) -> App {
     let mut app = App::new();
+    let minimal_plugins = match loop_wait {
+        Some(wait) => MinimalPlugins.set(
+            bevy::app::ScheduleRunnerPlugin::run_loop(wait),
+        ),
+        None => MinimalPlugins.build(),
+    };
     app.add_plugins((
-        MinimalPlugins,
+        minimal_plugins,
         TransformPlugin,
         bevy::input::InputPlugin,
         log_plugin(),

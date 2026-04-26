@@ -55,6 +55,7 @@ impl InputTimelineConfig {
         mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
     ) {
         if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
+            let before = timeline.input_delay_ticks;
             timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
                 link.stats,
                 &config.sync,
@@ -63,6 +64,18 @@ impl InputTimelineConfig {
             trace!(
                 "Recomputing input delay on sync event! Input delay ticks: {}",
                 timeline.input_delay_ticks
+            );
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "input_delay_recomputed_on_sync",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?trigger.entity,
+                tick_delta = trigger.tick_delta,
+                input_delay_ticks_before = before,
+                input_delay_ticks_after = timeline.input_delay_ticks,
+                rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
+                "sync event: recomputed input delay"
             );
         }
     }

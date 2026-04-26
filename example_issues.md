@@ -27,7 +27,7 @@ For a lobby where one of the players is hosting: the inputs don't work for the h
 
 # Network visibility
 
-Host-client: inputs don't work on the host.k
+Host-client: inputs don't work on the host.
 
 # Priority
 

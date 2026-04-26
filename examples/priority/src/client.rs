@@ -14,6 +14,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
     }
 }
 
@@ -32,7 +33,6 @@ fn player_movement(mut query: Query<(&mut Position, &ActionState<Inputs>), With<
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
-    mut commands: Commands,
 ) {
     let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
@@ -41,18 +41,27 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands
-            .entity(trigger.entity)
-            .insert(InputMap::<Inputs>::new([
-                (Inputs::Right, KeyCode::ArrowRight),
-                (Inputs::Right, KeyCode::KeyD),
-                (Inputs::Left, KeyCode::ArrowLeft),
-                (Inputs::Left, KeyCode::KeyA),
-                (Inputs::Up, KeyCode::ArrowUp),
-                (Inputs::Up, KeyCode::KeyW),
-                (Inputs::Down, KeyCode::ArrowDown),
-                (Inputs::Down, KeyCode::KeyS),
-            ]));
+    }
+}
+
+/// Add local input bindings once ownership is known.
+pub(crate) fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    players: Query<Entity, (With<PlayerId>, Without<InputMap<Inputs>>)>,
+) {
+    let entity = trigger.entity;
+    if players.get(entity).is_ok() {
+        commands.entity(entity).insert(InputMap::<Inputs>::new([
+            (Inputs::Right, KeyCode::ArrowRight),
+            (Inputs::Right, KeyCode::KeyD),
+            (Inputs::Left, KeyCode::ArrowLeft),
+            (Inputs::Left, KeyCode::KeyA),
+            (Inputs::Up, KeyCode::ArrowUp),
+            (Inputs::Up, KeyCode::KeyW),
+            (Inputs::Down, KeyCode::ArrowDown),
+            (Inputs::Down, KeyCode::KeyS),
+        ]));
     }
 }
 

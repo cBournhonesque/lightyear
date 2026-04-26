@@ -26,6 +26,7 @@ impl Plugin for ExampleClientPlugin {
                 .in_set(InputManagerSystem::ManualControl),
         );
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
     }
 }
@@ -59,7 +60,6 @@ fn update_cursor_state_from_window(
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
-    mut commands: Commands,
     mut player_query: Query<&mut ColorComponent, With<Predicted>>,
 ) {
     if let Ok(mut color) = player_query.get_mut(trigger.entity) {
@@ -68,13 +68,27 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        commands.entity(trigger.entity).insert((InputMap::new([
+    }
+}
+
+/// Add local input bindings once ownership is known.
+///
+/// `Predicted` and `Controlled` can arrive in either order, especially in host-client mode. The
+/// input map is tied to local ownership, so key it off `Controlled` instead of prediction timing.
+pub(crate) fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    player_query: Query<Entity, (With<PlayerMarker>, Without<InputMap<PlayerActions>>)>,
+) {
+    let entity = trigger.entity;
+    if player_query.get(entity).is_ok() {
+        commands.entity(entity).insert(InputMap::new([
             (PlayerActions::Up, KeyCode::KeyW),
             (PlayerActions::Down, KeyCode::KeyS),
             (PlayerActions::Left, KeyCode::KeyA),
             (PlayerActions::Right, KeyCode::KeyD),
             (PlayerActions::Shoot, KeyCode::Space),
-        ]),));
+        ]));
     }
 }
 

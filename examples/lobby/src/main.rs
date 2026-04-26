@@ -108,10 +108,7 @@ fn main() {
                 // transport: ServerTransports::Udp { local_port: port },
                 transport: ServerTransports::WebTransport {
                     local_port: port,
-                    certificate: WebTransportCertificateSettings::FromFile {
-                        cert: "../../certificates/cert.pem".to_string(),
-                        key: "../../certificates/key.pem".to_string(),
-                    },
+                    certificate: WebTransportCertificateSettings::default(),
                 },
                 shared: SHARED_SETTINGS,
             })
