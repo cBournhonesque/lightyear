@@ -10,7 +10,7 @@ Host-client: also seems broken.
 
 # Deterministic replication
 
-Debug later.
+Even with two clients joining before any movement, there are big desyncs.
 
 # FPS
 
@@ -22,6 +22,7 @@ Prespawned bullets is broken: i see duplicates or errors.
 # Lobby
 
 For a lobby where the server is hosting: inputs were broken for one of the players.
+(it seems like 2 movement systems are running)?
 
 For a lobby where one of the players is hosting: the inputs don't work for the host.
 
@@ -41,15 +42,19 @@ Also the other keyboard inputs (Q, etc.) don't work.
 # Replication groups
 
 Host-client: the host doesn't seem to be able to move their entity
+Also pressing the direction opposite to the direction of the snake should do nothing instead of moving forward.
 
 # Simple box
 
-Client-server: still a bit broken (both prediction and interpolation) at the beginning.
+Client-server: the initial movements are still replicated in a very delayed manner. Timeline sync issue?
 Host-client: the host doesn't seem to be able to move their entity
 
 # Spaceships
-Host-client: i see some disappearing projectiles from both the host and the client. Maybe a prespawned issue?
 The walls are jittering during rollbacks
-
-Also the first rollback seems fairly buggy; maybe we are missing some cleanup and the initial rollback is too big?
+Projectiles bounce on target instead of disappearing in an explosion
+I get this error when shooting a bullet on a very close target:
+```
+thread 'main' (43908878) panicked at /Users/charles/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_ecs-0.18.0/src/error/handler.rs:125:1:
+Encountered an error in command `<bevy_ecs::system::commands::entity_command::insert<lightyear_tools::debug::component::LightyearDebug>::{{closure}} as bevy_ecs::error::command_handling::CommandWithEntity<core::result::Result<(), bevy_ecs::world::error::EntityMutableFetchError>>>::with_entity::{{closure}}`: Entity despawned: The entity with ID 242v10 is invalid; its index now has generation 11.
+```
 
