@@ -237,3 +237,70 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_app::App;
+    use lightyear_core::prelude::Tick;
+
+    #[derive(Component, Clone, PartialEq, Debug)]
+    struct TestComp(f32);
+
+    #[test]
+    fn inserts_history_when_confirmed_added_after_interpolated() {
+        let mut app = App::new();
+        app.add_observer(insert_confirmed_history::<TestComp>);
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let entity = app.world_mut().spawn(Interpolated).id();
+        app.update();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((Confirmed(TestComp(1.0)), ConfirmedTick { tick: Tick(7) }));
+        app.update();
+
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<ConfirmedHistory<TestComp>>()
+        );
+    }
+
+    #[test]
+    fn inserts_history_when_interpolated_added_after_confirmed() {
+        let mut app = App::new();
+        app.add_observer(insert_confirmed_history::<TestComp>);
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let entity = app
+            .world_mut()
+            .spawn((Confirmed(TestComp(2.0)), ConfirmedTick { tick: Tick(11) }))
+            .id();
+        app.update();
+        app.world_mut().entity_mut(entity).insert(Interpolated);
+        app.update();
+
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<ConfirmedHistory<TestComp>>()
+        );
+    }
+
+    #[test]
+    fn does_not_insert_history_without_confirmed_component() {
+        let mut app = App::new();
+        app.add_observer(insert_confirmed_history::<TestComp>);
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let entity = app.world_mut().spawn(Interpolated).id();
+        app.update();
+
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<ConfirmedHistory<TestComp>>()
+        );
+    }
+}

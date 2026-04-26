@@ -233,6 +233,10 @@ impl ServerUdpPlugin {
                             };
                         }
                         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        // Windows-specific: when a UDP client disconnects, the OS sends an
+                        // ICMP "port unreachable" back, which surfaces as ConnectionReset on
+                        // the next recv. This is harmless — just skip to the next packet.
+                        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
                         Err(e) => {
                             error!("Error receiving UDP packet: {}", e);
                             break;

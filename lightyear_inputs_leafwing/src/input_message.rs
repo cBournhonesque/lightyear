@@ -7,7 +7,8 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use core::time::Duration;
 use leafwing_input_manager::Actionlike;
-use leafwing_input_manager::action_state::ActionState;
+use leafwing_input_manager::InputControlKind;
+use leafwing_input_manager::action_state::{ActionKindData, ActionState};
 use leafwing_input_manager::input_map::InputMap;
 use lightyear_core::prelude::Tick;
 use lightyear_inputs::input_buffer::{Compressed, InputBuffer};
@@ -132,19 +133,31 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
         *state = snapshot.0.clone();
     }
 
+    /// Apply snapshot with transition-aware button state handling.
+    ///
+    /// The wire format (`ActionDiff`) collapses `JustPressed` into `Pressed`, so
+    /// raw-cloning a snapshot on the server loses `JustPressed`/`JustReleased`.
+    ///
+    /// This method instead:
+    /// 1. Ticks the state (`JustPressed→Pressed`, `JustReleased→Released`)
+    /// 2. For each action, compares current vs snapshot and calls `press()`/`release()`
+    ///    to produce correct `JustPressed`/`JustReleased` transitions
+    /// 3. Applies axis values directly
     fn from_snapshot_transitions<'w>(state: &mut ActionState<A>, snapshot: &Self::Snapshot) {
-        use leafwing_input_manager::InputControlKind;
-        use leafwing_input_manager::action_state::ActionKindData;
-
+        // Advance button state machine so JustPressed→Pressed between consecutive
+        // fixed ticks within a single frame (tick_action_state only runs in PreUpdate).
         state.tick(Instant::now(), Instant::now());
 
         let new = &snapshot.0;
         for (action, new_data) in new.all_action_data() {
             match &new_data.kind_data {
                 ActionKindData::Button(new_button) => {
-                    if new_button.pressed() {
+                    let is_pressed = new_button.pressed();
+                    if is_pressed {
+                        // press() sets JustPressed unless already Pressed
                         state.press(action);
                     } else {
+                        // release() sets JustReleased unless already Released
                         state.release(action);
                     }
                 }
@@ -160,6 +173,7 @@ impl<A: LeafwingUserAction> ActionStateSequence for LeafwingSequence<A> {
             }
         }
 
+        // Release any buttons present in current state but absent from snapshot
         let snapshot_keys: Vec<A> = new.keys();
         for action in state.keys() {
             if action.input_control_kind() != InputControlKind::Button {

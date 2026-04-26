@@ -65,8 +65,6 @@ impl ToBytes for InterpolationDelay {
 
 // TODO: if Interpolated is added on an existing entity, we need to swap all its existing interpolated components to Confirmed<C>
 
-// TODO (IMPORTANT): when a component with interpolation is inserted, we need to insert ConfirmedHistory
-
 /// Plugin that enables interpolating between replicated updates received from the remote.
 ///
 /// Each remote update will be stored in a buffer, and the component will smoothly interpolate between two consecutive remote updates.

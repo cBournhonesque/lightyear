@@ -235,13 +235,15 @@ pub trait ActionStateSequence:
     /// Modify the given state to reflect the given snapshot.
     fn from_snapshot<'w>(state: StateMutItemInner<'w, Self>, snapshot: &Self::Snapshot);
 
-    /// Apply a snapshot while preserving button transition semantics.
+    /// Apply a snapshot to the state while preserving button transition semantics.
     ///
-    /// Unlike [`from_snapshot`](Self::from_snapshot) (which raw-clones), this
-    /// compares the current state against the snapshot and calls press/release
-    /// so that `JustPressed`/`JustReleased` transitions are correctly produced
-    /// on the server, where the wire format collapses these into
-    /// `Pressed`/`Released`.
+    /// Unlike `from_snapshot` (which raw-clones), this method:
+    /// 1. Ticks the state to advance JustPressed→Pressed, JustReleased→Released
+    /// 2. Compares current state against the snapshot
+    /// 3. Calls press()/release() for detected transitions
+    ///
+    /// This produces correct JustPressed/JustReleased on the server, where the wire
+    /// format collapses these into Pressed/Released.
     ///
     /// Default implementation falls back to `from_snapshot`.
     fn from_snapshot_transitions<'w>(
