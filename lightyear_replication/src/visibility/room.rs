@@ -20,20 +20,16 @@ This can be useful for games where you have physical instances of rooms:
 
 ```rust
 # use bevy_app::App;
-# use bevy_ecs::entity::Entity;
 # use lightyear_replication::prelude::*;
 
 # let mut app = App::new();
+# app.add_plugins(RoomPlugin);
+# let room = app.world_mut().resource_mut::<RoomAllocator>().allocate();
 # let mut commands = app.world_mut().commands();
-// create a new room
-let room = commands.spawn(Room::default()).id();
-
-let entity = commands.spawn(Replicate::default()).id();
-let client = commands.spawn(ReplicationSender::default()).id();
-
-// add the client and entity to the same room: the entity will be replicated/visible to the client
-commands.trigger(RoomEvent { target: RoomTarget::AddEntity(entity), room });
-commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
+// Add the client and entity to the same room: the entity will be
+// replicated/visible to clients sharing that room.
+let entity = commands.spawn((Replicate::default(), Rooms::single(room))).id();
+let client = commands.spawn((ReplicationSender::default(), Rooms::single(room))).id();
 ```
 
 */

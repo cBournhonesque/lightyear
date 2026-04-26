@@ -125,14 +125,14 @@ pub mod prelude {
     pub use bevy_replicon::prelude::Replicated;
 
     pub use crate::ReplicationSystems;
-    pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority};
+    pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
     pub use crate::checkpoint::ReplicationCheckpointMap;
     pub use crate::control::{Controlled, ControlledBy, Lifetime};
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
     pub use crate::receive::ReplicationReceiver;
-    pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender};
+    pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender, ReplicationState};
 
     pub use crate::registry::ComponentRegistry;
     pub use crate::registry::TransformLinearInterpolation;

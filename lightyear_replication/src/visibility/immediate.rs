@@ -6,20 +6,19 @@ The **network visibility** is used to determine which entities are replicated to
 relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
 
 
-You can add the [`NetworkVisibility`] component on an entity to indicate that this entity is using the visibility ystem.
-
-The visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
+Visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
 until you change the setting again.
-To control the visibility, you can set it on the [`ReplicationState`] componet.
 
-```rust
+```rust,no_run
 # use bevy_ecs::entity::Entity;
-# use lightyear_replication::prelude::ReplicationState;
+# use bevy_ecs::prelude::World;
+# use lightyear_replication::prelude::VisibilityExt;
 
 # let mut client = Entity::from_bits(1);
-let mut state = ReplicationState::default();
-state.gain_visibility(client);
-state.lose_visibility(client);
+# let entity = Entity::from_bits(2);
+# let mut world = World::new();
+world.gain_visibility(entity, client);
+world.lose_visibility(entity, client);
 ```
 */
 

@@ -35,9 +35,9 @@ impl Plugin for ExampleClientPlugin {
 }
 
 fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Commands) {
-    commands
-        .entity(client.into_inner())
-        .insert(InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()));
+    commands.entity(client.into_inner()).insert(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()),
+    );
 }
 
 /// System that reads from peripherals and adds inputs to the buffer

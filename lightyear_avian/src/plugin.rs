@@ -300,12 +300,13 @@ impl Plugin for LightyearAvianPlugin {
 
         // Avian's ColliderOf::on_insert requires GlobalTransform to set up
         // the RigidBodyColliders relationship. Since PhysicsTransformPlugin is disabled,
-        // we register Transform as required for Collider so GlobalTransform is present.
+        // we register Transform as required for ColliderMarker so GlobalTransform is present
+        // for any concrete collider backend, including builds without Avian's default Collider.
         #[cfg(all(feature = "3d", not(feature = "2d")))]
-        app.try_register_required_components::<avian3d::prelude::Collider, Transform>()
+        app.try_register_required_components::<avian3d::prelude::ColliderMarker, Transform>()
             .ok();
         #[cfg(all(feature = "2d", not(feature = "3d")))]
-        app.try_register_required_components::<avian2d::prelude::Collider, Transform>()
+        app.try_register_required_components::<avian2d::prelude::ColliderMarker, Transform>()
             .ok();
 
         if self.rollback_resources {

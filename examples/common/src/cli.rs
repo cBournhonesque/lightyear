@@ -377,9 +377,7 @@ pub const HEADLESS_CLIENT_LOOP_HZ: f64 = 60.0;
 pub fn new_headless_app(loop_wait: Option<Duration>) -> App {
     let mut app = App::new();
     let minimal_plugins = match loop_wait {
-        Some(wait) => MinimalPlugins.set(
-            bevy::app::ScheduleRunnerPlugin::run_loop(wait),
-        ),
+        Some(wait) => MinimalPlugins.set(bevy::app::ScheduleRunnerPlugin::run_loop(wait)),
         None => MinimalPlugins.build(),
     };
     app.add_plugins((

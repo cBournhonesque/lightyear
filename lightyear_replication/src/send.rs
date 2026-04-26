@@ -110,22 +110,16 @@ pub struct ReplicationTarget<T: ReplicationTargetT> {
     marker: core::marker::PhantomData<T>,
 }
 
-/// Component containins per-[`ReplicationSender`] metadata for the entity.
-///
-/// This can be used to update the visibility of the entity if [`NetworkVisibility`](crate::visibility::immediate::NetworkVisibility)
-/// is present on the entity.
+/// Component containing per-[`ReplicationSender`] metadata for the entity.
 ///
 /// ```
 /// # use bevy_ecs::prelude::*;
-/// # use lightyear_replication::prelude::{NetworkVisibility, Replicate, ReplicationState};
+/// # use lightyear_replication::prelude::ReplicationState;
 /// # let mut world = World::new();
-/// # let entity = world.spawn((ReplicationState::default(), NetworkVisibility));
-/// # let mut sender = world.spawn_empty();
-/// let mut state = world.get_mut::<ReplicationState>(entity).unwrap();
-/// // the entity will now be visible (replicated) on that sender
-/// state.gain_visibility(sender);
-/// // the entity won't be visible for that sender
-/// state.lose_visibility(sender);
+/// # let entity = world.spawn(ReplicationState::default()).id();
+/// # let sender = world.spawn_empty().id();
+/// let state = world.get::<ReplicationState>(entity).unwrap();
+/// assert!(!state.has_authority(sender));
 /// ```
 // This is kept separate from the Replicate for situations like:
 // - specifying that a sender has no authority over an entity independently even without Replicate being added

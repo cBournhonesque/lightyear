@@ -17,8 +17,6 @@ use lightyear_serde::SerializationError;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::de::DeserializeOwned;
 use serde::ser::Serialize;
-#[cfg(feature = "trace")]
-use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
@@ -76,7 +74,7 @@ impl From<TypeId> for ComponentKind {
 /// # use bevy_app::App;
 /// # use bevy_ecs::component::Component;
 /// # use serde::{Deserialize, Serialize};
-/// # use lightyear_replication::registry::registry::AppComponentExt;
+/// # use lightyear_replication::prelude::AppComponentExt;
 ///
 /// #[derive(Component, PartialEq, Serialize, Deserialize)]
 /// struct MyComponent;
