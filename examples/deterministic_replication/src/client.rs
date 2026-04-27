@@ -198,8 +198,14 @@ fn activate_physics_at_tick(
             PhysicsBundle::player(),
             ColorComponent(color_from_id(player_id.0)),
             Name::from("Player"),
+            // `skip_despawn: false` so that rollback doesn't insert
+            // `DisableRollback` on the freshly-activated player during the
+            // `enable_rollback_after` window: that would hide the player
+            // from the client's checksum while the server (which has no
+            // rollback) keeps hashing it, producing ~20 ticks of
+            // guaranteed mismatches after every activation.
             DeterministicPredicted {
-                skip_despawn: true,
+                skip_despawn: false,
                 ..default()
             },
             PhysicsActivated,
@@ -237,3 +243,4 @@ fn activate_physics_at_tick(
         }
     }
 }
+

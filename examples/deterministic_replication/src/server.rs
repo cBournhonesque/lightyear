@@ -4,6 +4,7 @@ use crate::shared::{GameStartMode, player_bundle};
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated};
@@ -129,7 +130,19 @@ fn activate_physics_at_tick(
                 "Server: activating physics for player {:?} at tick {:?}",
                 player_id.0, tick
             );
-            commands.entity(entity).insert(player_bundle(player_id.0));
+            // `DeterministicPredicted` pulls in the `Deterministic` marker
+            // (via `register_required_components`), which is how the
+            // checksum system identifies which entities to hash. The
+            // client inserts the same marker when it activates physics;
+            // adding it here keeps the server hashing the same *set* of
+            // entities as the clients.
+            commands.entity(entity).insert((
+                player_bundle(player_id.0),
+                DeterministicPredicted {
+                    skip_despawn: false,
+                    ..default()
+                },
+            ));
         }
     }
 }

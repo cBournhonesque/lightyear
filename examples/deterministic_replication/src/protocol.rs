@@ -108,26 +108,19 @@ impl Plugin for ProtocolPlugin {
         // add_confirmed_write ensures the replicated value goes to
         // PredictionHistory as confirmed state (instead of overwriting the
         // component), so input-triggered rollbacks snap to the correct value.
-        // NOTE: no `add_linear_correction_fn()` here. Visual correction
-        // writes the smoothed value back into the live `Position` /
-        // `Rotation` component via `bypass_change_detection`. In a
-        // deterministic simulation the next physics step then reads that
-        // nudged value and the whole integration diverges from the server
-        // — even though `PredictionHistory<Position>` is not written
-        // (because change detection was bypassed). Without correction,
-        // the rollback just snaps back to the authoritative state and
-        // physics replays cleanly.
         app.replicate_once::<Position>();
         app.add_rollback::<Position>()
             .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            .register_linear_interpolation();
+            .register_linear_interpolation()
+            .add_linear_correction_fn();
 
         app.replicate_once::<Rotation>();
         app.add_rollback::<Rotation>()
             .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
-            .register_linear_interpolation();
+            .register_linear_interpolation()
+            .add_linear_correction_fn();
 
         app.replicate_once::<LinearVelocity>();
         app.add_rollback::<LinearVelocity>().add_confirmed_write();
