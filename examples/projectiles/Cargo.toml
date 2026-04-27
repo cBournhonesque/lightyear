@@ -36,7 +36,9 @@ lightyear = { workspace = true, features = [
   "input_bei",
 ] }
 bevy_enhanced_input.workspace = true
-lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 lightyear_frame_interpolation.workspace = true
 lightyear_avian2d = { workspace = true, features = ["2d", "lag_compensation"] }
 

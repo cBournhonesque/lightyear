@@ -32,7 +32,9 @@ lightyear = { workspace = true, features = [
   "deterministic",
 ] }
 lightyear_deterministic_replication.workspace = true
-lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 lightyear_frame_interpolation.workspace = true
 leafwing-input-manager.workspace = true
 # add avian2d directly to customize the plugin 

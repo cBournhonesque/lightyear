@@ -243,4 +243,3 @@ fn activate_physics_at_tick(
         }
     }
 }
-

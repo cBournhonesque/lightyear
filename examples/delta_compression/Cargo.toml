@@ -26,7 +26,9 @@ lightyear = { "workspace" = true, features = [
   "replication",
   "input_native",
 ] }
-lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 serde.workspace = true
 tracing.workspace = true
 bevy.workspace = true

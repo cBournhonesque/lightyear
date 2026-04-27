@@ -33,7 +33,9 @@ lightyear = { workspace = true, features = [
   "leafwing",
   "input_native",
 ] }
-lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 
 bevy_egui.workspace = true
 egui_extras.workspace = true

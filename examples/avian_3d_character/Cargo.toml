@@ -34,7 +34,9 @@ lightyear = { workspace = true, features = [
   "avian3d",
 ] }
 lightyear_frame_interpolation.workspace = true
-lightyear_examples_common = { workspace = true, features = ["structured-debug"] }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 leafwing-input-manager = { workspace = true, default-features = false, features = [
   "keyboard",
   "gamepad",

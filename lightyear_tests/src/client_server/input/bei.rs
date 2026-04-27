@@ -699,6 +699,7 @@ fn test_input_broadcasting_prediction() {
                 MockSpan::Manual,
             ),
             PreSpawned::new(TEST_HASH),
+            bei::prelude::InputMarker::<BEIContext>::default(),
         ))
         .id();
 
