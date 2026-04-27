@@ -124,7 +124,7 @@ indexmap = { version = "2.9.0", default-features = false }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"
 paste = { version = "1.0", default-features = false }
-rand = "0.9"
+rand = "0.10"
 ringbuffer = "0.16"
 thiserror = "2.0.3"
 seahash = "4.1.0"
