@@ -127,15 +127,22 @@ pub(crate) fn handle_predicted_spawn(
 fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    players: Query<&PlayerId, Without<InputMarker<Inputs>>>,
+    players: Query<(&PlayerId, Option<&ControlledBy>), Without<InputMarker<Inputs>>>,
+    clients: Query<(), With<Client>>,
 ) {
     let entity = trigger.entity;
-    if let Ok(player_id) = players.get(entity) {
-        info!("Adding InputMarker to controlled player {entity:?} {player_id:?}");
-        commands
-            .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
+    let Ok((player_id, controlled_by)) = players.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
     }
+    info!("Adding InputMarker to controlled player {entity:?} {player_id:?}");
+    commands
+        .entity(entity)
+        .insert(InputMarker::<Inputs>::default());
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

@@ -28,10 +28,6 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor::default());
         let draw_shadows = false;
-        // in an attempt to reduce flickering, draw walls before FixedUpdate runs
-        // so they exist for longer during this tick.
-        // retained gizmos may help us in bevy 0.15?
-        app.add_systems(PreUpdate, draw_walls);
 
         // draw after visual interpolation has propagated
         app.add_systems(
@@ -47,6 +43,7 @@ impl Plugin for ExampleRendererPlugin {
                 .after(TransformSystems::Propagate),
         );
         app.add_observer(add_player_label);
+        app.add_observer(add_wall_visual);
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
 
@@ -265,12 +262,6 @@ fn draw_predicted_entities(
     }
 }
 
-fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
-    for wall in &walls {
-        gizmos.line_2d(wall.start, wall.end, Color::WHITE);
-    }
-}
-
 /// Draws confirmed entities that have colliders.
 /// Only useful on the server
 fn draw_confirmed_entities(
@@ -383,12 +374,44 @@ pub fn insert_bullet_mesh(
             .expect("Bullets expected to be balls.");
         let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
-        commands.entity(entity).insert((
+        commands.entity(entity).try_insert((
             Mesh2d(meshes.add(mesh)),
             Transform::from_translation(Vec3::Z),
             MeshMaterial2d(materials.add(ColorMaterial::from(col.0))),
         ));
     }
+}
+
+#[derive(Component)]
+struct WallVisual;
+
+fn add_wall_visual(
+    trigger: On<Add, Wall>,
+    walls: Query<(&Wall, &ColorComponent)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let Ok((wall, color)) = walls.get(trigger.entity) else {
+        return;
+    };
+    let delta = wall.end - wall.start;
+    let length = delta.length();
+    if length == 0.0 {
+        return;
+    }
+    let midpoint = (wall.start + wall.end) * 0.5;
+    let angle = delta.y.atan2(delta.x);
+    commands.entity(trigger.entity).with_children(|parent| {
+        parent.spawn((
+            WallVisual,
+            Mesh2d(meshes.add(Rectangle::new(length, 2.0))),
+            MeshMaterial2d(materials.add(ColorMaterial::from(color.0))),
+            Transform::from_xyz(midpoint.x, midpoint.y, 0.0)
+                .with_rotation(Quat::from_rotation_z(angle)),
+            Visibility::default(),
+        ));
+    });
 }
 
 #[derive(Component)]

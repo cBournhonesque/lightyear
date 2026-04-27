@@ -48,21 +48,28 @@ pub(crate) fn handle_predicted_spawn(
 pub(crate) fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    players: Query<Entity, (With<PlayerId>, Without<InputMap<Inputs>>)>,
+    players: Query<Option<&ControlledBy>, (With<PlayerId>, Without<InputMap<Inputs>>)>,
+    clients: Query<(), With<Client>>,
 ) {
     let entity = trigger.entity;
-    if players.get(entity).is_ok() {
-        commands.entity(entity).insert(InputMap::<Inputs>::new([
-            (Inputs::Right, KeyCode::ArrowRight),
-            (Inputs::Right, KeyCode::KeyD),
-            (Inputs::Left, KeyCode::ArrowLeft),
-            (Inputs::Left, KeyCode::KeyA),
-            (Inputs::Up, KeyCode::ArrowUp),
-            (Inputs::Up, KeyCode::KeyW),
-            (Inputs::Down, KeyCode::ArrowDown),
-            (Inputs::Down, KeyCode::KeyS),
-        ]));
+    let Ok(controlled_by) = players.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
     }
+    commands.entity(entity).insert(InputMap::<Inputs>::new([
+        (Inputs::Right, KeyCode::ArrowRight),
+        (Inputs::Right, KeyCode::KeyD),
+        (Inputs::Left, KeyCode::ArrowLeft),
+        (Inputs::Left, KeyCode::KeyA),
+        (Inputs::Up, KeyCode::ArrowUp),
+        (Inputs::Up, KeyCode::KeyW),
+        (Inputs::Down, KeyCode::ArrowDown),
+        (Inputs::Down, KeyCode::KeyS),
+    ]));
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

@@ -10,9 +10,9 @@ use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::Fire;
+use bevy_enhanced_input::prelude::{Action, Fire};
 use lightyear::connection::client::Connected;
-use lightyear::connection::host::HostServer;
+use lightyear::connection::host::{HostClient, HostServer};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -88,13 +88,23 @@ pub(crate) fn handle_connected(
 fn movement(
     trigger: On<Fire<Movement>>,
     host_server: Query<(), With<HostServer>>,
-    mut position_query: Query<(&mut PlayerPosition, Has<Predicted>)>,
+    server_actions: Query<(), (With<Action<Movement>>, With<shared::ServerAction>)>,
+    controlled_by: Query<&ControlledBy>,
+    host_clients: Query<(), With<HostClient>>,
+    mut position_query: Query<&mut PlayerPosition>,
 ) {
     let is_host_server = !host_server.is_empty();
-    if let Ok((position, predicted)) = position_query.get_mut(trigger.context) {
-        if is_host_server && predicted {
-            return;
+    if is_host_server && !server_actions.contains(trigger.action) {
+        return;
+    }
+    if is_host_server {
+        if let Ok(controlled_by) = controlled_by.get(trigger.context) {
+            if host_clients.get(controlled_by.owner).is_ok() {
+                return;
+            }
         }
+    }
+    if let Ok(position) = position_query.get_mut(trigger.context) {
         shared::shared_movement_behaviour(position, trigger.value);
     }
 }

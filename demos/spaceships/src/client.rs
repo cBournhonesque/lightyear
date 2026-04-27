@@ -62,7 +62,9 @@ fn add_bullet_physics(
     let entity = trigger.entity;
     if let Ok(()) = bullet_query.get(entity) {
         info!("Adding physics to a replicated bullet: {entity:?}");
-        commands.entity(entity).insert(PhysicsBundle::bullet());
+        commands
+            .entity(entity)
+            .insert((PhysicsBundle::bullet(), Sensor, bullet_mass_properties()));
     }
 }
 
@@ -92,10 +94,19 @@ fn handle_new_player(
 fn handle_controlled_player(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    player_query: Query<&Player, (With<Player>, Without<InputMap<PlayerActions>>)>,
+    player_query: Query<
+        (&Player, Option<&ControlledBy>),
+        (With<Player>, Without<InputMap<PlayerActions>>),
+    >,
+    clients: Query<(), With<Client>>,
 ) {
     let entity = trigger.entity;
-    if let Ok(player) = player_query.get(entity) {
+    if let Ok((player, controlled_by)) = player_query.get(entity) {
+        if let Some(controlled_by) = controlled_by {
+            if clients.get(controlled_by.owner).is_err() {
+                return;
+            }
+        }
         info!("Own player is now controlled, adding inputmap {entity:?} {player:?}");
         commands.entity(entity).insert(InputMap::new([
             (PlayerActions::Up, KeyCode::ArrowUp),

@@ -95,12 +95,37 @@ pub(crate) fn shared_player_movement(
     }
 }
 
+fn bullet_prespawn_hash(player_id: PeerId, tick: Tick, salt: u64) -> u64 {
+    let mut hash = 0xd1b5_4a32_d192_ed03_u64;
+    hash ^= player_id.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    hash = hash.rotate_left(27).wrapping_mul(0x94d0_49bb_1331_11eb);
+    hash ^= (tick.0 as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    hash = hash.rotate_left(31).wrapping_mul(0x94d0_49bb_1331_11eb);
+    hash ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
+fn should_skip_client_side_entity(
+    has_client: bool,
+    is_host_server: bool,
+    is_predicted: bool,
+    client_is_synced: bool,
+) -> bool {
+    if !has_client {
+        return false;
+    }
+    if is_predicted && !client_is_synced {
+        return true;
+    }
+    !is_host_server && !is_predicted
+}
+
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
     timeline: Res<LocalTimeline>,
     client: Query<(), With<Client>>,
+    host_server: Query<(), With<HostServer>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     mut player_query: Query<
         (
@@ -114,9 +139,15 @@ fn player_movement(
     >,
 ) {
     let has_client = !client.is_empty();
+    let is_host_server = !host_server.is_empty();
     let client_is_synced = !synced_client.is_empty();
     for (position, rotation, action_state, player_id, is_predicted) in player_query.iter_mut() {
-        if has_client && is_predicted && !client_is_synced {
+        if should_skip_client_side_entity(
+            has_client,
+            is_host_server,
+            is_predicted,
+            client_is_synced,
+        ) {
             continue;
         }
         debug!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
@@ -226,7 +257,12 @@ pub(crate) fn shoot_bullet(
     for (id, transform, color, action, input_buffer, controlled_by, is_predicted) in
         query.iter_mut()
     {
-        if has_client && is_predicted && !client_is_synced {
+        if should_skip_client_side_entity(
+            has_client,
+            is_host_server,
+            is_predicted,
+            client_is_synced,
+        ) {
             continue;
         }
         let is_server = controlled_by.is_some();
@@ -240,6 +276,7 @@ pub(crate) fn shoot_bullet(
             // for delta in [-0.2, 0.2] {
             for delta in [0.0] {
                 let salt: u64 = if delta < 0.0 { 0 } else { 1 };
+                let prespawn_hash = bullet_prespawn_hash(id.0, tick, salt);
                 // shoot from the position of the player, towards the cursor, with an angle of delta
                 let mut bullet_transform = transform.clone();
                 bullet_transform.rotate_z(delta);
@@ -262,14 +299,8 @@ pub(crate) fn shoot_bullet(
                         // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
                         //  but the server will take authority as soon as the client receives the entity
                         //  it does this by matching with the client entity that has the same hash
-                        //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
-                        //  unless you set the hash manually before PostUpdate to a value of your choice
-                        //
-                        // the default hashing algorithm uses the tick and component list. in order to disambiguate
-                        // between the two bullets, we add additional information to the hash.
-                        // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
-                        // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
-                        PreSpawned::default_with_salt(salt),
+                        //  Use an explicit hash so same-tick bullets from different players cannot collide.
+                        PreSpawned::new(prespawn_hash),
                         DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
                         Replicate::to_clients(NetworkTarget::All),
                         PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
@@ -280,7 +311,7 @@ pub(crate) fn shoot_bullet(
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
+                    commands.spawn((bullet_bundle, PreSpawned::new(prespawn_hash)));
                 }
             }
         }

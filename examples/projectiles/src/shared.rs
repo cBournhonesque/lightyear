@@ -116,6 +116,62 @@ pub(crate) fn player_action_prespawn_hash(
         .wrapping_add(salt)
 }
 
+pub(crate) fn global_action_prespawn_hash(salt: u64) -> u64 {
+    0xC11E_1175_0000_0000u64.wrapping_add(salt)
+}
+
+pub(crate) fn spawn_global_actions(commands: &mut Commands, context: Entity, is_server: bool) {
+    let mut projectile_mode = commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleProjectileMode>::new(),
+        bindings![KeyCode::KeyE],
+        PreSpawned::new(global_action_prespawn_hash(1)),
+    ));
+    if is_server {
+        projectile_mode.insert((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::manual(Vec::new()),
+            InterpolationTarget::manual(Vec::new()),
+        ));
+    } else {
+        projectile_mode
+            .insert(lightyear::prelude::input::bei::InputMarker::<ClientContext>::default());
+    }
+
+    let mut replication_mode = commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleReplicationMode>::new(),
+        bindings![KeyCode::KeyR],
+        PreSpawned::new(global_action_prespawn_hash(2)),
+    ));
+    if is_server {
+        replication_mode.insert((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::manual(Vec::new()),
+            InterpolationTarget::manual(Vec::new()),
+        ));
+    } else {
+        replication_mode
+            .insert(lightyear::prelude::input::bei::InputMarker::<ClientContext>::default());
+    }
+
+    let mut weapon = commands.spawn((
+        ActionOf::<ClientContext>::new(context),
+        Action::<CycleWeapon>::new(),
+        bindings![KeyCode::KeyQ],
+        PreSpawned::new(global_action_prespawn_hash(3)),
+    ));
+    if is_server {
+        weapon.insert((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::manual(Vec::new()),
+            InterpolationTarget::manual(Vec::new()),
+        ));
+    } else {
+        weapon.insert(lightyear::prelude::input::bei::InputMarker::<ClientContext>::default());
+    }
+}
+
 /// Spawn the BEI player action entities on both sides so input messages can use PreSpawned targets.
 pub(crate) fn spawn_player_actions(
     commands: &mut Commands,

@@ -5,7 +5,8 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
-use lightyear_replication::prelude::{Controlled, HasAuthority};
+use lightyear_connection::client::Client;
+use lightyear_replication::prelude::{Controlled, ControlledBy, HasAuthority};
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -22,6 +23,18 @@ impl<C> Default for InputMarker<C> {
         Self {
             marker: core::marker::PhantomData,
         }
+    }
+}
+
+fn action_targets_local_client<C: Component>(
+    action_of: &ActionOf<C>,
+    contexts: &Query<Option<&ControlledBy>, With<Controlled>>,
+    clients: &Query<(), With<Client>>,
+) -> bool {
+    match contexts.get(action_of.get()) {
+        Ok(Some(controlled_by)) => clients.get(controlled_by.owner).is_ok(),
+        Ok(None) => true,
+        Err(_) => false,
     }
 }
 
@@ -54,12 +67,12 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
     context: Query<(), With<InputMarker<C>>>,
     mut commands: Commands,
 ) {
-    if let Ok(action_of) = action_of.get(trigger.entity)
-        && context.get(action_of.get()).is_ok()
-    {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
+    if let Ok(action_of) = action_of.get(trigger.entity) {
+        if context.get(action_of.get()).is_ok() {
+            commands
+                .entity(trigger.entity)
+                .insert(InputMarker::<C>::default());
+        }
     }
 }
 
@@ -69,19 +82,23 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
 pub(crate) fn add_input_marker_from_binding<C: Component>(
     trigger: On<Add, (Bindings, ActionMock)>,
     action: Query<
-        (),
+        &ActionOf<C>,
         (
             With<ActionOf<C>>,
             With<NetworkActionOf<C>>,
             Without<ConfirmHistory>,
         ),
     >,
+    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
+    clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
-    if action.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
+    if let Ok(action_of) = action.get(trigger.entity) {
+        if action_targets_local_client(action_of, &contexts, &clients) {
+            commands
+                .entity(trigger.entity)
+                .insert(InputMarker::<C>::default());
+        }
     }
 }
 
@@ -90,7 +107,7 @@ pub(crate) fn add_input_marker_from_binding<C: Component>(
 pub(crate) fn add_input_marker_from_authority<C: Component>(
     trigger: On<Add, HasAuthority>,
     action: Query<
-        (),
+        &ActionOf<C>,
         (
             With<ActionOf<C>>,
             With<NetworkActionOf<C>>,
@@ -98,12 +115,16 @@ pub(crate) fn add_input_marker_from_authority<C: Component>(
             Without<ConfirmHistory>,
         ),
     >,
+    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
+    clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
-    if action.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
+    if let Ok(action_of) = action.get(trigger.entity) {
+        if action_targets_local_client(action_of, &contexts, &clients) {
+            commands
+                .entity(trigger.entity)
+                .insert(InputMarker::<C>::default());
+        }
     }
 }
 
@@ -112,7 +133,7 @@ pub(crate) fn add_input_marker_from_authority<C: Component>(
 pub(crate) fn add_input_marker_from_network_action<C: Component>(
     trigger: On<Add, NetworkActionOf<C>>,
     action: Query<
-        (),
+        &ActionOf<C>,
         (
             With<ActionOf<C>>,
             With<NetworkActionOf<C>>,
@@ -120,12 +141,16 @@ pub(crate) fn add_input_marker_from_network_action<C: Component>(
             Without<ConfirmHistory>,
         ),
     >,
+    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
+    clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
-    if action.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
+    if let Ok(action_of) = action.get(trigger.entity) {
+        if action_targets_local_client(action_of, &contexts, &clients) {
+            commands
+                .entity(trigger.entity)
+                .insert(InputMarker::<C>::default());
+        }
     }
 }
 
@@ -134,14 +159,15 @@ pub(crate) fn add_input_marker_from_network_action<C: Component>(
 pub(crate) fn add_input_marker_from_confirmed_controlled_action<C: Component>(
     trigger: On<Add, ConfirmHistory>,
     action: Query<&ActionOf<C>, (With<ConfirmHistory>, Or<(With<Bindings>, With<ActionMock>)>)>,
-    controlled: Query<(), With<Controlled>>,
+    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
+    clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
-    if let Ok(action_of) = action.get(trigger.entity)
-        && controlled.contains(action_of.get())
-    {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
+    if let Ok(action_of) = action.get(trigger.entity) {
+        if action_targets_local_client(action_of, &contexts, &clients) {
+            commands
+                .entity(trigger.entity)
+                .insert(InputMarker::<C>::default());
+        }
     }
 }

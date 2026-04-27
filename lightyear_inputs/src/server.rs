@@ -168,7 +168,13 @@ fn receive_input_message<S: ActionStateSequence>(
         With<Connected>,
     >,
     mut query: Query<Option<&mut InputBuffer<S::Snapshot, S::Action>>>,
-    prespawned: Query<(Entity, &PreSpawned), With<<S::State as ActionStateQueryData>::Main>>,
+    prespawned: Query<
+        (Entity, &PreSpawned),
+        (
+            With<<S::State as ActionStateQueryData>::Main>,
+            With<InputBuffer<S::Snapshot, S::Action>>,
+        ),
+    >,
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut

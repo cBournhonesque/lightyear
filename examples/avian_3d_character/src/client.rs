@@ -81,19 +81,29 @@ fn handle_new_character(
 fn handle_controlled_character(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    character_query: Query<Entity, (With<CharacterMarker>, Without<InputMap<CharacterAction>>)>,
+    character_query: Query<
+        Option<&ControlledBy>,
+        (With<CharacterMarker>, Without<InputMap<CharacterAction>>),
+    >,
+    clients: Query<(), With<Client>>,
 ) {
     let entity = trigger.entity;
-    if character_query.get(entity).is_ok() {
-        info!("Adding InputMap to controlled character {entity:?}");
-        commands.entity(entity).insert(
-            InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-                .with(CharacterAction::Jump, GamepadButton::South)
-                .with(CharacterAction::Shoot, KeyCode::KeyQ)
-                .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
-                .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
-        );
+    let Ok(controlled_by) = character_query.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
     }
+    info!("Adding InputMap to controlled character {entity:?}");
+    commands.entity(entity).insert(
+        InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
+            .with(CharacterAction::Jump, GamepadButton::South)
+            .with(CharacterAction::Shoot, KeyCode::KeyQ)
+            .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
+            .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
+    );
 }
 
 /// Add physics to floors that are newly replicated. The query checks for

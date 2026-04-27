@@ -1,5 +1,5 @@
 #[cfg(any(feature = "client", feature = "server"))]
-use crate::input_message::BEIStateSequence;
+use crate::input_message::{BEIBuffer, BEIStateSequence};
 
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
@@ -86,6 +86,8 @@ impl<
 {
     fn build(&self, app: &mut App) {
         app.register_type::<ActionOf<C>>();
+        #[cfg(feature = "server")]
+        app.register_required_components::<ActionOf<C>, BEIBuffer<C>>();
         if !app.is_plugin_added::<bevy_enhanced_input::EnhancedInputPlugin>() {
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
         }
@@ -140,6 +142,13 @@ impl<
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
                 #[cfg(feature = "server")]
                 app.add_observer(InputRegistryPlugin::add_action_of_host_server_rebroadcast::<C>);
+            }
+            #[cfg(feature = "server")]
+            {
+                app.add_observer(InputRegistryPlugin::mock_non_host_owned_action::<C>);
+                app.add_observer(
+                    InputRegistryPlugin::mock_non_host_owned_actions_on_controlled_by::<C>,
+                );
             }
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);

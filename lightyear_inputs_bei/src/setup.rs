@@ -10,7 +10,7 @@ use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use {
     bevy_enhanced_input::context::ExternallyMocked,
     lightyear_connection::client::Client,
-    lightyear_replication::prelude::{Controlled, Replicate},
+    lightyear_replication::prelude::{Controlled, ControlledBy, Replicate},
 };
 
 use bevy_enhanced_input::prelude::*;
@@ -134,7 +134,9 @@ impl InputRegistryPlugin {
             entity_map.as_deref(),
             managers.iter(),
             &all_entities,
-        ) {
+        )
+        .filter(|mapped| *mapped != entity)
+        {
             commands.entity(entity).insert(ActionOf::<C>::new(mapped));
         }
     }
@@ -152,7 +154,9 @@ impl InputRegistryPlugin {
                 entity_map.as_deref(),
                 managers.iter(),
                 &all_entities,
-            ) {
+            )
+            .filter(|mapped| *mapped != entity)
+            {
                 commands.entity(entity).insert(ActionOf::<C>::new(mapped));
             }
         }
@@ -175,6 +179,60 @@ impl InputRegistryPlugin {
             commands.entity(entity).insert((ReplicateLike {
                 root: context_entity,
             },));
+        }
+    }
+
+    /// In host-server mode, server-owned action entities for remote clients can
+    /// still carry keyboard bindings because the authoritative server world and
+    /// local host client share one Bevy app. Those actions must be driven by
+    /// received input messages, not by the host player's physical keyboard.
+    #[cfg(all(feature = "client", feature = "server"))]
+    pub(crate) fn mock_non_host_owned_action<C: Component>(
+        trigger: On<Add, ActionOf<C>>,
+        host_server: Query<(), With<HostServer>>,
+        action: Query<&ActionOf<C>, Without<ExternallyMocked>>,
+        controlled: Query<&ControlledBy>,
+        host_clients: Query<(), With<HostClient>>,
+        mut commands: Commands,
+    ) {
+        if host_server.is_empty() {
+            return;
+        }
+        let entity = trigger.entity;
+        let Ok(action_of) = action.get(entity) else {
+            return;
+        };
+        let Ok(controlled_by) = controlled.get(action_of.get()) else {
+            return;
+        };
+        if host_clients.get(controlled_by.owner).is_ok() {
+            return;
+        }
+        commands.entity(entity).insert(ExternallyMocked);
+    }
+
+    #[cfg(all(feature = "client", feature = "server"))]
+    pub(crate) fn mock_non_host_owned_actions_on_controlled_by<C: Component>(
+        trigger: On<Add, ControlledBy>,
+        host_server: Query<(), With<HostServer>>,
+        controlled: Query<&ControlledBy>,
+        host_clients: Query<(), With<HostClient>>,
+        actions: Query<(Entity, &ActionOf<C>), Without<ExternallyMocked>>,
+        mut commands: Commands,
+    ) {
+        if host_server.is_empty() {
+            return;
+        }
+        let Ok(controlled_by) = controlled.get(trigger.entity) else {
+            return;
+        };
+        if host_clients.get(controlled_by.owner).is_ok() {
+            return;
+        }
+        for (action_entity, action_of) in &actions {
+            if action_of.get() == trigger.entity {
+                commands.entity(action_entity).insert(ExternallyMocked);
+            }
         }
     }
 
@@ -289,10 +347,10 @@ fn resolve_remote_entity<'a>(
     entity_map: Option<&ServerEntityMap>,
     mut managers: impl Iterator<Item = &'a MessageManager>,
 ) -> Option<Entity> {
-    if let Some(entity_map) = entity_map
-        && let Some(remote_entity) = entity_map.to_server().get(&local_entity)
-    {
-        return Some(*remote_entity);
+    if let Some(entity_map) = entity_map {
+        if let Some(remote_entity) = entity_map.to_server().get(&local_entity) {
+            return Some(*remote_entity);
+        }
     }
 
     managers.find_map(|manager| manager.entity_mapper.get_remote(local_entity))
@@ -314,10 +372,10 @@ fn resolve_local_entity<'a>(
     mut managers: impl Iterator<Item = &'a MessageManager>,
     all_entities: &Query<(), ()>,
 ) -> Option<Entity> {
-    if let Some(entity_map) = entity_map
-        && let Some(local_entity) = entity_map.to_client().get(&remote_entity)
-    {
-        return Some(*local_entity);
+    if let Some(entity_map) = entity_map {
+        if let Some(local_entity) = entity_map.to_client().get(&remote_entity) {
+            return Some(*local_entity);
+        }
     }
 
     if let Some(local_entity) =

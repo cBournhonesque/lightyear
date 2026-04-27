@@ -5,6 +5,7 @@ use crate::protocol::*;
 use crate::shared;
 use crate::shared::{GameRooms, SharedPlugin, color_from_id};
 use avian2d::prelude::*;
+use bevy::platform::collections::HashSet;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::EnhancedInputSystems;
@@ -17,7 +18,7 @@ use lightyear::connection::client::PeerMetadata;
 use lightyear::core::tick::TickDuration;
 use lightyear::crossbeam::CrossbeamIo;
 use lightyear::input::config::InputConfig;
-use lightyear::input::server::ServerInputConfig;
+use lightyear::input::server::{InputSystems as ServerInputSystems, ServerInputConfig};
 use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::server::*;
@@ -35,18 +36,23 @@ impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationServerPlugin);
         app.add_plugins(RoomPlugin);
+        app.init_resource::<GlobalActionLatch>();
         app.init_resource::<GameRooms>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
 
         app.add_plugins(LagCompensationPlugin);
         app.add_observer(handle_new_client);
         app.add_observer(spawn_player);
-        app.add_observer(cycle_replication_mode);
-        app.add_observer(cycle_projectile_mode);
-        app.add_observer(cycle_weapon_type);
+        app.add_observer(release_global_action::<CycleReplicationMode>);
+        app.add_observer(release_global_action::<CycleProjectileMode>);
+        app.add_observer(release_global_action::<CycleWeapon>);
         app.add_observer(handle_hits);
 
         app.add_systems(Startup, spawn_global_control);
+        app.add_systems(
+            FixedPreUpdate,
+            apply_global_action_inputs.after(ServerInputSystems::UpdateActionState),
+        );
 
         // we don't want to panic when trying to read the InputReader if gui is not enabled
         app.configure_sets(PreUpdate, EnhancedInputSystems::Prepare.run_if(|| false));
@@ -70,14 +76,99 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 }
 
 pub(crate) fn spawn_global_control(mut commands: Commands) {
-    commands.spawn((
-        ClientContext,
-        Replicate::to_clients(NetworkTarget::All),
-        GameReplicationMode::default(),
-        ProjectileReplicationMode::default(),
-        WeaponType::default(),
-        Name::new("ClientContext"),
-    ));
+    let global = commands
+        .spawn((
+            ClientContext,
+            Replicate::to_clients(NetworkTarget::All),
+            GameReplicationMode::default(),
+            ProjectileReplicationMode::default(),
+            WeaponType::default(),
+            Name::new("ClientContext"),
+        ))
+        .id();
+    shared::spawn_global_actions(&mut commands, global, true);
+}
+
+#[derive(Resource, Default)]
+struct GlobalActionLatch {
+    active: HashSet<Entity>,
+}
+
+impl GlobalActionLatch {
+    fn start(&mut self, action: Entity) -> bool {
+        self.active.insert(action)
+    }
+
+    fn complete(&mut self, action: Entity) {
+        self.active.remove(&action);
+    }
+}
+
+fn release_global_action<A: InputAction>(
+    trigger: On<Complete<A>>,
+    mut latch: ResMut<GlobalActionLatch>,
+) {
+    latch.complete(trigger.action);
+}
+
+fn take_fired_once<A: InputAction>(
+    actions: &Query<(Entity, &ActionEvents), With<Action<A>>>,
+    latch: &mut GlobalActionLatch,
+) -> bool {
+    let mut fired = false;
+    for (entity, events) in actions {
+        if events.contains(ActionEvents::COMPLETE) || events.contains(ActionEvents::CANCEL) {
+            latch.complete(entity);
+        }
+        if events.contains(ActionEvents::FIRE) && latch.start(entity) {
+            fired = true;
+        }
+    }
+    fired
+}
+
+fn apply_global_action_inputs(
+    mut global: Query<
+        (
+            &mut GameReplicationMode,
+            &mut ProjectileReplicationMode,
+            &mut WeaponType,
+        ),
+        With<ClientContext>,
+    >,
+    rooms: Res<GameRooms>,
+    mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
+    clients: Query<Entity, With<ClientOf>>,
+    players: Query<Entity, With<PlayerMarker>>,
+    replication_actions: Query<(Entity, &ActionEvents), With<Action<CycleReplicationMode>>>,
+    projectile_actions: Query<(Entity, &ActionEvents), With<Action<CycleProjectileMode>>>,
+    weapon_actions: Query<(Entity, &ActionEvents), With<Action<CycleWeapon>>>,
+    mut latch: ResMut<GlobalActionLatch>,
+    mut commands: Commands,
+) {
+    let Ok((mut replication_mode, mut projectile_mode, mut weapon_type)) = global.single_mut()
+    else {
+        return;
+    };
+
+    if take_fired_once(&replication_actions, &mut latch) {
+        apply_replication_mode_cycle(
+            &mut replication_mode,
+            &rooms,
+            &mut input_config,
+            &clients,
+            &players,
+            &mut commands,
+        );
+    }
+    if take_fired_once(&projectile_actions, &mut latch) {
+        *projectile_mode = projectile_mode.next();
+        info!("Cycled to projectile mode: {}", projectile_mode.name());
+    }
+    if take_fired_once(&weapon_actions, &mut latch) {
+        *weapon_type = weapon_type.next();
+        info!("Switched to weapon: {}", weapon_type.name());
+    }
 }
 
 pub(crate) fn spawn_player(
@@ -443,22 +534,19 @@ mod bot {
     pub struct BotClient;
 }
 
-/// Handle room switching when replication mode changes
-pub fn cycle_replication_mode(
-    trigger: On<Complete<CycleReplicationMode>>,
-    global: Single<&mut GameReplicationMode, With<ClientContext>>,
-    rooms: Res<GameRooms>,
-    mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
-    clients: Query<Entity, With<ClientOf>>,
-    players: Query<Entity, With<PlayerMarker>>,
-    mut commands: Commands,
+fn apply_replication_mode_cycle(
+    replication_mode: &mut GameReplicationMode,
+    rooms: &GameRooms,
+    input_config: &mut ServerInputConfig<PlayerContext>,
+    clients: &Query<Entity, With<ClientOf>>,
+    players: &Query<Entity, With<PlayerMarker>>,
+    commands: &mut Commands,
 ) {
-    let mut replication_mode = global.into_inner();
     let current_mode = *replication_mode;
     *replication_mode = replication_mode.next();
 
     // only rebroadcast if clients predict other clients
-    match replication_mode.as_ref() {
+    match *replication_mode {
         GameReplicationMode::AllPredicted | GameReplicationMode::OnlyInputsReplicated => {
             info!("Setting rebroadcast inputs to True");
             input_config.rebroadcast_inputs = true;
@@ -493,24 +581,4 @@ pub fn cycle_replication_mode(
     }
 
     info!("Cycled to replication mode: {}", replication_mode.name());
-}
-
-/// Handle cycling through projectile replication modes
-pub fn cycle_projectile_mode(
-    trigger: On<Complete<CycleProjectileMode>>,
-    global: Single<&mut ProjectileReplicationMode, With<ClientContext>>,
-) {
-    let mut projectile_mode = global.into_inner();
-    *projectile_mode = projectile_mode.next();
-    info!("Cycled to projectile mode: {}", projectile_mode.name());
-}
-
-/// Handle weapon cycling input
-pub(crate) fn cycle_weapon_type(
-    trigger: On<Complete<CycleWeapon>>,
-    global: Single<&mut WeaponType, With<ClientContext>>,
-) {
-    let mut weapon_type = global.into_inner();
-    *weapon_type = weapon_type.next();
-    info!("Switched to weapon: {}", weapon_type.name());
 }

@@ -252,6 +252,8 @@ pub fn shared_player_firing(
                 },
                 BulletMarker::new(player.client_id),
                 PhysicsBundle::bullet(),
+                Sensor,
+                bullet_mass_properties(),
                 prespawned,
             ))
             .id();

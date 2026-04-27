@@ -93,7 +93,7 @@ mod client {
         players: Query<Entity, Added<Player>>,
     ) {
         for entity in &players {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
                     .with_component_at::<Rotation>([DebugSamplePoint::Update])
                     .with_component_at::<LinearVelocity>([DebugSamplePoint::Update])
@@ -111,7 +111,7 @@ mod client {
         bullets: Query<Entity, Added<BulletMarker>>,
     ) {
         for entity in &bullets {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
                     .with_component_at::<BulletMarker>([DebugSamplePoint::Update]),
             );
@@ -146,7 +146,7 @@ mod server {
         players: Query<Entity, Added<Player>>,
     ) {
         for entity in &players {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<Rotation>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<LinearVelocity>([DebugSamplePoint::FixedUpdate])
@@ -166,7 +166,7 @@ mod server {
         bullets: Query<Entity, Added<BulletMarker>>,
     ) {
         for entity in &bullets {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<BulletMarker>([DebugSamplePoint::FixedUpdate]),
             );

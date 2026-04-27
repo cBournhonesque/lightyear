@@ -103,16 +103,23 @@ pub(crate) fn handle_predicted_spawn(
 fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    player_query: Query<&PlayerId, Without<InputMap<PlayerActions>>>,
+    player_query: Query<(&PlayerId, Option<&ControlledBy>), Without<InputMap<PlayerActions>>>,
+    clients: Query<(), With<Client>>,
 ) {
-    if player_query.get(trigger.entity).is_ok() {
-        commands.entity(trigger.entity).insert(InputMap::new([
-            (PlayerActions::Up, KeyCode::KeyW),
-            (PlayerActions::Down, KeyCode::KeyS),
-            (PlayerActions::Left, KeyCode::KeyA),
-            (PlayerActions::Right, KeyCode::KeyD),
-        ]));
+    let Ok((_player_id, controlled_by)) = player_query.get(trigger.entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
     }
+    commands.entity(trigger.entity).insert(InputMap::new([
+        (PlayerActions::Up, KeyCode::KeyW),
+        (PlayerActions::Down, KeyCode::KeyS),
+        (PlayerActions::Left, KeyCode::KeyA),
+        (PlayerActions::Right, KeyCode::KeyD),
+    ]));
 }
 
 // When the interpolated copy of the client-owned entity is spawned, do stuff

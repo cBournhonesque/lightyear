@@ -29,6 +29,9 @@ pub(crate) fn action_prespawn_hash(client_id: PeerId, salt: u64) -> u64 {
         .wrapping_add(salt)
 }
 
+#[derive(Component)]
+pub(crate) struct ServerAction;
+
 /// Spawn action entities for a player. Called on both client and server.
 pub(crate) fn spawn_action_entities(
     commands: &mut Commands,
@@ -45,7 +48,10 @@ pub(crate) fn spawn_action_entities(
     ));
     if is_server {
         #[cfg(feature = "server")]
-        action.insert(Replicate::to_clients(NetworkTarget::Single(client_id)));
+        action.insert((
+            Replicate::to_clients(NetworkTarget::Single(client_id)),
+            ServerAction,
+        ));
     } else {
         action.insert(lightyear::prelude::input::bei::InputMarker::<Player>::default());
     }
