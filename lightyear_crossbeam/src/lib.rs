@@ -81,6 +81,7 @@ pub struct CrossbeamPlugin;
 #[derive(QueryData)]
 #[query_data(mutable)]
 struct IOQuery {
+    entity: Entity,
     link: &'static mut Link,
     crossbeam_io: &'static CrossbeamIo,
     #[cfg(feature = "test_utils")]
@@ -106,10 +107,11 @@ impl CrossbeamPlugin {
         // Iterate via `pop` so that `Full` can re-queue the failed payload
         // without losing the rest of the batch.
         for mut io in query.iter_mut() {
+            let entity = io.entity;
             while let Some(payload) = io.link.send.pop() {
                 #[cfg(feature = "test_utils")]
                 if io.helper.is_some_and(|h| h.block_send) {
-                    // Drop this payload only; keep popping the rest for this entity.
+                    // Drop this payload only; keep retrying the rest.
                     continue;
                 }
                 match io.crossbeam_io.sender.try_send(payload) {
@@ -118,19 +120,18 @@ impl CrossbeamPlugin {
                         // Peer dropped — not an error during shutdown. Clear the
                         // rest of this entity's send queue so we don't keep
                         // retrying every frame.
-                        trace!("CrossbeamIo send dropped: channel disconnected");
+                        trace!(
+                            "CrossbeamIo send dropped on entity {entity:?}: channel disconnected"
+                        );
                         let _ = io.link.send.drain();
                         break;
                     }
                     Err(TrySendError::Full(p)) => {
-                        // CrossbeamIo is documented to require unbounded
-                        // channels (see `CrossbeamIo::new`); this branch is
-                        // unreachable for callers using `new_pair`. If a bounded
-                        // sender was wired in, re-queue the payload (FIFO order
-                        // preserved relative to anything pushed later in this
-                        // frame) and log loudly so misuse is visible.
+                        // Defensive backstop: `CrossbeamIo::new` documents that
+                        // it requires an unbounded sender. Re-queue if a bounded
+                        // sender was wired in anyway.
                         error!(
-                            "CrossbeamIo send: channel full (transport assumes unbounded); re-queueing"
+                            "CrossbeamIo send: channel full on entity {entity:?} (transport assumes unbounded); re-queueing"
                         );
                         io.link.send.push(p);
                         break;
@@ -200,14 +201,14 @@ mod tests {
 
         // Queue two payloads; the send system should handle Disconnected
         // gracefully and the Drain on break should clear both.
-        if let Some(mut link) = app.world_mut().get_mut::<Link>(sender_entity) {
-            link.send.push(Bytes::from_static(b"hello"));
-            link.send.push(Bytes::from_static(b"world"));
-        }
+        let mut link = app
+            .world_mut()
+            .get_mut::<Link>(sender_entity)
+            .expect("sender entity should have Link");
+        link.send.push(Bytes::from_static(b"hello"));
+        link.send.push(Bytes::from_static(b"world"));
 
-        for _ in 0..3 {
-            app.update();
-        }
+        app.update();
 
         let link = app
             .world()
@@ -238,15 +239,18 @@ mod tests {
             .spawn((Link::new(None), Linked, server_io))
             .id();
 
-        if let Some(mut link) = app.world_mut().get_mut::<Link>(client_entity) {
-            link.send.push(Bytes::from_static(b"a"));
-            link.send.push(Bytes::from_static(b"b"));
-            link.send.push(Bytes::from_static(b"c"));
-        }
+        let mut client_link = app
+            .world_mut()
+            .get_mut::<Link>(client_entity)
+            .expect("client entity should have Link");
+        client_link.send.push(Bytes::from_static(b"a"));
+        client_link.send.push(Bytes::from_static(b"b"));
+        client_link.send.push(Bytes::from_static(b"c"));
 
-        for _ in 0..3 {
-            app.update();
-        }
+        // Two frames: frame 1 client.PostUpdate `send` pushes into the channel,
+        // frame 2 server.PreUpdate `receive` pulls them into Link.recv.
+        app.update();
+        app.update();
 
         let mut server_link = app
             .world_mut()
@@ -284,10 +288,12 @@ mod tests {
             .id();
 
         // Capacity 1: "first" fills the channel, "second" must hit Full.
-        if let Some(mut link) = app.world_mut().get_mut::<Link>(client_entity) {
-            link.send.push(Bytes::from_static(b"first"));
-            link.send.push(Bytes::from_static(b"second"));
-        }
+        let mut link = app
+            .world_mut()
+            .get_mut::<Link>(client_entity)
+            .expect("client entity should have Link");
+        link.send.push(Bytes::from_static(b"first"));
+        link.send.push(Bytes::from_static(b"second"));
 
         app.update();
 
