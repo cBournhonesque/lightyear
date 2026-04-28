@@ -12,16 +12,17 @@
 //! `CrossbeamPlugin` is a pure transport: it inserts `Linked` once `LinkStart` is triggered
 //! but does not drive the `Connected` state. Pair it with a connection plugin to obtain a
 //! full peer connection. For handshake-less use (e.g. local testing), pair it with
-//! `lightyear_raw_connection`'s `RawConnectionPlugin` and mark the relevant entities with
-//! `RawClient` / `RawServer` so that `Linked` implies `Connected`. For authenticated use,
-//! pair it with `lightyear_netcode` instead.
+//! `lightyear_raw_connection::client::RawConnectionPlugin` and/or
+//! `lightyear_raw_connection::server::RawConnectionPlugin` (with the corresponding `client`
+//! / `server` feature enabled) and mark the relevant entities with `RawClient` /
+//! `RawServer` so that `Linked` implies `Connected`. For authenticated use, pair it with
+//! `lightyear_netcode` instead.
 #![no_std]
 
 extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
-use bevy_ecs::error::Result;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use bytes::Bytes;
@@ -50,6 +51,14 @@ pub struct CrossbeamIo {
 }
 
 impl CrossbeamIo {
+    /// Build a `CrossbeamIo` from caller-provided channel ends.
+    ///
+    /// The sender must be backed by an **unbounded** channel
+    /// (`crossbeam_channel::unbounded()`). Wiring in a bounded sender is
+    /// allowed by the type system but will trigger a re-queue + error log
+    /// on backpressure inside the send system, since the transport has no
+    /// way to apply flow control to upstream callers. Use `new_pair` for
+    /// the canonical configuration.
     pub fn new(sender: Sender<Bytes>, receiver: Receiver<Bytes>) -> Self {
         Self { sender, receiver }
     }
@@ -93,36 +102,42 @@ impl CrossbeamPlugin {
         }
     }
 
-    fn send(mut query: Query<IOQuery, With<Linked>>) -> Result {
+    fn send(mut query: Query<IOQuery, With<Linked>>) {
+        // Iterate via `pop` so that `Full` can re-queue the failed payload
+        // without losing the rest of the batch.
         for mut io in query.iter_mut() {
-            for payload in io.link.send.drain() {
+            while let Some(payload) = io.link.send.pop() {
                 #[cfg(feature = "test_utils")]
                 if io.helper.is_some_and(|h| h.block_send) {
-                    // Skip this payload only; keep draining the rest for this entity.
+                    // Drop this payload only; keep popping the rest for this entity.
                     continue;
                 }
                 match io.crossbeam_io.sender.try_send(payload) {
                     Ok(()) => {}
                     Err(TrySendError::Disconnected(_)) => {
-                        // Peer dropped — not an error during shutdown. Remaining
-                        // payloads for this entity are cleared when the Drain
-                        // iterator drops on break.
+                        // Peer dropped — not an error during shutdown. Clear the
+                        // rest of this entity's send queue so we don't keep
+                        // retrying every frame.
                         trace!("CrossbeamIo send dropped: channel disconnected");
+                        let _ = io.link.send.drain();
                         break;
                     }
-                    Err(TrySendError::Full(_)) => {
-                        // CrossbeamIo channels are constructed unbounded, so this
-                        // is unreachable unless a caller wires in a bounded sender
-                        // via CrossbeamIo::new. Drop the batch loudly.
+                    Err(TrySendError::Full(p)) => {
+                        // CrossbeamIo is documented to require unbounded
+                        // channels (see `CrossbeamIo::new`); this branch is
+                        // unreachable for callers using `new_pair`. If a bounded
+                        // sender was wired in, re-queue the payload (FIFO order
+                        // preserved relative to anything pushed later in this
+                        // frame) and log loudly so misuse is visible.
                         error!(
-                            "CrossbeamIo send dropped: channel full (transport assumes unbounded)"
+                            "CrossbeamIo send: channel full (transport assumes unbounded); re-queueing"
                         );
+                        io.link.send.push(p);
                         break;
                     }
                 }
             }
         }
-        Ok(())
     }
 
     fn receive(mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>) {
@@ -246,6 +261,44 @@ mod tests {
         assert!(
             server_link.recv.pop().is_none(),
             "no extra payloads should be received"
+        );
+    }
+
+    /// `CrossbeamIo` is documented to require unbounded channels, but the send
+    /// system has a defensive re-queue path for callers who wire in a bounded
+    /// `Sender` via `CrossbeamIo::new`. Verify that path: a payload that hits
+    /// `TrySendError::Full` lands back on the entity's send queue rather than
+    /// being silently dropped.
+    #[test]
+    fn send_with_bounded_channel_requeues_on_full() {
+        let (bounded_sender, _peer_recv_unread) = crossbeam_channel::bounded::<Bytes>(1);
+        let (_, dummy_recv) = crossbeam_channel::unbounded::<Bytes>();
+        let client_io = CrossbeamIo::new(bounded_sender, dummy_recv);
+
+        let mut app = App::new();
+        app.add_plugins(CrossbeamPlugin);
+
+        let client_entity = app
+            .world_mut()
+            .spawn((Link::new(None), Linked, client_io))
+            .id();
+
+        // Capacity 1: "first" fills the channel, "second" must hit Full.
+        if let Some(mut link) = app.world_mut().get_mut::<Link>(client_entity) {
+            link.send.push(Bytes::from_static(b"first"));
+            link.send.push(Bytes::from_static(b"second"));
+        }
+
+        app.update();
+
+        let link = app
+            .world()
+            .get::<Link>(client_entity)
+            .expect("client entity should still have Link");
+        assert_eq!(
+            link.send.len(),
+            1,
+            "Full payload should be re-queued, not dropped"
         );
     }
 }
