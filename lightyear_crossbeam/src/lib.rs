@@ -26,7 +26,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
 use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
-use crossbeam_channel::{Receiver, Sender, TryRecvError};
+use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked};
 use tracing::{error, trace};
@@ -98,13 +98,27 @@ impl CrossbeamPlugin {
             for payload in io.link.send.drain() {
                 #[cfg(feature = "test_utils")]
                 if io.helper.is_some_and(|h| h.block_send) {
+                    // Skip this payload only; keep draining the rest for this entity.
                     continue;
                 }
-                if io.crossbeam_io.sender.try_send(payload).is_err() {
-                    // Channel disconnected (peer dropped) — not an error during shutdown.
-                    // Remaining payloads are cleared when the Drain iterator drops on break.
-                    trace!("CrossbeamIo send failed: channel disconnected");
-                    break;
+                match io.crossbeam_io.sender.try_send(payload) {
+                    Ok(()) => {}
+                    Err(TrySendError::Disconnected(_)) => {
+                        // Peer dropped — not an error during shutdown. Remaining
+                        // payloads for this entity are cleared when the Drain
+                        // iterator drops on break.
+                        trace!("CrossbeamIo send dropped: channel disconnected");
+                        break;
+                    }
+                    Err(TrySendError::Full(_)) => {
+                        // CrossbeamIo channels are constructed unbounded, so this
+                        // is unreachable unless a caller wires in a bounded sender
+                        // via CrossbeamIo::new. Drop the batch loudly.
+                        error!(
+                            "CrossbeamIo send dropped: channel full (transport assumes unbounded)"
+                        );
+                        break;
+                    }
                 }
             }
         }
@@ -149,18 +163,18 @@ impl Plugin for CrossbeamPlugin {
 mod tests {
     use super::*;
 
-    /// Verify the send system tolerates a disconnected peer channel without panicking.
+    /// Verify the send system tolerates a disconnected peer channel without
+    /// panicking, and that Drain clears the queued payloads on break.
     /// This is a pure transport-layer test — no connection plugin is needed.
     #[test]
     fn send_after_peer_disconnect_does_not_panic() {
         let (client_io, server_io) = CrossbeamIo::new_pair();
 
         let mut app = App::new();
-        app.add_plugins(bevy_app::ScheduleRunnerPlugin::default());
         app.add_plugins(CrossbeamPlugin);
 
-        // Spawn the sender side as Linked (skipping the LinkStart trigger keeps the test
-        // independent of any connection plugin).
+        // Spawn the sender side as Linked (skipping the LinkStart trigger keeps
+        // the test independent of any connection plugin).
         let sender_entity = app
             .world_mut()
             .spawn((Link::new(None), Linked, client_io))
@@ -169,25 +183,35 @@ mod tests {
         // Drop the peer side of the channel pair before sending.
         drop(server_io);
 
-        // Queue a payload; the send system should handle Disconnected gracefully.
+        // Queue two payloads; the send system should handle Disconnected
+        // gracefully and the Drain on break should clear both.
         if let Some(mut link) = app.world_mut().get_mut::<Link>(sender_entity) {
             link.send.push(Bytes::from_static(b"hello"));
+            link.send.push(Bytes::from_static(b"world"));
         }
 
         for _ in 0..3 {
             app.update();
         }
 
-        // If we reached here without panic, the test passes.
+        let link = app
+            .world()
+            .get::<Link>(sender_entity)
+            .expect("sender entity should still have Link");
+        assert_eq!(
+            link.send.len(),
+            0,
+            "Drain should clear queued payloads on disconnect"
+        );
     }
 
-    /// Verify a basic round-trip send/receive between a paired client and server transport.
+    /// Verify multi-payload round-trip send/receive between a paired client and
+    /// server transport, including FIFO ordering.
     #[test]
     fn round_trip_send_receive() {
         let (client_io, server_io) = CrossbeamIo::new_pair();
 
         let mut app = App::new();
-        app.add_plugins(bevy_app::ScheduleRunnerPlugin::default());
         app.add_plugins(CrossbeamPlugin);
 
         let client_entity = app
@@ -200,7 +224,9 @@ mod tests {
             .id();
 
         if let Some(mut link) = app.world_mut().get_mut::<Link>(client_entity) {
-            link.send.push(Bytes::from_static(b"ping"));
+            link.send.push(Bytes::from_static(b"a"));
+            link.send.push(Bytes::from_static(b"b"));
+            link.send.push(Bytes::from_static(b"c"));
         }
 
         for _ in 0..3 {
@@ -211,10 +237,15 @@ mod tests {
             .world_mut()
             .get_mut::<Link>(server_entity)
             .expect("server entity should have Link");
-        let payload = server_link
-            .recv
-            .pop()
-            .expect("server should have received a payload from the client");
-        assert_eq!(payload.as_ref(), b"ping");
+        let p1 = server_link.recv.pop().expect("first payload missing");
+        let p2 = server_link.recv.pop().expect("second payload missing");
+        let p3 = server_link.recv.pop().expect("third payload missing");
+        assert_eq!(p1.as_ref(), b"a");
+        assert_eq!(p2.as_ref(), b"b");
+        assert_eq!(p3.as_ref(), b"c");
+        assert!(
+            server_link.recv.pop().is_none(),
+            "no extra payloads should be received"
+        );
     }
 }
