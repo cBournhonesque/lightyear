@@ -128,12 +128,12 @@ impl CrossbeamPlugin {
                     }
                     Err(TrySendError::Full(p)) => {
                         // Defensive backstop: `CrossbeamIo::new` documents that
-                        // it requires an unbounded sender. Re-queue if a bounded
-                        // sender was wired in anyway.
+                        // it requires an unbounded sender. Push to the front so
+                        // FIFO is preserved across the still-queued payloads.
                         error!(
                             "CrossbeamIo send: channel full on entity {entity:?} (transport assumes unbounded); re-queueing"
                         );
-                        io.link.send.push(p);
+                        io.link.send.push_front(p);
                         break;
                     }
                 }
@@ -271,8 +271,9 @@ mod tests {
     /// `CrossbeamIo` is documented to require unbounded channels, but the send
     /// system has a defensive re-queue path for callers who wire in a bounded
     /// `Sender` via `CrossbeamIo::new`. Verify that path: a payload that hits
-    /// `TrySendError::Full` lands back on the entity's send queue rather than
-    /// being silently dropped.
+    /// `TrySendError::Full` lands back at the front of the entity's send queue
+    /// (preserving FIFO across the still-queued payloads) rather than being
+    /// silently dropped or shuffled.
     #[test]
     fn send_with_bounded_channel_requeues_on_full() {
         let (bounded_sender, _peer_recv_unread) = crossbeam_channel::bounded::<Bytes>(1);
@@ -287,24 +288,39 @@ mod tests {
             .spawn((Link::new(None), Linked, client_io))
             .id();
 
-        // Capacity 1: "first" fills the channel, "second" must hit Full.
+        // Capacity 1: "first" fills the channel, "second" hits Full and must
+        // be re-queued at the front so it precedes "third" on the next frame.
         let mut link = app
             .world_mut()
             .get_mut::<Link>(client_entity)
             .expect("client entity should have Link");
         link.send.push(Bytes::from_static(b"first"));
         link.send.push(Bytes::from_static(b"second"));
+        link.send.push(Bytes::from_static(b"third"));
 
         app.update();
 
-        let link = app
-            .world()
-            .get::<Link>(client_entity)
+        let mut link = app
+            .world_mut()
+            .get_mut::<Link>(client_entity)
             .expect("client entity should still have Link");
         assert_eq!(
             link.send.len(),
-            1,
-            "Full payload should be re-queued, not dropped"
+            2,
+            "Full payload should be re-queued (queue starts at 3, 1 sent, 1 Full re-queued)"
+        );
+        assert_eq!(
+            link.send
+                .pop()
+                .expect("re-queued Full payload missing")
+                .as_ref(),
+            b"second",
+            "Full payload should land at front of queue to preserve FIFO"
+        );
+        assert_eq!(
+            link.send.pop().expect("third payload missing").as_ref(),
+            b"third",
+            "still-queued payloads should follow the re-queued one"
         );
     }
 }

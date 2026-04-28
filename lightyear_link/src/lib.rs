@@ -156,6 +156,12 @@ impl LinkSender {
         self.0.push_back(value)
     }
 
+    /// Push a payload at the front of the queue. Useful for transports that
+    /// re-queue a `pop`'d payload on backpressure and need to preserve FIFO.
+    pub fn push_front(&mut self, value: SendPayload) {
+        self.0.push_front(value)
+    }
+
     pub fn len(&self) -> usize {
         self.0.len()
     }
