@@ -167,6 +167,10 @@ impl UdpPlugin {
                         link.recv.push(payload.freeze(), Instant::now());
                     }
                     Err(ref e) if e.kind() == ErrorKind::WouldBlock => return,
+                    // Windows-specific: when the remote end rejects a UDP packet, the OS
+                    // raises WSAECONNRESET (10054) on the next recv. This is harmless for
+                    // a connectionless UDP socket — just skip to the next receive attempt.
+                    Err(ref e) if e.kind() == ErrorKind::ConnectionReset => continue,
                     Err(e) => {
                         error!("Error receiving UDP packet: {}", e);
                         return;

@@ -132,25 +132,24 @@ fn spawn_broad_phase_aabb_envelope(
 
 /// Update the collision layers of the child AabbEnvelopeHolder to match the parent
 fn update_collision_layers(
-    mut child_query: Query<&mut CollisionLayers, With<AabbEnvelopeHolder>>,
-    mut parent_query: Query<
-        (Entity, &mut CollisionLayers, &Children),
+    child_query: Query<Entity, With<AabbEnvelopeHolder>>,
+    parent_query: Query<
+        (Entity, &CollisionLayers, &Children),
         (Without<AabbEnvelopeHolder>, Changed<CollisionLayers>),
     >,
+    mut commands: Commands,
 ) {
     parent_query
-        .iter_mut()
+        .iter()
         .for_each(|(parent, layers, children)| {
-            if layers.is_changed() || !layers.is_added() {
-                for child in children.iter() {
-                    if let Ok(mut child_layers) = child_query.get_mut(child) {
-                        *child_layers = *layers;
-                        trace!(
-                            ?child,
-                            ?parent,
-                            "Adding layers {layers:?} on lag compensation child collider"
-                        );
-                    }
+            for child in children.iter() {
+                if child_query.get(child).is_ok() {
+                    commands.entity(child).insert(*layers);
+                    trace!(
+                        ?child,
+                        ?parent,
+                        "Adding layers {layers:?} on lag compensation child collider"
+                    );
                 }
             }
         });

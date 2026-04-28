@@ -119,6 +119,24 @@ pub(crate) fn insert_confirmed_history<C: Component>(
     }
 }
 
+/// When [`Interpolated`] is inserted on an entity that already has [`Confirmed<C>`], we also
+/// need to ensure [`ConfirmedHistory<C>`] exists.
+///
+/// This complements [`insert_confirmed_history`] so both marker insertion orders are supported:
+/// - `Interpolated` first, then `Confirmed<C>`
+/// - `Confirmed<C>` first, then `Interpolated`
+pub(crate) fn insert_confirmed_history_on_interpolated<C: Component>(
+    trigger: On<Add, Interpolated>,
+    mut commands: Commands,
+    query: Query<(), (With<Confirmed<C>>, Without<ConfirmedHistory<C>>)>,
+) {
+    if query.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .try_insert(ConfirmedHistory::<C>::default());
+    }
+}
+
 /// When we receive a server update for an interpolated component, we need to store it in the confirmed history,
 pub(crate) fn apply_confirmed_update<C: Component + Clone>(
     // TODO: this should be a trigger, we should trigger an event whenever Confirmed gets inserted or modified
@@ -160,5 +178,72 @@ pub(crate) fn apply_confirmed_update<C: Component + Clone>(
         //  We enforce this invariant in replication::receive
         history.push(tick, component.0);
         // TODO: here we do not want to update directly the component, that will be done during interpolation
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_app::App;
+    use lightyear_core::prelude::Tick;
+
+    #[derive(Component, Clone, PartialEq, Debug)]
+    struct TestComp(f32);
+
+    #[test]
+    fn inserts_history_when_confirmed_added_after_interpolated() {
+        let mut app = App::new();
+        app.add_observer(insert_confirmed_history::<TestComp>);
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let entity = app.world_mut().spawn(Interpolated).id();
+        app.update();
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((Confirmed(TestComp(1.0)), ConfirmedTick { tick: Tick(7) }));
+        app.update();
+
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<ConfirmedHistory<TestComp>>()
+        );
+    }
+
+    #[test]
+    fn inserts_history_when_interpolated_added_after_confirmed() {
+        let mut app = App::new();
+        app.add_observer(insert_confirmed_history::<TestComp>);
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let entity = app
+            .world_mut()
+            .spawn((Confirmed(TestComp(2.0)), ConfirmedTick { tick: Tick(11) }))
+            .id();
+        app.update();
+        app.world_mut().entity_mut(entity).insert(Interpolated);
+        app.update();
+
+        assert!(
+            app.world()
+                .entity(entity)
+                .contains::<ConfirmedHistory<TestComp>>()
+        );
+    }
+
+    #[test]
+    fn does_not_insert_history_without_confirmed_component() {
+        let mut app = App::new();
+        app.add_observer(insert_confirmed_history::<TestComp>);
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let entity = app.world_mut().spawn(Interpolated).id();
+        app.update();
+
+        assert!(
+            !app.world()
+                .entity(entity)
+                .contains::<ConfirmedHistory<TestComp>>()
+        );
     }
 }

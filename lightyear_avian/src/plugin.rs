@@ -292,6 +292,16 @@ impl Plugin for LightyearAvianPlugin {
             }
         }
 
+        // Avian's ColliderOf::on_insert requires GlobalTransform to set up
+        // the RigidBodyColliders relationship. Since PhysicsTransformPlugin is disabled,
+        // we register Transform as required for Collider so GlobalTransform is present.
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        app.try_register_required_components::<avian3d::prelude::Collider, Transform>()
+            .ok();
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        app.try_register_required_components::<avian2d::prelude::Collider, Transform>()
+            .ok();
+
         if self.rollback_resources {
             app.init_resource::<ContactGraph>();
             app.init_resource::<ConstraintGraph>();
@@ -361,11 +371,10 @@ impl LightyearAvianPlugin {
             app.register_required_components::<Position, ApplyPosToTransform>();
             app.register_required_components::<Rotation, ApplyPosToTransform>();
 
-            // TODO(important): handle this
-            // NOTE: we do NOT include this because Position/Rotation might not be added at the same time (for example on the Interpolated entity)
-            //  we only want to add Transform if both are added at the same time
-            // app.try_register_required_components::<Position, Transform>().ok();
-            // app.try_register_required_components::<Rotation, Transform>().ok();
+            // NOTE: we do NOT register Transform as required for Position/Rotation because
+            //  they might not be added at the same time (e.g. on Interpolated entities).
+            //  The `add_transform` system below handles adding Transform when both are present.
+            //  For physics entities, Transform is registered as required for Collider above.
         }
         let schedule = schedule.intern();
 
