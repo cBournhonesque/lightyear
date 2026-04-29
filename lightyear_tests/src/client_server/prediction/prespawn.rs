@@ -192,6 +192,74 @@ fn test_prespawn_success() {
     );
 }
 
+/// A matched prespawn should not overwrite the live predicted component with
+/// the server init value. The server value is authoritative for its confirmed
+/// tick, but the client may already have simulated ahead locally.
+#[test]
+fn test_prespawn_confirmed_init_goes_to_history_without_overwriting_live_value() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let client_prespawn = stepper
+        .client_app()
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+
+    stepper.frame_step(1);
+
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<CompFull>(client_prespawn)
+        .unwrap()
+        .0 = 2.0;
+
+    let server_prespawn = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            PreSpawned::new(1),
+            CompFull(1.0),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_prespawn)
+            .unwrap(),
+        client_prespawn
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(client_prespawn)
+            .unwrap(),
+        &CompFull(2.0)
+    );
+
+    let history = stepper
+        .client_app()
+        .world()
+        .get::<PredictionHistory<CompFull>>(client_prespawn)
+        .unwrap();
+    assert!(
+        history.buffer().iter().any(
+            |(_, state)| matches!(state, PredictionState::Confirmed(value) if value == &CompFull(1.0))
+        ),
+        "server init value should be recorded as confirmed history: {:?}",
+        history
+    );
+}
+
 /// Client and server run the same system to prespawn an entity
 /// The pre-spawn somehow fails on the client (no matching hash)
 /// The server entity should just get normally Predicted on the client

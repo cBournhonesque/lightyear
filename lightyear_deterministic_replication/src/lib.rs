@@ -25,9 +25,11 @@ use bevy_ecs::component::Component;
 
 mod archetypes;
 mod checksum;
-/// Late-join catch-up: client-driven per-component snapshot replication
-/// so that mid-game joiners can catch up to already-simulated entities.
+/// Late-join catch-up: client-driven bundled snapshot replication so that
+/// mid-game joiners can catch up to already-simulated entities.
 pub mod late_join;
+/// Configuration mode for catch-up (state-based vs input-only).
+pub mod mode;
 mod plugin;
 
 /// Commonly used items from the `lightyear_deterministic_replication` crate.
@@ -36,10 +38,11 @@ pub mod prelude {
         ChecksumHistory, ChecksumMessage, ChecksumReceivePlugin, ChecksumSendPlugin,
     };
     pub use crate::late_join::{
-        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpForEntity, CatchUpGated, CatchUpReady,
-        CatchUpRegistry, LateJoinCatchUpPlugin, PendingCatchUp, apply_catch_up_for_entity,
-        request_forced_rollback_from_confirm_history,
+        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpRegistry, CatchUpRequest,
+        CatchUpRequestReceived, CatchUpRequestSent, CatchUpServerReadiness, CatchUpSystems,
+        HasCaughtUp, LateJoinCatchUpPlugin, request_forced_rollback_to_catch_up_tick,
     };
+    pub use crate::mode::CatchUpMode;
     pub use crate::plugin::DeterministicReplicationPlugin;
 }
 

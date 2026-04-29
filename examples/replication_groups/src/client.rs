@@ -62,14 +62,13 @@ pub(crate) fn buffer_input(
             };
 
         if let Some(direction) = requested_direction {
-            let accepted_direction =
-                if last_direction.is_some_and(|previous| previous.is_opposite(direction)) {
-                    last_direction.unwrap()
-                } else {
-                    direction
-                };
-            *last_direction = Some(accepted_direction);
-            action_state.0 = Inputs::Direction(accepted_direction);
+            let current_direction = last_direction.unwrap_or(Direction::Up);
+            if current_direction.is_opposite(direction) {
+                action_state.0 = Inputs::Empty;
+            } else {
+                *last_direction = Some(direction);
+                action_state.0 = Inputs::Direction(direction);
+            }
         } else {
             // we always set the value, so that the server can distinguish between no inputs received
             // and no keys pressed

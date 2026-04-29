@@ -40,11 +40,19 @@ pub(crate) fn spawn_action_entities(
     is_server: bool,
 ) {
     let hash = action_prespawn_hash(client_id, 1);
+    let prespawned = if is_server {
+        PreSpawned::new(hash)
+    } else {
+        // The local action entity uses the hash as a stable input target, but it
+        // is not a predicted gameplay object that should be cleaned up if the
+        // server action replication arrived before the local action was spawned.
+        PreSpawned::new(hash).for_receiver(player_entity)
+    };
     let mut action = commands.spawn((
         ActionOf::<Player>::new(player_entity),
         Action::<Movement>::new(),
         Bindings::spawn(Cardinal::wasd_keys()),
-        PreSpawned::new(hash),
+        prespawned,
     ));
     if is_server {
         #[cfg(feature = "server")]

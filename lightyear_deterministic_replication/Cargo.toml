@@ -20,7 +20,7 @@ default = ["std"]
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_core.workspace = true
-lightyear_inputs = { workspace = true, features = ["client"] }
+lightyear_inputs = { workspace = true, features = ["client", "server"] }
 lightyear_link.workspace = true
 lightyear_messages.workspace = true
 lightyear_connection = { workspace = true, features = ["server"] }

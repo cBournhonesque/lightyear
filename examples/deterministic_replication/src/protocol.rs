@@ -48,12 +48,6 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-/// Replicated component set by the server to indicate the tick at which
-/// physics should start. Both server and client add physics components
-/// when `LocalTimeline::tick() >= PhysicsStartTick.0`.
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PhysicsStartTick(pub Tick);
-
 // Channel
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -101,7 +95,6 @@ impl Plugin for ProtocolPlugin {
 
         // components
         app.register_component::<PlayerId>();
-        app.register_component::<PhysicsStartTick>();
         // Physics components are replicated once (initial value on entity spawn)
         // so that late-joining clients get the correct starting state.
         // add_rollback registers PredictionHistory for rollback/checksums.

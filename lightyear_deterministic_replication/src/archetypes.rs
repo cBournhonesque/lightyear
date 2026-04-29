@@ -32,13 +32,13 @@ impl<'w, const HISTORY: bool> ChecksumWorld<'w, '_, HISTORY> {
     /// Go through new archetypes in the world and cache the ones that should be included as [`ChecksumArchetype`]
     ///
     /// Only archetypes that carry the [`Deterministic`] marker component are
-    /// considered (and, on the client side, not [`DisableRollback`]). Using
-    /// the marker — rather than "archetype happens to contain a component
-    /// with a deterministic hash fn" — keeps the server and client hashing
-    /// the same *set* of entities. Avian requires `Position` on every
-    /// `RigidBody`, so without this filter a peer would silently hash walls
-    /// only on the side where they end up in an archetype that qualifies,
-    /// producing a constant XOR delta in the checksum.
+    /// considered. Using the marker — rather than "archetype happens to
+    /// contain a component with a deterministic hash fn" — keeps the server
+    /// and client hashing the same *set* of entities. Avian requires
+    /// `Position` on every `RigidBody`, so without this filter a peer would
+    /// silently hash walls only on the side where they end up in an
+    /// archetype that qualifies, producing a constant XOR delta in the
+    /// checksum.
     pub(crate) fn update_archetypes(&mut self) {
         let archetypes = self.world.archetypes();
         let old_generation = core::mem::replace(
@@ -46,23 +46,22 @@ impl<'w, const HISTORY: bool> ChecksumWorld<'w, '_, HISTORY> {
             archetypes.generation(),
         );
         let marker_id = self.state.marker_id;
-        let disable_rollback_id = self.state.disable_rollback_id;
+        let _ = self.state.disable_rollback_id;
 
         for archetype in &archetypes[old_generation..] {
             if !archetype.contains(marker_id) {
                 continue;
             }
-            // Skip entities currently carrying `DisableRollback` on BOTH
-            // the client and the server. On the client these entities
-            // don't have a `PredictionHistory` entry for past ticks (the
-            // rollback guard inserts `DisableRollback` after a spawn so
-            // rollbacks never try to "un-spawn" them). If the server kept
-            // hashing their live components while the client skipped
-            // them, the two peers would hash different sets of entities
-            // for the ~20 ticks following each spawn.
-            if archetype.contains(disable_rollback_id) {
-                continue;
-            }
+            // NOTE: do NOT filter by `DisableRollback`. That marker is
+            // inserted on freshly-spawned `DeterministicPredicted`
+            // entities during the first rollback that reaches back
+            // before their spawn tick; it means "rollback must not
+            // rewrite this entity's state", not "do not hash this
+            // entity". The server (no rollback) never inserts it, so
+            // gating on it only on the client would desync the set of
+            // hashed entities between peers. `pop_until_tick` returning
+            // `None` is the right guard for "no history yet at this
+            // tick", and it's hit naturally on freshly-spawned entities.
             let mut checksum_archetype = ChecksumArchetype::new(archetype.id());
             self.state.hash_fns.keys().for_each(|component_id| {
                 if archetype.contains(*component_id) {

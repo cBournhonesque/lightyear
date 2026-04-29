@@ -240,7 +240,8 @@ pub(crate) fn shoot_bullet(
     mut query: Query<
         (
             &PlayerId,
-            &Transform,
+            &Position,
+            &Rotation,
             &ColorComponent,
             &ActionState<PlayerActions>,
             &LeafwingBuffer<PlayerActions>,
@@ -254,7 +255,7 @@ pub(crate) fn shoot_bullet(
     let has_client = !client.is_empty();
     let is_host_server = !host_server.is_empty();
     let client_is_synced = !synced_client.is_empty();
-    for (id, transform, color, action, input_buffer, controlled_by, is_predicted) in
+    for (id, position, rotation, color, action, input_buffer, controlled_by, is_predicted) in
         query.iter_mut()
     {
         if should_skip_client_side_entity(
@@ -272,17 +273,22 @@ pub(crate) fn shoot_bullet(
             action.just_pressed(&PlayerActions::Shoot)
         };
         if should_shoot {
-            debug!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
             // for delta in [-0.2, 0.2] {
             for delta in [0.0] {
                 let salt: u64 = if delta < 0.0 { 0 } else { 1 };
                 let prespawn_hash = bullet_prespawn_hash(id.0, tick, salt);
                 // shoot from the position of the player, towards the cursor, with an angle of delta
-                let mut bullet_transform = transform.clone();
-                bullet_transform.rotate_z(delta);
+                let bullet_position = *position;
+                let bullet_rotation = Rotation::from(rotation.as_radians() + delta);
+                let bullet_transform = Transform::from_translation(bullet_position.0.extend(0.0))
+                    .with_rotation(Quat::from_rotation_z(bullet_rotation.as_radians()));
+                let bullet_velocity = LinearVelocity(bullet_rotation * Vec2::Y * BULLET_MOVE_SPEED);
+                debug!(?tick, pos=?bullet_transform.translation.truncate(), rot=?bullet_transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
                 let bullet_bundle = (
+                    bullet_position,
+                    bullet_rotation,
                     bullet_transform,
-                    LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
+                    bullet_velocity,
                     RigidBody::Kinematic,
                     // store the player who fired the bullet
                     *id,
@@ -292,27 +298,54 @@ pub(crate) fn shoot_bullet(
                 );
 
                 // on the server, replicate the bullet
-                if is_server {
+                let bullet_entity = if is_server {
                     #[cfg(feature = "server")]
-                    commands.spawn((
-                        bullet_bundle,
-                        // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
-                        //  but the server will take authority as soon as the client receives the entity
-                        //  it does this by matching with the client entity that has the same hash
-                        //  Use an explicit hash so same-tick bullets from different players cannot collide.
-                        PreSpawned::new(prespawn_hash),
-                        DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
-                        Replicate::to_clients(NetworkTarget::All),
-                        PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
-                        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                        controlled_by.unwrap().clone(),
-                    ));
+                    {
+                        commands
+                            .spawn((
+                                bullet_bundle,
+                                // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
+                                //  but the server will take authority as soon as the client receives the entity
+                                //  it does this by matching with the client entity that has the same hash
+                                //  Use an explicit hash so same-tick bullets from different players cannot collide.
+                                PreSpawned::new(prespawn_hash),
+                                DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
+                                Replicate::to_clients(NetworkTarget::All),
+                                PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(
+                                    id.0,
+                                )),
+                                controlled_by.unwrap().clone(),
+                            ))
+                            .id()
+                    }
+                    #[cfg(not(feature = "server"))]
+                    {
+                        unreachable!("server bullet spawn requires the server feature")
+                    }
                 } else {
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((bullet_bundle, PreSpawned::new(prespawn_hash)));
-                }
+                    commands
+                        .spawn((bullet_bundle, PreSpawned::new(prespawn_hash)))
+                        .id()
+                };
+                lightyear_debug_event!(
+                    DebugCategory::Prediction,
+                    DebugSamplePoint::FixedUpdate,
+                    "FixedUpdate",
+                    "bullet_spawn",
+                    tick = ?tick,
+                    entity = ?bullet_entity,
+                    client_id = ?id.0,
+                    prespawn_hash = prespawn_hash,
+                    is_server = is_server,
+                    position = ?bullet_position,
+                    rotation = ?bullet_rotation,
+                    velocity = ?bullet_velocity,
+                    "Spawn bullet"
+                );
             }
         }
     }

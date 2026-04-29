@@ -1,18 +1,16 @@
 use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
-use crate::shared::{GameStartMode, player_bundle};
+use crate::shared::player_bundle;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated};
+use lightyear_deterministic_replication::prelude::{
+    AppCatchUpExt, CatchUpGated, CatchUpServerReadiness, CatchUpSystems,
+};
 use lightyear_examples_common::shared::SEND_INTERVAL;
-
-/// How many ticks in the future to schedule physics start, giving clients
-/// time to receive the `PhysicsStartTick` component via replication.
-const START_TICK_BUFFER: i32 = 20;
 
 #[derive(Clone)]
 pub struct ExampleServerPlugin;
@@ -28,25 +26,88 @@ impl Plugin for ExampleServerPlugin {
         }
         // The LateJoinCatchUpPlugin itself is added by ProtocolPlugin
         // (in SharedPlugin) so it runs before `cli.spawn_connections`.
-        // Here we register which components are catch-up-gated: they
-        // are hidden from each client by default and only sent once
-        // after the client explicitly requests catch-up (see
+        // Register which components are catch-up-gated: they are hidden
+        // from each client by default and only sent once after the
+        // client explicitly requests catch-up (see
         // `lightyear_deterministic_replication::late_join`).
         app.register_catchup_components::<(Position, Rotation, LinearVelocity, AngularVelocity)>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
         app.add_systems(
-            FixedPreUpdate,
-            (schedule_physics_start, activate_physics_at_tick).chain(),
+            PreUpdate,
+            update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
         );
     }
+}
+
+/// Update [`CatchUpServerReadiness`] so the late-join catch-up plugin
+/// knows when it's safe to send a bundled snapshot.
+///
+/// The snapshot computed at server tick `T` is only usable by the
+/// requesting client if every other client's inputs have been received by
+/// the server up through `T`. Otherwise the server simulated `T` using
+/// extrapolated/decayed input for lagging clients, and the snapshot diverges
+/// from what the clients' own input buffers say.
+///
+/// Concretely: `all_clients_ready` is true when every player entity on the
+/// server has a `LeafwingBuffer<PlayerActions>` whose `last_remote_tick`
+/// is `Some(tick)` with `tick >= server_current_tick`.
+///
+/// For the local player (one client per server), the `LeafwingBuffer`'s
+/// `last_remote_tick` is populated as soon as the first input message from
+/// that client arrives. So the readiness flag flips to `true` once inputs
+/// have started flowing from every connected client — which is exactly
+/// when the bundled snapshot becomes consistent.
+/// Update [`CatchUpServerReadiness`] so the late-join catch-up plugin knows
+/// when it is safe to send a bundled snapshot.
+///
+/// Readiness criterion: **every player entity has a non-empty `InputBuffer`
+/// with `start_tick <= current_tick`.**
+///
+/// This guarantees that when the bundled snapshot lands on a client and
+/// that client rolls back to the snapshot tick `T`, the client's rebroadcast
+/// buffer for every remote player has entries covering the replay window
+/// `[T+1, current_tick]`. Without this, the client's `get_action_state`
+/// would hit its "no buffered entry" branch during replay and decay the
+/// current ActionState — which on a recently-received-first-press remote
+/// player is "Pressed", diverging from the server's "default Released"
+/// interpretation.
+///
+/// Equivalently: the snapshot cannot be emitted before every client has
+/// sent its first input message to the server. Before a client's first
+/// message arrives, neither the server nor any other client knows that
+/// client's ActionState for those ticks, and their fallbacks disagree.
+fn update_catch_up_server_readiness(
+    timeline: Res<LocalTimeline>,
+    players: Query<Option<&LeafwingBuffer<PlayerActions>>, With<PlayerId>>,
+    mut readiness: ResMut<CatchUpServerReadiness>,
+) {
+    let current_tick = timeline.tick();
+    let mut any = false;
+    let ready = players.iter().all(|b| {
+        any = true;
+        match b {
+            Some(b) => matches!(b.start_tick, Some(t) if t <= current_tick),
+            None => false,
+        }
+    });
+    readiness.all_clients_ready = any && ready;
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
+/// Spawn the player entity with the full deterministic simulation bundle
+/// the moment the client connects.
+///
+/// The server simulates from here. Physics components are hidden from every
+/// client by `CatchUpGated` and only replicated once a client explicitly
+/// requests a catch-up snapshot (see
+/// [`lightyear_deterministic_replication::late_join`]). That gives the
+/// connecting client time to accumulate the rebroadcast-input window
+/// required to deterministically replay from the snapshot tick to "now".
 pub(crate) fn handle_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
@@ -59,90 +120,25 @@ pub(crate) fn handle_connected(
     commands.spawn((
         Replicate::to_clients(NetworkTarget::All),
         PlayerId(remote_id.0),
-        WaitingForFirstInput,
-        // CatchUpGated: hide registered physics components from every client
-        // until that client sends `CatchUpForEntity`. Structural components
-        // (PlayerId, DeterministicPredicted, PhysicsStartTick) are still
-        // replicated normally, so clients know the entity exists and can
-        // subscribe to input rebroadcasts for it.
+        player_bundle(remote_id.0),
+        // `skip_despawn: true` — the player is spawned by a
+        // non-deterministic event (the user connecting). Rollback must
+        // not despawn the entity, and `enable_rollback_after: N`
+        // prevents restoring history for ticks before the entity
+        // existed on this peer.
+        DeterministicPredicted {
+            skip_despawn: true,
+            ..default()
+        },
+        // `CatchUpGated` hides the registered physics components
+        // (Position, Rotation, LinearVelocity, AngularVelocity) from
+        // every client that has not yet caught up. Each client sends a
+        // single bodyless `CatchUpRequest` once it's synced, and the
+        // server flips visibility to *visible* for every `CatchUpGated`
+        // entity at once — producing a single coherent bundled snapshot.
+        // Structural components (`PlayerId`, etc.) still replicate
+        // immediately, so clients see the entity + marker and can
+        // subscribe to rebroadcast inputs right away.
         CatchUpGated,
     ));
-}
-
-#[derive(Component)]
-pub struct WaitingForFirstInput;
-
-/// When required players have sent their first input, schedule a future
-/// start tick and replicate `PhysicsStartTick` to all player entities.
-fn schedule_physics_start(
-    mut commands: Commands,
-    waiting: Query<(Entity, &PlayerId), With<WaitingForFirstInput>>,
-    buffers: Query<&LeafwingBuffer<PlayerActions>>,
-    game_start_mode: Res<GameStartMode>,
-    timeline: Res<LocalTimeline>,
-) {
-    let ready_entities: Vec<(Entity, &PlayerId)> = match game_start_mode.as_ref() {
-        GameStartMode::Flexible => waiting
-            .iter()
-            .filter(|(entity, _)| buffers.get(*entity).is_ok())
-            .collect(),
-        GameStartMode::AllReady { num_players } => {
-            let count = waiting.iter().count();
-            if count < *num_players {
-                return;
-            }
-            if !waiting
-                .iter()
-                .all(|(entity, _)| buffers.get(entity).is_ok())
-            {
-                return;
-            }
-            waiting.iter().collect()
-        }
-    };
-
-    if ready_entities.is_empty() {
-        return;
-    }
-
-    let start_tick = timeline.tick() + START_TICK_BUFFER;
-    info!(
-        "Server: scheduling physics start at tick {:?} for {} player(s)",
-        start_tick,
-        ready_entities.len()
-    );
-    for (entity, _player_id) in ready_entities {
-        commands.entity(entity).remove::<WaitingForFirstInput>();
-        commands.entity(entity).insert(PhysicsStartTick(start_tick));
-    }
-}
-
-/// When the current tick reaches the scheduled start tick, add physics.
-fn activate_physics_at_tick(
-    mut commands: Commands,
-    timeline: Res<LocalTimeline>,
-    pending: Query<(Entity, &PlayerId, &PhysicsStartTick), Without<Position>>,
-) {
-    let tick = timeline.tick();
-    for (entity, player_id, start) in pending.iter() {
-        if tick >= start.0 {
-            info!(
-                "Server: activating physics for player {:?} at tick {:?}",
-                player_id.0, tick
-            );
-            // `DeterministicPredicted` pulls in the `Deterministic` marker
-            // (via `register_required_components`), which is how the
-            // checksum system identifies which entities to hash. The
-            // client inserts the same marker when it activates physics;
-            // adding it here keeps the server hashing the same *set* of
-            // entities as the clients.
-            commands.entity(entity).insert((
-                player_bundle(player_id.0),
-                DeterministicPredicted {
-                    skip_despawn: false,
-                    ..default()
-                },
-            ));
-        }
-    }
 }

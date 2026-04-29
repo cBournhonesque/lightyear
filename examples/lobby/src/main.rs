@@ -14,7 +14,7 @@
 
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::{LinkConditionerConfig, RecvLinkConditioner};
+use lightyear::prelude::{LinkConditionerConfig, PeerId, RecvLinkConditioner};
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::{
     CLIENT_PORT, FIXED_TIMESTEP_HZ, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS,
@@ -35,6 +35,11 @@ mod server;
 mod shared;
 
 pub const HOST_SERVER_PORT: u16 = 5050;
+const HOST_SERVER_PORT_RANGE: u16 = 1000;
+
+pub fn host_server_port(host: PeerId) -> u16 {
+    HOST_SERVER_PORT + (host.to_bits() % u64::from(HOST_SERVER_PORT_RANGE)) as u16
+}
 
 fn main() {
     let cli = Cli::default();
@@ -96,9 +101,13 @@ fn main() {
         });
         let port = match cli.mode {
             Some(Mode::Server) => SERVER_PORT,
-            // in client mode, we still start a server in case the server becomes a host-server
+            // in client mode, we still start a server in case the server becomes a host-server.
+            // Use a deterministic per-client port so multiple local clients do not all bind
+            // HOST_SERVER_PORT and accidentally connect back to their own standby server.
             #[cfg(feature = "client")]
-            Some(Mode::Client { .. }) => HOST_SERVER_PORT,
+            Some(Mode::Client { client_id }) => host_server_port(PeerId::Netcode(
+                client_id.expect("You need to specify a client_id via `-c ID`"),
+            )),
             _ => panic!("Only server or client mode is supported in this example"),
         };
         let server = app

@@ -47,12 +47,15 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
 /// I would also advise to use the `leafwing` feature to use the `LeafwingInputPlugin` instead of the
 /// `InputPlugin`, which contains more features.
 fn buffer_input(
+    timeline: Res<LocalTimeline>,
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     automation: Option<Res<automation::client::AutomationSettings>>,
     keypress: Option<Res<ButtonInput<KeyCode>>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        let mut direction = automation::client::direction_override(automation).unwrap_or_default();
+        let current_tick = timeline.tick();
+        let mut direction =
+            automation::client::direction_override(automation, current_tick).unwrap_or_default();
 
         if direction.is_none() {
             if let Some(keypress) = keypress {
@@ -73,6 +76,15 @@ fn buffer_input(
         // we always set the value. Setting it to None means that the input was missing, it's not the same
         // as saying that the input was 'no keys pressed'
         action_state.0 = Inputs::Direction(direction);
+        trace!(
+            target: "lightyear_debug::simple_box",
+            kind = "simple_box_client_input",
+            schedule = "FixedPreUpdate",
+            sample_point = "FixedPreUpdate",
+            local_tick = current_tick.0,
+            input = ?action_state.0,
+            "selected simple_box client input"
+        );
     }
 }
 

@@ -51,7 +51,7 @@ impl ChecksumSendPlugin {
             (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
-        awaiting_query: Query<(), With<AwaitingCatchUpSnapshot>>,
+        awaiting: Res<AwaitingCatchUpSnapshot>,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
         let mut checksum = 0u64;
@@ -62,12 +62,12 @@ impl ChecksumSendPlugin {
         if tick > current_tick {
             return;
         }
-        // Skip the whole tick if any entity is still waiting for its
-        // catch-up snapshot. The client's state for that entity is known
-        // to not match the server, and filtering it out of the XOR would
-        // leave the server computing over a superset — producing a
-        // sustained mismatch for every other entity too.
-        if !awaiting_query.is_empty() {
+        // Skip the whole tick while the client is still waiting for the
+        // bundled catch-up snapshot. The client's state for CatchUpGated
+        // entities is known to not match the server, and filtering them
+        // out of the XOR would leave the server computing over a superset
+        // — producing a sustained mismatch for every other entity too.
+        if awaiting.is_awaiting() {
             return;
         }
         // Skip if a one-shot forced rollback is scheduled but not yet

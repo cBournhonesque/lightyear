@@ -28,6 +28,7 @@ use core::fmt::Debug;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::tick::Tick;
 use lightyear_replication::delta::Diffable;
+use lightyear_replication::prelude::PreSpawned;
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
@@ -518,6 +519,15 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         });
         self.app
             .set_marker_fns::<Predicted, C>(write_history::<C>, remove_history::<C>);
+        // A prespawned entity can receive replicated component data before the
+        // server match has inserted `Predicted`. Keep that authoritative data in
+        // history so it cannot overwrite the live locally-predicted component.
+        self.app.register_marker_with::<PreSpawned>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app
+            .set_marker_fns::<PreSpawned, C>(write_history::<C>, remove_history::<C>);
         let history_id = self
             .app
             .world_mut()

@@ -88,6 +88,17 @@ fn movement(
             continue;
         }
         trace!(?tick, ?position, ?inputs, "server");
+        trace!(
+            target: "lightyear_debug::simple_box",
+            kind = "simple_box_server_input",
+            schedule = "FixedUpdate",
+            sample_point = "FixedUpdate",
+            local_tick = tick.0,
+            input = ?inputs.0,
+            position = ?position.0,
+            predicted,
+            "applied simple_box server input"
+        );
         shared::shared_movement_behaviour(position, inputs);
     }
 }

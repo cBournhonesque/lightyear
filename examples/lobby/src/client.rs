@@ -2,7 +2,6 @@ use core::net::{Ipv4Addr, SocketAddr};
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
-use crate::HOST_SERVER_PORT;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lightyear::input::client::InputSystems;
@@ -212,7 +211,7 @@ mod lobby {
 
     use super::*;
     use crate::client::{lobby, AppState};
-    use crate::HOST_SERVER_PORT;
+    use crate::host_server_port;
     use bevy::platform::collections::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
@@ -480,7 +479,8 @@ mod lobby {
                         reason: "Connecting to host-client".to_string(),
                     });
 
-                    let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HOST_SERVER_PORT);
+                    let host_addr =
+                        SocketAddr::new(Ipv4Addr::LOCALHOST.into(), host_server_port(host));
                     let auth = Authentication::Manual {
                         server_addr: host_addr,
                         client_id: local_id.0.to_bits(),

@@ -402,6 +402,7 @@ fn check_rollback(
     // policy-driven rollbacks and fire regardless of `rollback_policy.state`.
     // This lets one-shot mechanisms (e.g. late-join catch-up) trigger a
     // rollback even on a client whose normal rollback policy is `Disabled`.
+    let mut forced_rollback_requested = false;
     if let Some(forced_tick) = state_metadata.forced_rollback_tick.take() {
         debug!(
             ?forced_tick,
@@ -422,6 +423,7 @@ fn check_rollback(
             &mut commands,
             Rollback::FromState,
         );
+        forced_rollback_requested = true;
     }
 
     // if there we check for rollback on both state and input, state takes precedence
@@ -664,27 +666,48 @@ fn check_rollback(
         // - if rollback_tick is bigger than the tick, then we remove DisableRollback and remove the entity from the vec because
         //   the entity was spawned a while ago and we want to enable rollbacks again
         // - for all remaining entities (where rollback_tick < tick) we insert DisableRollback
-        let split_idx = prediction_manager
-            .deterministic_skip_despawn
-            .partition_point(|(t, _)| *t <= rollback_tick);
-        let should_disable_rollback = prediction_manager
-            .deterministic_skip_despawn
-            .split_off(split_idx);
-        should_disable_rollback.iter().for_each(|(_, e)| {
-            if let Ok(mut c) = commands.get_entity(*e) {
-                c.insert(DisableRollback);
-            }
-        });
-        prediction_manager
-            .deterministic_skip_despawn
-            .iter()
-            .for_each(|(_, e)| {
+        //
+        // Exception: a forced rollback is an explicit one-shot reconcile
+        // (e.g. late-join catch-up) where the caller has already deposited
+        // authoritative confirmed state at `rollback_tick` for every
+        // relevant entity. Stamping `DisableRollback` on skip-despawn
+        // entities during such a reconcile would exclude them from
+        // `prepare_rollback` and leave their prediction history out of sync
+        // with the rest of the world. Treat the forced rollback as the
+        // moment the protection window ends: clear `DisableRollback` on
+        // every skip-despawn entity and drain the queue.
+        if forced_rollback_requested {
+            prediction_manager
+                .deterministic_skip_despawn
+                .drain(..)
+                .for_each(|(_, e)| {
+                    if let Ok(mut c) = commands.get_entity(e) {
+                        c.remove::<DisableRollback>();
+                    }
+                });
+        } else {
+            let split_idx = prediction_manager
+                .deterministic_skip_despawn
+                .partition_point(|(t, _)| *t <= rollback_tick);
+            let should_disable_rollback = prediction_manager
+                .deterministic_skip_despawn
+                .split_off(split_idx);
+            should_disable_rollback.iter().for_each(|(_, e)| {
                 if let Ok(mut c) = commands.get_entity(*e) {
-                    c.remove::<DisableRollback>();
+                    c.insert(DisableRollback);
                 }
             });
-        // we only keep the entities for which we disabled rollback
-        prediction_manager.deterministic_skip_despawn = should_disable_rollback;
+            prediction_manager
+                .deterministic_skip_despawn
+                .iter()
+                .for_each(|(_, e)| {
+                    if let Ok(mut c) = commands.get_entity(*e) {
+                        c.remove::<DisableRollback>();
+                    }
+                });
+            // we only keep the entities for which we disabled rollback
+            prediction_manager.deterministic_skip_despawn = should_disable_rollback;
+        }
     }
 }
 
@@ -930,8 +953,30 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
     let history_value = history.clear_except_tick(rollback_tick);
 
     // 1. restore the resource to the historical value
+    //
+    // `None` and `Some(HistoryState::Removed)` mean very different things
+    // and must be handled separately:
+    //
+    // - `Some(HistoryState::Removed)`: we have an authoritative record
+    //   that the resource was absent at `rollback_tick`. Removing it from
+    //   the world is correct.
+    // - `None`: we have no record at or before `rollback_tick`. That
+    //   typically means history tracking simply hadn't started yet (e.g.
+    //   the resource was initialised before the first rollback, or the
+    //   rollback target predates the first `update_resource_history`
+    //   write on this peer). Removing the resource here would delete
+    //   valid current state for no good reason — and in the case of
+    //   rollback-tracked Avian resources like `ContactGraph`, it
+    //   panics the next Avian system that needs it. Leave it alone.
     match history_value {
-        None | Some(HistoryState::Removed) => {
+        None => {
+            trace!(
+                ?kind,
+                ?rollback_tick,
+                "No history entry for resource at rollback tick; leaving current value in place"
+            );
+        }
+        Some(HistoryState::Removed) => {
             if resource.is_some() {
                 debug!(
                     ?kind,

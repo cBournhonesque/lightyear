@@ -142,13 +142,21 @@ mod game {
 
     /// Read client inputs and move players
     pub(crate) fn movement(
-        server_started: Single<(), (With<Server>, With<Started>)>,
-        // add a Without<Client> so that we don't run the movement system twice in host-client mode
-        // for the controlled entity
+        _server_started: Single<(), (With<Server>, With<Started>)>,
+        local_clients: Query<(), With<Client>>,
         host_server: Query<(), With<HostServer>>,
         mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>, Has<Predicted>)>,
     ) {
+        let has_local_client = !local_clients.is_empty();
         let is_host_server = !host_server.is_empty();
+
+        // Client-mode apps keep a local server available so they can later become
+        // the host. Until that server is linked as the active HostServer, it must
+        // not simulate entities replicated from the dedicated server or real host.
+        if has_local_client && !is_host_server {
+            return;
+        }
+
         for (position, inputs, predicted) in position_query.iter_mut() {
             if is_host_server && predicted {
                 continue;
