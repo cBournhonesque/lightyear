@@ -7,7 +7,7 @@ use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
-use lightyear_frame_interpolation::FrameInterpolate;
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
@@ -21,6 +21,16 @@ impl Plugin for SharedPlugin {
         app.add_plugins(ProtocolPlugin);
         // bundles
         app.add_systems(Startup, init);
+
+        // Frame interpolation on Position/Rotation. Even without a GUI, we
+        // need this for its `FrameInterpolationSystems::Restore` system to
+        // run in `RunFixedMainLoop` BEFORE Avian's `transform_to_position`
+        // sync — otherwise the post-rollback Position gets overwritten by
+        // the (stale) Transform at the start of each FixedUpdate. See the
+        // TODO in `lightyear_avian/src/plugin.rs::AvianReplicationMode::Position`.
+        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_observer(add_frame_interpolation_components);
 
         // physics
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
@@ -52,6 +62,28 @@ impl Plugin for SharedPlugin {
                 .before(PhysicsSystems::StepSimulation),
         );
         app.add_systems(FixedLast, emit_fixed_last_players);
+    }
+}
+
+/// Insert `FrameInterpolate<Position>` / `FrameInterpolate<Rotation>` on any
+/// `DeterministicPredicted` entity with `Position`. Required so that
+/// `FrameInterpolationSystems::Restore` runs BEFORE Avian's transform→position
+/// sync at each FixedUpdate iteration, preserving post-rollback Position.
+///
+/// Triggered on `DeterministicPredicted` add (not `Position` add) because on
+/// the client, catch-up gated entities already have `Position` when
+/// `DeterministicPredicted` is inserted — so an `On<Add, Position>` observer
+/// would miss them.
+fn add_frame_interpolation_components(
+    trigger: On<Add, DeterministicPredicted>,
+    query: Query<(), (With<Position>, Without<FrameInterpolate<Position>>)>,
+    mut commands: Commands,
+) {
+    if query.get(trigger.entity).is_ok() {
+        commands.entity(trigger.entity).insert((
+            FrameInterpolate::<Position>::default(),
+            FrameInterpolate::<Rotation>::default(),
+        ));
     }
 }
 

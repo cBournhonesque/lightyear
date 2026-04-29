@@ -2,9 +2,7 @@ use crate::protocol::*;
 use crate::shared::Wall;
 use avian2d::prelude::{Position, Rotation};
 use bevy::prelude::*;
-use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::{InterpolationSystems, RollbackSystems};
-use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -19,26 +17,9 @@ impl Plugin for ExampleRendererPlugin {
                 .after(InterpolationSystems::Interpolate)
                 .after(RollbackSystems::VisualCorrection),
         );
-
-        // add visual interpolation for Position and Rotation
-        // (normally we would interpolate on Transform but here this is fine
-        // since rendering is done via Gizmos that only depend on Position/Rotation)
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
-        app.add_observer(add_visual_interpolation_components);
-    }
-}
-
-fn add_visual_interpolation_components(
-    trigger: On<Add, Position>,
-    predicted: Query<(), With<DeterministicPredicted>>,
-    mut commands: Commands,
-) {
-    if let Ok(()) = predicted.get(trigger.entity) {
-        commands.entity(trigger.entity).insert((
-            FrameInterpolate::<Position>::default(),
-            FrameInterpolate::<Rotation>::default(),
-        ));
+        // FrameInterpolation<Position/Rotation> is now registered in SharedPlugin
+        // so both headless and GUI runs get the Restore system (required for
+        // correct post-rollback Position under AvianReplicationMode::Position).
     }
 }
 
