@@ -15,6 +15,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(player_movement);
@@ -35,6 +36,16 @@ fn player_movement(
     }
 }
 
+pub(crate) fn handle_controlled_spawn(trigger: On<Add, Controlled>, mut commands: Commands) {
+    let entity = trigger.entity;
+    warn!("Add InputMarker to entity: {:?}", entity);
+    commands.spawn((
+        ActionOf::<Player>::new(entity),
+        Action::<Movement>::new(),
+        Bindings::spawn(Cardinal::wasd_keys()),
+    ));
+}
+
 /// When the predicted copy of the client-owned entity is spawned, do stuff
 /// - assign it a different saturation
 /// - keep track of it in the Global resource
@@ -50,15 +61,6 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
-        if controlled {
-            // add Action entities to the predicted Context
-            commands.spawn((
-                ActionOf::<Player>::new(entity),
-                Action::<Movement>::new(),
-                Bindings::spawn(Cardinal::wasd_keys()),
-            ));
-        }
     }
 }
 
