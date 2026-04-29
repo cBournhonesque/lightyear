@@ -1,7 +1,6 @@
 # Bevy enhanced inputs
 
-Client-server: inputs don't work.
-Host-client: also seems broken.
+Occasional prediction glitches: timeline sync error, or the inputs did not arrive on time on the server?
 
 Also got a panic with:
 ```
@@ -18,22 +17,21 @@ The simulation is not deterministic.
 
 # FPS
 
+Saw this panic:
+```
+thread 'Compute Task Pool (4)' (44375415) panicked at lightyear_prediction/src/rollback.rs:512:29:
+missing authoritative checkpoint mapping for ConfirmHistory
+```
 Client-server: The movement seems to go too fast and are not totally smooth.
 
-Prespawned bullets is broken: bullets seem to be spawned aat (0, 0), and trigger spurious rollbacks.
+Prespawned bullets is broken: bullets seem to be spawned at (0, 0), and trigger spurious rollbacks.
 Normally everything should be smooth.
 
 # Lobby
 
-For a lobby where the server is hosting: inputs were broken for one of the players.
-(it seems like 2 movement systems are running)?
+For a lobby where one of the players is hosting: the non-host client sometimes gets very jittery replicated movement,
+Issue with timeline sync? what is causing the excessive rollback?
 
-For a lobby where one of the players is hosting: the non-host client gets very jittery replicated movement,
-as if the interpolation is not working
-
-# Priority
-
-TODO: (not now, later) port to replicon's priority handling
 
 # Projectiles
 
@@ -48,16 +46,14 @@ Moving the cursor doesn't move the direction of the player.
 
 There is no score displayed.
 
-# Replication groups
 
-Also pressing the direction opposite to the direction of the snake should do nothing instead of moving forward.
-
-# Simple box
-
-Client-server: the initial movements are still replicated in a very delayed manner. Timeline sync issue?
 
 # Spaceships
-Is input delay enabled?
+
+The prespawned bullets are smooth, good job!
+
 Issues:
-- Projectiles last for a short amount of time after a collision.
-- Projectiles are jittery on the remote client (the client not shooting).
+- Projectiles last for a short amount of time after a collision. They should disappear immediately
+- Projectiles are not displayed on remote client
+- Projectiles don't push the balls, normally they should
+- Score does not update on hit

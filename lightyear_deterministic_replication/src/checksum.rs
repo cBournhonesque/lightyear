@@ -124,6 +124,7 @@ impl Plugin for ChecksumSendPlugin {
             app.add_plugins(DeterministicReplicationPlugin);
         }
 
+        app.init_resource::<AwaitingCatchUpSnapshot>();
         // we need the LastConfirmedInput to compute the checksums
         app.register_required_components::<InputTimeline, LastConfirmedInput>();
 
