@@ -89,6 +89,11 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation()
             .enable_correction();
 
+        // Bullet motion is simulated by Avian from LinearVelocity. Predicted bullets need the same
+        // velocity in rollback history as the server entity, otherwise replay re-simulates from stale
+        // or missing physics state and repeatedly corrects bullet positions.
+        app.register_component::<LinearVelocity>().add_prediction();
+
         app.register_component::<ColorComponent>();
 
         app.register_component::<Score>();

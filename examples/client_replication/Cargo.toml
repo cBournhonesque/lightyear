@@ -13,9 +13,18 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = ["gui", "lightyear/client", "lightyear_examples_common/client"]
+client = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 gui = ["lightyear_examples_common/gui2d"]
-server = ["lightyear/server", "lightyear_examples_common/server"]
+server = [
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 netcode = ["lightyear_examples_common/netcode"]
 udp = [
   "lightyear_examples_common/udp",
@@ -32,7 +41,10 @@ lightyear = { "workspace" = true, features = [
   "input_bei",
 ] }
 bevy_enhanced_input.workspace = true
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
+bevy_replicon.workspace = true
 
 serde.workspace = true
 bevy.workspace = true

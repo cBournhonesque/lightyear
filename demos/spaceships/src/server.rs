@@ -15,6 +15,7 @@ use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{apply_action_state_to_player_movement, color_from_id};
@@ -24,6 +25,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, init);
 
         app.add_observer(handle_new_client);
@@ -83,13 +86,7 @@ fn init(mut commands: Commands) {
 
 /// Add the ReplicationSender component to new clients
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 /// Whenever a new client connects, spawn their spaceship
@@ -240,7 +237,7 @@ fn server_stall_system(mut stall: ResMut<ServerStallStress>, local_timeline: Res
     let tick = local_timeline.tick();
     if let Some(last) = stall.last_stall_tick {
         let delta = tick.0.wrapping_sub(last.0);
-        if delta < stall.interval_ticks as u16 {
+        if delta < stall.interval_ticks {
             return;
         }
     }

@@ -10,8 +10,8 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
 use lightyear_messages::prelude::{AppTriggerExt, EventSender, RemoteEvent};
 use lightyear_messages::registry::MessageRegistry;
-use lightyear_replication::message::MetadataChannel;
-use lightyear_replication::registry::registry::ComponentRegistry;
+use lightyear_replication::metadata::MetadataChannel;
+use lightyear_replication::registry::ComponentRegistry;
 use lightyear_transport::prelude::{
     AppChannelExt, ChannelMode, ChannelRegistry, ChannelSettings, ReliableSettings,
 };

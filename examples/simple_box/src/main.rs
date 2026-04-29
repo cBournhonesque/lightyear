@@ -22,6 +22,7 @@ use lightyear_examples_common::cli::{Cli, Mode};
 
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;

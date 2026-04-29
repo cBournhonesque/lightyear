@@ -172,6 +172,16 @@ impl MapEntities for Direction {
 }
 
 impl Direction {
+    pub fn is_opposite(self, other: Self) -> bool {
+        matches!(
+            (self, other),
+            (Self::Up, Self::Down)
+                | (Self::Down, Self::Up)
+                | (Self::Left, Self::Right)
+                | (Self::Right, Self::Left)
+        )
+    }
+
     // Get the direction from `from` to `to` (doesn't handle diagonals)
     pub fn from_points(from: Vec2, to: Vec2) -> Option<Self> {
         if from.x != to.x && from.y != to.y {
@@ -249,6 +259,6 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<TailLength>();
 
-        app.register_component::<PlayerParent>().add_map_entities();
+        app.register_component::<PlayerParent>();
     }
 }

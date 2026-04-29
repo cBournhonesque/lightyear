@@ -1,9 +1,10 @@
 use crate::client_server::prediction::trigger_state_rollback;
 use crate::protocol::{BEIAction1, BEIContext};
 use crate::stepper::*;
-use bevy::app::{App, FixedPostUpdate};
+use bevy::app::{App, FixedPostUpdate, FixedPreUpdate};
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
+use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::prelude::*;
 use lightyear::input::bei;
 use lightyear::input::bei::input_message::{ActionData, ActionsSnapshot, BEIStateSequence};
@@ -16,29 +17,78 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_replication::prelude::{PredictionTarget, Replicate};
+use lightyear_replication::prelude::{PreSpawned, PredictionTarget, Replicate};
 use lightyear_sync::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use test_log::test;
 use tracing::info;
 
-/// Check that we can insert actions on the client entity
-#[test]
-fn test_actions_on_client_entity() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    // we spawn an action entity on the client
-    let client_entity = stepper.client(0).id();
+const TEST_HASH: u64 = 42;
+
+#[derive(Resource, Default)]
+struct SawServerFiredAction(bool);
+
+fn record_server_fired_action(
+    timeline: Res<LocalTimeline>,
+    query: Query<&BEIBuffer<BEIContext>>,
+    mut saw: ResMut<SawServerFiredAction>,
+) {
+    if saw.0 {
+        return;
+    }
+
+    let tick = timeline.tick();
+    saw.0 = query.iter().any(|buffer| {
+        (0..=1).any(|offset| {
+            let sample_tick = tick - offset;
+            buffer
+                .get(sample_tick)
+                .is_some_and(|snapshot| snapshot.state == TriggerState::Fired)
+        })
+    });
+}
+
+/// Helper: spawn an action entity on both client and server with PreSpawned matching.
+/// Returns (client_action, server_action).
+fn spawn_action_pair(
+    stepper: &mut ClientServerStepper,
+    client_context: Entity,
+    server_context: Entity,
+    hash: u64,
+) -> (Entity, Entity) {
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_context),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(hash),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
     let client_action = stepper
         .client_app()
         .world_mut()
         .spawn((
-            ActionOf::<BEIContext>::new(client_entity),
+            ActionOf::<BEIContext>::new(client_context),
             Action::<BEIAction1>::default(),
+            PreSpawned::new(hash),
         ))
         .id();
+    (client_action, server_action)
+}
+
+/// Check that we can insert actions on the client entity using PreSpawned
+#[test]
+fn test_actions_on_client_entity() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let client_entity = stepper.client(0).id();
+    let client_of_entity = stepper.client_of(0).id();
+
+    let (client_action, server_action) =
+        spawn_action_pair(&mut stepper, client_entity, client_of_entity, TEST_HASH);
     stepper.frame_step(1);
+
     // Add an InputMarker to the Context entity on the client
-    // to indicate that the client controls this entity
-    // (it gets propagated to the Action entity)
     stepper
         .client_app()
         .world_mut()
@@ -48,16 +98,7 @@ fn test_actions_on_client_entity() {
             bei::prelude::InputMarker::<BEIContext>::default(),
         ));
 
-    let server_action = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_action)
-        .expect("entity is not present in entity map");
-    let client_of_entity = stepper.client_of(0).id();
-    // Check that the ActionOf component was mapped correctly on the server
-    // (i.e the context entity is the Client on the client, and the ClientOf on the server)
+    // Check that the ActionOf component points to the correct entity on the server
     assert_eq!(
         stepper
             .server_app
@@ -74,7 +115,7 @@ fn test_actions_on_client_entity() {
         .client_app()
         .world_mut()
         .entity_mut(client_action)
-        .insert(ActionMock::once(ActionState::Fired, true));
+        .insert(ActionMock::once(TriggerState::Fired, true));
     stepper.frame_step(1);
     let client_tick = stepper.client_tick(0);
 
@@ -89,11 +130,140 @@ fn test_actions_on_client_entity() {
         .unwrap_or(ActionsSnapshot::default());
     let mut actions = ActionData::base_value();
     BEIStateSequence::<BEIContext>::from_snapshot(ActionData::as_mut(&mut actions), &snapshot);
-    // check that we received the snapshot on the server
-    assert_eq!(actions.0, ActionState::Fired);
+    assert_eq!(actions.0, TriggerState::Fired);
 }
 
-/// Check that ActionStates are stored correctly in the InputBuffer
+/// Check that a client-spawned action entity for a received context maps correctly
+/// when using PreSpawned
+#[test]
+fn test_action_spawned_from_received_context_maps_back_to_server_entity() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
+        .id();
+
+    // Also spawn the action entity on the server
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(3);
+
+    // On the client, spawn the matching action entity when the context arrives
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("context entity should be replicated to client");
+
+    let client_action = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+        ))
+        .id();
+
+    // Let the prespawn matching happen
+    stepper.frame_step(2);
+
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_action)
+            .get::<ActionOf<BEIContext>>()
+            .unwrap()
+            .get(),
+        server_entity,
+        "the server action must point to the server context"
+    );
+}
+
+/// Check that a bound action entity sends inputs after PreSpawned matching
+#[test]
+fn test_bound_action_spawned_from_received_context_sends_inputs_after_mapping() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    stepper.server_app.init_resource::<SawServerFiredAction>();
+    stepper.server_app.add_systems(
+        FixedPreUpdate,
+        record_server_fired_action
+            .before(lightyear::input::server::InputSystems::UpdateActionState),
+    );
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
+        .id();
+
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(3);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("context entity should be replicated to client");
+
+    let client_action = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client_entity),
+            Action::<BEIAction1>::default(),
+            ActionMock::once(TriggerState::Fired, true),
+            bindings![KeyCode::Space,],
+            PreSpawned::new(TEST_HASH),
+            bei::prelude::InputMarker::<BEIContext>::default(),
+        ))
+        .id();
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(bei::prelude::InputMarker::<BEIContext>::default());
+
+    stepper.frame_step(5);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .resource::<SawServerFiredAction>()
+            .0,
+        "server should eventually receive the fired action state via input messages"
+    );
+}
+
+/// Check that ActionStates are stored correctly in the InputBuffer with PreSpawned
 #[test]
 fn test_buffer_inputs_with_delay() {
     let mut config = StepperConfig::single();
@@ -118,19 +288,33 @@ fn test_buffer_inputs_with_delay() {
         .get_local(server_entity)
         .expect("entity is not present in entity map");
 
-    // we spawn an action entity on the client
+    let client_of_entity = stepper.client_of(0).id();
+
+    // Spawn action entities on both sides with PreSpawned
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
     let client_action = stepper
         .client_app()
         .world_mut()
         .spawn((
             ActionOf::<BEIContext>::new(client_entity),
             Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
         ))
         .id();
 
-    // check that the Action entity contains Replicate
+    // With PreSpawned, the action entity should NOT have Replicate
     assert!(
-        stepper
+        !stepper
             .client_app()
             .world()
             .entity(client_action)
@@ -166,7 +350,7 @@ fn test_buffer_inputs_with_delay() {
             .client_app()
             .world()
             .entity(client_action)
-            .contains::<ActionState>()
+            .contains::<TriggerState>()
     );
     assert!(
         stepper
@@ -175,14 +359,6 @@ fn test_buffer_inputs_with_delay() {
             .entity(client_action)
             .contains::<ActionTime>()
     );
-
-    let server_action = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_action)
-        .expect("entity is not present in entity map");
 
     // Check that the server entity also has the Action component
     assert!(
@@ -199,13 +375,11 @@ fn test_buffer_inputs_with_delay() {
         .client_app()
         .world_mut()
         .entity_mut(client_action)
-        .insert(ActionMock::once(ActionState::Fired, true));
+        .insert(ActionMock::once(TriggerState::Fired, true));
     stepper.frame_step(1);
     let client_tick = stepper.client_tick(0);
 
     // check that the action state got buffered without any press (because the input is delayed)
-    // (we cannot use JustPressed because we start by ticking the ActionState)
-    // (i.e. the InputBuffer is empty for the current tick, and has the button press only with 1 tick of delay)
     let get_action_state_for_tick = |tick: Tick, app: &mut App| {
         let world = app.world_mut();
         let snapshot = world
@@ -221,10 +395,10 @@ fn test_buffer_inputs_with_delay() {
     };
 
     let action_state = get_action_state_for_tick(client_tick, stepper.client_app());
-    assert_eq!(action_state, ActionState::None);
+    assert_eq!(action_state, TriggerState::None);
     // if we check the next tick (delay of 1), we can see that the InputBuffer contains the ActionState with a press
     let action_state = get_action_state_for_tick(client_tick + 1, stepper.client_app());
-    assert_eq!(action_state, ActionState::Fired);
+    assert_eq!(action_state, TriggerState::Fired);
 
     // mock release the key
     info!("Mocking release on BEIAction1");
@@ -232,31 +406,26 @@ fn test_buffer_inputs_with_delay() {
         .client_app()
         .world_mut()
         .entity_mut(client_action)
-        .insert(ActionMock::once(ActionState::None, true));
+        .insert(ActionMock::once(TriggerState::None, true));
 
-    // TODO: ideally we would check that the value of the ActionState inside FixedUpdate is correct
-    // step another frame, this time we get the buffered input from earlier
     stepper.frame_step(1);
     let action_state = get_action_state_for_tick(client_tick + 1, stepper.client_app());
-    assert_eq!(action_state, ActionState::Fired);
+    assert_eq!(action_state, TriggerState::Fired);
     let action_state = get_action_state_for_tick(client_tick + 2, stepper.client_app());
-    assert_eq!(action_state, ActionState::None);
+    assert_eq!(action_state, TriggerState::None);
 
-    // TODO: instead of just swapping the ActionState with the
-    // the fixed_update_state ActionState outside of FixedUpdate is the delayed one
     assert_eq!(
         stepper
             .client_app()
             .world()
             .entity(client_action)
-            .get::<ActionState>()
+            .get::<TriggerState>()
             .unwrap(),
-        &ActionState::None
+        &TriggerState::None
     );
 }
 
-/// Check that Actions<C> is restored correctly after a rollback, including timing
-/// information
+/// Check that Actions<C> is restored correctly after a rollback
 #[test]
 fn test_client_rollback() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -276,19 +445,30 @@ fn test_client_rollback() {
         .get_local(server_entity)
         .expect("entity is not present in entity map");
 
-    // we spawn an action entity on the client
+    // Spawn action entities on both sides with PreSpawned
+    let _server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
     let client_action = stepper
         .client_app()
         .world_mut()
         .spawn((
             ActionOf::<BEIContext>::new(client_entity),
             Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
         ))
         .id();
 
-    // check that the Action entity contains Replicate
     assert!(
-        stepper
+        !stepper
             .client_app()
             .world()
             .entity(client_action)
@@ -304,14 +484,6 @@ fn test_client_rollback() {
         .entity_mut(client_entity)
         .insert(bei::prelude::InputMarker::<BEIContext>::default());
 
-    let server_action = stepper
-        .server_app
-        .world()
-        .entity(server_entity)
-        .get::<Actions<BEIContext>>()
-        .unwrap()
-        .collection()[0];
-
     // mock press on a key
     info!("Mocking press on BEIAction1 for 3 ticks");
     stepper
@@ -319,32 +491,26 @@ fn test_client_rollback() {
         .world_mut()
         .entity_mut(client_action)
         .insert(ActionMock::new(
-            ActionState::Fired,
+            TriggerState::Fired,
             true,
             MockSpan::Updates(3),
         ));
-    // first tick: we start pressing the button, the elapsed time is 0.0 (because it corresponds to the previous action)
-    // second tick: the action is pressed, the elapsed time is 0.1 (because it was pressed for 0.1)
-    // third tick: the action is pressed, the elapsed time is 0.2 (because it was pressed for 0.2)
     stepper.frame_step(3);
     let client_tick = stepper.client_tick(0);
 
     let client_action_ref = stepper.client_app().world().entity(client_action);
     let action_time = client_action_ref.get::<ActionTime>().unwrap();
-    // the duration starts incrementing from the second tick after the action is pressed
     assert_eq!(action_time.fired_secs, TICK_DURATION.as_secs_f32() * 2.0);
     stepper.frame_step(2);
     let action_state = stepper
         .client_app()
         .world()
         .entity(client_action)
-        .get::<ActionState>()
+        .get::<TriggerState>()
         .unwrap();
-    assert_eq!(action_state, &ActionState::None);
+    assert_eq!(action_state, &TriggerState::None);
 
     // trigger a rollback
-    // at client_tick, the elapsed_time should be 0.2.
-    // We rollback to client_tick - 1, because the first FixedPreUpdate will bring us to `client_tick`
     trigger_state_rollback(&mut stepper, client_tick - 1);
 
     let assert_action_duration = move |timeline: Res<LocalTimeline>, query: Single<&ActionTime>| {
@@ -361,9 +527,6 @@ fn test_client_rollback() {
     // Do the rollback
     stepper.frame_step(1);
 }
-
-#[derive(Resource, Default)]
-struct Counter(usize);
 
 /// Check that Actions<C> is restored correctly after a rollback, and observers are re-triggered
 #[test]
@@ -391,19 +554,30 @@ fn test_client_rollback_bei_events() {
         .get_local(server_entity)
         .expect("entity is not present in entity map");
 
-    // we spawn an action entity on the client
+    // Spawn action entities on both sides with PreSpawned
+    let _server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
     let client_action = stepper
         .client_app()
         .world_mut()
         .spawn((
             ActionOf::<BEIContext>::new(client_entity),
             Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
         ))
         .id();
 
-    // check that the Action entity contains Replicate
     assert!(
-        stepper
+        !stepper
             .client_app()
             .world()
             .entity(client_action)
@@ -419,36 +593,23 @@ fn test_client_rollback_bei_events() {
         .entity_mut(client_entity)
         .insert(bei::prelude::InputMarker::<BEIContext>::default());
 
-    let server_action = stepper
-        .server_app
-        .world()
-        .entity(server_entity)
-        .get::<Actions<BEIContext>>()
-        .unwrap()
-        .collection()[0];
-
     // mock press on a key
     stepper
         .client_app()
         .world_mut()
         .entity_mut(client_action)
         .insert(ActionMock::new(
-            ActionState::Fired,
+            TriggerState::Fired,
             true,
             MockSpan::Updates(1),
         ));
-    // first tick: we start pressing the button
-    // second tick: the action is released
-    // third tick: the action is released
     stepper.frame_step(3);
     let client_tick = stepper.client_tick(0);
 
     // Check that the START event got fired
     assert_eq!(stepper.client_app().world().resource::<Counter>().0, 1);
 
-    let client_action_ref = stepper.client_app().world().entity(client_action);
     // trigger a rollback
-    // We rollback to client_tick - 4, before the first action press
     trigger_state_rollback(&mut stepper, client_tick - 4);
 
     // Do the rollback
@@ -458,15 +619,13 @@ fn test_client_rollback_bei_events() {
     assert_eq!(stepper.client_app().world().resource::<Counter>().0, 2);
 }
 
+#[derive(Resource, Default)]
+struct Counter(usize);
+
 /// Test remote client inputs: we should be using the last known input value of the remote client, for better prediction accuracy!
 /// Then for the missing ticks we should be predicting the future value of the input
 ///
 /// Also checks that during rollbacks we fetch the correct input value even for remote inputs.
-///
-/// For example if we receive inputs from client 1 with 5 tick delay, then when we are at tick 35
-/// we receive the input for tick 30. In that case we should either:
-/// - launch a rollback check immediately for tick 30
-/// - or at least at tick 35 use the newly received input value for prediction!
 #[test]
 fn test_input_broadcasting_prediction() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
@@ -495,6 +654,19 @@ fn test_input_broadcasting_prediction() {
             BEIContext,
         ))
         .id();
+
+    // Spawn the action entity on the server with PreSpawned
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            PreSpawned::new(TEST_HASH),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
     stepper.frame_step_server_first(1);
 
     // Get the predicted entities on both clients
@@ -506,8 +678,7 @@ fn test_input_broadcasting_prediction() {
         .get_local(server_entity)
         .expect("entity not replicated to client 0");
 
-    // we spawn an action entity on the client
-    // Add input markers to client 0, and make sure that it's replicated to client 1
+    // Spawn matching action entity on client 0 with PreSpawned + input mock
     let client0_tick = stepper.client_tick(0);
     let client1_tick = stepper.client_tick(1);
     info!(
@@ -523,10 +694,12 @@ fn test_input_broadcasting_prediction() {
             ActionOf::<BEIContext>::new(client0_predicted),
             Action::<BEIAction1>::default(),
             ActionMock::new(
-                ActionState::Fired,
+                TriggerState::Fired,
                 ActionValue::Bool(true),
                 MockSpan::Manual,
             ),
+            PreSpawned::new(TEST_HASH),
+            bei::prelude::InputMarker::<BEIContext>::default(),
         ))
         .id();
 
@@ -539,15 +712,23 @@ fn test_input_broadcasting_prediction() {
         .expect("entity not replicated to client 1");
 
     stepper.frame_step(5);
-    // client0 + 1: client 0 sends the input (with 2 ticks delay)
-    // client0 + 3: server receives the input (with 2 ticks delay) and rebroadcasts it to client 1
-    // client1 + 4: client 1 receives the input but cannot process it yet because it receives the input BEFORE it spawns the rebroadcasted Action entity
-    // client1 + 5: client 1 checks rollback for tick (client1 + 4), there is a rollback because of mismatch.
-    let action1 = stepper.client_apps[1]
-        .world()
-        .get::<Actions<BEIContext>>(client1_predicted)
-        .unwrap()
-        .collection()[0];
+
+    // Find the action entity on client 1 that has an InputBuffer
+    let action1 = {
+        let world = stepper.client_apps[1].world();
+        let actions = world.get::<Actions<BEIContext>>(client1_predicted).unwrap();
+        actions
+            .collection()
+            .iter()
+            .copied()
+            .find(|action| {
+                world
+                    .entity(*action)
+                    .get::<BEIBuffer<BEIContext>>()
+                    .is_some()
+            })
+            .unwrap_or(actions.collection()[0])
+    };
     assert!(
         stepper.client_apps[1]
             .world()
@@ -556,23 +737,32 @@ fn test_input_broadcasting_prediction() {
             .is_some()
     );
 
-    // TEST:
-    // check that on the last frame, client1 processed the rebroadcasted inputs
-    // - it should update its buffer to match the remote message
-    // - it should trigger a rollback because of mismatch
+    // Check that on the last frame, client1 processed the rebroadcasted inputs
+    let first_remote_tick = {
+        let buffer = stepper.client_apps[1]
+            .world()
+            .entity(action1)
+            .get::<BEIBuffer<BEIContext>>()
+            .unwrap();
+        [1, 2, 3, 4, 5, 6]
+            .into_iter()
+            .map(|offset| client1_tick + offset)
+            .find(|tick| buffer.get(*tick).is_some())
+            .unwrap()
+    };
     assert_eq!(
         stepper.client_apps[1]
             .world()
             .entity(action1)
             .get::<BEIBuffer<BEIContext>>()
             .unwrap()
-            .get(client1_tick + 1)
+            .get(first_remote_tick)
             .unwrap(),
         &ActionsSnapshot {
-            state: ActionState::Fired,
+            state: TriggerState::Fired,
             value: ActionValue::Bool(true),
             time: ActionTime::default(),
-            events: ActionEvents::STARTED | ActionEvents::FIRED
+            events: ActionEvents::START | ActionEvents::FIRE
         }
     );
     assert_eq!(
@@ -581,16 +771,16 @@ fn test_input_broadcasting_prediction() {
             .entity(action1)
             .get::<BEIBuffer<BEIContext>>()
             .unwrap()
-            .get(client1_tick + 2)
+            .get(first_remote_tick + 1)
             .unwrap(),
         &ActionsSnapshot {
-            state: ActionState::Fired,
+            state: TriggerState::Fired,
             value: ActionValue::Bool(true),
             time: ActionTime {
                 elapsed_secs: 0.01,
                 fired_secs: 0.01
             },
-            events: ActionEvents::FIRED
+            events: ActionEvents::FIRE
         }
     );
     // check that a rollback was triggered on client 1
@@ -612,16 +802,16 @@ fn test_input_broadcasting_prediction() {
             .entity(action1)
             .get::<BEIBuffer<BEIContext>>()
             .unwrap()
-            .get(client1_tick + 3)
+            .get(first_remote_tick + 2)
             .unwrap(),
         &ActionsSnapshot {
-            state: ActionState::Fired,
+            state: TriggerState::Fired,
             value: ActionValue::Bool(true),
             time: ActionTime {
                 elapsed_secs: 0.02,
                 fired_secs: 0.02
             },
-            events: ActionEvents::FIRED
+            events: ActionEvents::FIRE
         }
     );
     // check that this time there was no new rollback since we predicted the correct input value

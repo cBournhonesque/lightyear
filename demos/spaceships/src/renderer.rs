@@ -16,6 +16,7 @@ use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
 use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
+use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -27,10 +28,6 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor::default());
         let draw_shadows = false;
-        // in an attempt to reduce flickering, draw walls before FixedUpdate runs
-        // so they exist for longer during this tick.
-        // retained gizmos may help us in bevy 0.15?
-        app.add_systems(PreUpdate, draw_walls);
 
         // draw after visual interpolation has propagated
         app.add_systems(
@@ -46,6 +43,7 @@ impl Plugin for ExampleRendererPlugin {
                 .after(TransformSystems::Propagate),
         );
         app.add_observer(add_player_label);
+        app.add_observer(add_wall_visual);
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
 
@@ -159,9 +157,9 @@ pub(crate) fn draw_confirmed_shadows(
             &Position,
             &Collider,
             &ColorComponent,
-            &Confirmed<Position>,
-            &Confirmed<Rotation>,
-            &Confirmed<LinearVelocity>,
+            &ConfirmedHistory<Position>,
+            &ConfirmedHistory<Rotation>,
+            &ConfirmedHistory<LinearVelocity>,
         ),
         (
             With<Predicted>,
@@ -169,11 +167,28 @@ pub(crate) fn draw_confirmed_shadows(
         ),
     >,
 ) {
-    for (pred_pos, collider, color, position, rotation, velocity) in query.iter() {
-        let speed = velocity.length() / MAX_VELOCITY;
+    for (pred_pos, collider, color, pos_history, rot_history, vel_history) in query.iter() {
+        let Some((_, confirmed_pos)) = pos_history.end().or_else(|| pos_history.start()) else {
+            continue;
+        };
+        let Some((_, confirmed_rot)) = rot_history.end().or_else(|| rot_history.start()) else {
+            continue;
+        };
+        let confirmed_speed = vel_history
+            .end()
+            .or_else(|| vel_history.start())
+            .map(|(_, v)| v.length())
+            .unwrap_or(0.0);
+        let speed = confirmed_speed / MAX_VELOCITY;
         let ghost_col = color.0.with_alpha(0.2 + speed * 0.8);
-        render_shape(collider.shape(), position, rotation, &mut gizmos, ghost_col);
-        gizmos.line_2d(***position, **pred_pos, ghost_col);
+        render_shape(
+            collider.shape(),
+            confirmed_pos,
+            confirmed_rot,
+            &mut gizmos,
+            ghost_col,
+        );
+        gizmos.line_2d(confirmed_pos.0, pred_pos.0, ghost_col);
     }
 }
 
@@ -244,12 +259,6 @@ fn draw_predicted_entities(
                 (col.to_linear() * 2.5).into(), // bloom
             );
         }
-    }
-}
-
-fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
-    for wall in &walls {
-        gizmos.line_2d(wall.start, wall.end, Color::WHITE);
     }
 }
 
@@ -365,12 +374,44 @@ pub fn insert_bullet_mesh(
             .expect("Bullets expected to be balls.");
         let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
-        commands.entity(entity).insert((
+        commands.entity(entity).try_insert((
             Mesh2d(meshes.add(mesh)),
             Transform::from_translation(Vec3::Z),
             MeshMaterial2d(materials.add(ColorMaterial::from(col.0))),
         ));
     }
+}
+
+#[derive(Component)]
+struct WallVisual;
+
+fn add_wall_visual(
+    trigger: On<Add, Wall>,
+    walls: Query<(&Wall, &ColorComponent)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let Ok((wall, color)) = walls.get(trigger.entity) else {
+        return;
+    };
+    let delta = wall.end - wall.start;
+    let length = delta.length();
+    if length == 0.0 {
+        return;
+    }
+    let midpoint = (wall.start + wall.end) * 0.5;
+    let angle = delta.y.atan2(delta.x);
+    commands.entity(trigger.entity).with_children(|parent| {
+        parent.spawn((
+            WallVisual,
+            Mesh2d(meshes.add(Rectangle::new(length, 2.0))),
+            MeshMaterial2d(materials.add(ColorMaterial::from(color.0))),
+            Transform::from_xyz(midpoint.x, midpoint.y, 0.0)
+                .with_rotation(Quat::from_rotation_z(angle)),
+            Visibility::default(),
+        ));
+    });
 }
 
 #[derive(Component)]

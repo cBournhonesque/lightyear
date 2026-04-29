@@ -69,6 +69,8 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<PlayerId>();
 
         app.register_component::<Name>();
+        app.register_component::<Admin>();
+        app.register_component::<Player>();
 
         app.register_component::<PlayerPosition>()
             .add_prediction()

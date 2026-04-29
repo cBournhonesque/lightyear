@@ -8,6 +8,8 @@ use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
+use lightyear::connection::host::HostServer;
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::*;
@@ -34,8 +36,8 @@ impl Plugin for SharedPlugin {
         app.add_systems(PreUpdate, despawn_after);
 
         // debug systems
-        app.add_systems(FixedLast, fixed_update_log);
-        app.add_systems(FixedLast, log_predicted_bot_transform);
+        app.add_systems(FixedLast, emit_fixed_last_entities);
+        app.add_systems(FixedLast, emit_predicted_bot_transform);
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
@@ -93,22 +95,61 @@ pub(crate) fn shared_player_movement(
     }
 }
 
+fn bullet_prespawn_hash(player_id: PeerId, tick: Tick, salt: u64) -> u64 {
+    let mut hash = 0xd1b5_4a32_d192_ed03_u64;
+    hash ^= player_id.to_bits().wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    hash = hash.rotate_left(27).wrapping_mul(0x94d0_49bb_1331_11eb);
+    hash ^= (tick.0 as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    hash = hash.rotate_left(31).wrapping_mul(0x94d0_49bb_1331_11eb);
+    hash ^ salt.wrapping_mul(0x9e37_79b9_7f4a_7c15)
+}
+
+fn should_skip_client_side_entity(
+    has_client: bool,
+    is_host_server: bool,
+    is_predicted: bool,
+    client_is_synced: bool,
+) -> bool {
+    if !has_client {
+        return false;
+    }
+    if is_predicted && !client_is_synced {
+        return true;
+    }
+    !is_host_server && !is_predicted
+}
+
 // The client input only gets applied to predicted entities that we own
 // This works because we only predict the user's controlled entity.
 // If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
     timeline: Res<LocalTimeline>,
+    client: Query<(), With<Client>>,
+    host_server: Query<(), With<HostServer>>,
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     mut player_query: Query<
         (
             &mut Position,
             &mut Rotation,
             &ActionState<PlayerActions>,
             &PlayerId,
+            Has<Predicted>,
         ),
         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
-    for (position, rotation, action_state, player_id) in player_query.iter_mut() {
+    let has_client = !client.is_empty();
+    let is_host_server = !host_server.is_empty();
+    let client_is_synced = !synced_client.is_empty();
+    for (position, rotation, action_state, player_id, is_predicted) in player_query.iter_mut() {
+        if should_skip_client_side_entity(
+            has_client,
+            is_host_server,
+            is_predicted,
+            client_is_synced,
+        ) {
+            continue;
+        }
         debug!(tick = ?timeline.tick(), action = ?action_state.dual_axis_data(&PlayerActions::MoveCursor), "Data in Movement (FixedUpdate)");
         shared_player_movement(position, rotation, action_state);
     }
@@ -125,17 +166,26 @@ fn predicted_bot_movement(
     });
 }
 
-fn log_predicted_bot_transform(
+fn emit_predicted_bot_transform(
     timeline: Res<LocalTimeline>,
     query: Query<(&Position, &Transform), With<PredictedBot>>,
 ) {
     let tick = timeline.tick();
     query.iter().for_each(|(pos, transform)| {
-        debug!(?tick, ?pos, ?transform, "PredictedBot FixedLast");
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "predicted_bot_transform",
+            tick = ?tick,
+            position = ?pos,
+            transform = ?transform,
+            "PredictedBot FixedLast"
+        );
     })
 }
 
-pub(crate) fn fixed_update_log(
+pub(crate) fn emit_fixed_last_entities(
     timeline: Res<LocalTimeline>,
     player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>)>,
     predicted_bullet: Query<
@@ -150,20 +200,28 @@ pub(crate) fn fixed_update_log(
 ) {
     let tick = timeline.tick();
     for (entity, transform) in player.iter() {
-        debug!(
-            ?tick,
-            ?entity,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "player_transform",
+            tick = ?tick,
+            entity = ?entity,
             pos = ?transform.translation.truncate(),
             "Player after fixed update"
         );
     }
     for (entity, position, transform, history) in predicted_bullet.iter() {
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "bullet_transform_history",
+            tick = ?tick,
+            entity = ?entity,
+            position = ?position,
             transform = ?transform.translation.truncate(),
-            ?history,
+            history = ?history,
             "Bullet after fixed update"
         );
     }
@@ -176,32 +234,61 @@ pub(crate) fn fixed_update_log(
 pub(crate) fn shoot_bullet(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
+    client: Query<(), With<Client>>,
+    host_server: Query<(), With<HostServer>>,
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     mut query: Query<
         (
             &PlayerId,
-            &Transform,
+            &Position,
+            &Rotation,
             &ColorComponent,
-            &mut ActionState<PlayerActions>,
+            &ActionState<PlayerActions>,
+            &LeafwingBuffer<PlayerActions>,
             Option<&ControlledBy>,
+            Has<Predicted>,
         ),
         (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
     >,
 ) {
     let tick = timeline.tick();
-    for (id, transform, color, action, controlled_by) in query.iter_mut() {
+    let has_client = !client.is_empty();
+    let is_host_server = !host_server.is_empty();
+    let client_is_synced = !synced_client.is_empty();
+    for (id, position, rotation, color, action, input_buffer, controlled_by, is_predicted) in
+        query.iter_mut()
+    {
+        if should_skip_client_side_entity(
+            has_client,
+            is_host_server,
+            is_predicted,
+            client_is_synced,
+        ) {
+            continue;
+        }
         let is_server = controlled_by.is_some();
-        // NOTE: pressed lets you shoot many bullets, which can be cool
-        if action.just_pressed(&PlayerActions::Shoot) {
-            error!(?tick, pos=?transform.translation.truncate(), rot=?transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
+        let should_shoot = if is_host_server || !is_server {
+            shoot_pressed_this_tick(input_buffer, tick)
+        } else {
+            action.just_pressed(&PlayerActions::Shoot)
+        };
+        if should_shoot {
             // for delta in [-0.2, 0.2] {
             for delta in [0.0] {
                 let salt: u64 = if delta < 0.0 { 0 } else { 1 };
+                let prespawn_hash = bullet_prespawn_hash(id.0, tick, salt);
                 // shoot from the position of the player, towards the cursor, with an angle of delta
-                let mut bullet_transform = transform.clone();
-                bullet_transform.rotate_z(delta);
+                let bullet_position = *position;
+                let bullet_rotation = Rotation::from(rotation.as_radians() + delta);
+                let bullet_transform = Transform::from_translation(bullet_position.0.extend(0.0))
+                    .with_rotation(Quat::from_rotation_z(bullet_rotation.as_radians()));
+                let bullet_velocity = LinearVelocity(bullet_rotation * Vec2::Y * BULLET_MOVE_SPEED);
+                debug!(?tick, pos=?bullet_transform.translation.truncate(), rot=?bullet_transform.rotation.to_euler(EulerRot::XYZ).2, "spawn bullet");
                 let bullet_bundle = (
+                    bullet_position,
+                    bullet_rotation,
                     bullet_transform,
-                    LinearVelocity(bullet_transform.up().as_vec3().truncate() * BULLET_MOVE_SPEED),
+                    bullet_velocity,
                     RigidBody::Kinematic,
                     // store the player who fired the bullet
                     *id,
@@ -211,36 +298,67 @@ pub(crate) fn shoot_bullet(
                 );
 
                 // on the server, replicate the bullet
-                if is_server {
+                let bullet_entity = if is_server {
                     #[cfg(feature = "server")]
-                    commands.spawn((
-                        bullet_bundle,
-                        // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
-                        //  but the server will take authority as soon as the client receives the entity
-                        //  it does this by matching with the client entity that has the same hash
-                        //  The hash is computed automatically in PostUpdate from the entity's components + spawn tick
-                        //  unless you set the hash manually before PostUpdate to a value of your choice
-                        //
-                        // the default hashing algorithm uses the tick and component list. in order to disambiguate
-                        // between the two bullets, we add additional information to the hash.
-                        // NOTE: if you don't add the salt, the 'left' bullet on the server might get matched with the
-                        // 'right' bullet on the client, and vice versa. This is not critical, but it will cause a rollback
-                        PreSpawned::default_with_salt(salt),
-                        DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
-                        Replicate::to_clients(NetworkTarget::All),
-                        PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
-                        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                        controlled_by.unwrap().clone(),
-                    ));
+                    {
+                        commands
+                            .spawn((
+                                bullet_bundle,
+                                // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
+                                //  but the server will take authority as soon as the client receives the entity
+                                //  it does this by matching with the client entity that has the same hash
+                                //  Use an explicit hash so same-tick bullets from different players cannot collide.
+                                PreSpawned::new(prespawn_hash),
+                                DespawnAfter(Timer::new(Duration::from_secs(2), TimerMode::Once)),
+                                Replicate::to_clients(NetworkTarget::All),
+                                PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(
+                                    id.0,
+                                )),
+                                controlled_by.unwrap().clone(),
+                            ))
+                            .id()
+                    }
+                    #[cfg(not(feature = "server"))]
+                    {
+                        unreachable!("server bullet spawn requires the server feature")
+                    }
                 } else {
                     // on the client, just spawn the ball
                     // NOTE: the PreSpawned component indicates that the entity will be spawned on both client and server
                     //  but the server will take authority as soon as the client receives the entity
-                    commands.spawn((bullet_bundle, PreSpawned::default_with_salt(salt)));
-                }
+                    commands
+                        .spawn((bullet_bundle, PreSpawned::new(prespawn_hash)))
+                        .id()
+                };
+                lightyear_debug_event!(
+                    DebugCategory::Prediction,
+                    DebugSamplePoint::FixedUpdate,
+                    "FixedUpdate",
+                    "bullet_spawn",
+                    tick = ?tick,
+                    entity = ?bullet_entity,
+                    client_id = ?id.0,
+                    prespawn_hash = prespawn_hash,
+                    is_server = is_server,
+                    position = ?bullet_position,
+                    rotation = ?bullet_rotation,
+                    velocity = ?bullet_velocity,
+                    "Spawn bullet"
+                );
             }
         }
     }
+}
+
+fn shoot_pressed_this_tick(input_buffer: &LeafwingBuffer<PlayerActions>, tick: Tick) -> bool {
+    let current_pressed = input_buffer
+        .get(tick)
+        .is_some_and(|snapshot| snapshot.0.pressed(&PlayerActions::Shoot));
+    let previous_pressed = input_buffer
+        .get(tick - 1)
+        .is_some_and(|snapshot| snapshot.0.pressed(&PlayerActions::Shoot));
+    current_pressed && !previous_pressed
 }
 
 #[derive(Component)]

@@ -1,3 +1,4 @@
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin, WallBundle};
@@ -16,6 +17,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, setup);
         app.add_observer(handle_new_client);
         app.add_observer(replicate_players);
@@ -24,13 +27,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 // Renamed from init, removed Global resource, assume ball is always predicted

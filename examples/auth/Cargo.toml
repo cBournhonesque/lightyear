@@ -11,23 +11,18 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = false
 
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = ["lightyear/client", "lightyear_examples_common/client"]
+gui = ["lightyear_examples_common/gui2d"]
+server = ["lightyear/server", "lightyear_examples_common/server"]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
+
 [dependencies]
-lightyear = { "workspace" = true, features = [
-  "netcode",
-  "interpolation",
-  "prediction",
-  "replication",
-  "client",
-  "server",
-  "udp",
-  "std",
-] }
-lightyear_examples_common = { "workspace" = true, features = [
-  "client",
-  "server",
-  "gui2d",
-  "netcode",
-  "udp",
+lightyear = { workspace = true, default-features = false }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
 ] }
 
 async-compat.workspace = true

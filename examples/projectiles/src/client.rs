@@ -1,11 +1,17 @@
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{Rooms, color_from_id};
+use crate::shared::color_from_id;
 use avian2d::prelude::*;
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
-use bevy_enhanced_input::action::mock::ActionMock;
+use bevy_enhanced_input::EnhancedInputSystems;
+use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::bindings;
-use core::time::Duration;
+use bevy_enhanced_input::context::ExternallyMocked;
+use bevy_enhanced_input::prelude::{
+    ActionMock, ActionValue, ActionValueDim, Binding, Bindings, Cardinal, MockSpan,
+};
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSystems;
 use lightyear::prediction::rollback::DisableRollback;
@@ -16,14 +22,20 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_deterministic_spawn);
         app.add_observer(add_global_actions);
-        // app.add_observer(cycle_projectile_mode);
-        // app.add_observer(cycle_replication_mode);
-        // app.add_systems(RunFixedMainLoop, cycle_replication_mode.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop), "gui");
-        // app.add_systems(FixedUpdate, cycle_replication_mode_fixed_update);
+        app.add_systems(
+            FixedPreUpdate,
+            (
+                update_active_player_action_markers,
+                update_global_action_markers,
+            )
+                .before(EnhancedInputSystems::Update)
+                .before(InputSystems::BufferClientInputs),
+        );
     }
 }
 
@@ -34,18 +46,10 @@ pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
     mut commands: Commands,
-    mut player_query: Query<
-        (
-            &PlayerId,
-            &Position,
-            &Confirmed<Position>,
-            &GameReplicationMode,
-        ),
-        With<Predicted>,
-    >,
+    mut player_query: Query<(&PlayerId, &Position, &GameReplicationMode), With<Predicted>>,
 ) {
     let client_id = client.into_inner().0;
-    if let Ok((player_id, pos, confirmed_pos, mode)) = player_query.get_mut(trigger.entity) {
+    if let Ok((player_id, pos, mode)) = player_query.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
@@ -65,12 +69,10 @@ pub(crate) fn handle_predicted_spawn(
         }
         info!(
             ?pos,
-            ?confirmed_pos,
-            "Adding actions to predicted player {:?}",
-            trigger.entity
+            "Adding actions to predicted player {:?}", trigger.entity
         );
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
-        add_actions(&mut commands, trigger.entity);
+        shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
     }
 }
 
@@ -96,7 +98,7 @@ pub(crate) fn handle_interpolated_spawn(
         if let GameReplicationMode::AllInterpolated = mode
             && client_id.0 == player_id.0
         {
-            add_actions(&mut commands, trigger.entity);
+            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
         }
     }
 }
@@ -127,79 +129,252 @@ pub(crate) fn handle_deterministic_spawn(
                 "Spawning actions for DeterministicPredicted player {:?}",
                 player_id
             );
-            add_actions(&mut commands, trigger.entity);
+            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
         }
     }
 }
 
-fn add_actions(commands: &mut Commands, player: Entity) {
-    commands.entity(player).insert(PlayerContext);
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<MovePlayer>::new(),
-        Bindings::spawn(Cardinal::wasd_keys()),
-    ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<MoveCursor>::new(),
-        // we use a mock to manually set the ActionState and ActionValue from the mouse position
-        ActionMock::new(
-            ActionState::Fired,
-            ActionValue::zero(ActionValueDim::Axis2D),
-            MockSpan::Manual,
-        ),
-    ));
-    commands.spawn((
-        ActionOf::<PlayerContext>::new(player),
-        Action::<Shoot>::new(),
-        Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
-    ));
-}
-
 pub(crate) fn add_global_actions(trigger: On<Add, ClientContext>, mut commands: Commands) {
-    commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.entity),
-        Action::<CycleProjectileMode>::new(),
-        bindings![KeyCode::KeyE,],
-    ));
-    commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.entity),
-        Action::<CycleReplicationMode>::new(),
-        bindings![KeyCode::KeyR,],
-    ));
-    commands.spawn((
-        ActionOf::<ClientContext>::new(trigger.entity),
-        Action::<CycleWeapon>::new(),
-        bindings![KeyCode::KeyQ,],
-    ));
+    shared::spawn_global_actions(&mut commands, trigger.entity, false);
 }
 
-pub fn cycle_replication_mode(
-    timeline: Res<LocalTimeline>,
-    action: Single<(Entity, &ActionValue, &ActionEvents), With<Action<CycleReplicationMode>>>,
+fn update_active_player_action_markers(
+    client: Query<&LocalId, With<Client>>,
+    global_mode: Query<&GameReplicationMode, With<ClientContext>>,
+    players: Query<(&PlayerId, &GameReplicationMode), With<PlayerMarker>>,
+    movement_actions: Query<
+        (
+            Entity,
+            &ActionOf<PlayerContext>,
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<MovePlayer>>,
+    >,
+    cursor_actions: Query<
+        (
+            Entity,
+            &ActionOf<PlayerContext>,
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<ActionMock>,
+        ),
+        With<Action<MoveCursor>>,
+    >,
+    shoot_actions: Query<
+        (
+            Entity,
+            &ActionOf<PlayerContext>,
+            Has<InputMarker<PlayerContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<Shoot>>,
+    >,
+    mut commands: Commands,
 ) {
-    let tick = timeline.tick();
-    let (entity, action_value, action_events) = action.into_inner();
-    trace!(
-        ?tick,
-        ?entity,
-        "CycleReplicationMode PreUpdate action value: {:?}, events: {:?}",
-        action_value,
-        action_events
-    );
+    let Ok(client_id) = client.single() else {
+        return;
+    };
+    let Ok(global_mode) = global_mode.single() else {
+        return;
+    };
+    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &movement_actions {
+        configure_player_action(
+            &mut commands,
+            entity,
+            is_active_local_action(action_of, &players, client_id.0, global_mode),
+            has_marker,
+            externally_mocked,
+            PlayerActionSource::Movement { has_bindings },
+        );
+    }
+    for (entity, action_of, has_marker, externally_mocked, has_mock) in &cursor_actions {
+        configure_player_action(
+            &mut commands,
+            entity,
+            is_active_local_action(action_of, &players, client_id.0, global_mode),
+            has_marker,
+            externally_mocked,
+            PlayerActionSource::Cursor { has_mock },
+        );
+    }
+    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &shoot_actions {
+        configure_player_action(
+            &mut commands,
+            entity,
+            is_active_local_action(action_of, &players, client_id.0, global_mode),
+            has_marker,
+            externally_mocked,
+            PlayerActionSource::Shoot { has_bindings },
+        );
+    }
 }
 
-pub fn cycle_replication_mode_fixed_update(
-    timeline: Res<LocalTimeline>,
-    action: Single<(Entity, &ActionValue, &ActionEvents), With<Action<CycleReplicationMode>>>,
+fn is_active_local_action(
+    action_of: &ActionOf<PlayerContext>,
+    players: &Query<(&PlayerId, &GameReplicationMode), With<PlayerMarker>>,
+    client_id: PeerId,
+    global_mode: &GameReplicationMode,
+) -> bool {
+    players
+        .get(action_of.get())
+        .is_ok_and(|(player_id, mode)| player_id.0 == client_id && mode == global_mode)
+}
+
+enum PlayerActionSource {
+    Movement { has_bindings: bool },
+    Cursor { has_mock: bool },
+    Shoot { has_bindings: bool },
+}
+
+fn configure_player_action(
+    commands: &mut Commands,
+    entity: Entity,
+    is_active_local: bool,
+    has_marker: bool,
+    externally_mocked: bool,
+    source: PlayerActionSource,
 ) {
-    let tick = timeline.tick();
-    let (entity, action_value, action_events) = action.into_inner();
-    trace!(
-        ?tick,
-        ?entity,
-        "CycleReplicationMode FixedUpdate action value: {:?}, events: {:?}",
-        action_value,
-        action_events
-    );
+    let mut entity_commands = commands.entity(entity);
+    if is_active_local {
+        if externally_mocked {
+            entity_commands.try_remove::<ExternallyMocked>();
+        }
+        if !has_marker {
+            entity_commands.insert(InputMarker::<PlayerContext>::default());
+        }
+        match source {
+            PlayerActionSource::Movement { has_bindings } => {
+                if !has_bindings {
+                    entity_commands.insert(Bindings::spawn(Cardinal::wasd_keys()));
+                }
+            }
+            PlayerActionSource::Cursor { has_mock } => {
+                if !has_mock {
+                    entity_commands.insert(ActionMock::new(
+                        TriggerState::Fired,
+                        ActionValue::zero(ActionValueDim::Axis2D),
+                        MockSpan::Manual,
+                    ));
+                }
+            }
+            PlayerActionSource::Shoot { has_bindings } => {
+                if !has_bindings {
+                    entity_commands.insert(Bindings::spawn_one((
+                        Binding::from(KeyCode::Space),
+                        Name::from("Binding"),
+                    )));
+                }
+            }
+        }
+    } else {
+        if has_marker {
+            entity_commands.try_remove::<InputMarker<PlayerContext>>();
+        }
+        if !externally_mocked {
+            entity_commands.insert(ExternallyMocked);
+        }
+    }
+}
+
+fn update_global_action_markers(
+    contexts: Query<(), With<ClientContext>>,
+    projectile_actions: Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleProjectileMode>>,
+    >,
+    replication_actions: Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleReplicationMode>>,
+    >,
+    weapon_actions: Query<
+        (
+            Entity,
+            &ActionOf<ClientContext>,
+            Has<InputMarker<ClientContext>>,
+            Has<ExternallyMocked>,
+            Has<Bindings>,
+        ),
+        With<Action<CycleWeapon>>,
+    >,
+    mut commands: Commands,
+) {
+    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &projectile_actions {
+        configure_global_action(
+            &mut commands,
+            &contexts,
+            entity,
+            action_of,
+            has_marker,
+            externally_mocked,
+            has_bindings,
+            KeyCode::KeyE,
+        );
+    }
+    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &replication_actions {
+        configure_global_action(
+            &mut commands,
+            &contexts,
+            entity,
+            action_of,
+            has_marker,
+            externally_mocked,
+            has_bindings,
+            KeyCode::KeyR,
+        );
+    }
+    for (entity, action_of, has_marker, externally_mocked, has_bindings) in &weapon_actions {
+        configure_global_action(
+            &mut commands,
+            &contexts,
+            entity,
+            action_of,
+            has_marker,
+            externally_mocked,
+            has_bindings,
+            KeyCode::KeyQ,
+        );
+    }
+}
+
+fn configure_global_action(
+    commands: &mut Commands,
+    contexts: &Query<(), With<ClientContext>>,
+    entity: Entity,
+    action_of: &ActionOf<ClientContext>,
+    has_marker: bool,
+    externally_mocked: bool,
+    has_bindings: bool,
+    key: KeyCode,
+) {
+    if !contexts.contains(action_of.get()) {
+        return;
+    }
+    let mut entity_commands = commands.entity(entity);
+    if externally_mocked {
+        entity_commands.try_remove::<ExternallyMocked>();
+    }
+    if !has_marker {
+        entity_commands.insert(InputMarker::<ClientContext>::default());
+    }
+    if !has_bindings {
+        entity_commands.insert(Bindings::spawn_one((
+            Binding::from(key),
+            Name::from("Binding"),
+        )));
+    }
 }

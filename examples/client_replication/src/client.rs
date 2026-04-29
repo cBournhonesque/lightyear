@@ -2,8 +2,10 @@ use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::input::bei::prelude::*;
 use lightyear::input::client::InputSystems;
+use lightyear::prelude::input::bei::InputMarker;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::color_from_id;
 
@@ -11,13 +13,18 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(on_connect);
-        app.add_observer(on_admin_context);
+        #[cfg(feature = "gui")]
         app.add_systems(Update, cursor_movement);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
+        app.add_systems(Update, spawn_admin_actions);
     }
 }
+
+#[derive(Component)]
+struct AdminActionsBound;
 
 /// Spawn a cursor that is replicated to the server when the client connects
 /// Add an ActionState component on the Client entity to send inputs to the server
@@ -43,6 +50,7 @@ pub(crate) fn on_connect(
     }
 }
 
+#[cfg(feature = "gui")]
 // Adjust the movement of the cursor entity based on the mouse position
 fn cursor_movement(
     client: Single<&LocalId, (With<Connected>, With<Client>)>,
@@ -59,6 +67,7 @@ fn cursor_movement(
     }
 }
 
+#[cfg(feature = "gui")]
 // Get the cursor position relative to the window
 fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
     let cursor_pos = window.cursor_position()?;
@@ -69,12 +78,21 @@ fn window_relative_mouse_position(window: &Window) -> Option<Vec2> {
     ))
 }
 
-fn on_admin_context(trigger: On<Add, Admin>, mut commands: Commands) {
-    commands.spawn((
-        ActionOf::<Admin>::new(trigger.entity),
-        Action::<SpawnPlayer>::new(),
-        bindings![KeyCode::Space,],
-    ));
+fn spawn_admin_actions(
+    admin_contexts: Query<Entity, (Added<Admin>, Without<AdminActionsBound>)>,
+    mut commands: Commands,
+) {
+    for entity in admin_contexts.iter() {
+        commands
+            .entity(entity)
+            .insert((AdminActionsBound, InputMarker::<Admin>::default()));
+        commands.spawn((
+            ActionOf::<Admin>::new(entity),
+            Action::<SpawnPlayer>::new(),
+            bindings![KeyCode::Space,],
+            InputMarker::<Admin>::default(),
+        ));
+    }
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff
@@ -83,7 +101,6 @@ fn on_admin_context(trigger: On<Add, Admin>, mut commands: Commands) {
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, (With<Predicted>, With<PlayerId>)>,
-    mut commands: Commands,
 ) {
     let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {

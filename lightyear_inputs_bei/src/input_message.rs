@@ -3,7 +3,7 @@ use alloc::vec::Vec;
 use bevy_ecs::entity::{EntityMapper, MapEntities};
 use bevy_ecs::query::QueryData;
 use bevy_enhanced_input::action::ActionTime;
-use bevy_enhanced_input::prelude::{ActionEvents, ActionState, ActionValue};
+use bevy_enhanced_input::prelude::{ActionEvents, ActionValue, TriggerState};
 use core::fmt::{Debug, Formatter};
 use core::time::Duration;
 use lightyear_core::prelude::Tick;
@@ -58,7 +58,7 @@ impl<C> MapEntities for BEIStateSequence<C> {
 /// input_delay is enabled
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct ActionsSnapshot {
-    pub state: ActionState,
+    pub state: TriggerState,
     pub value: ActionValue,
     pub time: ActionTime,
     pub events: ActionEvents,
@@ -67,7 +67,7 @@ pub struct ActionsSnapshot {
 impl Default for ActionsSnapshot {
     fn default() -> Self {
         Self {
-            state: ActionState::default(),
+            state: TriggerState::default(),
             value: ActionValue::Bool(false),
             time: ActionTime::default(),
             events: ActionEvents::empty(),
@@ -79,13 +79,13 @@ impl Default for ActionsSnapshot {
 /// by calling `decay_ticks` from the previous ActionsMessage
 #[derive(Clone, Copy, PartialEq, Debug, Serialize, Deserialize)]
 struct ActionsDiff {
-    state: ActionState,
+    state: TriggerState,
     value: ActionValue,
 }
 
 impl InputSnapshot for ActionsSnapshot {
     fn decay_tick(&mut self, tick_duration: Duration) {
-        // We keep ActionState the same but update ActionEvents and ActionTime
+        // We keep TriggerState the same but update ActionEvents and ActionTime
         self.events = ActionEvents::new(self.state, self.state);
         let delta_secs = tick_duration.as_secs_f32();
         self.time.update(delta_secs, self.state);
@@ -95,7 +95,7 @@ impl InputSnapshot for ActionsSnapshot {
 #[derive(QueryData, Debug)]
 #[query_data(mutable)]
 pub struct ActionData {
-    state: &'static mut ActionState,
+    state: &'static mut TriggerState,
     value: &'static mut ActionValue,
     events: &'static mut ActionEvents,
     time: &'static mut ActionTime,
@@ -103,7 +103,7 @@ pub struct ActionData {
 
 #[derive(Debug)]
 pub struct ActionDataInnerItem<'w> {
-    pub state: &'w mut ActionState,
+    pub state: &'w mut TriggerState,
     pub value: &'w mut ActionValue,
     pub events: &'w mut ActionEvents,
     pub time: &'w mut ActionTime,
@@ -114,8 +114,8 @@ impl ActionStateQueryData for ActionData {
 
     type MutItemInner<'w> = ActionDataInnerItem<'w>;
 
-    type Main = ActionState;
-    type Bundle = (ActionState, ActionValue, ActionEvents, ActionTime);
+    type Main = TriggerState;
+    type Bundle = (TriggerState, ActionValue, ActionEvents, ActionTime);
 
     #[inline]
     fn as_read_only<'a, 'w: 'a, 's>(
@@ -155,7 +155,7 @@ impl ActionStateQueryData for ActionData {
     #[inline]
     fn base_value() -> Self::Bundle {
         (
-            ActionState::default(),
+            TriggerState::default(),
             ActionValue::Bool(false),
             ActionEvents::empty(),
             ActionTime::default(),
@@ -202,11 +202,11 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
 
     fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u16,
+        num_ticks: u32,
         end_tick: Tick,
     ) -> Option<Self> {
         let mut diffs = Vec::new();
-        // find the first tick for which we have an `ActionState` buffered
+        // find the first tick for which we have an `TriggerState` buffered
         let mut start_tick = end_tick - num_ticks + 1;
         while start_tick <= end_tick {
             if input_buffer.get(start_tick).is_some() {
@@ -215,7 +215,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
             start_tick += 1;
         }
 
-        // there are no ticks for which we have an `ActionState` buffered, so we send nothing
+        // there are no ticks for which we have an `TriggerState` buffered, so we send nothing
         if start_tick > end_tick {
             return None;
         }
@@ -290,10 +290,10 @@ mod tests {
         let mut state = ActionsSnapshot::default();
 
         input_buffer.set(Tick(2), state);
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(3), state);
-        state.state = ActionState::None;
+        state.state = TriggerState::None;
         state.value = ActionValue::Bool(false);
         input_buffer.set(Tick(7), state);
 
@@ -305,21 +305,21 @@ mod tests {
             BEIStateSequence::<Context1> {
                 // tick 2
                 start_state: ActionsSnapshot {
-                    state: ActionState::None,
+                    state: TriggerState::None,
                     value: ActionValue::Bool(false),
                     events: ActionEvents::empty(),
                     time: ActionTime::default(),
                 },
                 diffs: vec![
                     Compressed::Input(ActionsDiff {
-                        state: ActionState::Fired,
+                        state: TriggerState::Fired,
                         value: ActionValue::Bool(true)
                     }),
                     Compressed::SameAsPrecedent,
                     Compressed::SameAsPrecedent,
                     Compressed::SameAsPrecedent,
                     Compressed::Input(ActionsDiff {
-                        state: ActionState::None,
+                        state: TriggerState::None,
                         value: ActionValue::Bool(false)
                     }),
                     Compressed::Absent,
@@ -344,7 +344,7 @@ mod tests {
         let mut input_buffer = BEIBuffer::<Context1>::default();
         let mut state = ActionsSnapshot::default();
         input_buffer.set(Tick(8), state);
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(10), state);
 
@@ -374,7 +374,7 @@ mod tests {
     fn test_update_buffer_empty_buffer() {
         let mut input_buffer = BEIBuffer::<Context1>::default();
         let mut state = ActionsSnapshot::default();
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         let sequence = BEIStateSequence::<Context1> {
             start_state: state,
@@ -406,7 +406,7 @@ mod tests {
         input_buffer.last_remote_tick = Some(Tick(5));
 
         // Create a new action for the message
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
 
         let sequence = BEIStateSequence::<Context1> {
@@ -435,13 +435,13 @@ mod tests {
         let mut state = ActionsSnapshot::default();
 
         // Set up buffer with one action at tick 5
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(5), state);
         input_buffer.last_remote_tick = Some(Tick(5));
 
         // Create a different action for the message
-        state.state = ActionState::Ongoing;
+        state.state = TriggerState::Ongoing;
         state.value = ActionValue::Bool(false);
 
         let sequence = BEIStateSequence::<Context1> {
@@ -468,7 +468,7 @@ mod tests {
 
         // Set up buffer with an action at tick 5
         let mut state = ActionsSnapshot::default();
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         input_buffer.set(Tick(5), state);
         input_buffer.last_remote_tick = Some(Tick(5));
@@ -503,7 +503,7 @@ mod tests {
 
         // Set up buffer with actions at ticks 5 and 6
         let mut state = ActionsSnapshot::default();
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         let first_state = state;
         input_buffer.set(Tick(5), first_state);
@@ -511,7 +511,7 @@ mod tests {
         input_buffer.last_remote_tick = Some(Tick(6));
 
         // Create a different action
-        state.state = ActionState::Ongoing;
+        state.state = TriggerState::Ongoing;
         state.value = ActionValue::Bool(false);
         let mut second_state = state;
 
@@ -550,7 +550,7 @@ mod tests {
 
         // Set up buffer with actions at ticks 5 and 6
         let mut state = ActionsSnapshot::default();
-        state.state = ActionState::Fired;
+        state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
 
         let first_state = state;

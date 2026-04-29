@@ -1,8 +1,10 @@
 extern crate alloc;
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
 use alloc::collections::VecDeque;
 use bevy::prelude::*;
+use lightyear::connection::host::HostServer;
 use lightyear::input::native::prelude::ActionState;
 use lightyear::prediction::Predicted;
 use lightyear::prelude::server::*;
@@ -14,6 +16,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         // the simulation systems that can be rolled back must run in FixedUpdate
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_observer(handle_new_client);
@@ -22,10 +26,9 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
-        Name::from("Client"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender, Name::from("Client")));
 }
 
 /// Server connection system, create a player upon connection
@@ -54,7 +57,7 @@ pub(crate) fn handle_connections(
             InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
                 owner: trigger.entity,
-                lifetime: Lifetime::default(),
+                lifetime: Default::default(),
             },
             Name::from("Head"),
         ))
@@ -83,14 +86,14 @@ pub(crate) fn handle_connections(
 
 /// Read client inputs and move players
 pub(crate) fn movement(
-    mut position_query: Query<
-        (&mut PlayerPosition, &ActionState<Inputs>),
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>, Has<Predicted>)>,
 ) {
-    for (position, inputs) in position_query.iter_mut() {
+    let is_host_server = !host_server.is_empty();
+    for (position, inputs, predicted) in position_query.iter_mut() {
+        if is_host_server && predicted {
+            continue;
+        }
         // NOTE: be careful to directly pass Mut<PlayerPosition>
         // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
         shared_movement_behaviour(position, inputs);

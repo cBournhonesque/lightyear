@@ -68,7 +68,7 @@ impl<T: Debug, M> core::fmt::Display for InputBuffer<T, M> {
                     Compressed::SameAsPrecedent => "SameAsPrecedent".to_string(),
                     Compressed::Input(data) => format!("{data:?}"),
                 };
-                format!("{:?}: {}\n", tick + i as i16, str)
+                format!("{:?}: {}\n", tick + i as i32, str)
             })
             .collect::<Vec<String>>()
             .join("");
@@ -150,7 +150,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         }
 
         // Extend to the right if needed
-        let current_end = current_start + (self.buffer.len() as i16 - 1);
+        let current_end = current_start + (self.buffer.len() as i32 - 1);
         if end_tick > current_end {
             let append_count = (end_tick - current_end) as usize;
             for _ in 0..append_count {
@@ -196,7 +196,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
             return;
         }
 
-        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
+        let end_tick = start_tick + (self.buffer.len() as i32 - 1);
 
         // NOTE: we fill the value for the given tick, and we fill the ticks between start_tick and tick
         // with InputData::SameAsPrecedent (i.e. if there are any gaps, we consider that the user repeated
@@ -229,7 +229,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if tick < start_tick {
             return None;
         }
-        if tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick > start_tick + (self.buffer.len() as i32 - 1) {
             // pop everything
             self.buffer = VecDeque::new();
             self.start_tick = Some(tick + 1);
@@ -269,7 +269,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return &Compressed::Absent;
         }
-        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick < start_tick || tick > start_tick + (self.buffer.len() as i32 - 1) {
             return &Compressed::Absent;
         }
         self.buffer.get((tick - start_tick) as usize).unwrap()
@@ -282,7 +282,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return None;
         }
-        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick < start_tick || tick > start_tick + (self.buffer.len() as i32 - 1) {
             return None;
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
@@ -307,7 +307,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if tick < start_tick {
             return None;
         }
-        if tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick > start_tick + (self.buffer.len() as i32 - 1) {
             return self.get_last();
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
@@ -327,7 +327,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return None;
         }
-        self.get(start_tick + (self.buffer.len() as i16 - 1))
+        self.get(start_tick + (self.buffer.len() as i32 - 1))
     }
 
     /// Get latest ActionState present in the buffer, along with the associated Tick
@@ -336,7 +336,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return None;
         }
-        let end_tick = start_tick + (self.buffer.len() as i16 - 1);
+        let end_tick = start_tick + (self.buffer.len() as i32 - 1);
         self.get(end_tick)
             .map(|action_state| (end_tick, action_state))
     }
@@ -345,7 +345,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
     #[inline(always)]
     pub fn end_tick(&self) -> Option<Tick> {
         self.start_tick
-            .map(|start_tick| start_tick + (self.buffer.len() as i16 - 1))
+            .map(|start_tick| start_tick + (self.buffer.len() as i32 - 1))
     }
 }
 
@@ -543,5 +543,36 @@ mod tests {
         assert_eq!(input_buffer.len(), 1);
         assert_eq!(input_buffer.get(Tick(1)), Some(&1));
         assert_eq!(input_buffer.get(Tick(2)), None);
+    }
+
+    /// Verify that `get` returns None for ticks past the buffer end,
+    /// while `get_predict` falls back to the last known input.
+    ///
+    /// This matters on the server: when the server tick advances past the
+    /// last received input, `get` silently drops the input (returns None)
+    /// while `get_predict` returns the most recent value.
+    #[test]
+    fn test_get_vs_get_predict_past_buffer_end() {
+        let mut input_buffer = InputBuffer::<i32, i32>::default();
+        input_buffer.set(Tick(10), 42);
+        input_buffer.set(Tick(12), 99);
+
+        // Within range: both return the same value
+        assert_eq!(input_buffer.get(Tick(10)), Some(&42));
+        assert_eq!(input_buffer.get_predict(Tick(10)), Some(&42));
+        assert_eq!(input_buffer.get(Tick(12)), Some(&99));
+        assert_eq!(input_buffer.get_predict(Tick(12)), Some(&99));
+
+        // Past buffer end: get returns None, get_predict returns last known
+        assert_eq!(input_buffer.get(Tick(15)), None);
+        assert_eq!(
+            input_buffer.get_predict(Tick(15)),
+            Some(&99),
+            "get_predict should fall back to the last known input"
+        );
+
+        // Before buffer start: both return None
+        assert_eq!(input_buffer.get(Tick(5)), None);
+        assert_eq!(input_buffer.get_predict(Tick(5)), None);
     }
 }

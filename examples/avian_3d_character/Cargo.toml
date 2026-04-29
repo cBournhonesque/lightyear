@@ -7,11 +7,23 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = ["gui", "lightyear/client", "lightyear_examples_common/client"]
+# Keep the protocol setup identical between split client/server builds.
+# Runtime mode still decides whether we actually run client or server logic.
+client = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 gui = ["lightyear_examples_common/gui3d"]
-server = ["lightyear/server", "lightyear_examples_common/server"]
+server = [
+  "lightyear/client",
+  "lightyear/server",
+  "lightyear_examples_common/client",
+  "lightyear_examples_common/server",
+]
 netcode = ["lightyear_examples_common/netcode"]
-udp = ["lightyear_examples_common/udp", "lightyear/udp"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
 [dependencies]
 lightyear = { workspace = true, features = [
@@ -22,7 +34,9 @@ lightyear = { workspace = true, features = [
   "avian3d",
 ] }
 lightyear_frame_interpolation.workspace = true
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 leafwing-input-manager = { workspace = true, default-features = false, features = [
   "keyboard",
   "gamepad",

@@ -9,6 +9,7 @@ use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::Controlled;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::*;
 
@@ -16,11 +17,13 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(FixedUpdate, handle_character_actions);
         app.add_systems(
             Update,
             (handle_new_floor, handle_new_block, handle_new_character),
         );
+        app.add_observer(handle_controlled_character);
     }
 }
 
@@ -62,28 +65,45 @@ fn handle_character_actions(
 fn handle_new_character(
     mut commands: Commands,
     mut character_query: Query<
-        (Entity, &ColorComponent, Has<Controlled>),
+        (Entity, &ColorComponent),
         (Added<Predicted>, With<CharacterMarker>),
     >,
 ) {
-    for (entity, _color, is_controlled) in &mut character_query {
-        if is_controlled {
-            info!("Adding InputMap to controlled and predicted entity {entity:?}");
-            commands.entity(entity).insert(
-                InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-                    .with(CharacterAction::Jump, GamepadButton::South)
-                    .with(CharacterAction::Shoot, KeyCode::KeyQ)
-                    .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
-                    .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
-            );
-        } else {
-            info!("Remote character predicted for us: {entity:?}");
-        }
+    for (entity, _color) in &mut character_query {
+        info!("Predicted character ready on client: {entity:?}");
         info!(?entity, "Adding physics to character");
         commands
             .entity(entity)
             .insert(CharacterPhysicsBundle::default());
     }
+}
+
+fn handle_controlled_character(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    character_query: Query<
+        Option<&ControlledBy>,
+        (With<CharacterMarker>, Without<InputMap<CharacterAction>>),
+    >,
+    clients: Query<(), With<Client>>,
+) {
+    let entity = trigger.entity;
+    let Ok(controlled_by) = character_query.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
+    }
+    info!("Adding InputMap to controlled character {entity:?}");
+    commands.entity(entity).insert(
+        InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
+            .with(CharacterAction::Jump, GamepadButton::South)
+            .with(CharacterAction::Shoot, KeyCode::KeyQ)
+            .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
+            .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
+    );
 }
 
 /// Add physics to floors that are newly replicated. The query checks for

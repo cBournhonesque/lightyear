@@ -1,5 +1,7 @@
 pub mod protocol;
 
+pub mod automation;
+
 #[cfg(feature = "client")]
 pub mod client;
 

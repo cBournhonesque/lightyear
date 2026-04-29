@@ -18,6 +18,7 @@ use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_raw_connection::client::RawClient;
 use lightyear_raw_connection::server::RawServer;
 use lightyear_replication::delta::DeltaManager;
+use lightyear_replication::receive::ReplicationReceiver;
 
 pub const SERVER_PORT: u16 = 56789;
 pub const SERVER_ADDR: SocketAddr =
@@ -281,8 +282,8 @@ impl ClientServerStepper {
             PingManager::new(PingConfig {
                 ping_interval: Duration::default(),
             }),
-            ReplicationSender::default(),
-            ReplicationReceiver::default(),
+            ReplicationSender,
+            ReplicationReceiver,
             crossbeam_client,
             #[cfg(feature = "test_utils")]
             TestHelper::default(),
@@ -317,8 +318,8 @@ impl ClientServerStepper {
                         ping_interval: Duration::default(),
                     }),
                     // TODO: we want the ReplicationSender/Receiver to be added automatically when ClientOf is created, but with configs pre-specified by the server
-                    ReplicationSender::default(),
-                    ReplicationReceiver::default(),
+                    ReplicationSender,
+                    ReplicationReceiver,
                     // we will act like each client has a different port
                     Link::new(None),
                     PeerAddr(SocketAddr::new(

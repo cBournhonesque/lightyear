@@ -6,10 +6,12 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -19,6 +21,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_new_client);
@@ -33,10 +37,9 @@ impl Plugin for ExampleServerPlugin {
 /// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
-        Name::from("Client"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender, Name::from("Client")));
 }
 
 /// If the new client connects to the server, we want to spawn a new player entity for it.
@@ -75,16 +78,27 @@ pub(crate) fn handle_connected(
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
     timeline: Res<LocalTimeline>,
-    mut position_query: Query<
-        (&mut PlayerPosition, &ActionState<Inputs>),
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>, Has<Predicted>)>,
 ) {
+    let is_host_server = !host_server.is_empty();
     let tick = timeline.tick();
-    for (position, inputs) in position_query.iter_mut() {
+    for (position, inputs, predicted) in position_query.iter_mut() {
+        if is_host_server && predicted {
+            continue;
+        }
         trace!(?tick, ?position, ?inputs, "server");
+        trace!(
+            target: "lightyear_debug::simple_box",
+            kind = "simple_box_server_input",
+            schedule = "FixedUpdate",
+            sample_point = "FixedUpdate",
+            local_tick = tick.0,
+            input = ?inputs.0,
+            position = ?position.0,
+            predicted,
+            "applied simple_box server input"
+        );
         shared::shared_movement_behaviour(position, inputs);
     }
 }

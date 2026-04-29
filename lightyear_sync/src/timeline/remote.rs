@@ -113,6 +113,16 @@ impl RemoteTimeline {
         tick_duration: Duration,
     ) {
         if ping_manager.pongs_recv < self.handshake_pings {
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "remote_estimate_waiting_for_handshake",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                remote_tick = remote_tick.0,
+                pongs_recv = ping_manager.pongs_recv,
+                handshake_pings = self.handshake_pings,
+                "remote timeline estimate skipped until handshake pongs are available"
+            );
             return;
         }
         if self
@@ -130,6 +140,7 @@ impl RemoteTimeline {
             let ideal_estimate = self.now();
 
             let raw_offset = new_estimate - ideal_estimate;
+            let old_offset = self.offset;
 
             // for the first time, don't apply smoothing
             if self.context.first_estimate {
@@ -143,6 +154,24 @@ impl RemoteTimeline {
                 trace!(?new_estimate, ?ideal_estimate, old_offset = ?self.offset, new_offset = ?smoothed_offset, ?jitter_ms, ?alpha, "Update RemoteTimeline offset");
                 self.offset = smoothed_offset;
             }
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "remote_estimate_update",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                remote_tick = remote_tick.0,
+                estimated_tick = self.current_estimate().tick().0,
+                timeline_tick = self.tick().0,
+                rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
+                jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
+                network_delay = ?network_delay,
+                new_estimate = ?new_estimate,
+                ideal_estimate = ?ideal_estimate,
+                raw_offset = ?raw_offset,
+                old_offset = ?old_offset,
+                new_offset = ?self.offset,
+                "remote timeline estimate updated"
+            );
         }
     }
 
@@ -205,6 +234,15 @@ pub(crate) fn update_remote_timeline(
         trace!(
             "Received packet received with remote tick {:?}",
             trigger.remote_tick
+        );
+        trace!(
+            target: "lightyear_debug::timeline",
+            kind = "packet_remote_tick",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            entity = ?trigger.entity,
+            remote_tick = trigger.remote_tick.0,
+            "packet carried remote timeline tick"
         );
         t.update(trigger.remote_tick, ping_manager, tick_duration.0);
     }

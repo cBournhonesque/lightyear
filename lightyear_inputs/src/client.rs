@@ -72,7 +72,7 @@ use lightyear_interpolation::prelude::*;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{MessageReceiver, MessageSender};
 use lightyear_prediction::prelude::*;
-use lightyear_replication::prelude::PreSpawned;
+use lightyear_replication::prelude::{ControlledBy, PreSpawned};
 use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
@@ -119,6 +119,16 @@ pub enum InputSystems {
     CleanUp,
 }
 
+/// Client-side plugin that buffers local action state each tick and sends
+/// compressed input messages to the server.
+///
+/// The plugin also handles:
+/// - **Input delay**: buffering inputs ahead of time so the server receives
+///   them before it needs them.
+/// - **Redundancy**: each message includes the last N ticks of input to
+///   recover from packet loss.
+/// - **Remote player prediction**: if `rebroadcast_inputs` is enabled,
+///   processes input messages received from the server for other players.
 pub struct ClientInputPlugin<S: ActionStateSequence> {
     config: InputConfig<S::Action>,
 }
@@ -251,6 +261,16 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
 // equivalent to &ActionState<S::Action>
 
+fn is_owned_by_client_link(
+    controlled_by: Option<&ControlledBy>,
+    clients: &Query<(), With<Client>>,
+) -> bool {
+    match controlled_by {
+        Some(controlled_by) => clients.get(controlled_by.owner).is_ok(),
+        None => true,
+    }
+}
+
 /// Write the value of the ActionState in the InputBuffer.
 /// (so that we can pull it for rollback or for delayed inputs)
 ///
@@ -263,19 +283,24 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    input_timeline: Single<&InputTimeline, Without<Rollback>>,
+    input_timeline: Single<&InputTimeline, (With<Client>, Without<Rollback>)>,
+    clients: Query<(), With<Client>>,
     mut action_state_query: Query<
         (
             Entity,
             StateRef<S>,
             &mut InputBuffer<S::Snapshot, S::Action>,
+            Option<&ControlledBy>,
         ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
     let current_tick = local_timeline.tick();
-    let tick = current_tick + input_timeline.input_delay() as i16;
-    for (entity, action_state, mut input_buffer) in action_state_query.iter_mut() {
+    let tick = current_tick + input_timeline.input_delay() as i32;
+    for (entity, action_state, mut input_buffer, controlled_by) in action_state_query.iter_mut() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         input_buffer.set(tick, S::to_snapshot(action_state));
         trace!(
             ?entity,
@@ -284,6 +309,19 @@ fn buffer_action_state<S: ActionStateSequence>(
             delayed_tick = ?tick,
             input_buffer = %input_buffer.as_ref(),
             "set action state in input buffer",
+        );
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "buffer_action_state",
+            schedule = "FixedPreUpdate",
+            sample_point = "FixedPreUpdate",
+            entity = ?entity,
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = current_tick.0,
+            input_tick = tick.0,
+            buffer_len = input_buffer.len(),
+            input_buffer = %input_buffer.as_ref(),
+            "buffered local action state"
         );
         #[cfg(feature = "metrics")]
         {
@@ -304,7 +342,10 @@ fn get_action_state<S: ActionStateSequence>(
     local_timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
-    sender: Single<(&InputTimeline, &InputTimelineConfig, Has<Rollback>), Without<HostClient>>,
+    sender: Query<
+        (&InputTimeline, &InputTimelineConfig, Has<Rollback>),
+        (With<Client>, Without<HostClient>),
+    >,
 
     // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -321,8 +362,10 @@ fn get_action_state<S: ActionStateSequence>(
         Allow<PredictionDisable>,
     >,
 ) {
-    let (input_timeline, input_config, is_rollback) = sender.into_inner();
-    let input_delay = input_timeline.input_delay() as i16;
+    let Ok((input_timeline, input_config, is_rollback)) = sender.single() else {
+        return;
+    };
+    let input_delay = input_timeline.input_delay() as i32;
     let tick = local_timeline.tick();
     if is_rollback && config.ignore_rollbacks {
         return;
@@ -364,6 +407,22 @@ fn get_action_state<S: ActionStateSequence>(
                 // action_state.get_pressed(),
                 input_buffer
             );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "get_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                is_local,
+                is_rollback,
+                snapshot = ?snapshot,
+                buffer_len = input_buffer.len(),
+                input_buffer = %*input_buffer,
+                "restored action state from input buffer"
+            );
         } else if !is_local && config.rebroadcast_inputs {
             if input_config.is_lockstep() {
                 error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
@@ -380,6 +439,20 @@ fn get_action_state<S: ActionStateSequence>(
                 DebugName::type_name::<S::Action>(),
                 snapshot
             );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "decay_missing_remote_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                is_rollback,
+                snapshot = ?snapshot,
+                buffer_len = input_buffer.len(),
+                "decayed missing remote action state"
+            );
             // update the action state with decay
             S::from_snapshot(S::State::into_inner(action_state), &snapshot);
             // add the new snapshot in the buffer
@@ -392,9 +465,15 @@ fn get_action_state<S: ActionStateSequence>(
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    sender: Query<(&InputTimeline, Has<Rollback>), With<IsSynced<InputTimeline>>>,
+    sender: Query<(&InputTimeline, Has<Rollback>), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    clients: Query<(), With<Client>>,
     mut action_state_query: Query<
-        (Entity, StateMut<S>, &InputBuffer<S::Snapshot, S::Action>),
+        (
+            Entity,
+            StateMut<S>,
+            &InputBuffer<S::Snapshot, S::Action>,
+            Option<&ControlledBy>,
+        ),
         // Filter so that this is only for directly controlled players, not remote players
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
@@ -402,13 +481,16 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     let Ok((input_timeline, is_rollback)) = sender.single() else {
         return;
     };
-    let input_delay_ticks = input_timeline.input_delay() as i16;
+    let input_delay_ticks = input_timeline.input_delay() as i32;
     if is_rollback || input_delay_ticks == 0 {
         return;
     }
     let tick = timeline.tick();
     let delayed_tick = tick + input_delay_ticks;
-    for (entity, action_state, input_buffer) in action_state_query.iter_mut() {
+    for (entity, action_state, input_buffer, controlled_by) in action_state_query.iter_mut() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
         //  the problem is that the Leafwing Plugin works on ActionState directly...
         if let Some(delayed_action_state) = input_buffer.get(delayed_tick) {
@@ -420,6 +502,20 @@ fn get_delayed_action_state<S: ActionStateSequence>(
                 "fetched delayed action state from input buffer: {}",
                 input_buffer
             );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "get_delayed_action_state",
+                schedule = "RunFixedMainLoop",
+                sample_point = "RunFixedMainLoop",
+                entity = ?entity,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = delayed_tick.0,
+                snapshot = ?delayed_action_state,
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer,
+                "restored delayed action state"
+            );
         }
         // TODO: if we don't find an ActionState in the buffer, should we reset the delayed one to default?
     }
@@ -430,12 +526,15 @@ fn clean_buffers<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
-    sender: Single<(), (With<InputTimeline>, Without<HostClient>)>,
+    sender: Query<(), (With<Client>, With<InputTimeline>, Without<HostClient>)>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
     >,
 ) {
+    if sender.single().is_err() {
+        return;
+    }
     // assuming that we don't rollback more than 20 ticks, or send more than 20 ticks worth of inputs
     let old_tick = timeline.tick() - HISTORY_DEPTH;
 
@@ -481,14 +580,20 @@ fn prepare_input_message<S: ActionStateSequence>(
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients (in which
         // case we prepare the input-message, which will be send_local to the server)
-        (With<IsSynced<InputTimeline>>, Without<Rollback>),
+        (
+            With<Client>,
+            With<IsSynced<InputTimeline>>,
+            Without<Rollback>,
+        ),
     >,
     channel_registry: Res<ChannelRegistry>,
+    clients: Query<(), With<Client>>,
     input_buffer_query: Query<
         (
             Entity,
             &InputBuffer<S::Snapshot, S::Action>,
             Option<&PreSpawned>,
+            Option<&ControlledBy>,
         ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
@@ -509,9 +614,20 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // we send a message from the latest tick that we have available, which is the delayed tick
     let current_tick = timeline.tick();
-    let tick = current_tick + input_timeline.input_delay() as i16;
+    let tick = current_tick + input_timeline.input_delay() as i32;
     // TODO: the number of messages should be in SharedConfig
     trace!(delayed_tick = ?tick, ?current_tick, "prepare_input_message");
+    trace!(
+        target: "lightyear_debug::input",
+        kind = "prepare_input_message_start",
+        schedule = "PostUpdate",
+        sample_point = "PostUpdate",
+        action = ?DebugName::type_name::<S::Action>(),
+        local_tick = current_tick.0,
+        input_tick = tick.0,
+        is_host_client,
+        "preparing input message"
+    );
     // TODO: instead of redundancy, send ticks up to the latest yet ACK-ed input tick
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
@@ -522,12 +638,15 @@ fn prepare_input_message<S: ActionStateSequence>(
         .send_frequency;
     // we send redundant inputs, so that if a packet is lost, we can still recover
     // A redundancy of 2 means that we can recover from 1 lost packet
-    let mut num_tick: u16 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
+    let mut num_tick: u32 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
         .try_into()
         .unwrap();
-    num_tick *= input_config.packet_redundancy;
+    num_tick *= input_config.packet_redundancy as u32;
     let mut message = InputMessage::<S>::new(tick);
-    for (entity, input_buffer, pre_spawned) in input_buffer_query.iter() {
+    for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         trace!(
             ?tick,
             ?entity,
@@ -546,6 +665,21 @@ fn prepare_input_message<S: ActionStateSequence>(
         };
 
         if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick) {
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "prepare_input_message_target",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                entity = ?entity,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = current_tick.0,
+                input_tick = tick.0,
+                num_ticks = num_tick,
+                buffer_len = input_buffer.len(),
+                target = ?target,
+                states = ?state_sequence,
+                "added target data to input message"
+            );
             message.inputs.push(PerTargetData {
                 target,
                 states: state_sequence,
@@ -562,6 +696,21 @@ fn prepare_input_message<S: ActionStateSequence>(
         "sending input message for {:?}: {}",
         DebugName::type_name::<S::Action>().shortname(),
         message
+    );
+    trace!(
+        target: "lightyear_debug::input",
+        kind = "prepare_input_message_finish",
+        schedule = "PostUpdate",
+        sample_point = "PostUpdate",
+        action = ?DebugName::type_name::<S::Action>(),
+        local_tick = current_tick.0,
+        input_tick = tick.0,
+        end_tick = tick.0,
+        num_ticks = num_tick,
+        num_targets = message.inputs.len(),
+        is_host_client,
+        message = ?message,
+        "prepared input message"
     );
     message_buffer.0.push(message);
 
@@ -586,28 +735,45 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             &PredictionManager,
         ),
         // the host-client won't receive input messages from the Server
-        (With<IsSynced<InputTimeline>>, Without<HostClient>),
+        (
+            With<Client>,
+            With<IsSynced<InputTimeline>>,
+            Without<HostClient>,
+        ),
     >,
     mut predicted_query: Query<
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
+    prespawned: Query<(Entity, &PreSpawned)>,
 ) {
     let (mut receiver, last_confirmed_input, prediction_manager) = link.into_inner();
     let tick = timeline.tick();
     let has_messages = receiver.has_messages();
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", DebugName::type_name::<S::Action>());
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "remote_input_message_recv",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = tick.0,
+            end_tick = message.end_tick.0,
+            num_targets = message.inputs.len(),
+            rebroadcast = message.rebroadcast,
+            message = ?message,
+            "received remote player input message"
+        );
         for target_data in message.inputs {
             let Some(entity) = (match target_data.target {
                 InputTarget::Entity(entity) => {
                     Some(entity)
                 }
                 InputTarget::PreSpawned(hash) => {
-                    // TODO: should clients receive rebroadcasted PreSpawned using the hash?
-                    //  if they don't receive the remote clients inputs in time, they cannot prespawn, so maybe they should just use the entity?
-                    //  Ideally, we could only pre-spawn on the controlling client (so we need a PrespawnTarget)?
-                    todo!()
+                    prespawned
+                        .iter()
+                        .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
                 }
             }) else {
                 warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
@@ -617,6 +783,19 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 ?tick, ?message.end_tick,
                 "received remote client input message for entity: {:?}. Applying to diff buffer.",
                 entity
+            );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "remote_input_target",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?entity,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                end_tick = message.end_tick.0,
+                target = ?target_data.target,
+                states = ?target_data.states,
+                "applying remote input target data"
             );
             // TODO: careful of entity collisions!
             let Ok(input_buffer) = predicted_query.get_mut(entity) else {
@@ -630,6 +809,18 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 // this can happen if we receive multiple messages out of order.
                 if input_buffer.last_remote_tick.is_some_and(|t| t >= message.end_tick) {
                     trace!("Ignoring input message because our current last_remote_tick {:?} is more recent than the remote_end_tick {:?}", input_buffer.last_remote_tick, message.end_tick);
+                    trace!(
+                        target: "lightyear_debug::input",
+                        kind = "remote_input_ignored_stale",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?entity,
+                        action = ?DebugName::type_name::<S::Action>(),
+                        local_tick = tick.0,
+                        end_tick = message.end_tick.0,
+                        last_remote_tick = ?input_buffer.last_remote_tick,
+                        "ignored stale remote input message"
+                    );
                     continue
                 }
                 update_buffer_from_remote_player_message::<S>(
@@ -642,7 +833,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     *tick_duration
                 );
             } else {
-                // add the ActionState or InputBuffer if they are missing
+                // add the ActionState and InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot, S::Action>::default();
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
@@ -653,10 +844,19 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     prediction_manager,
                     *tick_duration
                 );
-                // if the remote_player's predicted entity doesn't have the InputBuffer, we need to insert them
+                // Initialize ActionState from the latest buffered input rather
+                // than from base_value(). When the remote player's end_tick is
+                // in the past, get_action_state will call get(current_tick)
+                // which returns None and leaves ActionState unchanged. If we
+                // initialized to base_value() the player would simulate with
+                // empty/released inputs until the buffer catches up.
+                let mut action_state = S::State::base_value();
+                if let Some(last) = input_buffer.get_last() {
+                    S::from_snapshot(S::State::as_mut(&mut action_state), last);
+                }
                 commands.entity(entity).insert((
                     input_buffer,
-                    S::State::base_value()
+                    action_state,
                 ));
             };
         }
@@ -708,6 +908,16 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         "Updated LastConfirmedTick to tick {:?}",
         last_confirmed_input.tick.get()
     );
+    trace!(
+        target: "lightyear_debug::input",
+        kind = "last_confirmed_input",
+        schedule = "PostUpdate",
+        sample_point = "PostUpdate",
+        action = ?DebugName::type_name::<S::Action>(),
+        local_tick = tick.0,
+        confirmed_tick = last_confirmed_input.tick.get().0,
+        "updated LastConfirmedInput"
+    );
 }
 
 #[cfg(feature = "prediction")]
@@ -726,6 +936,21 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     // - if it's in the past, we will start a rollback and fetch the correct ActionState from the buffer in the
     //   `get_action_state` system
     if let Some(mismatch) = sequence.update_buffer(input_buffer, end_tick, tick_duration.0) {
+        trace!(
+            target: "lightyear_debug::input",
+            kind = "remote_input_buffer_update",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            entity = ?entity,
+            action = ?DebugName::type_name::<S::Action>(),
+            local_tick = tick.0,
+            end_tick = end_tick.0,
+            mismatch_tick = mismatch.0,
+            buffer_len = input_buffer.len(),
+            last_remote_tick = ?input_buffer.last_remote_tick,
+            input_buffer = %input_buffer,
+            "updated remote input buffer with mismatch"
+        );
         // find the earliest mismatch tick across all clients
         // NOTE: if the mismatch tick is more recent than our current tick, then it's not a mismatch!
         //  it just means that we are receiving a remote tick in advance of simulating that tick.
@@ -773,6 +998,20 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
             .set(input_buffer.len() as f64);
         }
     };
+    trace!(
+        target: "lightyear_debug::input",
+        kind = "remote_input_buffer_state",
+        schedule = "PreUpdate",
+        sample_point = "PreUpdate",
+        entity = ?entity,
+        action = ?DebugName::type_name::<S::Action>(),
+        local_tick = tick.0,
+        end_tick = end_tick.0,
+        buffer_len = input_buffer.len(),
+        last_remote_tick = ?input_buffer.last_remote_tick,
+        input_buffer = %input_buffer,
+        "remote input buffer state after message"
+    );
 }
 
 /// Drain the messages from the buffer and send them to the server
@@ -781,11 +1020,12 @@ fn send_input_messages<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
     sender: Single<
         (&mut MessageSender<InputMessage<S>>, Has<HostClient>),
-        With<IsSynced<InputTimeline>>,
+        (With<Client>, With<IsSynced<InputTimeline>>),
     >,
     #[cfg(feature = "interpolation")] interpolation_query: Single<
         (&InputTimeline, &InterpolationTimeline),
         (
+            With<Client>,
             With<IsSynced<InterpolationTimeline>>,
             With<IsSynced<InputTimeline>>,
         ),
@@ -808,6 +1048,16 @@ fn send_input_messages<S: ActionStateSequence>(
     trace!(
         "Number of input messages to send: {:?}",
         message_buffer.0.len()
+    );
+    trace!(
+        target: "lightyear_debug::input",
+        kind = "send_input_messages",
+        schedule = "PostUpdate",
+        sample_point = "PostUpdate",
+        action = ?DebugName::type_name::<S::Action>(),
+        num_messages = message_buffer.0.len(),
+        is_host_client,
+        "sending buffered input messages"
     );
 
     #[cfg(feature = "interpolation")]
@@ -845,13 +1095,23 @@ fn send_input_messages<S: ActionStateSequence>(
 fn receive_tick_events<S: ActionStateSequence>(
     trigger: On<SyncEvent<InputTimelineConfig>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
+    clients: Query<(), With<Client>>,
     mut input_buffer_query: Query<
-        &mut InputBuffer<S::Snapshot, S::Action>,
+        (
+            &mut InputBuffer<S::Snapshot, S::Action>,
+            Option<&ControlledBy>,
+        ),
         Allow<PredictionDisable>,
     >,
 ) {
+    if clients.get(trigger.entity).is_err() {
+        return;
+    }
     let delta = trigger.tick_delta;
-    for mut input_buffer in input_buffer_query.iter_mut() {
+    for (mut input_buffer, controlled_by) in input_buffer_query.iter_mut() {
+        if !is_owned_by_client_link(controlled_by, &clients) {
+            continue;
+        }
         if let Some(start_tick) = input_buffer.start_tick {
             input_buffer.start_tick = Some(start_tick + delta);
             debug!(

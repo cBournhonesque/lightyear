@@ -10,8 +10,7 @@ use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prelude::{
-    Client, Confirmed, Controlled, DeterministicPredicted, PreSpawned, Predicted, Replicate,
-    Replicated,
+    Client, Controlled, DeterministicPredicted, PreSpawned, Predicted, Replicate, Replicated,
 };
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};

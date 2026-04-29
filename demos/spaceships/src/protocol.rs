@@ -12,6 +12,7 @@ use lightyear::prelude::*;
 use tracing_subscriber::util::SubscriberInitExt;
 
 pub const BULLET_SIZE: f32 = 1.5;
+const BULLET_DENSITY: f32 = 5.0;
 pub const SHIP_WIDTH: f32 = 19.0;
 pub const SHIP_LENGTH: f32 = 32.0;
 
@@ -26,7 +27,7 @@ impl PhysicsBundle {
     pub(crate) fn bullet() -> Self {
         Self {
             collider: Collider::circle(BULLET_SIZE),
-            collider_density: ColliderDensity(5.0),
+            collider_density: ColliderDensity(BULLET_DENSITY),
             rigid_body: RigidBody::Dynamic,
         }
     }
@@ -48,6 +49,10 @@ impl PhysicsBundle {
             rigid_body: RigidBody::Dynamic,
         }
     }
+}
+
+pub(crate) fn bullet_mass_properties() -> MassPropertiesBundle {
+    MassPropertiesBundle::from_shape(&Collider::circle(BULLET_SIZE), BULLET_DENSITY)
 }
 
 // Components
@@ -142,7 +147,7 @@ pub struct Score(pub i32);
 pub(crate) struct BulletLifetime {
     pub(crate) origin_tick: Tick,
     /// number of ticks to live for
-    pub(crate) lifetime: i16,
+    pub(crate) lifetime: i32,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
@@ -206,8 +211,6 @@ impl Plugin for ProtocolPlugin {
             .add_should_rollback(rotation_should_rollback)
             .add_linear_interpolation()
             .add_linear_correction_fn();
-
-        app.register_type::<Confirmed<Position>>();
     }
 }
 

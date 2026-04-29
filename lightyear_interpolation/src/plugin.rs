@@ -1,9 +1,6 @@
-use super::interpolation_history::{
-    apply_confirmed_update, insert_confirmed_history, insert_confirmed_history_on_interpolated,
-};
 use crate::SyncComponent;
-use crate::despawn::removed_components;
 use crate::interpolate::{interpolate, update_confirmed_history};
+use crate::interpolation_history::insert_confirmed_history_on_interpolated;
 use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, PreUpdate, Update};
@@ -12,10 +9,11 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
+use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
-use lightyear_replication::prelude::ReplicationSystems;
+use lightyear_replication::ReplicationSystems;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -100,12 +98,10 @@ pub enum InterpolationSystems {
 /// Add per-component systems related to interpolation
 pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_observer(removed_components::<C>);
-    app.add_observer(insert_confirmed_history::<C>);
     app.add_observer(insert_confirmed_history_on_interpolated::<C>);
     app.add_systems(
         Update,
-        (apply_confirmed_update::<C>, update_confirmed_history::<C>)
+        update_confirmed_history::<C>
             .chain()
             .in_set(InterpolationSystems::Prepare),
     );
@@ -123,6 +119,9 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
+
+        // REPLICON
+        app.track_mutate_messages();
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
@@ -165,6 +164,8 @@ mod tests {
         let delay = InterpolationDelay {
             delay: PositiveTickDelta::lit("2.4"),
         };
-        assert_eq!(delay.tick_and_overstep(Tick(3)), (Tick(0), 0.6));
+        let (tick, overstep) = delay.tick_and_overstep(Tick(3));
+        assert_eq!(tick, Tick(0));
+        assert!((overstep - 0.6).abs() < 0.001);
     }
 }

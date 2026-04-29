@@ -55,6 +55,7 @@ impl InputTimelineConfig {
         mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
     ) {
         if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
+            let before = timeline.input_delay_ticks;
             timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
                 link.stats,
                 &config.sync,
@@ -63,6 +64,18 @@ impl InputTimelineConfig {
             trace!(
                 "Recomputing input delay on sync event! Input delay ticks: {}",
                 timeline.input_delay_ticks
+            );
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "input_delay_recomputed_on_sync",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?trigger.entity,
+                tick_delta = trigger.tick_delta,
+                input_delay_ticks_before = before,
+                input_delay_ticks_after = timeline.input_delay_ticks,
+                rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
+                "sync event: recomputed input delay"
             );
         }
     }
@@ -282,12 +295,12 @@ impl SyncedTimeline for InputTimeline {
             config.sync.jitter_margin(ping_manager.jitter()),
             tick_duration,
         );
-        let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
+        let input_delay: TickDelta = Tick(self.context.input_delay_ticks as u32).into();
         // NOTE: because of input delay, this could be in the past, which causes issues with Prediction
         // let's make sure that we're always ahead of the server
         let mut obj = remote + network_delay + jitter_margin - input_delay;
         if obj < remote {
-            obj = remote + TickDelta::from_i16(1)
+            obj = remote + TickDelta::from_i32(1)
         }
         trace!(
             ?remote,
@@ -300,10 +313,10 @@ impl SyncedTimeline for InputTimeline {
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> i16 {
+    fn resync(&mut self, sync_objective: TickInstant) -> i32 {
         let now = self.now();
         self.now = sync_objective;
-        (sync_objective - now).to_i16()
+        (sync_objective - now).to_i32()
     }
 
     /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
@@ -318,7 +331,7 @@ impl SyncedTimeline for InputTimeline {
         config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<i16> {
+    ) -> Option<i32> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
             return None;

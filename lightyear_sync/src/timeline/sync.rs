@@ -42,7 +42,7 @@ pub trait SyncedTimeline: NetworkTimeline {
 
     /// Resync the timeline if they are too out of sync. Returns the number of tick deltas
     /// that should be applied
-    fn resync(&mut self, sync_objective: TickInstant) -> i16;
+    fn resync(&mut self, sync_objective: TickInstant) -> i32;
 
     /// Sync the current timeline to the other timeline T.
     /// Usually this is achieved by slightly speeding up or slowing down the current timeline.
@@ -56,7 +56,7 @@ pub trait SyncedTimeline: NetworkTimeline {
         config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<i16>;
+    ) -> Option<i32>;
 
     fn is_synced(&self) -> bool;
 
@@ -212,11 +212,12 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         local_timeline: Res<LocalTimeline>,
         mut query: Query<&mut Synced>,
     ) {
+        let local_tick = local_timeline.tick();
         if let Ok(mut timeline) = query.get_mut(trigger.entity) {
             timeline.reset();
             if DRIVING {
                 trace!("Set Driving timeline tick to LocalTimeline");
-                let delta = local_timeline.tick() - timeline.tick();
+                let delta = local_tick - timeline.tick();
                 timeline.apply_delta(delta.into());
             }
         }
@@ -244,14 +245,25 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
         fixed_time: Res<Time<Fixed>>,
         mut query: Query<&mut Synced>,
     ) {
-        let tick = local_timeline.tick();
+        let local_tick = local_timeline.tick();
         let overstep = fixed_time.overstep_fraction();
         query.iter_mut().for_each(|mut synced| {
             // Desired phase: LocalTimeline.tick + Time<Fixed> overstep.
             synced.set_now(TickInstant::from_tick_and_overstep(
-                tick,
+                local_tick,
                 Overstep::from_f32(overstep),
             ));
+            trace!(
+                target: "lightyear_debug::timeline",
+                kind = "sync_from_local_timeline",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                timeline = ?DebugName::type_name::<Synced>(),
+                local_tick = local_tick.0,
+                timeline_tick = synced.tick().0,
+                overstep,
+                "driving timeline synced from LocalTimeline"
+            );
         });
     }
 
@@ -264,6 +276,16 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 "Timeline {} sets the virtual time relative speed to {}",
                 DebugName::type_name::<Synced>(),
                 timeline.relative_speed()
+            );
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "relative_speed",
+                schedule = "Last",
+                sample_point = "Last",
+                timeline = ?DebugName::type_name::<Synced>(),
+                tick = timeline.tick().0,
+                relative_speed = timeline.relative_speed(),
+                "timeline relative speed applied to Virtual time"
             );
             // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
             virtual_time.set_relative_speed(timeline.relative_speed());
@@ -300,6 +322,17 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                 );
                 // return early if the remote timeline hasn't received any packets
                 if !main_timeline.received_packet() {
+                    trace!(
+                        target: "lightyear_debug::sync",
+                        kind = "sync_skipped_no_packet",
+                        schedule = "PostUpdate",
+                        sample_point = "PostUpdate",
+                        entity = ?entity,
+                        timeline = ?DebugName::type_name::<Synced>(),
+                        remote_timeline = ?DebugName::type_name::<Remote>(),
+                        timeline_tick = sync_timeline.tick().0,
+                        "sync skipped because remote timeline received no packet"
+                    );
                     return;
                 }
                 if !has_is_synced && sync_timeline.is_synced() {
@@ -311,12 +344,63 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
                     commands
                         .entity(entity)
                         .insert(IsSynced::<Synced>::default());
+                    trace!(
+                        target: "lightyear_debug::sync",
+                        kind = "timeline_synced",
+                        schedule = "PostUpdate",
+                        sample_point = "PostUpdate",
+                        entity = ?entity,
+                        timeline = ?DebugName::type_name::<Synced>(),
+                        remote_timeline = ?DebugName::type_name::<Remote>(),
+                        timeline_tick = sync_timeline.tick().0,
+                        "timeline marked synced"
+                    );
                 }
+                let before_now = sync_timeline.now();
+                let remote_estimate = main_timeline.current_estimate();
                 if let Some(tick_delta) =
                     sync_timeline.sync(main_timeline, config, ping_manager, tick_duration.0)
                 {
+                    trace!(
+                        target: "lightyear_debug::sync",
+                        kind = "sync_adjustment",
+                        schedule = "PostUpdate",
+                        sample_point = "PostUpdate",
+                        entity = ?entity,
+                        timeline = ?DebugName::type_name::<Synced>(),
+                        remote_timeline = ?DebugName::type_name::<Remote>(),
+                        timeline_tick = sync_timeline.tick().0,
+                        remote_tick = main_timeline.tick().0,
+                        before = ?before_now,
+                        after = ?sync_timeline.now(),
+                        remote_estimate = ?remote_estimate,
+                        tick_delta,
+                        relative_speed = sync_timeline.relative_speed(),
+                        rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
+                        jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
+                        "timeline sync emitted SyncEvent"
+                    );
                     // if it's the driving pipeline, also update the LocalTimeline in `handle_sync_event`
                     commands.trigger(SyncEvent::<Synced::Config>::new(entity, tick_delta));
+                } else {
+                    trace!(
+                        target: "lightyear_debug::sync",
+                        kind = "sync_sample",
+                        schedule = "PostUpdate",
+                        sample_point = "PostUpdate",
+                        entity = ?entity,
+                        timeline = ?DebugName::type_name::<Synced>(),
+                        remote_timeline = ?DebugName::type_name::<Remote>(),
+                        timeline_tick = sync_timeline.tick().0,
+                        remote_tick = main_timeline.tick().0,
+                        before = ?before_now,
+                        after = ?sync_timeline.now(),
+                        remote_estimate = ?remote_estimate,
+                        relative_speed = sync_timeline.relative_speed(),
+                        rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
+                        jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
+                        "timeline sync sampled"
+                    );
                 }
             },
         )
@@ -332,6 +416,17 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
             tick_delta = ?trigger.tick_delta,
             ?new_tick,
             "Apply delta to LocalTimeline from driving pipeline {:?}'s SyncEvent", DebugName::type_name::<Synced>()
+        );
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "sync_event_apply",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            entity = ?trigger.entity,
+            timeline = ?DebugName::type_name::<Synced>(),
+            tick_delta = trigger.tick_delta,
+            local_tick = new_tick.0,
+            "applied SyncEvent to LocalTimeline"
         );
     }
 }

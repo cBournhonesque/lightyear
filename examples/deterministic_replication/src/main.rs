@@ -1,21 +1,17 @@
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
-use avian2d::prelude::Position;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 /// how many ticks to delay the input by
 pub const INPUT_DELAY_TICKS: u16 = 0;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;
@@ -64,6 +60,7 @@ fn main() {
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
     use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
+    use lightyear::prelude::{Client, PredictionManager, RollbackMode, RollbackPolicy};
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()
@@ -75,21 +72,16 @@ fn add_input_delay(app: &mut App) {
         .entity_mut(client)
         .insert(PredictionManager {
             rollback_policy: RollbackPolicy {
-                // we only replicate inputs, so state-based rollback is disabled
                 state: RollbackMode::Disabled,
-                // we rollback only when remote inputs don't match what we were predicting
                 input: RollbackMode::Check,
-                // do not limit the max number of rollback ticks
                 max_rollback_ticks: 100,
             },
             ..default()
         })
         .insert(
             InputTimelineConfig::default()
-                // Enable `no_prediction()` to do deterministic_lockstep! 100% of the latency will be covered
-                // by input delay so there won't be any rollbacks
-                // .with_input_delay(InputDelayConfig::no_prediction()),
-                // Otherwise control the input delay manually
+                // In deterministic mode, input delay must be large enough for
+                // inputs to arrive on the server before the tick is simulated.
                 .with_input_delay(InputDelayConfig::fixed_input_delay(INPUT_DELAY_TICKS)),
         );
 }

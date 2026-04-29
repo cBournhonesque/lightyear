@@ -116,10 +116,9 @@ You can add a trigger to listen to this event and add the extra components to cu
 ```rust
 # use bevy_ecs::prelude::*;
 # use lightyear::prelude::*;
-# use core::time::Duration;
 fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(Duration::from_millis(100), SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender,
         Name::from("Client"),
     ));
 }
@@ -369,7 +368,7 @@ pub mod prelude {
     pub use lightyear_interpolation::prelude::*;
 
     #[cfg(feature = "debug")]
-    pub use lightyear_ui::prelude::*;
+    pub use lightyear_tools::prelude::*;
 
     #[cfg(any(feature = "input_native", feature = "leafwing", feature = "input_bei"))]
     pub mod input {

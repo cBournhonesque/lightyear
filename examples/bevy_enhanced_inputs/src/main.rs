@@ -16,9 +16,9 @@ use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
+mod automation;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::{ReplicationSender, SendUpdatesMode};
 use lightyear_examples_common::cli::{Cli, Mode};
 
 use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
@@ -69,26 +69,4 @@ fn main() {
 }
 
 #[cfg(feature = "client")]
-fn add_input_delay(app: &mut App) {
-    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
-    use lightyear::prelude::{Client, InputTimeline, Timeline};
-    let client = app
-        .world_mut()
-        .query_filtered::<Entity, With<Client>>()
-        .single(app.world_mut())
-        .unwrap();
-
-    // we need to add a ReplicationSender to the client entity to replicate the Action entities to the server
-    app.world_mut()
-        .entity_mut(client)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
-
-    // set some input-delay since we are predicting all entities
-    app.world_mut().entity_mut(client).insert(
-        InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-    );
-}
+fn add_input_delay(_app: &mut App) {}

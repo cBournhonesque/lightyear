@@ -1,6 +1,6 @@
-use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use bevy_replicon::prelude::AppRuleExt;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
@@ -48,11 +48,6 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-// Messages
-
-#[derive(Event, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Ready;
-
 // Channel
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -81,37 +76,49 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        // channel
+        // Reliable channel used for late-join catch-up requests.
         app.add_channel::<Channel1>(ChannelSettings {
             mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
             ..default()
         })
         .add_direction(NetworkDirection::ClientToServer);
 
-        // messages
-        app.register_event::<Ready>()
-            .add_direction(NetworkDirection::ClientToServer);
+        // Late-join catch-up: shared between client and server so it must
+        // be registered before `cli.spawn_connections` adds the Client /
+        // ClientOf entities (otherwise `register_required_components`
+        // would fail because the archetype already exists). Registered in
+        // ProtocolPlugin (loaded by SharedPlugin) so it runs before the
+        // CLI spawns the networking entities.
+        app.add_plugins(
+            lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin::<Channel1>::default(),
+        );
 
         // components
         app.register_component::<PlayerId>();
-
-        // add prediction for non-networked components
+        // Physics components are replicated once (initial value on entity spawn)
+        // so that late-joining clients get the correct starting state.
+        // add_rollback registers PredictionHistory for rollback/checksums.
+        // add_confirmed_write ensures the replicated value goes to
+        // PredictionHistory as confirmed state (instead of overwriting the
+        // component), so input-triggered rollbacks snap to the correct value.
+        app.replicate_once::<Position>();
         app.add_rollback::<Position>()
-            // add a hash function to perform a checksum in order to catch desyncs
+            .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            // register a linear interpolation function without actually running Interpolation systems
-            // it will be used for FrameInterpolation
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
+        app.replicate_once::<Rotation>();
         app.add_rollback::<Rotation>()
+            .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        // NOTE: interpolation/correction is only needed for components that are visually displayed!
-        // we still need prediction to be able to correctly predict the physics on the client
-        app.add_rollback::<LinearVelocity>();
-        app.add_rollback::<AngularVelocity>();
+        app.replicate_once::<LinearVelocity>();
+        app.add_rollback::<LinearVelocity>().add_confirmed_write();
+
+        app.replicate_once::<AngularVelocity>();
+        app.add_rollback::<AngularVelocity>().add_confirmed_write();
     }
 }

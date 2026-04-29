@@ -25,9 +25,7 @@ fn test_setup_client_server() {
             .client(0)
             .contains::<MessageReceiver<StringMessage>>()
     );
-    assert!(stepper.client(0).contains::<EventSender<SenderMetadata>>());
     assert!(stepper.client(0).contains::<ReplicationSender>());
-    assert!(stepper.client(0).contains::<ReplicationReceiver>());
     assert!(stepper.client(0).contains::<CrossbeamIo>());
     assert!(stepper.client(0).contains::<Connected>());
     assert!(stepper.client(0).contains::<LocalAddr>());
@@ -48,11 +46,6 @@ fn test_setup_client_server() {
         stepper
             .client_of(0)
             .contains::<MessageReceiver<StringMessage>>()
-    );
-    assert!(
-        stepper
-            .client_of(0)
-            .contains::<EventSender<SenderMetadata>>()
     );
     assert!(stepper.client_of(0).contains::<CrossbeamIo>());
     assert!(stepper.client_of(0).contains::<Connected>());

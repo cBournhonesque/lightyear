@@ -71,7 +71,9 @@ use {
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSystems;
-use lightyear_prediction::prelude::{PredictionAppRegistrationExt, RollbackSystems};
+use lightyear_prediction::prelude::{
+    PredictionAppRegistrationExt, PredictionRegistry, RollbackSystems,
+};
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
 /// Indicate which components you are replicating over the network
@@ -179,15 +181,19 @@ impl Plugin for LightyearAvianPlugin {
                 );
             }
             AvianReplicationMode::PositionButInterpolateTransform => {
-                // add custom correction systems
+                // Visual correction is a client-only concern but this plugin is added in shared code;
+                // skip on pure servers where PredictionPlugin is not active.
                 app.add_systems(
                     PreUpdate,
                     correction::update_frame_interpolation_post_rollback
-                        .in_set(RollbackSystems::EndRollback),
+                        .in_set(RollbackSystems::EndRollback)
+                        .run_if(resource_exists::<PredictionRegistry>),
                 );
                 app.add_systems(
                     PostUpdate,
-                    correction::add_visual_correction.in_set(RollbackSystems::VisualCorrection),
+                    correction::add_visual_correction
+                        .in_set(RollbackSystems::VisualCorrection)
+                        .run_if(resource_exists::<PredictionRegistry>),
                 );
 
                 if !self.update_syncs_manually {
@@ -294,12 +300,13 @@ impl Plugin for LightyearAvianPlugin {
 
         // Avian's ColliderOf::on_insert requires GlobalTransform to set up
         // the RigidBodyColliders relationship. Since PhysicsTransformPlugin is disabled,
-        // we register Transform as required for Collider so GlobalTransform is present.
+        // we register Transform as required for ColliderMarker so GlobalTransform is present
+        // for any concrete collider backend, including builds without Avian's default Collider.
         #[cfg(all(feature = "3d", not(feature = "2d")))]
-        app.try_register_required_components::<avian3d::prelude::Collider, Transform>()
+        app.try_register_required_components::<avian3d::prelude::ColliderMarker, Transform>()
             .ok();
         #[cfg(all(feature = "2d", not(feature = "3d")))]
-        app.try_register_required_components::<avian2d::prelude::Collider, Transform>()
+        app.try_register_required_components::<avian2d::prelude::ColliderMarker, Transform>()
             .ok();
 
         if self.rollback_resources {

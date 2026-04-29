@@ -157,46 +157,45 @@ fn count_entity_triggers_observer<M: EntityEvent + Debug + Clone>(
 #[test]
 fn test_send_triggers_map_entities() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn(Replicate::to_server())
-        .id();
-    stepper.frame_step(1);
     let server_entity = stepper
-        .client_of(0)
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_entity)
+        .get_local(server_entity)
         .expect("entity is not present in entity map");
 
     stepper
-        .server_app
+        .client_app()
         .add_observer(count_entity_triggers_observer::<EntityTrigger>);
     stepper
-        .server_app
+        .client_app()
         .init_resource::<EntityTriggerBuffer<EntityTrigger>>();
 
-    trace!("Sending trigger from client to server");
-    let send_trigger = EntityTrigger(client_entity);
+    trace!("Sending trigger from server to client");
+    let send_trigger = EntityTrigger(server_entity);
     stepper
-        .client_mut(0)
+        .client_of_mut(0)
         .get_mut::<EventSender<EntityTrigger>>()
         .unwrap()
-        .trigger::<Channel1>(send_trigger);
-    stepper.frame_step(1);
+        .trigger::<Channel1>(send_trigger.clone());
+    stepper.frame_step(2);
 
     assert_eq!(
-        &stepper
-            .server_app
+        &stepper.client_apps[0]
             .world()
             .resource::<EntityTriggerBuffer<EntityTrigger>>()
             .0,
         &vec![(
-            stepper.client_of_entities[0],
-            EntityTrigger(server_entity),
-            server_entity
+            stepper.client_entities[0],
+            EntityTrigger(client_entity),
+            client_entity
         )]
     );
 }

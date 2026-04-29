@@ -20,55 +20,143 @@ This can be useful for games where you have physical instances of rooms:
 
 ```rust
 # use bevy_app::App;
-# use bevy_ecs::entity::Entity;
 # use lightyear_replication::prelude::*;
 
 # let mut app = App::new();
+# app.add_plugins(RoomPlugin);
+# let room = app.world_mut().resource_mut::<RoomAllocator>().allocate();
 # let mut commands = app.world_mut().commands();
-// create a new room
-let room = commands.spawn(Room::default()).id();
-
-let entity = commands.spawn(Replicate::default()).id();
-let client = commands.spawn(ReplicationSender::default()).id();
-
-// add the client and entity to the same room: the entity will be replicated/visible to the client
-commands.trigger(RoomEvent { target: RoomTarget::AddEntity(entity), room });
-commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
+// Add the client and entity to the same room: the entity will be
+// replicated/visible to clients sharing that room.
+let entity = commands.spawn((Replicate::default(), Rooms::single(room))).id();
+let client = commands.spawn((ReplicationSender::default(), Rooms::single(room))).id();
 ```
 
 */
-
-use crate::prelude::{InterpolationTarget, PerSenderReplicationState, PredictionTarget, ReplicationState};
-use crate::send::plugin::ReplicationBufferSystems;
-use crate::visibility::error::NetworkVisibilityError;
-use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
-use bevy_app::{App, Plugin, PostUpdate};
-use bevy_ecs::entity::{EntityHashMap, EntityHashSet, EntityIndexMap};
+use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
-use bevy_platform::collections::hash_map::Entry;
-use bevy_reflect::Reflect;
-use lightyear_connection::client::Disconnected;
+use bevy_replicon::prelude::{AppVisibilityExt, VisibilityFilter};
+use bevy_replicon::server::visibility::registry::FilterRegistry;
+use bevy_replicon::shared::replication::registry::ReplicationRegistry;
+use fixedbitset::FixedBitSet;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
-/// A [`Room`] is a data structure that is used to perform interest management.
+/// Unique identifier for a room.
 ///
-/// It holds a list of clients and entities that are in the room.
-/// An entity is visible to a client only if it is in the same room as the client.
-///
-/// Entities and clients can belong to multiple rooms, they just need to both be present in one room
-/// for the entity to be replicated to the client.
-#[derive(Debug, Default, Reflect, Component)]
-pub struct Room {
-    /// list of sender that are in the room
-    pub clients: EntityHashSet,
-    /// list of entities that are in the room
-    pub entities: EntityHashSet,
+/// The [`RoomId`] must be allocated via the [`RoomAllocator`] resource.
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    serde::Serialize,
+    serde::Deserialize,
+    bevy_reflect::Reflect,
+)]
+pub struct RoomId(u16);
+
+impl RoomId {
+    /// Returns the underlying usize value of the RoomId
+    pub fn as_usize(&self) -> usize {
+        self.0 as usize
+    }
+}
+impl From<RoomId> for usize {
+    fn from(value: RoomId) -> Self {
+        value.0 as usize
+    }
 }
 
-impl Room {
-    fn is_empty(&self) -> bool {
-        self.clients.is_empty() && self.entities.is_empty()
+#[derive(Debug, Resource)]
+pub struct RoomAllocator {
+    next_id: RoomId,
+}
+
+impl Default for RoomAllocator {
+    fn default() -> Self {
+        Self { next_id: RoomId(0) }
+    }
+}
+
+impl RoomAllocator {
+    pub fn allocate(&mut self) -> RoomId {
+        let id = self.next_id;
+        self.next_id = RoomId(self.next_id.0.checked_add(1).expect("RoomId overflow"));
+        id
+    }
+}
+
+/// A [`Rooms`] is a component that represents the list of rooms that the entity or client belongs to.
+///
+/// It is used to manage interest management via rooms.
+/// The entity will be replicated to all clients that share at least one room with the entity.
+///
+/// The room ids must be allocated via the [`RoomAllocator`] resource.
+#[derive(Debug, Component)]
+#[component(immutable)]
+pub struct Rooms {
+    /// list of rooms that the entity/client belongs to
+    rooms: FixedBitSet,
+}
+
+impl<T: Iterator<Item = RoomId>> From<T> for Rooms {
+    fn from(value: T) -> Self {
+        let mut rooms = Self::default();
+        for room in value {
+            rooms.add_room(room);
+        }
+        rooms
+    }
+}
+
+impl Rooms {
+    pub fn single(room: RoomId) -> Self {
+        let mut rooms = FixedBitSet::with_capacity(room.as_usize() + 1);
+        rooms.set(room.as_usize(), true);
+        Self { rooms }
+    }
+
+    pub fn rooms(&self) -> impl Iterator<Item = RoomId> + '_ {
+        self.rooms.ones().map(|index| RoomId(index as u16))
+    }
+
+    /// Adds an extra room to the list of rooms
+    pub fn add_room(&mut self, room: RoomId) {
+        if room.as_usize() >= self.rooms.len() {
+            self.rooms.grow(room.as_usize() + 1);
+        }
+        self.rooms.set(room.as_usize(), true);
+    }
+
+    /// Returns true if this entity/client is in the specified room
+    pub fn contains_room(&self, room: RoomId) -> bool {
+        room.as_usize() < self.rooms.len() && self.rooms.contains(room.as_usize())
+    }
+
+    /// Removes the entity/client from the specified room
+    pub fn remove_room(&mut self, room: RoomId) {
+        if room.as_usize() < self.rooms.len() {
+            self.rooms.set(room.as_usize(), false);
+        }
+    }
+}
+
+impl Default for Rooms {
+    fn default() -> Self {
+        Self {
+            rooms: FixedBitSet::with_capacity(1),
+        }
+    }
+}
+
+impl VisibilityFilter for Rooms {
+    type ClientComponent = Self;
+    type Scope = Entity;
+    fn is_visible(&self, _client: Entity, component: Option<&Self::ClientComponent>) -> bool {
+        component.is_some_and(|other| self.rooms.intersection_count(&other.rooms) > 0)
     }
 }
 
@@ -76,302 +164,12 @@ impl Room {
 #[derive(Default)]
 pub struct RoomPlugin;
 
-impl RoomPlugin {
-    /// Pop the disconnected client from all rooms
-    fn handle_disconnect(
-        trigger: On<Add, Disconnected>,
-        mut query: Query<&mut Room>,
-        mut room_events: ResMut<RoomEvents>,
-    ) {
-        query.iter_mut().for_each(|mut room| {
-            room.clients.remove(&trigger.entity);
-        });
-        room_events.shared_counts.remove(&trigger.entity);
-    }
-
-    fn handle_room_event(
-        trigger: On<RoomEvent>,
-        mut room_events: ResMut<RoomEvents>,
-        mut room_query: Query<&mut Room>,
-    ) -> Result {
-        let room_entity = trigger.room;
-        let Ok(mut room) = room_query.get_mut(room_entity) else {
-            return Err(NetworkVisibilityError::RoomNotFound(room_entity))?;
-        };
-
-        // enable partial borrows
-        let room_events = room_events.as_mut();
-        match &trigger.event().target {
-            RoomTarget::AddEntity(entity) => {
-                if room.entities.insert(*entity) {
-                    trace!("Adding entity {entity:?} to room {room_entity:?}");
-                    for client in room.clients.iter() {
-                        let count = room_events
-                            .shared_counts
-                            .entry(*client)
-                            .or_default()
-                            .entry(*entity)
-                            .or_default();
-                        if *count == 0 {
-                            room_events
-                                .events
-                                .entry(*entity)
-                                .or_default()
-                                .gain_visibility(*client);
-                        }
-                        *count = count.saturating_add(1);
-                    }
-                }
-            }
-            RoomTarget::RemoveEntity(entity) => {
-                // Only run if the entity was actually in the room
-                if room.entities.remove(entity) {
-                    trace!("Removing entity {entity:?} from room {room_entity:?}");
-                    for client in room.clients.iter() {
-                        let count = room_events
-                            .shared_counts
-                            .entry(*client)
-                            .or_default()
-                            .entry(*entity)
-                            .or_default();
-                        *count = count.saturating_sub(1);
-                        if *count == 0 {
-                            room_events
-                                .events
-                                .entry(*entity)
-                                .or_default()
-                                .lose_visibility(*client);
-                        }
-                    }
-                }
-            }
-            RoomTarget::AddSender(client) => {
-                if room.clients.insert(*client) {
-                    trace!("Adding sender {client:?} to room {room_entity:?}");
-                    for entity in room.entities.iter() {
-                        let count = room_events
-                            .shared_counts
-                            .entry(*client)
-                            .or_default()
-                            .entry(*entity)
-                            .or_default();
-                        if *count == 0 {
-                            room_events
-                                .events
-                                .entry(*entity)
-                                .or_default()
-                                .gain_visibility(*client);
-                        }
-                        *count = count.saturating_add(1);
-                    }
-                }
-            }
-            RoomTarget::RemoveSender(client) => {
-                if room.clients.remove(client) {
-                    trace!("Removing sender {client:?} from room {room_entity:?}");
-                    for entity in room.entities.iter() {
-                        let count = room_events
-                            .shared_counts
-                            .entry(*client)
-                            .or_default()
-                            .entry(*entity)
-                            .or_default();
-                        *count = count.saturating_sub(1);
-                        if *count == 0 {
-                            room_events
-                                .events
-                                .entry(*entity)
-                                .or_default()
-                                .lose_visibility(*client);
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn apply_room_events(
-        mut commands: Commands,
-        mut room_events: ResMut<RoomEvents>,
-        mut query: Query<(
-            &mut ReplicationState,
-            Has<PredictionTarget>,
-            Has<InterpolationTarget>,
-        )>,
-    ) {
-        // TODO: should we use iter_mut here to keep the allocated NetworkVisibility?
-        room_events
-            .events
-            .drain(..)
-            .for_each(|(entity, mut room_vis)| {
-                if let Ok((mut vis, has_prediction, has_interpolation)) = query.get_mut(entity) {
-                    room_vis
-                        .clients
-                        .drain()
-                        .for_each(|(sender, state)| match state {
-                            VisibilityState::Gained => {
-                                vis.gain_visibility(sender);
-                                // When a sender loses visibility, their
-                                // PerSenderReplicationState entry is eventually removed
-                                // (in update_network_visibility). When they later regain
-                                // visibility, gain_visibility() creates a fresh entry with
-                                // predicted/interpolated = false. Restore these flags from
-                                // the entity's PredictionTarget/InterpolationTarget so the
-                                // client spawns the entity with prediction/interpolation.
-                                if let Some(per_sender) =
-                                    vis.per_sender_state.get_mut(&sender)
-                                {
-                                    #[cfg(feature = "prediction")]
-                                    if has_prediction {
-                                        per_sender.predicted = true;
-                                    }
-                                    #[cfg(feature = "interpolation")]
-                                    if has_interpolation {
-                                        per_sender.interpolated = true;
-                                    }
-                                }
-                            }
-                            VisibilityState::Lost => vis.lose_visibility(sender),
-                            VisibilityState::Visible => {
-                                unreachable!()
-                            }
-                            _ => {}
-                        });
-                } else {
-                    trace!(
-                        ?entity,
-                        "Inserting NetworkVisibility from room visibility: {room_vis:?}"
-                    );
-                    commands
-                        .entity(entity)
-                        .try_insert((ReplicationState::from(room_vis), NetworkVisibility));
-                }
-            });
-    }
-}
-
-impl From<RoomVisibility> for ReplicationState {
-    fn from(value: RoomVisibility) -> Self {
-        let per_sender_state = value
-            .clients
-            .into_iter()
-            .map(|(e, v)| {
-                let state = PerSenderReplicationState {
-                    visibility: v,
-                    ..Default::default()
-                };
-                (e, state)
-            })
-            .collect();
-        Self { per_sender_state }
-    }
-}
-
-#[deprecated(note = "Use RoomSystems instead")]
-pub type RoomSet = RoomSystems;
-
-/// System sets related to Rooms
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RoomSystems {
-    /// Update the [`NetworkVisibility`] components based on room memberships
-    ApplyRoomEvents,
-}
-
-/// Event that can be triggered to modify the entities/peers that belong in a [`Room`]
-#[derive(EntityEvent, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub struct RoomEvent {
-    #[event_target]
-    pub room: Entity,
-    pub target: RoomTarget,
-}
-
-/// Identifies the entity that will be added or removed in the room
-#[derive(Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum RoomTarget {
-    AddEntity(Entity),
-    RemoveEntity(Entity),
-    AddSender(Entity),
-    RemoveSender(Entity),
-}
-
-#[derive(Default, Debug, Resource)]
-pub(crate) struct RoomEvents {
-    /// List of events that have been triggered by room events.
-    /// Keyed by the [`Room`] entity
-    ///
-    /// We cannot apply the [`RoomEvent`]s directly to the entity's [`NetworkVisibility`] because
-    /// we need to handle concurrent room moves correctly:
-    /// if entity E1 and sender A both leave room R1 and join room R2, the visibility should be
-    /// unchanged.
-    pub(crate) events: EntityIndexMap<RoomVisibility>,
-    /// Count of the number of rooms shared by a client and a sender
-    // client -> entity -> u8
-    shared_counts: EntityHashMap<EntityHashMap<u8>>,
-}
-
-#[derive(Debug, Default)]
-pub(crate) struct RoomVisibility {
-    /// List of clients that the entity is currently replicated to.
-    /// Will be updated before the other replication systems
-    clients: EntityHashMap<VisibilityState>,
-}
-
-impl RoomVisibility {
-    fn gain_visibility(&mut self, sender: Entity) {
-        match self.clients.entry(sender) {
-            Entry::Occupied(e) => {
-                if *e.get() == VisibilityState::Lost {
-                    e.remove();
-                }
-            }
-            Entry::Vacant(e) => {
-                e.insert(VisibilityState::Gained);
-            }
-        }
-    }
-
-    fn lose_visibility(&mut self, sender: Entity) {
-        match self.clients.entry(sender) {
-            Entry::Occupied(e) => {
-                if *e.get() == VisibilityState::Gained {
-                    e.remove();
-                }
-            }
-            Entry::Vacant(e) => {
-                e.insert(VisibilityState::Lost);
-            }
-        }
-    }
-}
-
 impl Plugin for RoomPlugin {
     fn build(&self, app: &mut App) {
-        if !app.is_plugin_added::<NetworkVisibilityPlugin>() {
-            app.add_plugins(NetworkVisibilityPlugin);
-        }
-        // REFLECT
-        // RESOURCES
-        app.init_resource::<RoomEvents>();
-        // SETS
-        app.configure_sets(
-            PostUpdate,
-            RoomSystems::ApplyRoomEvents.in_set(ReplicationBufferSystems::BeforeBuffer),
-        );
-        // SYSTEMS
-        app.add_systems(
-            PostUpdate,
-            Self::apply_room_events.in_set(RoomSystems::ApplyRoomEvents),
-        );
-        // needed in tests to make sure that commands are applied correctly
-        #[cfg(test)]
-        app.configure_sets(
-            PostUpdate,
-            RoomSystems::ApplyRoomEvents
-                .before(crate::visibility::immediate::VisibilitySystems::UpdateVisibility),
-        );
-        app.add_observer(Self::handle_room_event);
-        app.add_observer(Self::handle_disconnect);
+        app.init_resource::<FilterRegistry>()
+            .init_resource::<ReplicationRegistry>()
+            .init_resource::<RoomAllocator>();
+        app.add_visibility_filter::<Rooms>();
     }
 }
 
@@ -380,7 +178,6 @@ mod tests {
     use super::*;
 
     use crate::prelude::{Replicate, ReplicationSender};
-    use crate::send::plugin::ReplicableRootEntities;
     use alloc::vec;
     use bevy_ecs::system::RunSystemOnce;
     use test_log::test;
@@ -390,11 +187,10 @@ mod tests {
     // we add a client to that room, then we remove it
     fn test_add_remove_client_room() {
         let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
         app.add_plugins(RoomPlugin);
 
         // Client joins room
-        let room = app.world_mut().spawn(Room::default()).id();
+        let room = 0;
         let sender = app.world_mut().spawn(ReplicationSender::default()).id();
         let entity = app
             .world_mut()

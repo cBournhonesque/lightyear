@@ -7,9 +7,9 @@ extern crate core;
 
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::{ReplicationSender, SendUpdatesMode};
+use lightyear::prelude::ReplicationSender;
 use lightyear_examples_common::cli::{Cli, Mode};
-use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
+use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
@@ -18,6 +18,7 @@ use crate::protocol::ClientContext;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;
@@ -74,13 +75,7 @@ fn update_client(app: &mut App) {
         .unwrap();
 
     // we need to add a ReplicationSender to the client entity to replicate the Action entities to the server
-    app.world_mut()
-        .entity_mut(client)
-        .insert((ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ),));
+    app.world_mut().entity_mut(client).insert(ReplicationSender);
 
     // // set some input-delay since we are predicting all entities
     // app.world_mut()

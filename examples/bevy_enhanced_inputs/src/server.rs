@@ -6,11 +6,13 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::Fire;
+use bevy_enhanced_input::prelude::{Action, Fire};
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::{HostClient, HostServer};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
@@ -19,6 +21,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         // the physics/FixedUpdates systems that consume inputs should be run in this set.
         app.add_observer(movement);
         app.add_observer(handle_new_client);
@@ -32,13 +36,9 @@ impl Plugin for ExampleServerPlugin {
 /// You can add additional components to update the link. In this case we will add a `ReplicationSender` that
 /// will enable us to replicate local entities to that client.
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
-        // We need a ReplicationReceiver on the server side because the Action entities are spawned
-        // on the client and replicated to the server.
-        ReplicationReceiver::default(),
-        Name::from("Client"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender, Name::from("Client")));
 }
 
 /// If the new client connects to the server, we want to spawn a new player entity for it.
@@ -60,7 +60,7 @@ pub(crate) fn handle_connected(
     let s = 0.8;
     let l = 0.5;
     let color = Color::hsl(h, s, l);
-    let entity = commands
+    let player_entity = commands
         .spawn((
             // Add the context component on the server; it will be replicated to the client
             Player,
@@ -69,11 +69,8 @@ pub(crate) fn handle_connected(
             PlayerColor(color),
             // we replicate the Player entity to all clients that are connected to this server
             Replicate::to_clients(NetworkTarget::All),
-            // NOTE: here we predict the movements of all players!
-            PredictionTarget::to_clients(NetworkTarget::All),
-            // NOTE: Uncomment this if you want to use interpolation for non-controlled entities
-            // PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
-            // InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
             ControlledBy {
                 owner: trigger.entity,
                 lifetime: Default::default(),
@@ -82,20 +79,31 @@ pub(crate) fn handle_connected(
         .id();
     info!(
         "Create player entity {:?} for client {:?}",
-        entity, client_id
+        player_entity, client_id
     );
+    shared::spawn_action_entities(&mut commands, player_entity, client_id, true);
 }
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
     trigger: On<Fire<Movement>>,
-    mut position_query: Query<
-        &mut PlayerPosition,
-        // if we run in host-server mode, we don't want to apply this system to the local client's entities
-        // because they are already moved by the client plugin
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    server_actions: Query<(), (With<Action<Movement>>, With<shared::ServerAction>)>,
+    controlled_by: Query<&ControlledBy>,
+    host_clients: Query<(), With<HostClient>>,
+    mut position_query: Query<&mut PlayerPosition>,
 ) {
+    let is_host_server = !host_server.is_empty();
+    if is_host_server && !server_actions.contains(trigger.action) {
+        return;
+    }
+    if is_host_server {
+        if let Ok(controlled_by) = controlled_by.get(trigger.context) {
+            if host_clients.get(controlled_by.owner).is_ok() {
+                return;
+            }
+        }
+    }
     if let Ok(position) = position_query.get_mut(trigger.context) {
         shared::shared_movement_behaviour(position, trigger.value);
     }

@@ -5,6 +5,7 @@
 //! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
 //! predicted entity and the server entity)
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
@@ -17,6 +18,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set
@@ -25,6 +27,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(FixedUpdate, player_movement);
 
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
     }
 }
@@ -86,7 +89,6 @@ fn player_movement(
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
-    mut commands: Commands,
 ) {
     let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
@@ -95,11 +97,28 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
-        commands
-            .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
     }
+}
+
+/// Add the local input marker once ownership is known.
+pub(crate) fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    players: Query<Option<&ControlledBy>, (With<PlayerId>, Without<InputMarker<Inputs>>)>,
+    clients: Query<(), With<Client>>,
+) {
+    let entity = trigger.entity;
+    let Ok(controlled_by) = players.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
+    }
+    commands
+        .entity(entity)
+        .insert(InputMarker::<Inputs>::default());
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

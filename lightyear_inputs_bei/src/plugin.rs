@@ -1,9 +1,9 @@
 #[cfg(any(feature = "client", feature = "server"))]
-use crate::input_message::BEIStateSequence;
+use crate::input_message::{BEIBuffer, BEIStateSequence};
 
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use bevy_app::prelude::*;
+use bevy_app::{PreUpdate, prelude::*};
 use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
@@ -12,22 +12,50 @@ use bevy_ecs::schedule::common_conditions::not;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::EnhancedInputSystems;
 #[cfg(feature = "client")]
-use bevy_enhanced_input::action::ActionState;
+use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::context::InputContextAppExt;
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
+use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
+use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use core::fmt::Debug;
 #[cfg(feature = "client")]
 use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
-use lightyear_replication::prelude::AppComponentExt;
-use lightyear_replication::registry::replication::GetWriteFns;
+#[cfg(any(feature = "client", feature = "server"))]
+use lightyear_messages::plugin::MessageSystems;
+#[cfg(any(feature = "client", feature = "server"))]
+use lightyear_replication::ReplicationSystems;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-/// Add BEI Input replication to your app.
+/// Adds [`bevy_enhanced_input`] replication for an input context `C`.
+///
+/// This plugin registers the context component `C` for replication, sets up
+/// the [`BEIStateSequence`] message protocol to send compressed action-state
+/// diffs over the network, and configures the BEI scheduling so that inputs
+/// are buffered and restored correctly during prediction rollbacks.
+///
+/// Add one `InputPlugin` per input context type in your protocol:
+///
+/// ```rust,ignore
+/// app.add_plugins(InputPlugin::<Player>::default());
+/// app.register_input_action::<Movement>();
+/// ```
+///
+/// # Action entities
+///
+/// BEI uses separate "action entities" with [`ActionOf<C>`] to represent
+/// individual actions. These entities need to exist on both client and server.
+/// The recommended approach is to use [`PreSpawned`] so both sides spawn them
+/// independently and match via a deterministic hash — this avoids the need
+/// for client-to-server entity replication.
+///
+/// [`BEIStateSequence`]: crate::input_message::BEIStateSequence
+/// [`ActionOf<C>`]: bevy_enhanced_input::prelude::ActionOf
+/// [`PreSpawned`]: lightyear_replication::prelude::PreSpawned
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
 }
@@ -47,7 +75,7 @@ impl<C> InputPlugin<C> {
 }
 
 impl<
-    C: Component<Mutability: GetWriteFns<C>>
+    C: Component<Mutability: MutWrite<C>>
         + PartialEq
         + Clone
         + Debug
@@ -58,37 +86,69 @@ impl<
 {
     fn build(&self, app: &mut App) {
         app.register_type::<ActionOf<C>>();
+        #[cfg(feature = "server")]
+        app.register_required_components::<ActionOf<C>, BEIBuffer<C>>();
         if !app.is_plugin_added::<bevy_enhanced_input::EnhancedInputPlugin>() {
             app.add_plugins(bevy_enhanced_input::EnhancedInputPlugin);
         }
 
         app.add_input_context_to::<FixedPreUpdate, C>();
         // we register the context C entity so that it can be replicated from the server to the client
-        app.register_component::<C>();
+        app.replicate::<C>();
 
-        // We cannot directly replicate ActionOf<C> because it contains an entity, and we might need to do some custom mapping
-        // i.e. if the Action is spawned on the predicted entity on the client, we want the ActionOf<C> entity
-        // to be able to be mapped
-        app.register_component::<ActionOf<C>>()
-            .add_component_map_entities();
+        // We mirror ActionOf<C> into a separate component that stores the authoritative
+        // remote entity. That avoids depending on sender-side entity mapping in replicon's
+        // SerializeCtx.
+        app.replicate_with((
+            RuleFns::new(
+                crate::setup::serialize_network_action_of::<C>,
+                crate::setup::deserialize_network_action_of::<C>,
+            ),
+            ReplicationMode::default(),
+        ));
+        app.add_observer(InputRegistryPlugin::mirror_action_of_for_replication::<C>);
+        app.add_observer(InputRegistryPlugin::insert_action_of_from_network::<C>);
+        app.add_systems(
+            PreUpdate,
+            (
+                InputRegistryPlugin::resolve_pending_network_action_of::<C>,
+                InputRegistryPlugin::resolve_pending_action_of::<C>,
+            )
+                .chain()
+                .after(ReplicationSystems::Receive)
+                .before(MessageSystems::Receive),
+        );
 
         #[cfg(feature = "client")]
         {
             use crate::marker::{
-                add_input_marker_from_binding, add_input_marker_from_parent, propagate_input_marker,
+                add_input_marker_from_authority, add_input_marker_from_binding,
+                add_input_marker_from_confirmed_controlled_action,
+                add_input_marker_from_network_action, add_input_marker_from_parent,
+                propagate_input_marker,
             };
-            // for rebroadcasting inputs, we insert ActionState (which inserts the InputBuffer) when ActionOf<C> is added
+            // for rebroadcasting inputs, we insert TriggerState (which inserts the InputBuffer) when ActionOf<C> is added
             // on an entity
-            app.register_required_components::<ActionOf<C>, ActionState>();
+            app.register_required_components::<ActionOf<C>, TriggerState>();
 
             app.add_observer(propagate_input_marker::<C>);
             app.add_observer(add_input_marker_from_parent::<C>);
             app.add_observer(add_input_marker_from_binding::<C>);
+            app.add_observer(add_input_marker_from_authority::<C>);
+            app.add_observer(add_input_marker_from_network_action::<C>);
+            app.add_observer(add_input_marker_from_confirmed_controlled_action::<C>);
 
             if self.config.rebroadcast_inputs {
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
                 #[cfg(feature = "server")]
                 app.add_observer(InputRegistryPlugin::add_action_of_host_server_rebroadcast::<C>);
+            }
+            #[cfg(feature = "server")]
+            {
+                app.add_observer(InputRegistryPlugin::mock_non_host_owned_action::<C>);
+                app.add_observer(
+                    InputRegistryPlugin::mock_non_host_owned_actions_on_controlled_by::<C>,
+                );
             }
 
             app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);

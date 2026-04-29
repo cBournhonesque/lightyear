@@ -32,9 +32,14 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
-use lightyear_replication::prelude::{PreSpawned, Room};
+use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
+/// Server-side plugin that receives input messages from clients and applies
+/// them to [`InputBuffer`](crate::input_buffer::InputBuffer) components.
+///
+/// If `rebroadcast_inputs` is enabled, the server also forwards input messages
+/// to other clients so they can use them for remote-player prediction.
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,
     pub marker: core::marker::PhantomData<S>,
@@ -49,6 +54,8 @@ impl<S> Default for ServerInputPlugin<S> {
     }
 }
 
+/// Runtime configuration for server-side input handling, inserted as a resource
+/// by [`ServerInputPlugin`].
 #[derive(Resource)]
 pub struct ServerInputConfig<S> {
     pub rebroadcast_inputs: bool,
@@ -72,7 +79,7 @@ pub enum InputSystems {
 #[derive(Component)]
 pub enum InputRebroadcaster<S> {
     // Rebroadcast to all users in the room
-    Room(Entity),
+    Room(RoomId),
     Target(NetworkTarget),
     Marker(core::marker::PhantomData<S>),
 }
@@ -80,7 +87,7 @@ pub enum InputRebroadcaster<S> {
 impl<S> Debug for InputRebroadcaster<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            InputRebroadcaster::Room(entity) => f.debug_tuple("Room").field(entity).finish(),
+            InputRebroadcaster::Room(id) => f.debug_tuple("Room").field(id).finish(),
             InputRebroadcaster::Target(target) => f.debug_tuple("Target").field(target).finish(),
             InputRebroadcaster::Marker(_) => f
                 .debug_tuple("Marker")
@@ -146,7 +153,7 @@ fn receive_input_message<S: ActionStateSequence>(
     // make sure to only rebroadcast inputs to connected clients
     mut sender: ServerMultiMessageSender<With<Connected>>,
     tick_duration: Res<TickDuration>,
-    rooms: Query<&Room>,
+    rooms_query: Query<(Entity, &Rooms), With<Connected>>,
     timeline: Res<LocalTimeline>,
     mut receivers: Query<
         (
@@ -161,7 +168,13 @@ fn receive_input_message<S: ActionStateSequence>(
         With<Connected>,
     >,
     mut query: Query<Option<&mut InputBuffer<S::Snapshot, S::Action>>>,
-    prespawned: Query<(Entity, &PreSpawned), With<<S::State as ActionStateQueryData>::Main>>,
+    prespawned: Query<
+        (Entity, &PreSpawned),
+        (
+            With<<S::State as ActionStateQueryData>::Main>,
+            With<InputBuffer<S::Snapshot, S::Action>>,
+        ),
+    >,
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
@@ -183,6 +196,22 @@ fn receive_input_message<S: ActionStateSequence>(
             //     return Ok(())
             // }
             trace!(?tick, ?client_id, action = ?DebugName::type_name::<S::Action>().shortname(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_input_message_recv",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?client_entity,
+                server_entity = ?server_entity,
+                client_id = ?client_id.0,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                end_tick = message.end_tick.0,
+                num_targets = message.inputs.len(),
+                rebroadcast = message.rebroadcast,
+                message = ?message,
+                "server received input message"
+            );
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
@@ -196,8 +225,33 @@ fn receive_input_message<S: ActionStateSequence>(
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
                 // only rebroadcast if the message is not already a rebroadcast
                 if !message.rebroadcast {
+                    // Resolve PreSpawned targets to server entities before rebroadcasting,
+                    // so that other clients can resolve them via normal entity mapping.
+                    for input in message.inputs.iter_mut() {
+                        if let InputTarget::PreSpawned(hash) = input.target
+                            && let Some(server_e) = prespawned.iter()
+                                .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                        {
+                            input.target = InputTarget::Entity(server_e);
+                        }
+                    }
                     debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
                     message.rebroadcast = true;
+                    trace!(
+                        target: "lightyear_debug::input",
+                        kind = "server_input_rebroadcast",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?client_entity,
+                        server_entity = ?server_entity,
+                        client_id = ?client_id.0,
+                        action = ?DebugName::type_name::<S::Action>(),
+                        local_tick = tick.0,
+                        end_tick = message.end_tick.0,
+                        rebroadcaster = ?rebroadcaster,
+                        num_targets = message.inputs.len(),
+                        "server rebroadcasting input message"
+                    );
                     match rebroadcaster {
                         None => {
                             sender.send::<_, InputChannel>(
@@ -207,12 +261,14 @@ fn receive_input_message<S: ActionStateSequence>(
                             )?;
                         }
                         Some(InputRebroadcaster::Room(room)) => {
-                            if let Ok(room) = rooms.get(*room) {
-                                sender.send_to_entities::<_, InputChannel>(
-                                    &message,
-                                    room.clients.iter().filter(|e| **e != client_entity).copied()
-                                )?;
-                            }
+                            let targets: bevy_ecs::entity::EntityHashSet = rooms_query.iter()
+                                .filter(|(e, rooms)| *e != client_entity && rooms.contains_room(*room))
+                                .map(|(e, _)| e)
+                                .collect();
+                            sender.send_to_entities::<_, InputChannel>(
+                                &message,
+                                &targets
+                            )?;
                         },
                         Some(InputRebroadcaster::Target(target)) => {
                             sender.send::<_, InputChannel>(
@@ -254,10 +310,38 @@ fn receive_input_message<S: ActionStateSequence>(
                             data.states
                         );
                         data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        trace!(
+                            target: "lightyear_debug::input",
+                            kind = "server_input_buffer_update",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            client_id = ?client_id.0,
+                            action = ?DebugName::type_name::<S::Action>(),
+                            local_tick = tick.0,
+                            end_tick = message.end_tick.0,
+                            buffer_len = buffer.len(),
+                            input_buffer = %*buffer,
+                            "server updated input buffer"
+                        );
                     } else {
                         debug!("Adding InputBuffer and ActionState which are missing on the entity");
                         let mut buffer = InputBuffer::<S::Snapshot, S::Action>::default();
                         data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        trace!(
+                            target: "lightyear_debug::input",
+                            kind = "server_input_buffer_insert",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            client_id = ?client_id.0,
+                            action = ?DebugName::type_name::<S::Action>(),
+                            local_tick = tick.0,
+                            end_tick = message.end_tick.0,
+                            buffer_len = buffer.len(),
+                            input_buffer = %buffer,
+                            "server inserted input buffer"
+                        );
                         commands.entity(entity).insert((
                             buffer,
                             S::State::base_value()
@@ -309,6 +393,22 @@ fn update_action_state<S: ActionStateSequence>(
                 ?entity,
                 "action state after update. Input Buffer: {}",
                 input_buffer.as_ref()
+            );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_update_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                server_entity = ?server,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                host_client,
+                snapshot = ?snapshot,
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer.as_ref(),
+                "server applied input buffer to action state"
             );
 
             #[cfg(feature = "metrics")]

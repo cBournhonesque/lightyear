@@ -63,6 +63,8 @@ lightyear_prediction = { workspace = true }
 lightyear_link.workspace = true
 lightyear_aeronet.workspace = true
 
+bevy_replicon.workspace = true
+
 avian2d = { workspace = true, features = [
   "2d",
   "f32",

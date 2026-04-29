@@ -711,5 +711,34 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn fragmented_packets_never_exceed_max_packet_size() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+
+        let bytes = Bytes::from(vec![9u8; FRAGMENT_SIZE + 1]);
+        let fragments = FragmentSender::new().build_fragments(MessageId(1024), bytes);
+
+        let packets = manager.build_packets(
+            Duration::default(),
+            Tick(0),
+            vec![],
+            vec![(*channel_id, VecDeque::from(fragments))],
+        )?;
+
+        assert!(!packets.is_empty());
+        for packet in packets {
+            assert!(
+                packet.payload.len() <= MAX_PACKET_SIZE,
+                "fragment packet exceeded MTU: {} > {}",
+                packet.payload.len(),
+                MAX_PACKET_SIZE
+            );
+        }
+        Ok(())
+    }
+
     // TODO: ADD MORE TESTS
 }

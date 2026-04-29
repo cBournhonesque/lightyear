@@ -9,10 +9,12 @@ use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::apply_character_action;
@@ -29,6 +31,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_systems(Startup, setup);
         app.add_systems(
             FixedUpdate,
@@ -70,38 +74,20 @@ fn despawn_system(
 fn player_shoot(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    query: Query<(&ActionState<CharacterAction>, &Position, &ControlledBy), Without<Predicted>>,
+    host_server: Query<(), With<HostServer>>,
+    query: Query<(
+        &ActionState<CharacterAction>,
+        &Position,
+        &ControlledBy,
+        Has<Predicted>,
+    )>,
     time: Res<Time<Fixed>>,
 ) {
-    for (action_state, position, controlled_by) in &query {
-        let mut position_override = ComponentReplicationOverrides::<Position>::default();
-        position_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut rotation_override = ComponentReplicationOverrides::<Rotation>::default();
-        rotation_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut linear_velocity_override =
-            ComponentReplicationOverrides::<LinearVelocity>::default();
-        linear_velocity_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut angular_velocity_override =
-            ComponentReplicationOverrides::<AngularVelocity>::default();
-        angular_velocity_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-        let mut computed_mass_override = ComponentReplicationOverrides::<ComputedMass>::default();
-        computed_mass_override.global_override(ComponentReplicationOverride {
-            replicate_once: true,
-            ..default()
-        });
-
+    let is_host_server = !host_server.is_empty();
+    for (action_state, position, controlled_by, predicted) in &query {
+        if is_host_server && predicted {
+            continue;
+        }
         if action_state.just_pressed(&CharacterAction::Shoot) {
             commands.spawn((
                 Name::new("Projectile"),
@@ -120,14 +106,6 @@ fn player_shoot(
                     owner: controlled_by.owner,
                     lifetime: Default::default(),
                 },
-                // we don't want clients to receive any replication updates after the initial spawn
-                (
-                    position_override,
-                    rotation_override,
-                    linear_velocity_override,
-                    angular_velocity_override,
-                    computed_mass_override,
-                ),
             ));
         }
     }
@@ -155,13 +133,7 @@ fn setup(mut commands: Commands) {
 
 /// Add the ReplicationSender component to new clients
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 /// Spawn the player entity when a client connects

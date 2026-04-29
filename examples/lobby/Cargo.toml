@@ -14,7 +14,6 @@ publish = false
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
 client = [
-  "gui",
   "lightyear/client",
   "lightyear_examples_common/client",
   # Lobby example needs server functionality on the client side too
@@ -34,7 +33,9 @@ lightyear = { workspace = true, features = [
   "leafwing",
   "input_native",
 ] }
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 
 bevy_egui.workspace = true
 egui_extras.workspace = true

@@ -20,7 +20,7 @@ use core::time::Duration;
 use lightyear::netcode::ConnectToken;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_examples_common::shared::{SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
+use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS};
 use tokio::io::AsyncWriteExt;
 
 use crate::shared;
@@ -32,6 +32,7 @@ pub struct ExampleServerPlugin {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(handle_disconnect_event);
         app.add_observer(handle_connect_event);
 

@@ -10,6 +10,7 @@ use core::fmt::Debug;
 
 #[allow(unused)]
 pub(crate) mod archetypes;
+pub(crate) mod checkpoint_ticks;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
@@ -27,7 +28,9 @@ pub mod prelude {
     pub use crate::correction::VisualCorrection;
     pub use crate::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
     pub use crate::diagnostics::PredictionMetrics;
-    pub use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, RollbackPolicy};
+    pub use crate::manager::{
+        LastConfirmedInput, PredictionManager, RollbackMode, RollbackPolicy, StateRollbackMetadata,
+    };
     pub use crate::plugin::{PredictionPlugin, PredictionSystems};
     pub use crate::predicted_history::PredictionHistory;
     pub use crate::registry::{

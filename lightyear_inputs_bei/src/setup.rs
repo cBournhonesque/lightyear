@@ -1,20 +1,25 @@
+use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
-use bevy_utils::prelude::DebugName;
+use bevy_replicon::bytes::Bytes;
+use bevy_replicon::prelude::*;
+use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 #[cfg(feature = "client")]
 use {
-    bevy_enhanced_input::context::ExternallyMocked, lightyear_connection::client::Client,
-    lightyear_replication::prelude::Replicate,
+    bevy_enhanced_input::context::ExternallyMocked,
+    lightyear_connection::client::Client,
+    lightyear_replication::prelude::{Controlled, ControlledBy, Replicate},
 };
 
 use bevy_enhanced_input::prelude::*;
+#[cfg(any(feature = "client", feature = "server"))]
+use bevy_utils::prelude::DebugName;
 #[cfg(all(feature = "client", feature = "server"))]
 use lightyear_connection::host::HostServer;
-use lightyear_replication::prelude::*;
-use lightyear_serde::SerializationError;
-use lightyear_serde::registry::SerializeFns;
-use lightyear_serde::writer::Writer;
+use lightyear_messages::MessageManager;
+use lightyear_replication::prelude::PreSpawned;
 #[allow(unused_imports)]
 use tracing::{debug, info};
 #[cfg(any(feature = "client", feature = "server"))]
@@ -24,8 +29,8 @@ use {
 };
 #[cfg(feature = "server")]
 use {
-    lightyear_inputs::server::ServerInputConfig, lightyear_messages::MessageManager,
-    lightyear_replication::prelude::ReplicateLike,
+    lightyear_inputs::server::ServerInputConfig,
+    lightyear_replication::prelude::{InterpolationTarget, PredictionTarget, ReplicateLike},
 };
 // TODO: ideally we would have an entity-mapped that is PreSpawn aware. If you include an entity
 //   that is PreSpawned, then in the entity-mapper we use a Query<Entity, With<PreSpawned>> to check the hash
@@ -38,15 +43,133 @@ use {
 
 pub struct InputRegistryPlugin;
 
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct NetworkActionOf<C> {
+    entity: Entity,
+    marker: core::marker::PhantomData<C>,
+}
+
+impl<C> NetworkActionOf<C> {
+    fn new(entity: Entity) -> Self {
+        Self {
+            entity,
+            marker: core::marker::PhantomData,
+        }
+    }
+
+    fn get(&self) -> Entity {
+        self.entity
+    }
+}
+
 impl InputRegistryPlugin {
+    pub(crate) fn mirror_action_of_for_replication<C: Component>(
+        trigger: On<Add, ActionOf<C>>,
+        action_of: Query<&ActionOf<C>, Without<Remote>>,
+        remote_contexts: Query<(), With<Remote>>,
+        entity_map: Option<Res<ServerEntityMap>>,
+        managers: Query<&MessageManager>,
+        mut commands: Commands,
+    ) {
+        let entity = trigger.entity;
+        let Ok(action_of) = action_of.get(entity) else {
+            return;
+        };
+
+        let context_entity = action_of.get();
+        let remote_entity = resolve_remote_action_context(
+            context_entity,
+            remote_contexts.contains(context_entity),
+            entity_map.as_deref(),
+            managers.iter(),
+        );
+        let Some(remote_entity) = remote_entity else {
+            return;
+        };
+        commands
+            .entity(entity)
+            .insert(NetworkActionOf::<C>::new(remote_entity));
+    }
+
+    pub(crate) fn resolve_pending_network_action_of<C: Component>(
+        pending: Query<(Entity, &ActionOf<C>), (Without<NetworkActionOf<C>>, Without<Remote>)>,
+        remote_contexts: Query<(), With<Remote>>,
+        entity_map: Option<Res<ServerEntityMap>>,
+        managers: Query<&MessageManager>,
+        mut commands: Commands,
+    ) {
+        for (entity, action_of) in pending.iter() {
+            let context_entity = action_of.get();
+            let remote_entity = resolve_remote_action_context(
+                context_entity,
+                remote_contexts.contains(context_entity),
+                entity_map.as_deref(),
+                managers.iter(),
+            );
+            let Some(remote_entity) = remote_entity else {
+                continue;
+            };
+
+            commands
+                .entity(entity)
+                .insert(NetworkActionOf::<C>::new(remote_entity));
+        }
+    }
+
+    pub(crate) fn insert_action_of_from_network<C: Component>(
+        trigger: On<Add, NetworkActionOf<C>>,
+        query: Query<&NetworkActionOf<C>, (Without<ActionOf<C>>, With<Remote>)>,
+        entity_map: Option<Res<ServerEntityMap>>,
+        managers: Query<&MessageManager>,
+        all_entities: Query<(), ()>,
+        mut commands: Commands,
+    ) {
+        let entity = trigger.entity;
+        let Ok(network_action_of) = query.get(entity) else {
+            return;
+        };
+
+        if let Some(mapped) = resolve_local_entity(
+            network_action_of.get(),
+            entity_map.as_deref(),
+            managers.iter(),
+            &all_entities,
+        )
+        .filter(|mapped| *mapped != entity)
+        {
+            commands.entity(entity).insert(ActionOf::<C>::new(mapped));
+        }
+    }
+
+    pub(crate) fn resolve_pending_action_of<C: Component>(
+        pending: Query<(Entity, &NetworkActionOf<C>), (Without<ActionOf<C>>, With<Remote>)>,
+        entity_map: Option<Res<ServerEntityMap>>,
+        managers: Query<&MessageManager>,
+        all_entities: Query<(), ()>,
+        mut commands: Commands,
+    ) {
+        for (entity, network_action_of) in pending.iter() {
+            if let Some(mapped) = resolve_local_entity(
+                network_action_of.get(),
+                entity_map.as_deref(),
+                managers.iter(),
+                &all_entities,
+            )
+            .filter(|mapped| *mapped != entity)
+            {
+                commands.entity(entity).insert(ActionOf::<C>::new(mapped));
+            }
+        }
+    }
+
     /// For Host-Server, if an ActionOf is spawned directly on the HostClient.
-    /// (without being Replicated, or with Prespawned)
+    /// (without being received from replication, or with Prespawned)
     /// Then we initiate rebroadcast
     #[cfg(all(feature = "client", feature = "server"))]
     pub(crate) fn add_action_of_host_server_rebroadcast<C: Component>(
         trigger: On<Add, ActionOf<C>>,
         host_server: Single<(), With<HostServer>>,
-        action: Query<&ActionOf<C>, Or<(Without<Replicated>, With<PreSpawned>)>>,
+        action: Query<&ActionOf<C>, Or<(Without<Remote>, With<PreSpawned>)>>,
         mut commands: Commands,
     ) {
         let entity = trigger.entity;
@@ -59,6 +182,60 @@ impl InputRegistryPlugin {
         }
     }
 
+    /// In host-server mode, server-owned action entities for remote clients can
+    /// still carry keyboard bindings because the authoritative server world and
+    /// local host client share one Bevy app. Those actions must be driven by
+    /// received input messages, not by the host player's physical keyboard.
+    #[cfg(all(feature = "client", feature = "server"))]
+    pub(crate) fn mock_non_host_owned_action<C: Component>(
+        trigger: On<Add, ActionOf<C>>,
+        host_server: Query<(), With<HostServer>>,
+        action: Query<&ActionOf<C>, Without<ExternallyMocked>>,
+        controlled: Query<&ControlledBy>,
+        host_clients: Query<(), With<HostClient>>,
+        mut commands: Commands,
+    ) {
+        if host_server.is_empty() {
+            return;
+        }
+        let entity = trigger.entity;
+        let Ok(action_of) = action.get(entity) else {
+            return;
+        };
+        let Ok(controlled_by) = controlled.get(action_of.get()) else {
+            return;
+        };
+        if host_clients.get(controlled_by.owner).is_ok() {
+            return;
+        }
+        commands.entity(entity).insert(ExternallyMocked);
+    }
+
+    #[cfg(all(feature = "client", feature = "server"))]
+    pub(crate) fn mock_non_host_owned_actions_on_controlled_by<C: Component>(
+        trigger: On<Add, ControlledBy>,
+        host_server: Query<(), With<HostServer>>,
+        controlled: Query<&ControlledBy>,
+        host_clients: Query<(), With<HostClient>>,
+        actions: Query<(Entity, &ActionOf<C>), Without<ExternallyMocked>>,
+        mut commands: Commands,
+    ) {
+        if host_server.is_empty() {
+            return;
+        }
+        let Ok(controlled_by) = controlled.get(trigger.entity) else {
+            return;
+        };
+        if host_clients.get(controlled_by.owner).is_ok() {
+            return;
+        }
+        for (action_entity, action_of) in &actions {
+            if action_of.get() == trigger.entity {
+                commands.entity(action_entity).insert(ExternallyMocked);
+            }
+        }
+    }
+
     /// When an [`ActionOf<C>`] component is added to an entity (usually on the client),
     /// we add Replicate to it so that the action entity is also created on the server.
     ///
@@ -67,11 +244,18 @@ impl InputRegistryPlugin {
     /// so the entity mapping in ActionOf will work properly.
     #[cfg(feature = "client")]
     pub(crate) fn add_action_of_replicate<C: Component>(
-        trigger: On<Add, ActionOf<C>>,
+        trigger: On<Add, NetworkActionOf<C>>,
         server: Query<(), (With<Server>, With<Started>)>,
-        // we don't want to add Replicate on action entities that were already replicated
+        // we don't want to add Replicate on action entities that were already received
         // PreSpawned entities are replicated from server to client
-        action: Query<&ActionOf<C>, (Without<Replicated>, Without<PreSpawned>)>,
+        action: Query<
+            &ActionOf<C>,
+            (
+                With<NetworkActionOf<C>>,
+                Without<Remote>,
+                Without<PreSpawned>,
+            ),
+        >,
         mut commands: Commands,
     ) {
         if server.single().is_ok() {
@@ -90,7 +274,7 @@ impl InputRegistryPlugin {
     #[cfg(feature = "server")]
     pub(crate) fn on_action_of_replicated<C: Component>(
         trigger: On<Add, ActionOf<C>>,
-        query: Query<&ActionOf<C>, With<Replicated>>,
+        query: Query<&ActionOf<C>, With<Remote>>,
         mut host: Query<&mut MessageManager, With<HostClient>>,
         _: Single<(), (With<Server>, With<Started>)>,
         config: Res<ServerInputConfig<C>>,
@@ -98,7 +282,6 @@ impl InputRegistryPlugin {
     ) {
         let entity = trigger.entity;
         if let Ok(wrapper) = query.get(entity) {
-            commands.entity(entity).remove::<Replicated>();
             debug!(?entity, context = ?DebugName::type_name::<C>(), "Server received action entity");
 
             // If rebroadcast_inputs is enabled, set up replication to other clients
@@ -127,7 +310,7 @@ impl InputRegistryPlugin {
         }
     }
 
-    /// When the client receives a rebroadcast Action entity with [`Replicated`],
+    /// When the client receives a rebroadcast Action entity with [`Remote`],
     ///
     /// Attach ExternallyMocked to it to signify that the ActionState should only be updated
     /// from rebroadcasted input messages. (in particular, BEI doesn't tick the time for those actions)
@@ -135,10 +318,14 @@ impl InputRegistryPlugin {
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
         trigger: On<Add, ActionOf<C>>,
         single: Single<(), (With<Client>, Without<HostClient>)>,
-        query: Query<&ActionOf<C>, With<Replicated>>,
+        query: Query<&ActionOf<C>, With<Remote>>,
+        controlled: Query<(), With<Controlled>>,
         mut commands: Commands,
     ) {
         if let Ok(action_of) = query.get(trigger.entity) {
+            if controlled.contains(action_of.get()) {
+                return;
+            }
             let entity = trigger.entity;
             debug!(
                 ?entity,
@@ -153,19 +340,91 @@ impl InputRegistryPlugin {
             );
         }
     }
+}
 
-    // we don't care about the actual data in Action<A>, so nothing to serialize
-    fn serialize_action<A: InputAction>(
-        _: &Action<A>,
-        _: &mut Writer,
-    ) -> core::result::Result<(), SerializationError> {
-        Ok(())
+fn resolve_remote_entity<'a>(
+    local_entity: Entity,
+    entity_map: Option<&ServerEntityMap>,
+    mut managers: impl Iterator<Item = &'a MessageManager>,
+) -> Option<Entity> {
+    if let Some(entity_map) = entity_map {
+        if let Some(remote_entity) = entity_map.to_server().get(&local_entity) {
+            return Some(*remote_entity);
+        }
     }
-    fn deserialize_action<A: InputAction>(
-        _: &mut lightyear_serde::reader::Reader,
-    ) -> core::result::Result<Action<A>, SerializationError> {
-        Ok(Action::<A>::default())
+
+    managers.find_map(|manager| manager.entity_mapper.get_remote(local_entity))
+}
+
+fn resolve_remote_action_context<'a>(
+    local_entity: Entity,
+    remote_context: bool,
+    entity_map: Option<&ServerEntityMap>,
+    managers: impl Iterator<Item = &'a MessageManager>,
+) -> Option<Entity> {
+    resolve_remote_entity(local_entity, entity_map, managers)
+        .or_else(|| (!remote_context).then_some(local_entity))
+}
+
+fn resolve_local_entity<'a>(
+    remote_entity: Entity,
+    entity_map: Option<&ServerEntityMap>,
+    mut managers: impl Iterator<Item = &'a MessageManager>,
+    all_entities: &Query<(), ()>,
+) -> Option<Entity> {
+    if let Some(entity_map) = entity_map {
+        if let Some(local_entity) = entity_map.to_client().get(&remote_entity) {
+            return Some(*local_entity);
+        }
     }
+
+    if let Some(local_entity) =
+        managers.find_map(|manager| manager.entity_mapper.get_local(remote_entity))
+    {
+        return Some(local_entity);
+    }
+
+    all_entities.get(remote_entity).ok().map(|()| remote_entity)
+}
+
+// we don't care about the actual data in Action<A>, so nothing to serialize
+fn serialize_action<A: InputAction>(
+    _ctx: &SerializeCtx,
+    _: &Action<A>,
+    _: &mut Vec<u8>,
+) -> bevy_ecs::error::Result<()> {
+    Ok(())
+}
+fn deserialize_action<A: InputAction>(
+    _: &mut WriteCtx,
+    _: &mut Bytes,
+) -> bevy_ecs::error::Result<Action<A>> {
+    Ok(Action::<A>::default())
+}
+
+/// Serialize the authoritative remote entity for an action context.
+///
+/// Entity mapping is handled out-of-band before replication by mirroring [`ActionOf<C>`]
+/// into [`NetworkActionOf<C>`].
+pub(crate) fn serialize_network_action_of<C: Component>(
+    _ctx: &SerializeCtx,
+    action_of: &NetworkActionOf<C>,
+    message: &mut Vec<u8>,
+) -> bevy_ecs::error::Result<()> {
+    bevy_replicon::postcard_utils::entity_to_extend_mut(&action_of.get(), message)?;
+    Ok(())
+}
+
+/// Deserialize the authoritative remote entity for an action context.
+///
+/// We intentionally do not apply replicon's entity mapping here because the authoritative
+/// entity may come from either the replicon server map or lightyear's message entity map.
+pub(crate) fn deserialize_network_action_of<C: Component>(
+    _: &mut WriteCtx,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<NetworkActionOf<C>> {
+    let entity = bevy_replicon::postcard_utils::entity_from_buf(message)?;
+    Ok(NetworkActionOf::<C>::new(entity))
 }
 
 pub trait InputRegistryExt {
@@ -175,17 +434,10 @@ pub trait InputRegistryExt {
 
 impl InputRegistryExt for &mut App {
     fn register_input_action<A: InputAction>(self) -> Self {
-        // Register the Action<A> component so that it can be also added on the server
-        self.register_component_custom_serde::<Action<A>>(SerializeFns::<Action<A>> {
-            serialize: InputRegistryPlugin::serialize_action::<A>,
-            deserialize: InputRegistryPlugin::deserialize_action::<A>,
-        })
-        .with_replication_config(ComponentReplicationConfig {
-            replicate_once: true,
-            disable: false,
-            delta_compression: false,
-        });
-
+        self.replicate_with((
+            RuleFns::new(serialize_action::<A>, deserialize_action::<A>),
+            ReplicationMode::Once,
+        ));
         self
     }
 }

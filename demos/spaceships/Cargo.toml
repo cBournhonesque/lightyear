@@ -10,7 +10,7 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "udp"]
-client = ["gui", "lightyear/client", "lightyear_examples_common/client"]
+client = ["lightyear/client", "lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui2d", "bevy/bevy_post_process"]
 server = ["lightyear/server", "lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
@@ -30,7 +30,9 @@ lightyear = { workspace = true, features = [
   "avian2d",
 ] }
 lightyear_frame_interpolation.workspace = true
-lightyear_examples_common.workspace = true
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
 leafwing-input-manager = { workspace = true, features = ["keyboard", "mouse"] }
 avian2d = { workspace = true, features = [
   "2d",

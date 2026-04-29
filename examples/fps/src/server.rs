@@ -1,3 +1,4 @@
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement, BOT_RADIUS};
@@ -22,6 +23,8 @@ const BULLET_COLLISION_DISTANCE_CHECK: f32 = 4.0;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_plugins(LagCompensationPlugin);
         app.add_systems(Startup, spawn_bots);
         app.add_observer(handle_new_client);
@@ -29,9 +32,11 @@ impl Plugin for ExampleServerPlugin {
         // the lag compensation systems need to run after LagCompensationSet::UpdateHistory
         app.add_systems(FixedUpdate, interpolated_bot_movement);
         app.add_systems(
-            PhysicsSchedule,
-            // lag compensation collisions must run after the SpatialQuery has been updated
-            compute_hit_lag_compensation.in_set(LagCompensationSystems::Collisions),
+            FixedPostUpdate,
+            // Run after physics has produced the current-frame spatial query state.
+            compute_hit_lag_compensation
+                .in_set(LagCompensationSystems::Collisions)
+                .after(PhysicsSystems::StepSimulation),
         );
         app.add_systems(
             FixedPostUpdate,
@@ -42,27 +47,13 @@ impl Plugin for ExampleServerPlugin {
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SEND_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
-// Replicate the pre-spawned entities back to the client
-// We have to use `InitialReplicated` instead of `Replicated`, because
-// the server has already assumed authority over the entity so the `Replicated` component
-// has been removed
 pub(crate) fn spawn_player(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
-    replicated_players: Query<
-        (Entity, &InitialReplicated),
-        (Added<InitialReplicated>, With<PlayerId>),
-    >,
 ) {
     let Ok(client_id) = query.get(trigger.entity) else {
         return;

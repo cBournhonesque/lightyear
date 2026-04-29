@@ -1,0 +1,60 @@
+[package]
+name = "lightyear_tools"
+version = "0.26.4"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Debugging and visualization tools for lightyear"
+repository = "https://github.com/cBournhonesque/lightyear"
+
+[features]
+default = ["std"]
+cli = ["std", "dep:clap"]
+std = [
+  "lightyear_link/std",
+  "lightyear_metrics/std",
+  "dep:bevy_log",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:tracing-subscriber",
+]
+test_utils = ["lightyear_metrics/test_utils"]
+
+[dependencies]
+lightyear_connection.workspace = true
+lightyear_core.workspace = true
+lightyear_link.workspace = true
+lightyear_metrics.workspace = true
+
+# utils
+metrics.workspace = true
+metrics-util.workspace = true
+clap = { workspace = true, optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+tracing.workspace = true
+tracing-subscriber = { workspace = true, optional = true }
+
+# bevy
+bevy_app.workspace = true
+bevy_color.workspace = true
+bevy_ecs.workspace = true
+bevy_log = { workspace = true, optional = true }
+bevy_platform.workspace = true
+bevy_reflect.workspace = true
+bevy_ui.workspace = true
+bevy_utils.workspace = true
+bevy_text.workspace = true
+bevy_time.workspace = true
+
+[[bin]]
+name = "lightyear-debug"
+path = "src/bin/lightyear-debug.rs"
+required-features = ["cli"]
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
