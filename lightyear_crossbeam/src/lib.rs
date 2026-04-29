@@ -17,6 +17,32 @@
 //! / `server` feature enabled) and mark the relevant entities with `RawClient` /
 //! `RawServer` so that `Linked` implies `Connected`. For authenticated use, pair it with
 //! `lightyear_netcode` instead.
+//!
+//! ### Spawning crossbeam entities
+//!
+//! Always trigger `LinkStart` to bring a `CrossbeamIo` entity online, rather than
+//! inserting `Linked` directly. `CrossbeamPlugin::link` (the observer driving
+//! `LinkStart -> Linked`) gates on `With<CrossbeamIo>`, so by the time `Linked` lands the
+//! `CrossbeamIo` is in place — and so are its required `LocalAddr` / `PeerAddr` — which
+//! `RawConnectionPlugin`'s `Add<Linked>` observers read to construct
+//! `LocalId` / `RemoteId`. Inserting `Linked` directly in the spawn bundle exposes a
+//! window where those required components have not yet cascaded; the connection-layer
+//! observer fails its query silently and the entity ends up `Linked` but never
+//! `Connected`, so replication / message channels never wire up.
+//!
+//! ```ignore
+//! // Server-side mirror entity (one per connecting crossbeam client):
+//! let mirror = commands
+//!     .spawn((LinkOf { server }, Link::new(None), io))
+//!     .id();
+//! commands.trigger(LinkStart { entity: mirror });
+//!
+//! // Client-side connection entity:
+//! let client = commands
+//!     .spawn((Client::default(), RawClient, Link::new(None), io))
+//!     .id();
+//! commands.trigger(Connect { entity: client });  // Connect → LinkStart internally
+//! ```
 #![no_std]
 
 extern crate alloc;
@@ -321,6 +347,72 @@ mod tests {
             link.send.pop().expect("third payload missing").as_ref(),
             b"third",
             "still-queued payloads should follow the re-queued one"
+        );
+    }
+
+    /// Integration test for the documented server-side mirror pattern:
+    /// pair `CrossbeamPlugin` with `lightyear_raw_connection`'s server
+    /// `RawConnectionPlugin`, mark the parent server entity with `RawServer`,
+    /// spawn the mirror with `LinkOf` + `CrossbeamIo`, then **trigger
+    /// `LinkStart`** (rather than inserting `Linked` directly). The mirror
+    /// should reach `Connected` with `ClientOf` so message / replication
+    /// channels can wire up via downstream `On<Insert, (Transport, ClientOf)>`
+    /// observers.
+    ///
+    /// Direct-`Linked` insertion in the same spawn bundle has been observed to
+    /// race the `CrossbeamIo` required-component cascade (`PeerAddr`,
+    /// `LocalAddr`) against `RawConnectionPlugin::on_link_of_linked`'s query;
+    /// using `LinkStart` makes ordering deterministic.
+    #[test]
+    fn server_mirror_via_link_start_reaches_connected() {
+        use lightyear_connection::prelude::Connected;
+        use lightyear_connection::prelude::server::ClientOf;
+        use lightyear_link::prelude::server::LinkOf;
+        use lightyear_raw_connection::prelude::server::RawServer;
+
+        let (_client_io, server_io) = CrossbeamIo::new_pair();
+
+        let mut app = App::new();
+        app.add_plugins(CrossbeamPlugin);
+        app.add_plugins(lightyear_raw_connection::server::RawConnectionPlugin);
+
+        // Server entity: RawServer marker (Server is auto-added via #[require]).
+        let server_entity = app.world_mut().spawn(RawServer).id();
+
+        // Mirror entity: LinkOf parented to the server, plus CrossbeamIo.
+        // No Linked here — that's the whole point of the documented pattern.
+        let mirror_entity = app
+            .world_mut()
+            .spawn((
+                LinkOf {
+                    server: server_entity,
+                },
+                Link::new(None),
+                server_io,
+            ))
+            .id();
+
+        // Trigger LinkStart on the mirror. CrossbeamPlugin::link adds Linked,
+        // RawConnectionPlugin::on_link_of_linked then adds Connected + ClientOf.
+        app.world_mut().trigger(LinkStart {
+            entity: mirror_entity,
+        });
+
+        app.update();
+
+        let world = app.world();
+        assert!(
+            world.get::<Linked>(mirror_entity).is_some(),
+            "mirror should have Linked after LinkStart fires CrossbeamPlugin::link"
+        );
+        assert!(
+            world.get::<Connected>(mirror_entity).is_some(),
+            "mirror should have Connected — RawConnectionPlugin's on_link_of_linked should fire \
+             on Add<Linked> with PeerAddr already cascaded from CrossbeamIo"
+        );
+        assert!(
+            world.get::<ClientOf>(mirror_entity).is_some(),
+            "mirror should have ClientOf so downstream channel observers can fire"
         );
     }
 }
