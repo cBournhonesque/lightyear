@@ -19,7 +19,10 @@ use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
 #[cfg(feature = "server")]
-use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
+use crate::server::{
+    ExampleServer, ServerTransports, WebTransportCertificateSettings,
+    apply_server_link_conditioner, start,
+};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "server"))]
 use crate::server_renderer::ExampleServerRendererPlugin;
 use crate::shared::{CLIENT_PORT, SERVER_ADDR, SERVER_PORT, SHARED_SETTINGS, STEAM_APP_ID};
@@ -83,6 +86,8 @@ impl Cli {
 
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
         let mut app = Cli::create_app(add_inspector, self.mode.as_ref());
+        #[cfg(feature = "server")]
+        app.add_observer(apply_server_link_conditioner);
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
@@ -130,7 +135,7 @@ impl Cli {
     }
 
     pub fn spawn_connections(&self, app: &mut App) {
-        let conditioner = LinkConditionerConfig::average_condition();
+        let conditioner = LinkConditionerConfig::average_condition().half();
         match self.mode {
             #[cfg(feature = "client")]
             Some(Mode::Client { client_id }) => {
@@ -156,7 +161,7 @@ impl Cli {
                 let server = app
                     .world_mut()
                     .spawn(ExampleServer {
-                        conditioner: None,
+                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
                         transport: ServerTransports::Udp {
                             local_port: SERVER_PORT,
                         },
@@ -186,7 +191,7 @@ impl Cli {
                 let server = app
                     .world_mut()
                     .spawn(ExampleServer {
-                        conditioner: None,
+                        conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
                         transport: ServerTransports::Udp {
                             local_port: SERVER_PORT,
                         },

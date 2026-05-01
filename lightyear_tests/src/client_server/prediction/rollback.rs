@@ -388,6 +388,81 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
     );
 }
 
+/// Replicated helper/input entities can carry `ConfirmHistory` without having any
+/// prediction history. A stale confirm tick for those entities should not make
+/// the unchanged-entity rollback pass resolve an evicted checkpoint.
+#[test]
+fn test_stale_confirm_history_without_prediction_history_is_ignored() {
+    let (mut stepper, _) = setup();
+    stepper.frame_step(5);
+
+    let server_confirmed_tick = stepper.client_tick(0) - 1;
+    let current_replicon_tick = RepliconTick::new(500);
+    let stale_replicon_tick = RepliconTick::new(1);
+
+    let world = stepper.client_app().world_mut();
+    world.spawn((Predicted, ConfirmHistory::new(stale_replicon_tick)));
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(current_replicon_tick, server_confirmed_tick);
+    world
+        .resource_mut::<ServerMutateTicks>()
+        .confirm(current_replicon_tick, 1);
+
+    stepper.frame_step(1);
+}
+
+#[test]
+fn test_missing_confirm_history_checkpoint_mapping_does_not_request_rollback() {
+    #[derive(Resource, Default)]
+    struct RollbackObserved(bool);
+
+    fn record_rollback(
+        manager: Single<&PredictionManager>,
+        mut observed: ResMut<RollbackObserved>,
+    ) {
+        observed.0 |= manager.get_rollback_start_tick().is_some();
+    }
+
+    let (mut stepper, predicted) = setup();
+    stepper.frame_step(5);
+
+    let server_confirmed_tick = stepper.client_tick(0) - 1;
+    let current_replicon_tick = RepliconTick::new(500);
+    let stale_replicon_tick = RepliconTick::new(1);
+
+    stepper
+        .client_app()
+        .insert_resource(RollbackObserved::default());
+    stepper.client_app().add_systems(
+        PreUpdate,
+        record_rollback
+            .after(RollbackSystems::Check)
+            .before(RollbackSystems::Prepare),
+    );
+
+    let world = stepper.client_app().world_mut();
+    world
+        .entity_mut(predicted)
+        .insert(ConfirmHistory::new(stale_replicon_tick));
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(current_replicon_tick, server_confirmed_tick);
+    world
+        .resource_mut::<ServerMutateTicks>()
+        .confirm(current_replicon_tick, 1);
+
+    stepper.frame_step(1);
+
+    assert!(
+        !stepper
+            .client_app()
+            .world()
+            .resource::<RollbackObserved>()
+            .0
+    );
+}
+
 // =============================================================================
 // Scenario 6: Component inserted from remote → applied on rollback
 // =============================================================================

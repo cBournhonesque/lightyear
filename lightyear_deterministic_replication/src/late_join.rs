@@ -300,37 +300,21 @@ pub struct CatchUpServerReadiness {
     pub all_clients_ready: bool,
 }
 
-/// Client-side resource set to `true` from the moment the client decides
-/// it needs a catch-up snapshot until the catch-up snapshot has landed
-/// and the forced rollback has been scheduled.
+/// Re-export of [`lightyear_prediction::rollback::AwaitingCatchUpSnapshot`]
+/// so user code can stay in the catch-up vocabulary.
 ///
-/// While this resource's `awaiting` flag is `true`, [`ChecksumSendPlugin`]
-/// skips checksum computation entirely. The client's state for
-/// [`CatchUpGated`] entities is known to not match the server during this
-/// window; filtering those entities out of the order-independent XOR
-/// checksum would leave the server hashing over a superset, producing a
-/// sustained mismatch for every entity.
+/// This is a **per-entity marker component** (not a resource). User code
+/// inserts it on catch-up-gated client entities while they are expecting
+/// the bundled snapshot, and removes it via
+/// [`request_forced_rollback_to_catch_up_tick`] once the forced rollback
+/// is scheduled.
 ///
-/// The complementary gate — covering the window from "rollback scheduled"
-/// to "rollback executed" — is handled inside [`ChecksumSendPlugin`] by
-/// checking [`StateRollbackMetadata::forced_rollback_tick`].
+/// While this marker is present on *any* entity, [`ChecksumSendPlugin`]
+/// skips checksum computation so the client doesn't send checksums for
+/// state known to be stale.
 ///
 /// [`ChecksumSendPlugin`]: crate::prelude::ChecksumSendPlugin
-/// [`StateRollbackMetadata::forced_rollback_tick`]: lightyear_prediction::manager::StateRollbackMetadata::forced_rollback_tick
-#[derive(Resource, Debug, Default)]
-pub struct AwaitingCatchUpSnapshot {
-    awaiting: bool,
-}
-
-impl AwaitingCatchUpSnapshot {
-    pub fn is_awaiting(&self) -> bool {
-        self.awaiting
-    }
-
-    pub fn set_awaiting(&mut self, value: bool) {
-        self.awaiting = value;
-    }
-}
+pub use lightyear_prediction::rollback::AwaitingCatchUpSnapshot;
 
 /// Plugin that wires up the late-join catch-up machinery.
 ///
@@ -378,7 +362,6 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
         }
         app.init_resource::<CatchUpRegistry>();
         app.init_resource::<CatchUpMode>();
-        app.init_resource::<AwaitingCatchUpSnapshot>();
         app.init_resource::<CatchUpServerReadiness>();
         app.add_observer(on_catch_up_gated_added);
         app.add_observer(on_client_connected_hide_gated);
@@ -546,7 +529,6 @@ fn apply_pending_catch_ups(world: &mut World) {
 /// use a reliable channel so the request is not lost.
 fn send_catchup_request<C: Channel>(
     mode: Res<CatchUpMode>,
-    mut awaiting: ResMut<AwaitingCatchUpSnapshot>,
     client: Option<
         Single<
             (Entity, &mut MessageSender<CatchUpRequest>),
@@ -568,7 +550,6 @@ fn send_catchup_request<C: Channel>(
     let (client_entity, mut sender) = client.into_inner();
     debug!(?client_entity, "sending CatchUpRequest to server");
     sender.send::<C>(CatchUpRequest::default());
-    awaiting.set_awaiting(true);
     commands.entity(client_entity).insert(CatchUpRequestSent);
 }
 
@@ -584,12 +565,16 @@ fn send_catchup_request<C: Channel>(
 /// reference tick resolved from *any* one such entity is the correct
 /// forced-rollback tick for the whole set.
 ///
-/// Also clears the [`AwaitingCatchUpSnapshot`] resource: the bundled
-/// snapshot has landed and the forced rollback is scheduled, so once the
-/// rollback has run the state will be in sync with the server.
+/// Also removes [`AwaitingCatchUpSnapshot`] from every entity that has it:
+/// the bundled snapshot has landed and the forced rollback is scheduled,
+/// so subsequent replicated writes should land on the live component, not
+/// on `PredictionHistory`.
 ///
 /// Returns `true` if a rollback was requested.
-pub fn request_forced_rollback_to_catch_up_tick(world: &mut World, reference_entity: Entity) -> bool {
+pub fn request_forced_rollback_to_catch_up_tick(
+    world: &mut World,
+    reference_entity: Entity,
+) -> bool {
     let Some(confirm) = world.get::<ConfirmHistory>(reference_entity) else {
         return false;
     };
@@ -610,8 +595,16 @@ pub fn request_forced_rollback_to_catch_up_tick(world: &mut World, reference_ent
         "requesting bundled forced rollback to catch-up tick"
     );
     state_metadata.request_forced_rollback(server_tick);
-    if let Some(mut awaiting) = world.get_resource_mut::<AwaitingCatchUpSnapshot>() {
-        awaiting.set_awaiting(false);
+    // Remove `AwaitingCatchUpSnapshot` from every entity so future
+    // replicated writes go to the live component instead of history.
+    let entities: Vec<Entity> = world
+        .query_filtered::<Entity, With<AwaitingCatchUpSnapshot>>()
+        .iter(world)
+        .collect();
+    for entity in entities {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.remove::<AwaitingCatchUpSnapshot>();
+        }
     }
     true
 }

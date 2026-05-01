@@ -15,7 +15,7 @@ missing authoritative checkpoint mapping for ConfirmHistory
 Even with two clients joining before any movement, there are big desyncs.
 The simulation is not deterministic.
 
-# FPS
+# FPS (seen)
 
 Saw this panic:
 ```

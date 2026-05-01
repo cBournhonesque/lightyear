@@ -105,10 +105,20 @@ mod client {
     }
 
     pub(super) fn update_aim(
+        client: Query<&LocalId, With<Client>>,
         bots: Query<&Position, With<Bot>>,
+        players: Query<(&PlayerId, &Position), With<PlayerMarker>>,
         mut action_query: Query<&mut ActionMock, With<Action<MoveCursor>>>,
     ) {
-        let target = bots.iter().next().map(|position| position.0);
+        let target = bots.iter().next().map(|position| position.0).or_else(|| {
+            let Ok(client) = client.single() else {
+                return None;
+            };
+            players
+                .iter()
+                .find(|(player_id, _)| player_id.0 != client.0)
+                .map(|(_, position)| position.0)
+        });
         let Some(target) = target else {
             return;
         };

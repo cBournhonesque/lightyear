@@ -158,7 +158,7 @@ fn update_active_player_action_markers(
             &ActionOf<PlayerContext>,
             Has<InputMarker<PlayerContext>>,
             Has<ExternallyMocked>,
-            Has<ActionMock>,
+            Option<&ActionMock>,
         ),
         With<Action<MoveCursor>>,
     >,
@@ -190,14 +190,14 @@ fn update_active_player_action_markers(
             PlayerActionSource::Movement { has_bindings },
         );
     }
-    for (entity, action_of, has_marker, externally_mocked, has_mock) in &cursor_actions {
+    for (entity, action_of, has_marker, externally_mocked, mock) in &cursor_actions {
         configure_player_action(
             &mut commands,
             entity,
             is_active_local_action(action_of, &players, client_id.0, global_mode),
             has_marker,
             externally_mocked,
-            PlayerActionSource::Cursor { has_mock },
+            PlayerActionSource::Cursor { mock },
         );
     }
     for (entity, action_of, has_marker, externally_mocked, has_bindings) in &shoot_actions {
@@ -223,9 +223,9 @@ fn is_active_local_action(
         .is_ok_and(|(player_id, mode)| player_id.0 == client_id && mode == global_mode)
 }
 
-enum PlayerActionSource {
+enum PlayerActionSource<'a> {
     Movement { has_bindings: bool },
-    Cursor { has_mock: bool },
+    Cursor { mock: Option<&'a ActionMock> },
     Shoot { has_bindings: bool },
 }
 
@@ -235,7 +235,7 @@ fn configure_player_action(
     is_active_local: bool,
     has_marker: bool,
     externally_mocked: bool,
-    source: PlayerActionSource,
+    source: PlayerActionSource<'_>,
 ) {
     let mut entity_commands = commands.entity(entity);
     if is_active_local {
@@ -251,11 +251,15 @@ fn configure_player_action(
                     entity_commands.insert(Bindings::spawn(Cardinal::wasd_keys()));
                 }
             }
-            PlayerActionSource::Cursor { has_mock } => {
-                if !has_mock {
+            PlayerActionSource::Cursor { mock } => {
+                if !mock.is_some_and(|mock| mock.enabled) {
+                    let value = mock
+                        .map(|mock| mock.value)
+                        .map(|value| value.convert(ActionValueDim::Axis2D))
+                        .unwrap_or_else(|| ActionValue::zero(ActionValueDim::Axis2D));
                     entity_commands.insert(ActionMock::new(
                         TriggerState::Fired,
-                        ActionValue::zero(ActionValueDim::Axis2D),
+                        value,
                         MockSpan::Manual,
                     ));
                 }

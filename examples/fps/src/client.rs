@@ -4,6 +4,7 @@ use leafwing_input_manager::action_state::ActionData;
 use leafwing_input_manager::buttonlike::ButtonState::Pressed;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::*;
+use lightyear::connection::host::HostServer;
 use lightyear::input::client::InputSystems;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
@@ -20,7 +21,8 @@ impl Plugin for ExampleClientPlugin {
         app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
-            update_cursor_state_from_window
+            (update_cursor_state_from_window, suppress_shoot_until_synced)
+                .chain()
                 // make sure that we update the ActionState before we buffer it in the InputBuffer
                 .before(InputSystems::BufferClientInputs)
                 .in_set(InputManagerSystem::ManualControl),
@@ -28,6 +30,19 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
+    }
+}
+
+fn suppress_shoot_until_synced(
+    host_server: Query<(), With<HostServer>>,
+    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
+) {
+    if !host_server.is_empty() || !synced_client.is_empty() {
+        return;
+    }
+    for mut action_state in &mut action_state_query {
+        action_state.release(&PlayerActions::Shoot);
     }
 }
 

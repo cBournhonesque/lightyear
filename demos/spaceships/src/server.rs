@@ -10,7 +10,6 @@ use bevy::time::common_conditions::on_timer;
 use core::time::Duration;
 use leafwing_input_manager::action_diff::ActionDiff;
 use leafwing_input_manager::prelude::*;
-use lightyear::connection::client::PeerMetadata;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
@@ -37,7 +36,7 @@ impl Plugin for ExampleServerPlugin {
         );
 
         app.add_systems(
-            FixedUpdate,
+            FixedPostUpdate,
             handle_hit_event
                 .run_if(on_message::<BulletHitMessage>)
                 .after(shared::process_collisions),
@@ -46,7 +45,7 @@ impl Plugin for ExampleServerPlugin {
         let stall_config = ServerStallStress::from_env();
         if stall_config.enabled() {
             app.insert_resource(stall_config);
-            app.add_systems(FixedUpdate, server_stall_system.before(handle_hit_event));
+            app.add_systems(FixedUpdate, server_stall_system);
         }
     }
 }
@@ -252,24 +251,55 @@ fn server_stall_system(mut stall: ResMut<ServerStallStress>, local_timeline: Res
 /// Server will manipulate scores when a bullet collides with a player.
 /// the `Score` component is a simple replication. Score is fully server-authoritative.
 pub(crate) fn handle_hit_event(
-    peer_metadata: Res<PeerMetadata>,
     mut events: MessageReader<BulletHitMessage>,
     mut player_q: Query<(&Player, &mut Score)>,
 ) {
-    let client_id_to_player_entity =
-        |client_id: PeerId| -> Option<Entity> { peer_metadata.mapping.get(&client_id).copied() };
-
     for ev in events.read() {
-        // did they hit a player?
-        if let Some(victim_entity) = ev.victim_client_id.and_then(client_id_to_player_entity) {
-            if let Ok((player, mut score)) = player_q.get_mut(victim_entity) {
+        let Some(victim_client_id) = ev.victim_client_id else {
+            continue;
+        };
+        for (player, mut score) in player_q.iter_mut() {
+            if player.client_id == victim_client_id {
                 score.0 -= 1;
             }
-            if let Some(shooter_entity) = client_id_to_player_entity(ev.bullet_owner)
-                && let Ok((player, mut score)) = player_q.get_mut(shooter_entity)
-            {
+            if player.client_id == ev.bullet_owner {
                 score.0 += 1;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn handle_hit_event_updates_scores_on_player_entities() {
+        let shooter = PeerId::Netcode(31);
+        let victim = PeerId::Netcode(32);
+
+        let mut app = App::new();
+        app.add_message::<BulletHitMessage>();
+        app.add_systems(Update, handle_hit_event);
+
+        let shooter_entity = app
+            .world_mut()
+            .spawn((Player::new(shooter, "shooter".to_string()), Score(0)))
+            .id();
+        let victim_entity = app
+            .world_mut()
+            .spawn((Player::new(victim, "victim".to_string()), Score(0)))
+            .id();
+
+        app.world_mut().write_message(BulletHitMessage {
+            bullet_owner: shooter,
+            bullet_color: Color::WHITE,
+            victim_client_id: Some(victim),
+            position: Vec2::ZERO,
+        });
+        app.update();
+
+        assert_eq!(app.world().get::<Score>(shooter_entity).unwrap().0, 1);
+        assert_eq!(app.world().get::<Score>(victim_entity).unwrap().0, -1);
     }
 }

@@ -6,7 +6,6 @@ use crate::plugin::{
 };
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
-use crate::rollback::DeterministicPredicted;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
@@ -492,13 +491,38 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !self.app.world().contains_resource::<PredictionRegistry>() {
             return self;
         }
+        // Gate keyed on `DeterministicPredicted` (backwards-compatible);
+        // the gated fns `write_history_gated_by_catchup` /
+        // `remove_history_gated_by_catchup` additionally check for
+        // `AwaitingCatchUpSnapshot` per entity at write time, so:
+        //
+        // - StateBasedCatchUp: while the client is expecting the bundled
+        //   snapshot, user code inserts `AwaitingCatchUpSnapshot` on the
+        //   catch-up-gated entity. Writes land in `PredictionHistory<C>`.
+        //   `request_forced_rollback_to_catch_up_tick` removes the marker
+        //   once the forced rollback is scheduled.
+        //
+        // - InputOnly: `DeterministicPredicted` is present from spawn but
+        //   `AwaitingCatchUpSnapshot` is never inserted. The initial
+        //   `replicate_once` value lands directly on the live component
+        //   via the default replicon write path.
+        //
+        // We do this check at write time (rather than by swapping the
+        // replicon marker from `DeterministicPredicted` to
+        // `AwaitingCatchUpSnapshot`) because dynamic marker registration
+        // invalidates previously-returned `ReceiveMarkerIndex`es when new
+        // markers are inserted at the same priority, destabilizing
+        // unrelated components' write behavior.
+        use crate::rollback::DeterministicPredicted;
         self.app
             .register_marker_with::<DeterministicPredicted>(MarkerConfig {
                 priority: 100,
                 need_history: true,
             });
-        self.app
-            .set_marker_fns::<DeterministicPredicted, C>(write_history::<C>, remove_history::<C>);
+        self.app.set_marker_fns::<DeterministicPredicted, C>(
+            write_history_gated_by_catchup::<C>,
+            remove_history_gated_by_catchup::<C>,
+        );
         self
     }
 
@@ -756,4 +780,45 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
             .resource_mut::<StateRollbackMetadata>()
             .record_mismatch(tick);
     }
+}
+
+/// Variant of [`write_history`] used by `add_confirmed_write`.
+///
+/// Checks for `AwaitingCatchUpSnapshot` on the entity at write time:
+/// - If absent (e.g. InputOnly mode, or post-catch-up), performs a normal
+///   replicon default write directly to the live component.
+/// - If present (StateBasedCatchUp bundled snapshot en route), routes the
+///   write into `PredictionHistory<C>` via [`write_history`].
+fn write_history_gated_by_catchup<C: SyncComponent>(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<()> {
+    if !entity.contains::<crate::rollback::AwaitingCatchUpSnapshot>() {
+        if let Some(mut component) = entity.get_mut::<C>() {
+            rule_fns.deserialize_in_place(ctx, &mut *component, message)?;
+        } else {
+            let component: C = rule_fns.deserialize(ctx, message)?;
+            entity.insert(component);
+        }
+        return Ok(());
+    }
+    write_history::<C>(ctx, rule_fns, entity, message)
+}
+
+/// Variant of [`remove_history`] used by `add_confirmed_write`.
+///
+/// Mirrors [`write_history_gated_by_catchup`]: if the entity is not
+/// `AwaitingCatchUpSnapshot`, removes the component directly; otherwise
+/// records the removal in history.
+fn remove_history_gated_by_catchup<C: SyncComponent>(
+    ctx: &mut RemoveCtx,
+    entity: &mut DeferredEntity,
+) {
+    if !entity.contains::<crate::rollback::AwaitingCatchUpSnapshot>() {
+        entity.remove::<C>();
+        return;
+    }
+    remove_history::<C>(ctx, entity);
 }

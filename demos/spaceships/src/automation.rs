@@ -6,7 +6,9 @@ use lightyear_examples_common::automation::{
     HeadlessInputPlugin, env_flag, env_string, sync_pressed_keys,
 };
 
-use crate::protocol::{BulletMarker, ColorComponent, Player, PlayerActions, Score, Weapon};
+use crate::protocol::{
+    BallMarker, BulletMarker, ColorComponent, Player, PlayerActions, Score, Weapon,
+};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -19,7 +21,11 @@ impl Plugin for AutomationClientPlugin {
         app.add_systems(First, client::drive_keys);
         app.add_systems(
             Update,
-            (client::mark_debug_players, client::mark_debug_bullets),
+            (
+                client::mark_debug_players,
+                client::mark_debug_bullets,
+                client::mark_debug_balls,
+            ),
         );
     }
 }
@@ -32,7 +38,11 @@ impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             FixedUpdate,
-            (server::mark_debug_players, server::mark_debug_bullets),
+            (
+                server::mark_debug_players,
+                server::mark_debug_bullets,
+                server::mark_debug_balls,
+            ),
         );
     }
 }
@@ -118,6 +128,19 @@ mod client {
         }
     }
 
+    pub(super) fn mark_debug_balls(
+        mut commands: Commands,
+        balls: Query<Entity, Added<BallMarker>>,
+    ) {
+        for entity in &balls {
+            commands.entity(entity).try_insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
+                    .with_component_at::<LinearVelocity>([DebugSamplePoint::Update])
+                    .with_component_at::<BallMarker>([DebugSamplePoint::Update]),
+            );
+        }
+    }
+
     fn parse_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -169,6 +192,19 @@ mod server {
             commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<BulletMarker>([DebugSamplePoint::FixedUpdate]),
+            );
+        }
+    }
+
+    pub(super) fn mark_debug_balls(
+        mut commands: Commands,
+        balls: Query<Entity, Added<BallMarker>>,
+    ) {
+        for entity in &balls {
+            commands.entity(entity).try_insert(
+                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<LinearVelocity>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<BallMarker>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }

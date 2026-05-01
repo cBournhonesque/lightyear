@@ -51,7 +51,7 @@ impl ChecksumSendPlugin {
             (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
-        awaiting: Res<AwaitingCatchUpSnapshot>,
+        awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
         let mut checksum = 0u64;
@@ -62,12 +62,12 @@ impl ChecksumSendPlugin {
         if tick > current_tick {
             return;
         }
-        // Skip the whole tick while the client is still waiting for the
-        // bundled catch-up snapshot. The client's state for CatchUpGated
-        // entities is known to not match the server, and filtering them
-        // out of the XOR would leave the server computing over a superset
-        // — producing a sustained mismatch for every other entity too.
-        if awaiting.is_awaiting() {
+        // Skip the whole tick while any entity is still waiting for its
+        // bundled catch-up snapshot. Those entities' state doesn't match
+        // the server; filtering them out of the XOR would leave the server
+        // computing over a superset — producing a sustained mismatch for
+        // every other entity too.
+        if !awaiting.is_empty() {
             return;
         }
         // Skip if a one-shot forced rollback is scheduled but not yet
@@ -124,7 +124,6 @@ impl Plugin for ChecksumSendPlugin {
             app.add_plugins(DeterministicReplicationPlugin);
         }
 
-        app.init_resource::<AwaitingCatchUpSnapshot>();
         // we need the LastConfirmedInput to compute the checksums
         app.register_required_components::<InputTimeline, LastConfirmedInput>();
 
@@ -194,6 +193,13 @@ impl ChecksumReceivePlugin {
                         let mut hasher = seahash::SeaHasher::default();
                         hash_fn.hash_component(component_ptr, &mut hasher);
                         let hash = hasher.finish();
+                        debug!(
+                            ?tick,
+                            entity=?entity.id(),
+                            component_id=?component_id,
+                            hash,
+                            "SERVER per-component hash contribution",
+                        );
                         checksum ^= hash; // XOR the hashes together to get an order-independent checksum
                     });
             });

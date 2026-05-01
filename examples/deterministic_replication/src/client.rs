@@ -1,7 +1,7 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prediction::rollback::{AwaitingCatchUpSnapshot, DeterministicPredicted};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
@@ -27,6 +27,28 @@ impl Plugin for ExampleClientPlugin {
             add_input_map_after_sync.after(ReplicationSystems::Receive),
         );
         app.add_systems(FixedPreUpdate, activate_physics_when_bundle_lands);
+        // When a catch-up-gated player replicates to us (structural
+        // components arrive first, physics is hidden), mark it
+        // `AwaitingCatchUpSnapshot`. This gates `add_confirmed_write` so
+        // the eventual Position/Rotation/LinearVelocity/AngularVelocity
+        // writes land in `PredictionHistory<C>` (for forced rollback to
+        // restore), not on the live component.
+        // `request_forced_rollback_to_catch_up_tick` removes the marker
+        // once the forced rollback is scheduled.
+        app.add_observer(mark_awaiting_catchup_on_replicated_player);
+    }
+}
+
+fn mark_awaiting_catchup_on_replicated_player(
+    trigger: On<Add, PlayerId>,
+    // Only replicated-in entities (not server-spawned ones with `Replicate`).
+    query: Query<(), (Without<AwaitingCatchUpSnapshot>, Without<Replicate>)>,
+    mut commands: Commands,
+) {
+    if query.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .insert(AwaitingCatchUpSnapshot);
     }
 }
 

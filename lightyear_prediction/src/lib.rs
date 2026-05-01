@@ -37,7 +37,8 @@ pub mod prelude {
         PredictionAppRegistrationExt, PredictionRegistrationExt, PredictionRegistry,
     };
     pub use crate::rollback::{
-        DeterministicPredicted, DisableRollback, DisabledDuringRollback, RollbackSystems,
+        AwaitingCatchUpSnapshot, DeterministicPredicted, DisableRollback, DisabledDuringRollback,
+        RollbackSystems,
     };
 }
 

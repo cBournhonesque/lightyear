@@ -199,11 +199,6 @@ pub(crate) fn spawn_player_actions(
     let mut cursor = commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<MoveCursor>::new(),
-        ActionMock::new(
-            TriggerState::Fired,
-            ActionValue::zero(ActionValueDim::Axis2D),
-            MockSpan::Manual,
-        ),
         PreSpawned::new(player_action_prespawn_hash(client_id, replication_mode, 2)),
     ));
     if is_server {
@@ -213,7 +208,14 @@ pub(crate) fn spawn_player_actions(
             InterpolationTarget::manual(Vec::new()),
         ));
     } else {
-        cursor.insert(lightyear::prelude::input::bei::InputMarker::<PlayerContext>::default());
+        cursor.insert((
+            ActionMock::new(
+                TriggerState::Fired,
+                ActionValue::zero(ActionValueDim::Axis2D),
+                MockSpan::Manual,
+            ),
+            lightyear::prelude::input::bei::InputMarker::<PlayerContext>::default(),
+        ));
     }
 
     let mut shoot = commands.spawn((

@@ -80,7 +80,7 @@ fn main() {
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
                     conditioner: Some(RecvLinkConditioner::new(
-                        LinkConditionerConfig::average_condition(),
+                        LinkConditionerConfig::average_condition().half(),
                     )),
                     // transport: ClientTransports::Udp,
                     transport: ClientTransports::WebTransport,
@@ -113,7 +113,9 @@ fn main() {
         let server = app
             .world_mut()
             .spawn(ExampleServer {
-                conditioner: None,
+                conditioner: Some(RecvLinkConditioner::new(
+                    LinkConditionerConfig::average_condition().half(),
+                )),
                 // transport: ServerTransports::Udp { local_port: port },
                 transport: ServerTransports::WebTransport {
                     local_port: port,

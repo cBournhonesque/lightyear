@@ -226,7 +226,7 @@ impl InputDelayConfig {
         sync_config: &SyncConfig,
         tick_interval: Duration,
     ) -> u16 {
-        let jitter_margin = sync_config.jitter_margin(link_stats.jitter);
+        let jitter_margin = sync_config.jitter_margin(link_stats.jitter, tick_interval);
         let effective_rtt = link_stats.rtt + jitter_margin;
         assert!(
             self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
@@ -292,16 +292,18 @@ impl SyncedTimeline for InputTimeline {
         let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
         let jitter_margin = TickDelta::from_duration(
-            config.sync.jitter_margin(ping_manager.jitter()),
+            config.sync.jitter_margin(ping_manager.jitter(), tick_duration),
             tick_duration,
         );
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks as u32).into();
-        // NOTE: because of input delay, this could be in the past, which causes issues with Prediction
-        // let's make sure that we're always ahead of the server
-        let mut obj = remote + network_delay + jitter_margin - input_delay;
-        if obj < remote {
-            obj = remote + TickDelta::from_i32(1)
-        }
+        // Keep the objective as-computed — including when input_delay pushes it
+        // behind the server — rather than nudging it to `remote + 1`. Deterministic
+        // replication requires the client timeline to stay close to the real
+        // objective so input packets for tick T arrive before the server
+        // simulates T. `SyncConfig::jitter_margin` provides that headroom at
+        // typical tick rates; lowering it risks desyncs on near-zero-latency
+        // links because the server races ahead of in-flight input packets.
+        let obj = remote + network_delay + jitter_margin - input_delay;
         trace!(
             ?remote,
             ?network_delay,

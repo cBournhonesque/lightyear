@@ -353,12 +353,14 @@ mod bot {
             private_key: SHARED_SETTINGS.private_key,
             protocol_id: SHARED_SETTINGS.protocol_id,
         };
+        let conditioner = LinkConditionerConfig::average_condition().half();
 
         app.world_mut().spawn((
             Client::default(),
             BotClient,
             ReplicationSender,
             ReplicationReceiver,
+            Link::new(Some(RecvLinkConditioner::new(conditioner.clone()))),
             NetcodeClient::new(
                 auth,
                 lightyear::netcode::client_plugin::NetcodeConfig::default(),
@@ -369,10 +371,9 @@ mod bot {
             Name::from("BotClient"),
         ));
         let server = server.into_inner();
-        let conditioner = RecvLinkConditioner::new(LinkConditionerConfig::average_condition());
         commands.spawn((
             LinkOf { server },
-            Link::new(Some(conditioner)),
+            Link::new(Some(RecvLinkConditioner::new(conditioner))),
             Linked,
             ClientOf,
             BotClient,

@@ -19,13 +19,13 @@ impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
         app.add_observer(add_ball_physics);
-        app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
         app.add_observer(handle_controlled_player);
+        app.add_systems(FixedPreUpdate, add_bullet_physics);
 
         #[cfg(feature = "gui")]
         app.add_systems(
-            FixedUpdate,
+            FixedPostUpdate,
             handle_hit_event
                 .run_if(on_message::<BulletHitMessage>)
                 .after(process_collisions),
@@ -55,16 +55,26 @@ fn add_ball_physics(
 /// replication, which means they will already have the physics components.
 /// So, we filter the query using `Without<Collider>`.
 fn add_bullet_physics(
-    trigger: On<Add, BulletMarker>,
     mut commands: Commands,
-    bullet_query: Query<(), (With<Predicted>, Without<Collider>)>,
+    bullet_query: Query<
+        (Entity, Has<Predicted>, Has<Interpolated>),
+        (With<BulletMarker>, Without<Collider>),
+    >,
 ) {
-    let entity = trigger.entity;
-    if let Ok(()) = bullet_query.get(entity) {
-        info!("Adding physics to a replicated bullet: {entity:?}");
-        commands
-            .entity(entity)
-            .insert((PhysicsBundle::bullet(), Sensor, bullet_mass_properties()));
+    for (entity, is_predicted, is_interpolated) in &bullet_query {
+        if is_predicted {
+            info!("Adding physics to a predicted replicated bullet: {entity:?}");
+            commands
+                .entity(entity)
+                .insert((PhysicsBundle::bullet(), bullet_mass_properties()));
+        } else if is_interpolated {
+            info!("Adding visual sensor collider to an interpolated replicated bullet: {entity:?}");
+            commands.entity(entity).insert((
+                Collider::circle(BULLET_SIZE),
+                RigidBody::Kinematic,
+                Sensor,
+            ));
+        }
     }
 }
 

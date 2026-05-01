@@ -204,6 +204,32 @@ impl StateRollbackMetadata {
         self.should_rollback = false;
     }
 
+    /// Return the pending mismatch if rollback must wait for more local
+    /// prediction history. `check_rollback` runs in PreUpdate, before the
+    /// current tick's FixedUpdate prediction has been recorded, so the current
+    /// tick is not rollback-ready yet.
+    pub(crate) fn not_ready_mismatch_tick(&self, current_tick: Tick) -> Option<Tick> {
+        if !self.should_rollback {
+            return None;
+        }
+        self.earliest_mismatch_tick
+            .filter(|mismatch_tick| *mismatch_tick >= current_tick)
+    }
+
+    /// Consume the pending mismatch only once its tick is strictly in the
+    /// client's past and the predicted history for that tick can exist.
+    pub(crate) fn take_ready_mismatch_tick(&mut self, current_tick: Tick) -> Option<Tick> {
+        if !self.should_rollback {
+            return None;
+        }
+        let mismatch_tick = self.earliest_mismatch_tick?;
+        if mismatch_tick >= current_tick {
+            return None;
+        }
+        self.reset_mismatch_state();
+        Some(mismatch_tick)
+    }
+
     /// Returns the last processed tick (for checking if ServerMutateTicks advanced)
     pub fn last_processed_tick(&self) -> Option<Tick> {
         self.last_processed_tick
@@ -220,6 +246,32 @@ impl StateRollbackMetadata {
             None => true, // First time, always process
             Some(last) => current_tick > last,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mismatch_is_deferred_until_tick_is_in_local_past() {
+        let mut metadata = StateRollbackMetadata::default();
+        metadata.record_mismatch(Tick(12));
+
+        assert_eq!(metadata.not_ready_mismatch_tick(Tick(10)), Some(Tick(12)));
+        assert_eq!(metadata.take_ready_mismatch_tick(Tick(10)), None);
+        assert!(metadata.should_rollback);
+        assert_eq!(metadata.earliest_mismatch_tick, Some(Tick(12)));
+
+        assert_eq!(metadata.not_ready_mismatch_tick(Tick(12)), Some(Tick(12)));
+        assert_eq!(metadata.take_ready_mismatch_tick(Tick(12)), None);
+        assert!(metadata.should_rollback);
+        assert_eq!(metadata.earliest_mismatch_tick, Some(Tick(12)));
+
+        assert_eq!(metadata.not_ready_mismatch_tick(Tick(13)), None);
+        assert_eq!(metadata.take_ready_mismatch_tick(Tick(13)), Some(Tick(12)));
+        assert!(!metadata.should_rollback);
+        assert_eq!(metadata.earliest_mismatch_tick, None);
     }
 }
 

@@ -3,6 +3,7 @@ mod base;
 // mod authority;
 mod avian;
 mod connection;
+mod deterministic;
 // mod delta;
 mod hierarchy;
 mod input;

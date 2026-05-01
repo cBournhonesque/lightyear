@@ -109,6 +109,9 @@ pub enum RollbackSystems {
 
 pub struct RollbackPlugin;
 
+#[derive(Component)]
+struct NoRollbackCheckTargets;
+
 impl Plugin for RollbackPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
@@ -168,6 +171,18 @@ impl Plugin for RollbackPlugin {
             .remove_resource::<PredictionRegistry>()
             .unwrap();
 
+        let replicated_prediction_histories = prediction_registry
+            .prediction_map
+            .iter()
+            // don't check_rollback for non-networked components, which are not present in the ComponentRegistry
+            .filter_map(|(kind, p)| {
+                component_registry
+                    .component_metadata_map
+                    .contains_key(kind)
+                    .then_some(p.history_id)
+            })
+            .collect::<Vec<_>>();
+
         let check_rollback = (
             QueryParamBuilder::new(|builder| {
                 builder.data::<&Predicted>();
@@ -177,22 +192,24 @@ impl Plugin for RollbackPlugin {
                 // include PredictionDisable entities (entities that are predicted and 'despawned'
                 // but we keep them around for rollback check)
                 builder.filter::<Allow<PredictionDisable>>();
+                if !replicated_prediction_histories.is_empty() {
+                    builder.or(|b| {
+                        for history_id in &replicated_prediction_histories {
+                            b.with_id(*history_id);
+                        }
+                    });
+                } else {
+                    // Keep the unchanged-state query empty when no replicated
+                    // prediction histories are registered. The system still
+                    // needs to run for input rollback checks.
+                    builder.with::<NoRollbackCheckTargets>();
+                }
                 builder.optional(|b| {
                     // include access to &mut PredictionHistory<C> and &Confirmed<C> for all predicted components, if the components are replicated
                     // (no need to check rollback for non-networked components)
-                    prediction_registry
-                        .prediction_map
-                        .iter()
-                        // don't check_rollback for non-networked components, which are not present in the ComponentRegistry
-                        .filter_map(|(kind, p)| {
-                            component_registry
-                                .component_metadata_map
-                                .get(kind)
-                                .map(|c| (c, p))
-                        })
-                        .for_each(|(m, p)| {
-                            b.mut_id(p.history_id);
-                        });
+                    for history_id in &replicated_prediction_histories {
+                        b.mut_id(*history_id);
+                    }
                 });
             }),
             ParamBuilder,
@@ -272,6 +289,40 @@ impl DeterministicPredicted {
         }
     }
 }
+
+/// Marker component indicating that an entity is currently awaiting a
+/// state-based catch-up snapshot from the server, and that any replicated
+/// component updates should be routed into `PredictionHistory<C>` via the
+/// marker-fn registered by `add_confirmed_write` rather than the live
+/// component.
+///
+/// ## Why this marker (and not [`DeterministicPredicted`])
+///
+/// We deliberately do NOT gate `add_confirmed_write` on
+/// [`DeterministicPredicted`] because that marker applies to *both*
+/// catch-up and input-only deterministic flows:
+///
+/// - **StateBasedCatchUp**: the client inserts `AwaitingCatchUpSnapshot`
+///   when it's expecting a bundled snapshot. While the marker is present,
+///   replicated Position/Rotation/etc. go into `PredictionHistory` (as
+///   confirmed values at the snapshot tick). User code then inserts
+///   `DeterministicPredicted` + activates physics, removes this marker,
+///   and calls `request_forced_rollback_to_catch_up_tick` to reconcile.
+///   The forced-rollback `prepare_rollback` reads the history to restore
+///   the live component.
+///
+/// - **InputOnly** (no catch-up snapshot): the entity is
+///   `DeterministicPredicted` from the start, but there's no catch-up
+///   phase. The initial `replicate_once` value should land directly on
+///   the live component (not in history), so simulation can proceed
+///   without a forced rollback. Gating on `DeterministicPredicted` would
+///   break this: Position would be trapped in history and the live
+///   component would stay at its default value.
+///
+/// In both flows, once catch-up is complete (or never needed), routine
+/// replicated updates behave as normal live writes.
+#[derive(Component, Debug, Default)]
+pub struct AwaitingCatchUpSnapshot;
 
 /// Marker component to indicate that the entity will be completely excluded from rollbacks.
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
@@ -448,9 +499,18 @@ fn check_rollback(
             // when receiving a confirmed update (in write_history).
             // The mismatch flags persist across frames since check_rollback may run
             // before receive_replication in the same frame.
-            if state_metadata.should_rollback
-                && let Some(mismatch_tick) = state_metadata.earliest_mismatch_tick
-            {
+            if let Some(mismatch_tick) = state_metadata.not_ready_mismatch_tick(tick) {
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "state_mismatch_deferred",
+                    schedule = "PreUpdate",
+                    sample_point = "PreUpdate",
+                    local_tick = tick.0,
+                    rollback_tick = mismatch_tick.0,
+                    "state mismatch rollback deferred until confirmed tick is in the local past"
+                );
+            }
+            if let Some(mismatch_tick) = state_metadata.take_ready_mismatch_tick(tick) {
                 debug!(
                     ?mismatch_tick,
                     "Rollback from mismatch detected when receiving confirmed update"
@@ -472,8 +532,6 @@ fn check_rollback(
                     Rollback::FromState,
                 );
             }
-            // Always consume the mismatch state after checking
-            state_metadata.reset_mismatch_state();
 
             // Check if ServerMutateTicks has advanced since we last processed it
             let server_ticks_advanced =
@@ -496,7 +554,7 @@ fn check_rollback(
                         "Checking for state-based rollback on unchanged entities"
                     );
 
-                    predicted_entities.par_iter_mut().for_each(|(confirm_history,mut entity_mut)| {
+                    predicted_entities.par_iter_mut().for_each(|(confirm_history, mut entity_mut)| {
                         if prediction_manager.is_rollback() {
                             return
                         }
@@ -504,14 +562,10 @@ fn check_rollback(
                         let Some(confirm_history_tick) =
                             resolve_confirm_history_tick(&checkpoints, confirm_history)
                         else {
-                            error!(
+                            debug!(
                                 entity = ?entity_mut.id(),
                                 replicon_tick = ?confirm_history.last_tick(),
-                                "missing authoritative checkpoint mapping for ConfirmHistory"
-                            );
-                            debug_assert!(
-                                false,
-                                "missing authoritative checkpoint mapping for ConfirmHistory"
+                                "Skipping unchanged rollback check for entity with missing ConfirmHistory checkpoint mapping"
                             );
                             return
                         };
@@ -826,14 +880,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         {
             let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
             else {
-                error!(
+                debug!(
                     entity = ?entity,
                     replicon_tick = ?confirm_history.last_tick(),
-                    "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
-                );
-                debug_assert!(
-                    false,
-                    "missing authoritative checkpoint mapping for ConfirmHistory during rollback preparation"
+                    "Skipping unchanged confirmation for entity with missing ConfirmHistory checkpoint mapping during rollback preparation"
                 );
                 continue;
             };

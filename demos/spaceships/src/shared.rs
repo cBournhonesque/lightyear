@@ -47,15 +47,14 @@ impl Plugin for SharedPlugin {
         );
         app.insert_resource(Gravity(Vec2::ZERO));
 
-        // our systems run in FixedUpdate, avian's systems run in FixedPostUpdate.
+        // Movement/firing inputs are applied before Avian's fixed physics step.
         app.add_systems(
             FixedUpdate,
-            (
-                player_movement,
-                shared_player_firing,
-                process_collisions,
-                lifetime_despawner,
-            ),
+            (player_movement, shared_player_firing, lifetime_despawner),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            process_collisions.after(PhysicsSystems::StepSimulation),
         );
 
         app.add_message::<BulletHitMessage>();
@@ -248,7 +247,6 @@ pub fn shared_player_firing(
                 },
                 BulletMarker::new(player.client_id),
                 PhysicsBundle::bullet(),
-                Sensor,
                 bullet_mass_properties(),
                 prespawned,
             ))

@@ -87,7 +87,6 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
     #[cfg(feature = "client")]
     {
-        #[cfg(not(feature = "server"))]
         commands.spawn((
             Text::new("Score: 0"),
             TextFont::from_font_size(30.0),
@@ -124,10 +123,14 @@ struct ModeText;
 #[cfg(feature = "client")]
 fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
-    score: Single<&Score, (With<Replicated>, With<Controlled>)>,
+    active_mode: Single<&GameReplicationMode, With<ClientContext>>,
+    scores: Query<(&Score, &GameReplicationMode), (With<PlayerMarker>, With<Controlled>)>,
 ) {
     if let Ok(mut text) = score_text.single_mut() {
-        text.0 = format!("Score: {}", score.0);
+        let active_mode = active_mode.into_inner();
+        if let Some((score, _)) = scores.iter().find(|(_, mode)| *mode == active_mode) {
+            text.0 = format!("Score: {}", score.0);
+        }
     }
 }
 

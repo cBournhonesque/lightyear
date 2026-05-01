@@ -93,9 +93,15 @@ pub struct SyncConfig {
     /// % of packets that will be received within k * jitter
     /// 1: 65%, 2: 95%, 3: 99.7%
     pub jitter_multiple: u8,
-    /// How many ticks to we apply as margin when computing the time
-    ///  a packet will get received by the server
-    pub jitter_margin: Duration,
+    /// Fixed safety margin added on top of the jitter-derived one, expressed as a
+    /// fractional number of ticks.
+    ///
+    /// The default is `1.0`, which guarantees the client timeline lands at least
+    /// one full tick ahead of the server timeline under zero-RTT/zero-jitter
+    /// conditions (e.g. loopback). Any less than `1.0` risks the server
+    /// simulating tick `T` before the client's input for `T` has arrived,
+    /// producing a desync in deterministic replication.
+    pub jitter_margin: f32,
     /// Number of pings to exchange with the server before finalizing the handshake
     pub handshake_pings: u8,
     /// Error margin for upstream throttle (in multiple of ticks)
@@ -114,8 +120,11 @@ pub struct SyncConfig {
 }
 
 impl SyncConfig {
-    pub(crate) fn jitter_margin(&self, jitter: Duration) -> Duration {
-        jitter * self.jitter_multiple as u32 + self.jitter_margin
+    /// Total jitter-based safety margin as a `Duration`, combining the measured
+    /// jitter scaled by [`Self::jitter_multiple`] with the fixed fractional-tick
+    /// margin in [`Self::jitter_margin`].
+    pub fn jitter_margin(&self, jitter: Duration, tick_duration: Duration) -> Duration {
+        jitter * self.jitter_multiple as u32 + tick_duration.mul_f32(self.jitter_margin)
     }
 }
 
@@ -123,7 +132,7 @@ impl Default for SyncConfig {
     fn default() -> Self {
         SyncConfig {
             jitter_multiple: 4,
-            jitter_margin: Duration::from_millis(5),
+            jitter_margin: 1.0,
             handshake_pings: 3,
             error_margin: 1.0,
             max_error_margin: 10.0,
