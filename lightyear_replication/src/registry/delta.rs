@@ -270,7 +270,13 @@ fn buffer_insert_delta<
                     );
                     let confirmed_component_id = entity_mut.component_id::<Confirmed<C>>();
                     if predicted && !entity_mut.entity.contains::<C>() {
-                        let cloned = clone.unwrap()(&new_value.0);
+                        let clone_fn = clone.ok_or_else(|| {
+                            ComponentError::DeltaCompressionError(format!(
+                                "No clone function registered for {}; ensure the component is registered with `add_clone` for delta compression",
+                                DebugName::type_name::<C>()
+                            ))
+                        })?;
+                        let cloned = clone_fn(&new_value.0);
                         // SAFETY: we made sure that component_id corresponds to C
                         unsafe {
                             entity_mut.buffered.insert::<C>(cloned, component_id);
