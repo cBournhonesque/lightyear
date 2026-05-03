@@ -30,6 +30,7 @@ PhysicsPlugins::default()
     // .disable::<IslandSleepingPlugin>(),
 ```
 !*/
+use alloc::vec::Vec;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
@@ -45,6 +46,8 @@ use tracing::trace;
 use {
     crate::correction_2d as correction,
     avian2d::{
+        collider_tree::{ColliderTreeProxyKey, ColliderTrees, MovedProxies},
+        collision::collider::{ColliderAabb, EnlargedAabb},
         dynamics::solver::{
             constraint_graph::ConstraintGraph,
             islands::{BodyIslandNode, PhysicsIslands},
@@ -58,6 +61,8 @@ use {
 use {
     crate::correction_3d as correction,
     avian3d::{
+        collider_tree::{ColliderTreeProxyKey, ColliderTrees, MovedProxies},
+        collision::collider::{ColliderAabb, EnlargedAabb},
         dynamics::solver::{
             constraint_graph::ConstraintGraph,
             islands::{BodyIslandNode, PhysicsIslands},
@@ -68,11 +73,12 @@ use {
     },
 };
 
+use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
-    PredictionAppRegistrationExt, PredictionRegistry, RollbackSystems,
+    PredictionAppRegistrationExt, PredictionManager, PredictionRegistry, RollbackSystems,
 };
 use lightyear_replication::prelude::TransformLinearInterpolation;
 
@@ -115,6 +121,13 @@ pub struct LightyearAvianPlugin {
     /// If True, the plugin will rollback island-related resources and components
     /// Enable this if you have the Island plugin enabled.
     pub rollback_islands: bool,
+}
+
+#[derive(Resource, Clone, Debug, Default)]
+struct RollbackMovedProxies {
+    // Avian's `MovedProxies` resource is not `Clone`; keep a cloneable snapshot
+    // so rollback replay uses the same broad-phase update set as the first run.
+    proxies: Vec<ColliderTreeProxyKey>,
 }
 
 impl Plugin for LightyearAvianPlugin {
@@ -315,6 +328,25 @@ impl Plugin for LightyearAvianPlugin {
             app.add_resource_rollback::<ContactGraph>();
             app.add_resource_rollback::<ConstraintGraph>();
             app.add_rollback::<CollidingEntities>();
+            // `ColliderTrees` cannot be cloned for rollback, but its leaf AABBs
+            // are derived from these cloneable collider components.
+            app.add_rollback::<ColliderAabb>();
+            app.add_rollback::<EnlargedAabb>();
+            app.init_resource::<RollbackMovedProxies>();
+            app.add_resource_rollback::<RollbackMovedProxies>();
+            app.add_systems(
+                FixedPostUpdate,
+                Self::record_moved_proxies_for_rollback
+                    .after(PhysicsSystems::StepSimulation)
+                    .before(PredictionSystems::UpdateHistory),
+            );
+            app.add_systems(
+                PreUpdate,
+                Self::restore_collider_tree_from_enlarged_aabbs
+                    .after(RollbackSystems::Prepare)
+                    .before(RollbackSystems::Rollback)
+                    .run_if(is_in_rollback),
+            );
 
             if self.rollback_islands {
                 app.init_resource::<PhysicsIslands>();
@@ -327,6 +359,63 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    fn record_moved_proxies_for_rollback(
+        moved_proxies: Res<MovedProxies>,
+        mut rollback_moved_proxies: ResMut<RollbackMovedProxies>,
+    ) {
+        rollback_moved_proxies.proxies.clear();
+        rollback_moved_proxies
+            .proxies
+            .extend_from_slice(moved_proxies.proxies());
+    }
+
+    fn restore_collider_tree_from_enlarged_aabbs(
+        prediction_manager: Single<&PredictionManager, With<lightyear_core::timeline::Rollback>>,
+        mut trees: ResMut<ColliderTrees>,
+        mut moved_proxies: ResMut<MovedProxies>,
+        rollback_moved_proxies: Res<RollbackMovedProxies>,
+        colliders: Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
+    ) {
+        if prediction_manager.get_rollback_start_tick().is_none() {
+            return;
+        }
+        // The rollback just restored `EnlargedAabb`; rebuild Avian's tree
+        // leaves from that state before replaying physics. A stale tree can
+        // miss contacts even when Position/Velocity were rolled back correctly.
+        moved_proxies.clear();
+        for tree in trees.iter_trees_mut() {
+            tree.moved_proxies.clear();
+        }
+
+        for (proxy_key, enlarged_aabb) in &colliders {
+            if *proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
+                continue;
+            }
+            let tree = trees.tree_for_type_mut(proxy_key.tree_type());
+            if tree.get_proxy(proxy_key.id()).is_none() {
+                continue;
+            }
+            tree.set_proxy_aabb(proxy_key.id(), enlarged_aabb.get().into());
+        }
+
+        for tree in trees.iter_trees_mut() {
+            tree.refit_all();
+        }
+
+        // Preserve the original moved-proxy set instead of marking every proxy
+        // moved; extra pairs can perturb contact ordering and produce tiny
+        // floating point differences.
+        for proxy_key in rollback_moved_proxies.proxies.iter().copied() {
+            if proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
+                continue;
+            }
+            let tree = trees.tree_for_type_mut(proxy_key.tree_type());
+            if tree.get_proxy(proxy_key.id()).is_some() && moved_proxies.insert(proxy_key) {
+                tree.moved_proxies.push(proxy_key.id());
+            }
+        }
+    }
+
     fn sync_transform_to_position(app: &mut App, schedule: impl ScheduleLabel) {
         let schedule = schedule.intern();
         // also add the system ordering for FixedPostUpdate (for ColliderTransformPlugin)

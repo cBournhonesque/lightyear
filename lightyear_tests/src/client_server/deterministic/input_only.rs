@@ -19,6 +19,7 @@ use approx::assert_relative_eq;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{Action, ActionMock, ActionValue, MockSpan, TriggerState};
+use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
@@ -146,6 +147,30 @@ fn add_phase_samplers(app: &mut App, role: &'static str) {
     app.add_systems(FixedLast, sample("FixedLast_end", role));
 }
 
+fn fixed_position_at(world: &World, entity: Entity, tick: Tick) -> Position {
+    let local_tick = world.resource::<LocalTimeline>().tick();
+    let live_position = *world
+        .get::<Position>(entity)
+        .expect("entity missing live Position");
+    let Some(frame_interpolate) = world.get::<FrameInterpolate<Position>>(entity) else {
+        assert_eq!(
+            tick, local_tick,
+            "cannot read a historical fixed position without FrameInterpolate"
+        );
+        return live_position;
+    };
+    match local_tick.0.checked_sub(tick.0) {
+        Some(0) => frame_interpolate.current_value.unwrap_or(live_position),
+        Some(1) => frame_interpolate
+            .previous_value
+            .expect("missing previous fixed Position"),
+        _ => panic!(
+            "cannot compare fixed Position at tick {:?}; entity {:?} is at local tick {:?}",
+            tick, entity, local_tick
+        ),
+    }
+}
+
 /// On the client, when a replicated `DetPlayerId` entity arrives, insert
 /// the local physics bundle (Collider/RigidBody) + `DeterministicPredicted`.
 /// Without this the entity has Position/Rotation but nothing for Avian to
@@ -166,22 +191,9 @@ fn activate_replicated_player(
     }
 }
 
-/// KNOWN-FAILING under random inputs (passes with `warmup_ticks=10000`).
-///
-/// Root cause (still reproducible after gating `add_confirmed_write` on
-/// `AwaitingCatchUpSnapshot`): `Fire<DetMovement>` fires TWICE per tick
-/// on the client. Once from the normal `FixedMain` run, then again from
-/// the input-mismatch rollback replay. `apply_movement` uses
-/// `velocity.x += delta`, which is non-idempotent — the second call
-/// doubles the delta.
-///
-/// Fix options:
-/// - Make `apply_movement` write absolute velocity (e.g. `velocity.xy =
-///   input * speed`) instead of accumulating deltas. Idempotent under
-///   repeated firing. This is probably the correct user-code pattern for
-///   BEI + deterministic replication.
-/// - Or: have BEI's `Apply` system skip re-firing during rollback replay
-///   by default, requiring user code to opt in to re-fire if needed.
+/// Exercises random input-only deterministic replication with rollback
+/// replays. This catches both input-history issues and physics-side
+/// rollback state that is not represented by replicated components.
 #[test]
 fn test_input_only_two_clients() {
     let mut stepper = DetStepper::new_server();
@@ -232,17 +244,31 @@ fn test_input_only_two_clients() {
     // Warmup (50 ticks of zero input) + random-input exchange phase.
     stepper.frame_step(200);
 
-    let server_pos_a = *stepper
+    let server_tick = stepper
         .server_app
         .world()
-        .get::<Position>(server_player_a)
-        .expect("server player A missing Position");
-    let server_pos_b = *stepper
-        .server_app
-        .world()
-        .get::<Position>(server_player_b)
-        .expect("server player B missing Position");
-    info!(?server_pos_a, ?server_pos_b, "final server positions");
+        .resource::<LocalTimeline>()
+        .tick();
+    let compare_tick = (0..2)
+        .map(|client_id| {
+            stepper
+                .client_app(client_id)
+                .world()
+                .resource::<LocalTimeline>()
+                .tick()
+        })
+        .fold(server_tick, |min_tick, tick| {
+            if tick.0 < min_tick.0 { tick } else { min_tick }
+        });
+    let server_pos_a = fixed_position_at(stepper.server_app.world(), server_player_a, compare_tick);
+    let server_pos_b = fixed_position_at(stepper.server_app.world(), server_player_b, compare_tick);
+    info!(
+        ?server_tick,
+        ?compare_tick,
+        ?server_pos_a,
+        ?server_pos_b,
+        "final server fixed positions"
+    );
 
     for client_id in 0..2 {
         let c_a = stepper
@@ -259,16 +285,21 @@ fn test_input_only_two_clients() {
             .entity_mapper
             .get_local(server_player_b)
             .expect("client missing player B");
-        let c_pos_a = *stepper
+        let client_tick = stepper
             .client_app(client_id)
             .world()
-            .get::<Position>(c_a)
-            .expect("client player A missing Position");
-        let c_pos_b = *stepper
-            .client_app(client_id)
-            .world()
-            .get::<Position>(c_b)
-            .expect("client player B missing Position");
+            .resource::<LocalTimeline>()
+            .tick();
+        let c_pos_a = fixed_position_at(stepper.client_app(client_id).world(), c_a, compare_tick);
+        let c_pos_b = fixed_position_at(stepper.client_app(client_id).world(), c_b, compare_tick);
+        info!(
+            client_id,
+            ?client_tick,
+            ?compare_tick,
+            ?c_pos_a,
+            ?c_pos_b,
+            "final client fixed positions"
+        );
         assert_relative_eq!(c_pos_a.x, server_pos_a.x, epsilon = 0.01);
         assert_relative_eq!(c_pos_a.y, server_pos_a.y, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.x, server_pos_b.x, epsilon = 0.01);

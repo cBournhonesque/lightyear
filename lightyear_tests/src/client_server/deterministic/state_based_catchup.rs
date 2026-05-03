@@ -22,6 +22,7 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{
     Action, ActionMock, ActionOf, ActionValue, MockSpan, TriggerState,
 };
+use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
@@ -167,13 +168,33 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
     }
 }
 
-/// KNOWN-FAILING: state-based catchup + bundled rollback is deterministic
-/// when no inputs fire (zero-input warmup test passes). Under random
-/// `Fire<DetMovement>` inputs the clients drift ~5-10 units from the
-/// server over 150 ticks. Needs a deeper dive into how BEI
-/// rebroadcast/ordering interacts with the forced rollback replay.
+fn fixed_position_at(world: &World, entity: Entity, tick: Tick) -> Position {
+    let local_tick = world.resource::<LocalTimeline>().tick();
+    let live_position = *world
+        .get::<Position>(entity)
+        .expect("entity missing live Position");
+    let Some(frame_interpolate) = world.get::<FrameInterpolate<Position>>(entity) else {
+        assert_eq!(
+            tick, local_tick,
+            "cannot read a historical fixed position without FrameInterpolate"
+        );
+        return live_position;
+    };
+    match local_tick.0.checked_sub(tick.0) {
+        Some(0) => frame_interpolate.current_value.unwrap_or(live_position),
+        Some(1) => frame_interpolate
+            .previous_value
+            .expect("missing previous fixed Position"),
+        _ => panic!(
+            "cannot compare fixed Position at tick {:?}; entity {:?} is at local tick {:?}",
+            tick, entity, local_tick
+        ),
+    }
+}
+
+/// Exercises state-based deterministic catch-up, the bundled forced rollback,
+/// and sustained random inputs after catch-up has settled.
 #[test]
-#[ignore]
 fn test_state_based_catchup_two_clients() {
     let mut stepper = DetStepper::new_server();
     let _c0 = stepper.new_client();
@@ -226,18 +247,32 @@ fn test_state_based_catchup_two_clients() {
     // Let catch-up + forced rollback + sustained random motion happen.
     stepper.frame_step(200);
 
-    let server_pos_a = *stepper
+    let server_tick = stepper
         .server_app
         .world()
-        .get::<Position>(server_player_a)
-        .expect("server player A missing Position");
-    let server_pos_b = *stepper
-        .server_app
-        .world()
-        .get::<Position>(server_player_b)
-        .expect("server player B missing Position");
+        .resource::<LocalTimeline>()
+        .tick();
+    let compare_tick = (0..2)
+        .map(|client_id| {
+            stepper
+                .client_app(client_id)
+                .world()
+                .resource::<LocalTimeline>()
+                .tick()
+        })
+        .fold(server_tick, |min_tick, tick| {
+            if tick.0 < min_tick.0 { tick } else { min_tick }
+        });
+    let server_pos_a = fixed_position_at(stepper.server_app.world(), server_player_a, compare_tick);
+    let server_pos_b = fixed_position_at(stepper.server_app.world(), server_player_b, compare_tick);
 
-    info!(?server_pos_a, ?server_pos_b, "final server positions");
+    info!(
+        ?server_tick,
+        ?compare_tick,
+        ?server_pos_a,
+        ?server_pos_b,
+        "final server fixed positions"
+    );
 
     // Assert that each client's view of both players matches the server.
     for client_id in 0..2 {
@@ -256,16 +291,29 @@ fn test_state_based_catchup_two_clients() {
             .get_local(server_player_b)
             .expect("client missing player B entity");
 
-        let c_pos_a = *stepper
+        let client_tick = stepper
             .client_app(client_id)
             .world()
-            .get::<Position>(client_player_a)
-            .expect("client player A missing Position");
-        let c_pos_b = *stepper
-            .client_app(client_id)
-            .world()
-            .get::<Position>(client_player_b)
-            .expect("client player B missing Position");
+            .resource::<LocalTimeline>()
+            .tick();
+        let c_pos_a = fixed_position_at(
+            stepper.client_app(client_id).world(),
+            client_player_a,
+            compare_tick,
+        );
+        let c_pos_b = fixed_position_at(
+            stepper.client_app(client_id).world(),
+            client_player_b,
+            compare_tick,
+        );
+        info!(
+            client_id,
+            ?client_tick,
+            ?compare_tick,
+            ?c_pos_a,
+            ?c_pos_b,
+            "final client fixed positions"
+        );
         assert_relative_eq!(c_pos_a.x, server_pos_a.x, epsilon = 0.01);
         assert_relative_eq!(c_pos_a.y, server_pos_a.y, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.x, server_pos_b.x, epsilon = 0.01);

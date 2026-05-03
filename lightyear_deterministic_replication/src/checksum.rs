@@ -193,13 +193,6 @@ impl ChecksumReceivePlugin {
                         let mut hasher = seahash::SeaHasher::default();
                         hash_fn.hash_component(component_ptr, &mut hasher);
                         let hash = hasher.finish();
-                        debug!(
-                            ?tick,
-                            entity=?entity.id(),
-                            component_id=?component_id,
-                            hash,
-                            "SERVER per-component hash contribution",
-                        );
                         checksum ^= hash; // XOR the hashes together to get an order-independent checksum
                     });
             });
