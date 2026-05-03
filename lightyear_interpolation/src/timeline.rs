@@ -96,7 +96,9 @@ impl SyncedTimeline for InterpolationTimeline {
             TickDelta::from_duration(config.to_duration(self.remote_send_interval), tick_duration);
         // take extra margin if there is jitter
         let jitter_margin = TickDelta::from_duration(
-            config.sync.jitter_margin(ping_manager.jitter(), tick_duration),
+            config
+                .sync
+                .jitter_margin(ping_manager.jitter(), tick_duration),
             tick_duration,
         );
         let target = remote.current_estimate();

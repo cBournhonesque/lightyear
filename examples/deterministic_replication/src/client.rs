@@ -8,6 +8,7 @@ use lightyear::prelude::*;
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::color_from_id;
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 
 pub struct ExampleClientPlugin;
 
@@ -43,8 +44,16 @@ fn mark_awaiting_catchup_on_replicated_player(
     trigger: On<Add, PlayerId>,
     // Only replicated-in entities (not server-spawned ones with `Replicate`).
     query: Query<(), (Without<AwaitingCatchUpSnapshot>, Without<Replicate>)>,
+    client: Option<Single<Entity, (With<Client>, Without<InitialCatchUpComplete>)>>,
+    mode: Res<CatchUpMode>,
     mut commands: Commands,
 ) {
+    if *mode == CatchUpMode::InputOnly {
+        return;
+    }
+    if client.is_none() {
+        return;
+    }
     if query.get(trigger.entity).is_ok() {
         commands
             .entity(trigger.entity)
@@ -57,6 +66,9 @@ struct InputMapAdded;
 
 #[derive(Component)]
 struct PhysicsActivated;
+
+#[derive(Component)]
+struct InitialCatchUpComplete;
 
 /// Add an `InputMap` to the local player's replicated entity as soon as the
 /// input timeline is synced. This is what lets the local client start
@@ -87,31 +99,45 @@ fn add_input_map_after_sync(
     }
 }
 
-/// Activate physics on every `CatchUpGated` entity once the bundled catch-up
-/// snapshot has landed. `add_confirmed_write` has already written the
-/// catch-up components (Position / Rotation / LinearVelocity /
-/// AngularVelocity) into `PredictionHistory` at server tick `S`. We add the
-/// `PhysicsBundle` (colliders etc.) + `DeterministicPredicted` so Avian will
-/// simulate this entity locally. Once *every* gated entity we know about
-/// has physics activated, fire a single forced rollback that reconciles
-/// everything from `S` forward.
+/// Activate physics when replicated player state becomes available.
+///
+/// During the initial state-based catch-up, `AwaitingCatchUpSnapshot` means
+/// `add_confirmed_write` has written Position/Rotation/Velocity into
+/// `PredictionHistory` at server tick `S`; once the entire bundle lands, we
+/// fire a single forced rollback from `S`. Later player spawns on an
+/// already-caught-up client arrive through normal `replicate_once` and do not
+/// need another catch-up rollback.
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
     // Players whose catch-up snapshot has just landed (they now have
     // `Position`) but we haven't yet added local physics components.
-    pending: Query<(Entity, &PlayerId, &Position), Without<PhysicsActivated>>,
+    pending: Query<
+        (Entity, &PlayerId, &Position, Has<AwaitingCatchUpSnapshot>),
+        Without<PhysicsActivated>,
+    >,
     // Known remote players that are still waiting for the bundled snapshot
     // (they have `PlayerId` from structural replication but no `Position`
     // yet). The `still_pending` guard ensures the forced rollback fires
     // only when the *entire* bundle has arrived.
     still_pending: Query<Entity, (With<PlayerId>, Without<PhysicsActivated>, Without<Position>)>,
+    mode: Res<CatchUpMode>,
+    client: Option<Single<Entity, With<Client>>>,
 ) {
     let mut newly_activated: Vec<Entity> = Vec::new();
-    for (entity, player_id, _position) in pending.iter() {
-        info!(
-            "Client: activating physics for player {:?} (catch-up bundle snapshot landed)",
-            player_id.0
-        );
+    let mut activated_awaiting_catchup = false;
+    for (entity, player_id, _position, awaiting_catchup) in pending.iter() {
+        if awaiting_catchup {
+            info!(
+                "Client: activating physics for player {:?} (catch-up bundle snapshot landed)",
+                player_id.0
+            );
+            activated_awaiting_catchup = true;
+        } else {
+            info!(
+                "Client: activating physics for player {:?} (normal initial replication)",
+                player_id.0
+            );
+        }
         commands.entity(entity).insert((
             PhysicsBundle::player(),
             ColorComponent(color_from_id(player_id.0)),
@@ -130,15 +156,23 @@ fn activate_physics_when_bundle_lands(
     // about have their catch-up components. Replicon emits the bundle in
     // one update at one tick `S`, so in practice every player gets
     // `Position` on the same frame and the rollback fires once.
-    if !newly_activated.is_empty() && still_pending.is_empty() {
+    if *mode == CatchUpMode::StateBasedCatchUp
+        && activated_awaiting_catchup
+        && !newly_activated.is_empty()
+        && still_pending.is_empty()
+        && let Some(client) = client
+    {
         // Pick any activated entity as the reference for the catch-up
         // tick lookup — they all share the same server tick in the
         // bundled snapshot.
         let reference = newly_activated[0];
+        let client = client.into_inner();
         commands.queue(move |world: &mut World| {
-            lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
+            if lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
                 world, reference,
-            );
+            ) && let Ok(mut client) = world.get_entity_mut(client) {
+                client.insert(InitialCatchUpComplete);
+            }
         });
     }
 }

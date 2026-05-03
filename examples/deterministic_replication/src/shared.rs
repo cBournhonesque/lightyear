@@ -7,6 +7,7 @@ use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 const MAX_VELOCITY: f32 = 200.0;
@@ -19,6 +20,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
+        app.insert_resource(catch_up_mode_from_env());
         // bundles
         app.add_systems(Startup, init);
 
@@ -62,6 +64,27 @@ impl Plugin for SharedPlugin {
                 .before(PhysicsSystems::StepSimulation),
         );
         app.add_systems(FixedLast, emit_fixed_last_players);
+    }
+}
+
+fn catch_up_mode_from_env() -> CatchUpMode {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        match std::env::var("LIGHTYEAR_CATCHUP_MODE") {
+            Ok(value)
+                if matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "input-only" | "input_only" | "inputonly" | "input"
+                ) =>
+            {
+                CatchUpMode::InputOnly
+            }
+            _ => CatchUpMode::StateBasedCatchUp,
+        }
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        CatchUpMode::StateBasedCatchUp
     }
 }
 

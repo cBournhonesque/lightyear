@@ -107,11 +107,11 @@ fn handle_controlled_character(
 }
 
 /// Add physics to floors that are newly replicated. The query checks for
-/// replicated floors instead of predicted floors because predicted floors do
+/// remote floors instead of predicted floors because predicted floors do
 /// not exist since floors aren't predicted.
 fn handle_new_floor(
     mut commands: Commands,
-    floor_query: Query<Entity, (Added<Replicated>, With<FloorMarker>)>,
+    floor_query: Query<Entity, (Added<Remote>, With<FloorMarker>)>,
 ) {
     for entity in &floor_query {
         info!(?entity, "Adding physics to floor");

@@ -147,6 +147,11 @@ pub mod prelude {
     pub use crate::send::InterpolationTarget;
     #[cfg(feature = "prediction")]
     pub use crate::send::PredictionTarget;
+
+    #[cfg(feature = "client")]
+    pub mod client {
+        pub use bevy_replicon::prelude::Remote;
+    }
 }
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]

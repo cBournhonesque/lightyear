@@ -4,6 +4,7 @@ use avian2d::prelude::*;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::InputAction;
+use bevy_replicon::prelude::AppRuleExt;
 use leafwing_input_manager::Actionlike;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::frame_interpolation::FrameInterpolationPlugin;
@@ -177,6 +178,7 @@ impl Plugin for ProtocolPlugin {
         // components
         app.register_component::<CompA>();
         app.register_component::<CompS>();
+        app.replicate_once::<CompReplicateOnce>();
         app.register_component::<CompFull>()
             .add_prediction()
             .add_linear_interpolation();

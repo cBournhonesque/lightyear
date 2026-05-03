@@ -3,6 +3,7 @@ use approx::assert_relative_eq;
 use avian2d::math::Vector;
 use avian2d::prelude::*;
 use bevy::prelude::*;
+use bevy_replicon::prelude::Remote;
 use core::time::Duration;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
@@ -151,30 +152,19 @@ fn test_replicate_position_child_rigidbody() {
 ///
 /// The child's world Position should be parent Position + child Transform offset.
 ///
-/// BUG: With replicon, the child entity's GlobalTransform is corrupted on the first frame
-/// because the parent doesn't have GlobalTransform when the child is spawned (B0004 warning).
-/// This causes avian's GlobalTransformToPosition to compute an incorrect Position for the child,
-/// and the incorrect value persists because avian overwrites the replicated Position every frame.
+/// The test adds client-only physics components from PostUpdate after transform
+/// propagation. Doing this from `Add<Remote>`/`Add<Replicated>` is
+/// order-sensitive: even when `ChildOf` is received in the same replication
+/// batch, Avian collider hooks run before the replicated hierarchy's
+/// Transform/GlobalTransform state has been propagated.
 #[test]
-#[ignore]
 fn test_replicate_position_child_collider() {
     let mut config = StepperConfig::single();
     config.frame_duration = Duration::from_millis(5);
     let mut stepper = ClientServerStepper::from_config(config);
-
-    // add colliders on the client to make sure that collider hierarchy systems work
-    stepper.client_app().add_observer(
-        |trigger: On<Add, Replicated>, q: Query<(), With<ChildOf>>, mut commands: Commands| {
-            if let Ok(()) = q.get(trigger.entity) {
-                commands
-                    .entity(trigger.entity)
-                    .insert(Collider::circle(1.0));
-            } else {
-                commands
-                    .entity(trigger.entity)
-                    .insert((Collider::circle(1.0), RigidBody::Kinematic));
-            }
-        },
+    stepper.client_app().add_systems(
+        PostUpdate,
+        add_client_physics_after_transform_propagate.after(TransformSystems::Propagate),
     );
 
     let server_parent = stepper
@@ -206,11 +196,8 @@ fn test_replicate_position_child_collider() {
         .id();
     info!(?server_parent, ?server_child, "Spawning entities on server");
 
-    // Step enough frames for:
-    // 1. replication to client
-    // 2. client transform hierarchy propagation
-    // 3. physics to advance
-    stepper.frame_step_server_first(3);
+    // Step enough for replication and hierarchy propagation.
+    stepper.frame_step_server_first(2);
 
     let client_parent = stepper
         .client(0)
@@ -227,6 +214,12 @@ fn test_replicate_position_child_collider() {
         .get_local(server_child)
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
+
+    // Step enough frames for:
+    // 1. client collider hierarchy setup
+    // 2. transform/collider-transform propagation
+    // 3. physics to advance
+    stepper.frame_step_server_first(3);
 
     // After several frames, the server and client should agree on positions.
     // The child's Transform is (2, 2, 0) relative to parent, so child Position.x = parent Position.x + 2.
@@ -284,4 +277,37 @@ fn test_replicate_position_child_collider() {
         .translation
         .x;
     assert_relative_eq!(client_child_global, client_child_pos, epsilon = 0.1);
+}
+
+#[derive(Component)]
+struct ClientPhysicsAdded;
+
+#[allow(clippy::type_complexity)]
+fn add_client_physics_after_transform_propagate(
+    mut commands: Commands,
+    query: Query<
+        (Entity, Option<&ChildOf>),
+        (
+            With<Remote>,
+            With<Position>,
+            With<Rotation>,
+            With<Transform>,
+            With<GlobalTransform>,
+            Without<ClientPhysicsAdded>,
+        ),
+    >,
+) {
+    for (entity, child_of) in &query {
+        if child_of.is_some() {
+            commands
+                .entity(entity)
+                .insert((Collider::circle(1.0), ClientPhysicsAdded));
+        } else {
+            commands.entity(entity).insert((
+                Collider::circle(1.0),
+                RigidBody::Kinematic,
+                ClientPhysicsAdded,
+            ));
+        }
+    }
 }

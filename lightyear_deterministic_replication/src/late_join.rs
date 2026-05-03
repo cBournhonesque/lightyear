@@ -85,15 +85,15 @@ use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_sync::prelude::{InputTimeline, IsSynced};
-use lightyear_link::server::LinkOf;
 use lightyear_inputs::server::InputSystems;
+use lightyear_link::server::LinkOf;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageSender};
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_prediction::prelude::StateRollbackMetadata;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::prelude::ConfirmHistory;
+use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use lightyear_transport::prelude::Channel;
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
@@ -499,14 +499,16 @@ fn handle_catch_up_requests(
 /// via [`apply_catch_up_for_client`] which flips visibility for every
 /// [`CatchUpGated`] entity and inserts [`HasCaughtUp`].
 fn apply_pending_catch_ups(world: &mut World) {
-    let ready = world
-        .resource::<CatchUpServerReadiness>()
-        .all_clients_ready;
+    let ready = world.resource::<CatchUpServerReadiness>().all_clients_ready;
     if !ready {
         return;
     }
     let pending: Vec<Entity> = world
-        .query_filtered::<Entity, (With<ClientOf>, With<CatchUpRequestReceived>, Without<HasCaughtUp>)>()
+        .query_filtered::<Entity, (
+            With<ClientOf>,
+            With<CatchUpRequestReceived>,
+            Without<HasCaughtUp>,
+        )>()
         .iter(world)
         .collect();
     if pending.is_empty() {

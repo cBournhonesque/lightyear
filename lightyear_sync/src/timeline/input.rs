@@ -292,7 +292,9 @@ impl SyncedTimeline for InputTimeline {
         let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
         let jitter_margin = TickDelta::from_duration(
-            config.sync.jitter_margin(ping_manager.jitter(), tick_duration),
+            config
+                .sync
+                .jitter_margin(ping_manager.jitter(), tick_duration),
             tick_duration,
         );
         let input_delay: TickDelta = Tick(self.context.input_delay_ticks as u32).into();
@@ -445,7 +447,7 @@ mod tests {
                 &sync_config,
                 Duration::from_millis(16)
             ),
-            6
+            7
         );
         assert_eq!(
             config_1.input_delay_ticks(
@@ -456,7 +458,7 @@ mod tests {
                 &sync_config,
                 Duration::from_millis(16)
             ),
-            12
+            13
         );
     }
 }

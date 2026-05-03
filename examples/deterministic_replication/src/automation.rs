@@ -3,7 +3,9 @@ use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
 use crate::protocol::{PlayerActions, PlayerId};
@@ -53,6 +55,7 @@ mod client {
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
         random: Option<RandomDrive>,
+        min_players_before_move: usize,
     }
 
     impl Default for AutomationSettings {
@@ -60,6 +63,7 @@ mod client {
             Self {
                 pressed_keys: Vec::new(),
                 random: None,
+                min_players_before_move: 1,
             }
         }
     }
@@ -86,6 +90,9 @@ mod client {
             Self {
                 pressed_keys: parse_move_keys(env_string("LIGHTYEAR_AUTOMOVE")),
                 random,
+                min_players_before_move: env_string("LIGHTYEAR_AUTOMOVE_MIN_PLAYERS")
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(1),
             }
         }
     }
@@ -143,9 +150,25 @@ mod client {
         time: Res<Time>,
         settings: Res<AutomationSettings>,
         random_state: Option<ResMut<RandomState>>,
+        mode: Res<CatchUpMode>,
+        client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
+        players: Query<(&PlayerId, Option<&LeafwingBuffer<PlayerActions>>)>,
         mut previous: Local<Vec<KeyCode>>,
+        mut ready_logged: Local<bool>,
         mut buttons: ResMut<ButtonInput<KeyCode>>,
     ) {
+        if !input_rebroadcast_ready(&mode, client.as_deref().copied(), &players, &settings) {
+            if *ready_logged {
+                info!("automation paused until input rebroadcast is ready");
+                *ready_logged = false;
+            }
+            sync_pressed_keys(&mut buttons, &mut previous, &[]);
+            return;
+        }
+        if !*ready_logged {
+            info!("automation input rebroadcast ready; starting movement");
+            *ready_logged = true;
+        }
         if let (Some(rand), Some(mut state)) = (settings.random.as_ref(), random_state) {
             let now = time.elapsed();
             if now >= state.next_switch {
@@ -162,8 +185,17 @@ mod client {
     pub(super) fn drive_action_state(
         settings: Res<AutomationSettings>,
         random_state: Option<Res<RandomState>>,
+        mode: Res<CatchUpMode>,
+        client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
+        players: Query<(&PlayerId, Option<&LeafwingBuffer<PlayerActions>>)>,
         mut query: Query<&mut ActionState<PlayerActions>, With<InputMap<PlayerActions>>>,
     ) {
+        if !input_rebroadcast_ready(&mode, client.as_deref().copied(), &players, &settings) {
+            for mut action_state in &mut query {
+                release_all(&mut action_state);
+            }
+            return;
+        }
         let keys: &[KeyCode] = if settings.random.is_some() {
             random_state
                 .as_ref()
@@ -173,14 +205,7 @@ mod client {
             settings.pressed_keys.as_slice()
         };
         for mut action_state in &mut query {
-            for action in [
-                PlayerActions::Up,
-                PlayerActions::Down,
-                PlayerActions::Left,
-                PlayerActions::Right,
-            ] {
-                action_state.release(&action);
-            }
+            release_all(&mut action_state);
             for key in keys {
                 match key {
                     KeyCode::KeyW => action_state.press(&PlayerActions::Up),
@@ -190,6 +215,46 @@ mod client {
                     _ => {}
                 }
             }
+        }
+    }
+
+    fn input_rebroadcast_ready(
+        mode: &CatchUpMode,
+        client: Option<&LocalId>,
+        players: &Query<(&PlayerId, Option<&LeafwingBuffer<PlayerActions>>)>,
+        settings: &AutomationSettings,
+    ) -> bool {
+        if *mode != CatchUpMode::InputOnly {
+            return true;
+        }
+        let Some(local_id) = client else {
+            return false;
+        };
+        let mut count = 0;
+        for (player_id, buffer) in players.iter() {
+            count += 1;
+            let Some(buffer) = buffer else {
+                return false;
+            };
+            if player_id.0 == local_id.0 {
+                if buffer.start_tick.is_none() {
+                    return false;
+                }
+            } else if buffer.last_remote_tick.is_none() {
+                return false;
+            }
+        }
+        count >= settings.min_players_before_move
+    }
+
+    fn release_all(action_state: &mut ActionState<PlayerActions>) {
+        for action in [
+            PlayerActions::Up,
+            PlayerActions::Down,
+            PlayerActions::Left,
+            PlayerActions::Right,
+        ] {
+            action_state.release(&action);
         }
     }
 

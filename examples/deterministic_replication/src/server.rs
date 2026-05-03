@@ -8,7 +8,7 @@ use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, CatchUpGated, CatchUpServerReadiness, CatchUpSystems,
+    AppCatchUpExt, CatchUpGated, CatchUpMode, CatchUpServerReadiness, CatchUpSystems,
 };
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
@@ -111,13 +111,14 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 pub(crate) fn handle_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
+    mode: Res<CatchUpMode>,
     mut commands: Commands,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
     };
     info!("Spawning player entity for client {:?}", remote_id);
-    commands.spawn((
+    let mut player = commands.spawn((
         Replicate::to_clients(NetworkTarget::All),
         PlayerId(remote_id.0),
         player_bundle(remote_id.0),
@@ -130,6 +131,8 @@ pub(crate) fn handle_connected(
             skip_despawn: true,
             ..default()
         },
+    ));
+    if *mode == CatchUpMode::StateBasedCatchUp {
         // `CatchUpGated` hides the registered physics components
         // (Position, Rotation, LinearVelocity, AngularVelocity) from
         // every client that has not yet caught up. Each client sends a
@@ -139,6 +142,6 @@ pub(crate) fn handle_connected(
         // Structural components (`PlayerId`, etc.) still replicate
         // immediately, so clients see the entity + marker and can
         // subscribe to rebroadcast inputs right away.
-        CatchUpGated,
-    ));
+        player.insert(CatchUpGated);
+    }
 }

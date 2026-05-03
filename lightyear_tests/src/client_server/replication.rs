@@ -2,7 +2,7 @@
 
 use crate::protocol::{CompA, CompCustomInterp, CompReplicateOnce};
 use crate::stepper::*;
-use bevy::prelude::{Bundle, Entity, Name, World};
+use bevy::prelude::{Bundle, Entity, Name, With, World};
 use bevy_replicon::prelude::Replicated;
 use lightyear::prelude::ConfirmedHistory;
 use lightyear_connection::network_target::NetworkTarget;
@@ -766,52 +766,53 @@ fn test_component_remove_non_replicated() {
 //     );
 // }
 
-/// TODO: CompReplicateOnce not registered in replicon yet
 #[test]
-#[ignore]
 fn test_component_replicate_once() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(), CompReplicateOnce(1.0)))
-        .id();
-    stepper.frame_step(1);
-    let server_entity = stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .unwrap();
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompReplicateOnce>()
-            .expect("component missing"),
-        &CompReplicateOnce(1.0)
-    );
+        let source_entity = spawn_on_source(
+            &mut stepper,
+            direction,
+            (direction.replicate(), CompReplicateOnce(1.0)),
+        );
+        stepper.frame_step(direction.propagation_frames());
 
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .get_mut::<CompReplicateOnce>()
-        .unwrap()
-        .0 = 2.0;
-    stepper.frame_step(1);
-    assert_eq!(
-        stepper
-            .server_app
-            .world()
-            .entity(server_entity)
-            .get::<CompReplicateOnce>()
-            .expect("component missing"),
-        &CompReplicateOnce(1.0)
-    );
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        let initial_comp = with_target_world(&mut stepper, direction, |world| {
+            world
+                .entity(mirrored_entity)
+                .get::<CompReplicateOnce>()
+                .cloned()
+        });
+        assert_eq!(
+            initial_comp,
+            Some(CompReplicateOnce(1.0)),
+            "initial replicate_once component should replicate for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .get_mut::<CompReplicateOnce>()
+                .unwrap()
+                .0 = 2.0;
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let updated_comp = with_target_world(&mut stepper, direction, |world| {
+            world
+                .entity(mirrored_entity)
+                .get::<CompReplicateOnce>()
+                .cloned()
+        });
+        assert_eq!(
+            updated_comp,
+            Some(CompReplicateOnce(1.0)),
+            "replicate_once component updates should not replicate for {direction:?}"
+        );
+    }
 }
 
 // /// Default = replicate_once
@@ -1885,55 +1886,43 @@ fn test_prediction_visibility_observer_spawn_late_join() {
 /// Test that re-inserting a Replicate component works as expected (doesn't
 /// create duplicate entities)
 /// https://github.com/cBournhonesque/lightyear/issues/1025
-/// TODO: crossbeam channel disconnects during Replicate re-insertion with replicon
 #[test]
-#[ignore]
 fn test_reinsert_replicate() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_sender = stepper.client(0).id();
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(),))
-        .id();
-    // TODO: might need to step more when syncing to avoid receiving updates from the past?
-    stepper.frame_step(1);
-    stepper
-        .client_of(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(client_entity)
-        .expect("entity is not present in entity map");
+        let source_entity =
+            spawn_on_source(&mut stepper, direction, (direction.replicate(), CompA(1.0)));
+        stepper.frame_step(direction.propagation_frames());
 
-    // assert!(
-    //     stepper
-    //         .client_app()
-    //         .world()
-    //         .get::<ReplicationState>(client_entity)
-    //         .unwrap()
-    //         .state()
-    //         .contains_key(&client_sender)
-    // );
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
 
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(client_entity)
-        .insert(Replicate::to_server());
-    stepper.frame_step(1);
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .insert(direction.replicate());
+        });
+        stepper.frame_step(direction.propagation_frames());
 
-    // TODO
-    // assert!(
-    //     stepper
-    //         .client_app()
-    //         .world()
-    //         .get::<ReplicationState>(client_entity)
-    //         .unwrap()
-    //         .state()
-    //         .contains_key(&client_sender)
-    // );
+        let mapped_after_reinsert = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        assert_eq!(
+            mapped_after_reinsert, mirrored_entity,
+            "re-inserting Replicate should keep the same mapped entity for {direction:?}"
+        );
+
+        let replicated_count = with_target_world(&mut stepper, direction, |world| {
+            world
+                .query_filtered::<Entity, (With<CompA>, With<Replicated>)>()
+                .iter(world)
+                .count()
+        });
+        assert_eq!(
+            replicated_count, 1,
+            "re-inserting Replicate should not create duplicate entities for {direction:?}"
+        );
+    }
 }
 
 /// Test that verifies Predicted and Interpolated are correctly distributed

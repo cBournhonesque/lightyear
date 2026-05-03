@@ -199,7 +199,8 @@ You can remove the [`Replicating`](prelude::Replicating) component to pause the 
 
 ### Reacting to replication events
 
-On the receiver side, entities that are replicated from a remote peer will have the [`Replicated`](prelude::Replicated) marker component.
+On the receiver side, entities that are replicated from a remote peer will have the [`Remote`](prelude::client::Remote) marker component.
+For backwards compatibility, [`client::Replicated`](prelude::client::Replicated) is a deprecated alias for [`Remote`](prelude::client::Remote).
 
 You can use to react to components being inserted via replication.
 ```rust
@@ -211,7 +212,7 @@ You can use to react to components being inserted via replication.
 # #[derive(Component, Serialize, Deserialize)]
 # struct MyComponent;
 
-fn component_inserted(query: Query<Entity, (With<Replicated>, Added<MyComponent>)>) {
+fn component_inserted(query: Query<Entity, (With<client::Remote>, Added<MyComponent>)>) {
     for entity in query.iter() {
         println!("MyComponent was inserted via replication on {entity:?}");
     }
@@ -398,6 +399,15 @@ pub mod prelude {
 
         pub use lightyear_connection::prelude::client::*;
         pub use lightyear_sync::prelude::client::*;
+
+        #[cfg(feature = "replication")]
+        pub use lightyear_replication::prelude::client::Remote;
+
+        #[cfg(feature = "replication")]
+        #[deprecated(
+            note = "use `Remote` instead; `client::Replicated` is a backwards-compatibility alias for receiver-side replicated entities"
+        )]
+        pub type Replicated = Remote;
 
         #[cfg(feature = "netcode")]
         pub use lightyear_netcode::prelude::client::*;
