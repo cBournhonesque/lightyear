@@ -1,51 +1,36 @@
-# Bevy enhanced inputs
-
-Occasional prediction glitches: timeline sync error, or the inputs did not arrive on time on the server?
-
-Also got a panic with:
-```
-2026-04-27T22:49:05.862284Z ERROR lightyear_prediction::rollback: missing authoritative checkpoint mapping for ConfirmHistory entity=169v0 replicon_tick=RepliconTick(183)
-
-thread 'Compute Task Pool (1)' (44110833) panicked at lightyear_prediction/src/rollback.rs:510:29:
-missing authoritative checkpoint mapping for ConfirmHistory
-```
-
 # Deterministic replication
 
-Even with two clients joining before any movement, there are big desyncs.
-The simulation is not deterministic.
+The StateBasedCatchup is not working. Is it even enabled now?
+Can we display which mode is being used on the screen? Maybe it wasn't enabled.
 
 # FPS (seen)
 
-Saw this panic:
-```
-thread 'Compute Task Pool (4)' (44375415) panicked at lightyear_prediction/src/rollback.rs:512:29:
-missing authoritative checkpoint mapping for ConfirmHistory
-```
-Client-server: The movement seems to go too fast and are not totally smooth.
+- Bullets are not smooth, are they not frame interpolated?
+- Host-client: collisions from the host bullets don't work with the interpolated entity.
+- Bullets should disppear immediately when colliding with the interpolated entity
+- Client-server: at the beginning, movement is very choppy. Maybe because the time sync is not done yet?
+- Client-server: bullets from the remote client (so replicated) start by appearing at (0, 0). Maybe some avian transform propagation issue?
 
-Prespawned bullets is broken: bullets seem to be spawned at (0, 0), and trigger spurious rollbacks.
-Normally everything should be smooth.
 
 # Lobby
 
-For a lobby where one of the players is hosting: the non-host client sometimes gets very jittery replicated movement,
-Issue with timeline sync? what is causing the excessive rollback?
+- Server-hosted lobby: the timelines seem to take a long time to sync, the movement is very jittery for the first ~5 seconds after starting the game. Maybe the timelines needs to be reset when this happens?
 
 
 # Projectiles
 
-Server panics with 
-```
-thread 'Compute Task Pool (0)' (44104696) panicked at lightyear_prediction/src/rollback.rs:510:29:
-missing authoritative checkpoint mapping for ConfirmHistory
-note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
-```
+Full entity replication mode
+- hitscan weapon visuals don't appear on the client
+- with linear projectile, sometimes 2 bullets are fired instead of 1
 
-Moving the cursor doesn't move the direction of the player.
+Direction only replication
+- hitscan weapon visuals appear
+- with linear projectile, sometimes 2 bullets are fired instead of 1
 
-There is no score displayed.
+Room Client Predicted (no lag comp or lag comp) / Client-Side prediction / All-Interpolated / Only Inputs Replicated: inputs don't work and bot is not moving
 
+After changing rooms, inputs don't work. I see a lot of issues like
+`2026-05-03T23:31:49.381736Z  WARN lightyear_inputs::client: Could not find entity in entity_map for remote player input message PreSpawned(6364136223846793007)`
 
 
 # Spaceships
@@ -53,7 +38,5 @@ There is no score displayed.
 The prespawned bullets are smooth, good job!
 
 Issues:
-- Projectiles last for a short amount of time after a collision. They should disappear immediately
-- Projectiles are not displayed on remote client
-- Projectiles don't push the balls, normally they should
-- Score does not update on hit
+- The remote client sees a projectile getting fired twice
+- the projectile on the remote client starts from further away from the source then what is shown on the local client (firing)
