@@ -270,7 +270,7 @@ fn buffer_insert_delta<
                     );
                     let confirmed_component_id = entity_mut.component_id::<Confirmed<C>>();
                     if predicted && !entity_mut.entity.contains::<C>() {
-                        let cloned = clone.unwrap()(&new_value.0);
+                        let cloned = new_value.0.clone();
                         // SAFETY: we made sure that component_id corresponds to C
                         unsafe {
                             entity_mut.buffered.insert::<C>(cloned, component_id);
