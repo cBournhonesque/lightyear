@@ -3,6 +3,7 @@ use crate::shared::Wall;
 use avian2d::prelude::{Position, Rotation};
 use bevy::prelude::*;
 use lightyear::prelude::{InterpolationSystems, RollbackSystems};
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -10,6 +11,7 @@ pub struct ExampleRendererPlugin;
 impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
+        app.add_systems(Update, update_mode_text);
         // draw after interpolation is done
         app.add_systems(
             PostUpdate,
@@ -25,6 +27,29 @@ impl Plugin for ExampleRendererPlugin {
 
 fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
+    commands.spawn((
+        Text::new("Catch-up: StateBasedCatchUp"),
+        TextFont::from_font_size(20.0),
+        TextColor(Color::WHITE.with_alpha(0.8)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            left: Val::Px(10.0),
+            ..default()
+        },
+        ModeText,
+    ));
+}
+
+#[derive(Component)]
+struct ModeText;
+
+fn update_mode_text(mode: Res<CatchUpMode>, mut text: Single<&mut Text, With<ModeText>>) {
+    let label = match *mode {
+        CatchUpMode::InputOnly => "InputOnly",
+        CatchUpMode::StateBasedCatchUp => "StateBasedCatchUp",
+    };
+    text.0 = format!("Catch-up: {label}");
 }
 
 /// System that draws the player's boxes and cursors

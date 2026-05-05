@@ -7,11 +7,14 @@ use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
-use lightyear_deterministic_replication::prelude::CatchUpMode;
+use lightyear_deterministic_replication::prelude::{
+    AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode,
+};
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
+const BALL_PRESPAWN_HASH: u64 = 0xD37E_12B4_0000_0001;
 
 /// SharedPlugin between the client and server.
 #[derive(Clone)]
@@ -110,8 +113,17 @@ fn add_frame_interpolation_components(
     }
 }
 
-pub(crate) fn init(mut commands: Commands) {
-    commands.spawn((
+pub(crate) fn init(
+    mut commands: Commands,
+    mode: Res<CatchUpMode>,
+    server: Option<Single<(), With<Server>>>,
+    client: Option<Single<(), With<Client>>>,
+) {
+    let is_state_based = *mode == CatchUpMode::StateBasedCatchUp;
+    let is_server = server.is_some();
+    let is_client = client.is_some();
+
+    let mut ball = commands.spawn((
         Position::default(),
         ColorComponent(css::AZURE.into()),
         PhysicsBundle::ball(),
@@ -122,6 +134,14 @@ pub(crate) fn init(mut commands: Commands) {
         },
         Name::from("Ball"),
     ));
+    if is_state_based {
+        ball.insert(PreSpawned::new(BALL_PRESPAWN_HASH));
+        if is_server {
+            ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
+        } else if is_client {
+            ball.insert(AwaitingCatchUpSnapshot);
+        }
+    }
     commands.spawn(WallBundle::new(
         Vec2::new(-WALL_SIZE, -WALL_SIZE),
         Vec2::new(-WALL_SIZE, WALL_SIZE),

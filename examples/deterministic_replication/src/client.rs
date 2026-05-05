@@ -120,10 +120,11 @@ fn activate_physics_when_bundle_lands(
     // yet). The `still_pending` guard ensures the forced rollback fires
     // only when the *entire* bundle has arrived.
     still_pending: Query<Entity, (With<PlayerId>, Without<PhysicsActivated>, Without<Position>)>,
+    awaiting_snapshots: Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
+    checkpoints: Res<ReplicationCheckpointMap>,
     mode: Res<CatchUpMode>,
     client: Option<Single<Entity, With<Client>>>,
 ) {
-    let mut newly_activated: Vec<Entity> = Vec::new();
     let mut activated_awaiting_catchup = false;
     for (entity, player_id, _position, awaiting_catchup) in pending.iter() {
         if awaiting_catchup {
@@ -150,22 +151,21 @@ fn activate_physics_when_bundle_lands(
             },
             PhysicsActivated,
         ));
-        newly_activated.push(entity);
     }
     // Only fire the single forced rollback once ALL gated players we know
     // about have their catch-up components. Replicon emits the bundle in
     // one update at one tick `S`, so in practice every player gets
     // `Position` on the same frame and the rollback fires once.
-    if *mode == CatchUpMode::StateBasedCatchUp
-        && activated_awaiting_catchup
-        && !newly_activated.is_empty()
-        && still_pending.is_empty()
-        && let Some(client) = client
-    {
-        // Pick any activated entity as the reference for the catch-up
-        // tick lookup — they all share the same server tick in the
-        // bundled snapshot.
-        let reference = newly_activated[0];
+    if *mode == CatchUpMode::StateBasedCatchUp && still_pending.is_empty() {
+        let Some(reference) = catchup_snapshot_reference(&awaiting_snapshots, &checkpoints) else {
+            if activated_awaiting_catchup {
+                debug!("Client: waiting for the full catch-up snapshot bundle");
+            }
+            return;
+        };
+        let Some(client) = client else {
+            return;
+        };
         let client = client.into_inner();
         commands.queue(move |world: &mut World| {
             if lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
@@ -175,4 +175,26 @@ fn activate_physics_when_bundle_lands(
             }
         });
     }
+}
+
+fn catchup_snapshot_reference(
+    awaiting_snapshots: &Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
+    checkpoints: &ReplicationCheckpointMap,
+) -> Option<Entity> {
+    let mut reference = None;
+    let mut bundled_tick = None;
+    for (entity, confirm) in awaiting_snapshots.iter() {
+        let confirm = confirm?;
+        let tick = confirm.last_tick();
+        checkpoints.get(tick)?;
+        match bundled_tick {
+            Some(expected) if expected != tick => return None,
+            Some(_) => {}
+            None => {
+                bundled_tick = Some(tick);
+                reference = Some(entity);
+            }
+        }
+    }
+    reference
 }

@@ -48,7 +48,10 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(release_global_action::<CycleWeapon>);
         app.add_observer(handle_hits);
 
-        app.add_systems(Startup, spawn_global_control);
+        app.add_systems(
+            Startup,
+            (spawn_global_control, apply_initial_input_config).chain(),
+        );
         app.add_systems(
             FixedPreUpdate,
             apply_global_action_inputs.after(ServerInputSystems::UpdateActionState),
@@ -76,17 +79,102 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 }
 
 pub(crate) fn spawn_global_control(mut commands: Commands) {
+    let replication_mode = initial_replication_mode();
+    let projectile_mode = initial_projectile_mode();
+    let weapon_type = initial_weapon_type();
+    info!(
+        replication_mode = replication_mode.name(),
+        projectile_mode = projectile_mode.name(),
+        weapon_type = weapon_type.name(),
+        "Starting projectiles example modes"
+    );
     let global = commands
         .spawn((
             ClientContext,
             Replicate::to_clients(NetworkTarget::All),
-            GameReplicationMode::default(),
-            ProjectileReplicationMode::default(),
-            WeaponType::default(),
+            replication_mode,
+            projectile_mode,
+            weapon_type,
             Name::new("ClientContext"),
         ))
         .id();
     shared::spawn_global_actions(&mut commands, global, true);
+}
+
+fn apply_initial_input_config(
+    global: Single<&GameReplicationMode, With<ClientContext>>,
+    mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
+) {
+    input_config.rebroadcast_inputs = matches!(
+        *global.into_inner(),
+        GameReplicationMode::AllPredicted | GameReplicationMode::OnlyInputsReplicated
+    );
+}
+
+fn initial_replication_mode() -> GameReplicationMode {
+    let Some(value) = std::env::var("LIGHTYEAR_INITIAL_REPLICATION_MODE").ok() else {
+        return GameReplicationMode::default();
+    };
+    match normalized_env(&value).as_str() {
+        "0" | "allpredicted" | "all_predicted" => GameReplicationMode::AllPredicted,
+        "1" | "clientpredictednocomp" | "client_predicted_no_comp" | "no_comp" => {
+            GameReplicationMode::ClientPredictedNoComp
+        }
+        "2" | "clientpredictedlagcomp" | "client_predicted_lag_comp" | "lag_comp" => {
+            GameReplicationMode::ClientPredictedLagComp
+        }
+        "3" | "clientsidehitdetection" | "client_side_hit_detection" | "client_side" => {
+            GameReplicationMode::ClientSideHitDetection
+        }
+        "4" | "allinterpolated" | "all_interpolated" => GameReplicationMode::AllInterpolated,
+        "5" | "onlyinputsreplicated" | "only_inputs_replicated" | "inputs_only" => {
+            GameReplicationMode::OnlyInputsReplicated
+        }
+        other => {
+            warn!(
+                value = other,
+                "Ignoring unknown LIGHTYEAR_INITIAL_REPLICATION_MODE"
+            );
+            GameReplicationMode::default()
+        }
+    }
+}
+
+fn initial_projectile_mode() -> ProjectileReplicationMode {
+    let Some(value) = std::env::var("LIGHTYEAR_INITIAL_PROJECTILE_MODE").ok() else {
+        return ProjectileReplicationMode::default();
+    };
+    match normalized_env(&value).as_str() {
+        "full" | "fullentity" | "full_entity" | "0" => ProjectileReplicationMode::FullEntity,
+        "direction" | "directiononly" | "direction_only" | "1" => {
+            ProjectileReplicationMode::DirectionOnly
+        }
+        other => {
+            warn!(
+                value = other,
+                "Ignoring unknown LIGHTYEAR_INITIAL_PROJECTILE_MODE"
+            );
+            ProjectileReplicationMode::default()
+        }
+    }
+}
+
+fn initial_weapon_type() -> WeaponType {
+    let Some(value) = std::env::var("LIGHTYEAR_INITIAL_WEAPON").ok() else {
+        return WeaponType::default();
+    };
+    match normalized_env(&value).as_str() {
+        "hitscan" | "hit_scan" | "0" => WeaponType::Hitscan,
+        "bullet" | "linear" | "linearprojectile" | "linear_projectile" | "1" => WeaponType::Bullet,
+        other => {
+            warn!(value = other, "Ignoring unknown LIGHTYEAR_INITIAL_WEAPON");
+            WeaponType::default()
+        }
+    }
+}
+
+fn normalized_env(value: &str) -> String {
+    value.trim().to_ascii_lowercase().replace(['-', ' '], "_")
 }
 
 #[derive(Resource, Default)]
@@ -139,7 +227,6 @@ fn apply_global_action_inputs(
     rooms: Res<GameRooms>,
     mut input_config: ResMut<ServerInputConfig<PlayerContext>>,
     clients: Query<Entity, With<ClientOf>>,
-    players: Query<Entity, With<PlayerMarker>>,
     replication_actions: Query<(Entity, &ActionEvents), With<Action<CycleReplicationMode>>>,
     projectile_actions: Query<(Entity, &ActionEvents), With<Action<CycleProjectileMode>>>,
     weapon_actions: Query<(Entity, &ActionEvents), With<Action<CycleWeapon>>>,
@@ -157,7 +244,6 @@ fn apply_global_action_inputs(
             &rooms,
             &mut input_config,
             &clients,
-            &players,
             &mut commands,
         );
     }
@@ -174,6 +260,7 @@ fn apply_global_action_inputs(
 pub(crate) fn spawn_player(
     trigger: On<Add, Connected>,
     query: Query<(&RemoteId, Has<bot::BotClient>), With<ClientOf>>,
+    active_mode: Single<&GameReplicationMode, With<ClientContext>>,
     mut commands: Commands,
     mut rooms: ResMut<GameRooms>,
     mut room_allocator: ResMut<RoomAllocator>,
@@ -185,6 +272,7 @@ pub(crate) fn spawn_player(
     let client_id = client_id.0;
     info!("Spawning player with id: {}", client_id);
 
+    let active_mode = *active_mode.into_inner();
     for i in 0..6 {
         let replication_mode = GameReplicationMode::from_room_id(i);
         let room_id = *rooms
@@ -193,7 +281,7 @@ pub(crate) fn spawn_player(
             .or_insert_with(|| room_allocator.allocate());
 
         // start by adding the player to the first room
-        if i == 0 {
+        if replication_mode == active_mode {
             commands
                 .entity(trigger.entity)
                 .insert(lightyear::prelude::Rooms::single(room_id));
@@ -444,9 +532,14 @@ mod bot {
     fn bot_inputs(
         time: Res<Time>,
         mut input: ResMut<ButtonInput<KeyCode>>,
-        player: Single<&Position, (With<Controlled>, With<PlayerMarker>)>,
+        global_mode: Single<&GameReplicationMode, With<ClientContext>>,
+        players: Query<(&Position, &GameReplicationMode), (With<Controlled>, With<PlayerMarker>)>,
         mut local: Local<BotLocal>,
     ) {
+        let active_mode = *global_mode.into_inner();
+        let Some((position, _)) = players.iter().find(|(_, mode)| **mode == active_mode) else {
+            return;
+        };
         let BotLocal {
             mode_timer,
             key_timer,
@@ -458,7 +551,7 @@ mod bot {
 
         // If bot is too far from x = 0, override direction
         let threshold = 500.0;
-        let pos_x = player.x;
+        let pos_x = position.x;
         if pos_x.abs() > threshold {
             // If too far right, press A; if too far left, press D
             *override_direction = Some(pos_x > 0.0);
@@ -540,7 +633,6 @@ fn apply_replication_mode_cycle(
     rooms: &GameRooms,
     input_config: &mut ServerInputConfig<PlayerContext>,
     clients: &Query<Entity, With<ClientOf>>,
-    players: &Query<Entity, With<PlayerMarker>>,
     commands: &mut Commands,
 ) {
     let current_mode = *replication_mode;
@@ -563,14 +655,6 @@ fn apply_replication_mode_cycle(
         rooms.rooms.get(&current_mode),
         rooms.rooms.get(&*replication_mode),
     ) {
-        // also manually remove the Actions of the players present in the current room
-        // (otherwise we might still be sending input messages for those actions even though the clients
-        //  have despawned the corresponding player entities)
-        for player in players.iter() {
-            commands
-                .entity(player)
-                .despawn_related::<Actions<PlayerContext>>();
-        }
         for client_entity in clients.iter() {
             commands
                 .entity(client_entity)

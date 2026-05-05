@@ -33,6 +33,7 @@ const HITSCAN_COLLISION_DISTANCE_CHECK: f32 = 2000.0;
 const BULLET_COLLISION_DISTANCE_CHECK: f32 = 0.5;
 
 const HITSCAN_LIFETIME: f32 = 0.15;
+const SERVER_REPLICATED_HITSCAN_LIFETIME: f32 = 0.5;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
@@ -235,6 +236,19 @@ pub(crate) fn spawn_player_actions(
     }
 }
 
+fn projectile_prespawn_salt(player_id: PeerId, salt: u64) -> u64 {
+    player_id
+        .to_bits()
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(salt)
+}
+
+fn insert_projectile_rooms(entity: &mut EntityCommands, rooms: Option<&Rooms>) {
+    if let Some(rooms) = rooms {
+        entity.insert(Rooms::from(rooms.rooms()));
+    }
+}
+
 pub(crate) fn rotate_player(
     trigger: On<Fire<MoveCursor>>,
     mut player: Query<(&mut Rotation, &Position), (Without<Bot>, Without<Interpolated>)>,
@@ -251,13 +265,31 @@ pub(crate) fn rotate_player(
 pub(crate) fn move_player(
     trigger: On<Fire<MovePlayer>>,
     timeline: Res<LocalTimeline>,
-    // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
-    mut player: Query<&mut Position, Without<Interpolated>>,
+    mut player: Query<&mut Position>,
+    interpolated: Query<(), With<Interpolated>>,
+    client: Query<(), With<Client>>,
     is_bot: Query<(), With<Bot>>,
 ) {
     let tick = timeline.tick();
     const PLAYER_MOVE_SPEED: f32 = 1.5;
-    if let Ok(mut position) = player.get_mut(trigger.context) {
+    // Confirmed inputs don't get applied on the client! (for the AllInterpolated case)
+    if client.single().is_ok() && interpolated.get(trigger.context).is_ok() {
+        return;
+    }
+    let Ok(mut position) = player.get_mut(trigger.context) else {
+        lightyear_debug_event!(
+            DebugCategory::Manual,
+            DebugSamplePoint::FixedUpdate,
+            "FixedUpdate",
+            "projectiles_move_player_missing_context",
+            tick = ?tick,
+            context = ?trigger.context,
+            value = ?trigger.value,
+            "MovePlayer fired for an entity that cannot be moved"
+        );
+        return;
+    };
+    {
         if is_bot.get(trigger.context).is_ok() {
             debug!(
                 ?tick,
@@ -372,7 +404,7 @@ pub(crate) fn emit_last_entities(
 
 /// Main weapon shooting system that handles all weapon types
 pub(crate) fn shoot_weapon(
-    trigger: On<Complete<Shoot>>,
+    trigger: On<Start<Shoot>>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
     time: Res<Time>,
@@ -387,6 +419,8 @@ pub(crate) fn shoot_weapon(
             &ColorComponent,
             &mut Weapon,
             Option<&ControlledBy>,
+            Option<&Rooms>,
+            Has<Controlled>,
         ),
         With<PlayerMarker>,
     >,
@@ -398,6 +432,7 @@ pub(crate) fn shoot_weapon(
         ),
         With<ClientContext>,
     >,
+    rollback: Query<(), With<Rollback>>,
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
@@ -405,7 +440,7 @@ pub(crate) fn shoot_weapon(
     let (projectile_mode, replication_mode, weapon_type) = global.into_inner();
     info!(?tick, ?shooter, "Shoot!");
 
-    if let Ok((id, position, rotation, color, mut weapon, controlled_by)) =
+    if let Ok((id, position, rotation, color, mut weapon, controlled_by, rooms, controlled)) =
         player_query.get_mut(shooter)
     {
         let is_server = controlled_by.is_some();
@@ -430,6 +465,44 @@ pub(crate) fn shoot_weapon(
 
         weapon.last_fire_tick = Some(tick);
 
+        let in_rollback = rollback.single().is_ok();
+        if !is_server
+            && in_rollback
+            && replication_mode != &GameReplicationMode::OnlyInputsReplicated
+        {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::FixedUpdate,
+                "FixedUpdate",
+                "projectiles_shoot_skipped_rollback_spawn",
+                tick = ?tick,
+                shooter = ?shooter,
+                weapon_type = ?weapon_type,
+                projectile_mode = ?projectile_mode,
+                replication_mode = ?replication_mode,
+                "Skipped client projectile spawn during rollback replay"
+            );
+            return;
+        }
+        if !is_server
+            && !controlled
+            && replication_mode != &GameReplicationMode::OnlyInputsReplicated
+        {
+            lightyear_debug_event!(
+                DebugCategory::Manual,
+                DebugSamplePoint::FixedUpdate,
+                "FixedUpdate",
+                "projectiles_shoot_skipped_remote_prediction",
+                tick = ?tick,
+                shooter = ?shooter,
+                weapon_type = ?weapon_type,
+                projectile_mode = ?projectile_mode,
+                replication_mode = ?replication_mode,
+                "Skipped remote projectile prediction; server replication will provide the visual"
+            );
+            return;
+        }
+
         info!(
             ?weapon_type,
             ?projectile_mode,
@@ -453,6 +526,7 @@ pub(crate) fn shoot_weapon(
                     is_server,
                     weapon_type,
                     replication_mode,
+                    rooms,
                 );
             }
             (_, ProjectileReplicationMode::DirectionOnly) => {
@@ -468,6 +542,7 @@ pub(crate) fn shoot_weapon(
                     is_server,
                     replication_mode,
                     weapon_type,
+                    rooms,
                 );
             } // (_, ProjectileReplicationMode::RingBuffer) => {
               //     shoot_with_ring_buffer_replication(
@@ -798,6 +873,7 @@ mod full_entity {
         is_server: bool,
         weapon_type: &WeaponType,
         replication_mode: &GameReplicationMode,
+        rooms: Option<&Rooms>,
     ) {
         match weapon_type {
             WeaponType::Hitscan => {
@@ -811,6 +887,7 @@ mod full_entity {
                     color,
                     controlled_by,
                     replication_mode,
+                    rooms,
                 );
             }
             WeaponType::Bullet => {
@@ -825,6 +902,7 @@ mod full_entity {
                     controlled_by,
                     replication_mode,
                     is_server,
+                    rooms,
                 );
             } // WeaponType::Shotgun => {
               // shoot_shotgun(
@@ -875,12 +953,18 @@ mod full_entity {
         color: &ColorComponent,
         controlled_by: Option<&ControlledBy>,
         replication_mode: &GameReplicationMode,
+        rooms: Option<&Rooms>,
     ) {
         let tick = timeline.tick();
         let is_server = controlled_by.is_some();
         let up = Vec2::new(0.0, 1.0);
         let start = position.0;
         let end = start + rotation * up * 1000.0; // Long hitscan range
+        let max_lifetime = if is_server {
+            SERVER_REPLICATED_HITSCAN_LIFETIME
+        } else {
+            HITSCAN_LIFETIME
+        };
 
         // For Hitscan, we directly spawn an entity that represents the 'bullet'
         let spawn_bundle = (
@@ -888,7 +972,7 @@ mod full_entity {
                 start,
                 end,
                 lifetime: 0.0,
-                max_lifetime: HITSCAN_LIFETIME,
+                max_lifetime,
             },
             // we add BulletMarker to identify who the shooter is
             BulletMarker { shooter },
@@ -901,60 +985,77 @@ mod full_entity {
             #[cfg(feature = "server")]
             match replication_mode {
                 GameReplicationMode::AllPredicted => {
-                    // clients predict other clients using their inputs. We still shoot the visual on the server
-                    // because the hit detection is done on server-side
-                    //
-                    // clients don't predict other clients shooting, though (unless they have enough input delay?)
-                    // I guess no need to replicate to clients since the entity dies so quickly
-                    commands.spawn((
+                    // The shooter has an immediate local visual. Observers receive the short-lived
+                    // server visual instead of prespawning a remote shot they cannot create locally.
+                    let mut entity = commands.spawn((
                         spawn_bundle,
-                        // no need to replicate to the shooting player since they are predicting their shot
-                        // and it's very short-lived
                         Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                        PredictionTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                        InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
-                        PreSpawned::default(),
+                        DespawnAfter(Timer::new(
+                            Duration::from_secs_f32(SERVER_REPLICATED_HITSCAN_LIFETIME),
+                            TimerMode::Once,
+                        )),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                     // TODO: how does it work for shots fired by others?
                 }
                 GameReplicationMode::ClientPredictedNoComp => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
                         // no need to replicate to the shooting player since they are predicting their shot
                         // ans it's very short-lived
                         Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
+                        DespawnAfter(Timer::new(
+                            Duration::from_secs_f32(SERVER_REPLICATED_HITSCAN_LIFETIME),
+                            TimerMode::Once,
+                        )),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::ClientPredictedLagComp => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
                         // no need to replicate to the shooting player since they are predicting their shot
                         // and it's very short-lived
                         Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
+                        DespawnAfter(Timer::new(
+                            Duration::from_secs_f32(SERVER_REPLICATED_HITSCAN_LIFETIME),
+                            TimerMode::Once,
+                        )),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::ClientSideHitDetection => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
                         // no need to replicate to the shooting player since they are predicting their shot
                         Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                        PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
-                        PreSpawned::default(),
+                        DespawnAfter(Timer::new(
+                            Duration::from_secs_f32(SERVER_REPLICATED_HITSCAN_LIFETIME),
+                            TimerMode::Once,
+                        )),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::AllInterpolated => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
                         Replicate::to_clients(NetworkTarget::All),
                         InterpolationTarget::to_clients(NetworkTarget::All),
                         controlled_by.unwrap().clone(),
+                        DespawnAfter(Timer::new(
+                            Duration::from_secs_f32(SERVER_REPLICATED_HITSCAN_LIFETIME),
+                            TimerMode::Once,
+                        )),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::OnlyInputsReplicated => {}
             }
@@ -962,16 +1063,14 @@ mod full_entity {
             // Visuals are purely client-side
             match replication_mode {
                 GameReplicationMode::AllPredicted => {
-                    // should we predict other clients shooting? I guess yes?
-                    //  this observer will also trigger for remove clients
-                    commands.spawn((spawn_bundle, PreSpawned::default()));
+                    commands.spawn(spawn_bundle);
                 }
                 GameReplicationMode::ClientPredictedNoComp
                 | GameReplicationMode::ClientPredictedLagComp => {
-                    commands.spawn((spawn_bundle, PreSpawned::default()));
+                    commands.spawn(spawn_bundle);
                 }
                 GameReplicationMode::ClientSideHitDetection => {
-                    commands.spawn((spawn_bundle, PreSpawned::default()));
+                    commands.spawn(spawn_bundle);
                     // do hit detection
                 }
                 GameReplicationMode::AllInterpolated => {
@@ -996,6 +1095,7 @@ mod full_entity {
         controlled_by: Option<&ControlledBy>,
         replication_mode: &GameReplicationMode,
         is_server: bool,
+        rooms: Option<&Rooms>,
     ) {
         let velocity = LinearVelocity(*rotation * Vec2::new(0.0, 1.0) * BULLET_MOVE_SPEED);
         let bullet_bundle = (
@@ -1015,35 +1115,33 @@ mod full_entity {
             match replication_mode {
                 GameReplicationMode::AllPredicted => {
                     // We do not predict other players shooting? or should we do it if we received the input in time?
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         bullet_bundle,
-                        // we predict-spawn the bullet on the client, so we need to also add PreSpawned on the server
-                        PreSpawned::default(),
-                        Replicate::to_clients(NetworkTarget::All),
-                        PredictionTarget::to_clients(NetworkTarget::All),
+                        Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                        PredictionTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::ClientPredictedNoComp
                 | GameReplicationMode::ClientPredictedLagComp
                 | GameReplicationMode::ClientSideHitDetection => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         bullet_bundle,
-                        // we predict-spawn the bullet on the client, so we need to also add PreSpawned on the server
-                        PreSpawned::default(),
-                        Replicate::to_clients(NetworkTarget::All),
-                        PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                        Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::AllInterpolated => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         bullet_bundle,
                         Replicate::to_clients(NetworkTarget::All),
                         InterpolationTarget::to_clients(NetworkTarget::All),
                         controlled_by.unwrap().clone(),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::OnlyInputsReplicated => {}
             }
@@ -1051,12 +1149,12 @@ mod full_entity {
             match replication_mode {
                 GameReplicationMode::AllPredicted => {
                     // should we predict other clients shooting?
-                    commands.spawn((bullet_bundle, PreSpawned::default()));
+                    commands.spawn(bullet_bundle);
                 }
                 GameReplicationMode::ClientPredictedNoComp
                 | GameReplicationMode::ClientPredictedLagComp
                 | GameReplicationMode::ClientSideHitDetection => {
-                    commands.spawn((bullet_bundle, PreSpawned::default()));
+                    commands.spawn(bullet_bundle);
                 }
                 GameReplicationMode::AllInterpolated => {
                     // we don't spawn anything, it will be replicated to us
@@ -1158,7 +1256,7 @@ mod full_entity {
             #[cfg(feature = "server")]
             commands.spawn((
                 bullet_bundle,
-                PreSpawned::default(),
+                PreSpawned::default_with_salt(projectile_prespawn_salt(id.0, 0)),
                 DespawnAfter(Timer::new(Duration::from_secs(5), TimerMode::Once)),
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
@@ -1166,7 +1264,10 @@ mod full_entity {
                 controlled_by.unwrap().clone(),
             ));
         } else {
-            commands.spawn((bullet_bundle, PreSpawned::default()));
+            commands.spawn((
+                bullet_bundle,
+                PreSpawned::default_with_salt(projectile_prespawn_salt(id.0, 0)),
+            ));
         }
     }
 
@@ -1202,7 +1303,7 @@ mod full_entity {
             #[cfg(feature = "server")]
             commands.spawn((
                 missile_bundle,
-                PreSpawned::default(),
+                PreSpawned::default_with_salt(projectile_prespawn_salt(id.0, 0)),
                 DespawnAfter(Timer::new(Duration::from_secs(8), TimerMode::Once)),
                 Replicate::to_clients(NetworkTarget::All),
                 PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
@@ -1210,7 +1311,10 @@ mod full_entity {
                 controlled_by.unwrap().clone(),
             ));
         } else {
-            commands.spawn((missile_bundle, PreSpawned::default()));
+            commands.spawn((
+                missile_bundle,
+                PreSpawned::default_with_salt(projectile_prespawn_salt(id.0, 0)),
+            ));
         }
     }
 }
@@ -1243,6 +1347,7 @@ pub(crate) mod direction_only {
         is_server: bool,
         replication_mode: &GameReplicationMode,
         weapon_type: &WeaponType,
+        rooms: Option<&Rooms>,
     ) {
         let speed = match weapon_type {
             WeaponType::Hitscan => 1000.0, // Instant
@@ -1285,34 +1390,33 @@ pub(crate) mod direction_only {
                 // -> On PreSpawned match, we get a Confirmed ProjectileSpawn and a Predicted ProjectileSpawn that has a child.
                 // -> InterestManagement can be applied since it's an entity
                 GameReplicationMode::AllPredicted => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
-                        Replicate::to_clients(NetworkTarget::All),
-                        PredictionTarget::to_clients(NetworkTarget::All),
+                        Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
+                        PredictionTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         controlled_by.unwrap().clone(),
-                        PreSpawned::default(),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::ClientPredictedNoComp
                 | GameReplicationMode::ClientPredictedLagComp
                 | GameReplicationMode::ClientSideHitDetection => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
-                        Replicate::to_clients(NetworkTarget::All),
-                        PredictionTarget::to_clients(NetworkTarget::Single(id.0)),
+                        Replicate::to_clients(NetworkTarget::AllExceptSingle(id.0)),
                         InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(id.0)),
-                        PreSpawned::default(),
                         controlled_by.unwrap().clone(),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::AllInterpolated => {
-                    commands.spawn((
+                    let mut entity = commands.spawn((
                         spawn_bundle,
                         Replicate::to_clients(NetworkTarget::All),
                         InterpolationTarget::to_clients(NetworkTarget::All),
-                        PreSpawned::default(),
                         controlled_by.unwrap().clone(),
                     ));
+                    insert_projectile_rooms(&mut entity, rooms);
                 }
                 GameReplicationMode::OnlyInputsReplicated => {}
             }
@@ -1326,12 +1430,12 @@ pub(crate) mod direction_only {
                     //    Maybe we can let components register a custom `prepare_rollback` fn? Or emit a custom Rollback event for each entity/component that was rolled back? That way the client could use that
                     //    to despawn the Bullets.
                     // should we predict other clients shooting?
-                    commands.spawn((spawn_bundle, PreSpawned::default()));
+                    commands.spawn(spawn_bundle);
                 }
                 GameReplicationMode::ClientPredictedNoComp
                 | GameReplicationMode::ClientPredictedLagComp
                 | GameReplicationMode::ClientSideHitDetection => {
-                    commands.spawn((spawn_bundle, PreSpawned::default()));
+                    commands.spawn(spawn_bundle);
                 }
                 GameReplicationMode::AllInterpolated => {
                     // TODO: we need to spawn the projectile at the correct interpolation delay on the client
@@ -1465,7 +1569,7 @@ pub(crate) mod direction_only {
         current_tick: Tick,
     ) {
         let start = spawn_info.position.0;
-        let end = spawn_info.rotation * Vec2::new(0.0, 1000.0);
+        let end = start + spawn_info.rotation * Vec2::new(0.0, 1000.0);
 
         let visual_bundle = (
             HitscanVisual {
@@ -1815,9 +1919,12 @@ fn find_nearest_target(
 pub(crate) fn update_hitscan_visuals(
     mut commands: Commands,
     time: Res<Time>,
-    mut query: Query<(Entity, &mut HitscanVisual)>,
+    mut query: Query<(Entity, &mut HitscanVisual, Has<DespawnAfter>)>,
 ) {
-    for (entity, mut visual) in query.iter_mut() {
+    for (entity, mut visual, despawn_after) in query.iter_mut() {
+        if despawn_after {
+            continue;
+        }
         visual.lifetime += time.delta_secs();
         if visual.lifetime >= visual.max_lifetime {
             info!(?entity, "despawn hitscan");

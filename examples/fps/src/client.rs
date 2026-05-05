@@ -52,6 +52,9 @@ fn update_cursor_state_from_window(
     q_camera: Query<(&Camera, &GlobalTransform)>,
     mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
 ) {
+    if automation_aim_target_enabled() {
+        return;
+    }
     let Some(window) = window else {
         return;
     };
@@ -67,6 +70,22 @@ fn update_cursor_state_from_window(
         for mut action_state in action_state_query.iter_mut() {
             action_state.set_axis_pair(&PlayerActions::MoveCursor, world_position);
         }
+    }
+}
+
+fn automation_aim_target_enabled() -> bool {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        std::env::var("LIGHTYEAR_AIM_TARGET")
+            .map(|value| {
+                let value = value.trim().to_ascii_lowercase();
+                !value.is_empty() && value != "any"
+            })
+            .unwrap_or(false)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        false
     }
 }
 

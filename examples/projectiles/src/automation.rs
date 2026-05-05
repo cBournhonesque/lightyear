@@ -1,5 +1,6 @@
 use avian2d::prelude::Position;
 use bevy::prelude::*;
+use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::action::mock::ActionMock;
 use bevy_enhanced_input::prelude::{Action, ActionValue};
 use lightyear::prelude::*;
@@ -8,8 +9,8 @@ use lightyear_examples_common::automation::{
 };
 
 use crate::protocol::{
-    Bot, BulletMarker, ClientContext, GameReplicationMode, MoveCursor, PlayerId, PlayerMarker,
-    ProjectileReplicationMode, Score, Shoot,
+    Bot, BulletMarker, ClientContext, GameReplicationMode, HitscanVisual, MoveCursor, PlayerId,
+    PlayerMarker, ProjectileReplicationMode, Score, Shoot,
 };
 
 #[cfg(feature = "client")]
@@ -20,7 +21,10 @@ impl Plugin for AutomationClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
-        app.add_systems(First, client::drive_keys);
+        app.add_systems(
+            FixedPreUpdate,
+            client::drive_keys.before(EnhancedInputSystems::Update),
+        );
         app.add_systems(
             Update,
             (
@@ -147,7 +151,8 @@ mod client {
         for entity in &bullets {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update]),
+                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
+                    .with_component_at::<HitscanVisual>([DebugSamplePoint::Update]),
             );
         }
     }
@@ -211,7 +216,8 @@ mod server {
         for entity in &bullets {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update]),
+                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
+                    .with_component_at::<HitscanVisual>([DebugSamplePoint::Update]),
             );
         }
     }

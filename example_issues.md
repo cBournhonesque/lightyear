@@ -1,9 +1,4 @@
-# Deterministic replication
-
-The StateBasedCatchup is not working. Is it even enabled now?
-Can we display which mode is being used on the screen? Maybe it wasn't enabled.
-
-# FPS (seen)
+# FPS
 
 - Bullets are not smooth, are they not frame interpolated?
 - Host-client: collisions from the host bullets don't work with the interpolated entity.
@@ -40,3 +35,9 @@ The prespawned bullets are smooth, good job!
 Issues:
 - The remote client sees a projectile getting fired twice
 - the projectile on the remote client starts from further away from the source then what is shown on the local client (firing)
+
+# Deterministic replication
+
+The StateBasedCatchup is not working. Is it even enabled now?
+Can we display which mode is being used on the screen? Maybe it wasn't enabled.
+

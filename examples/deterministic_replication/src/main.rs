@@ -8,8 +8,8 @@ use core::time::Duration;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
-/// how many ticks to delay the input by
-pub const INPUT_DELAY_TICKS: u16 = 0;
+/// Default number of ticks to delay local input by.
+pub const DEFAULT_INPUT_DELAY_TICKS: u16 = 0;
 
 mod automation;
 #[cfg(feature = "client")]
@@ -80,8 +80,21 @@ fn add_input_delay(app: &mut App) {
         })
         .insert(
             InputTimelineConfig::default()
-                // In deterministic mode, input delay must be large enough for
-                // inputs to arrive on the server before the tick is simulated.
-                .with_input_delay(InputDelayConfig::fixed_input_delay(INPUT_DELAY_TICKS)),
+                .with_input_delay(InputDelayConfig::fixed_input_delay(input_delay_ticks())),
         );
+}
+
+#[cfg(feature = "client")]
+fn input_delay_ticks() -> u16 {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        std::env::var("LIGHTYEAR_INPUT_DELAY_TICKS")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(DEFAULT_INPUT_DELAY_TICKS)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        DEFAULT_INPUT_DELAY_TICKS
+    }
 }
