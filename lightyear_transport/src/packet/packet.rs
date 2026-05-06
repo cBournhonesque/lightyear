@@ -9,6 +9,26 @@ use lightyear_utils::wrapping_id;
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
+// Sequence ordering for in-order delivery. Transport channel BTreeMap<PacketId, _>
+// users rely on this wrap-aware comparison.
+impl Ord for PacketId {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        use core::cmp::Ordering;
+        match lightyear_utils::wrapping_id::wrapping_diff(self.0, other.0) {
+            0 => Ordering::Equal,
+            x if x > 0 => Ordering::Less,
+            x if x < 0 => Ordering::Greater,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl PartialOrd for PacketId {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 const MAX_PACKET_SIZE: usize = 1200;
 /// Number of bytes to write the header
 const HEADER_BYTES: usize = 11;

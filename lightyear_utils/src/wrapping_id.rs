@@ -25,7 +25,6 @@ macro_rules! wrapping_id {
         mod [<$struct_name:lower _module>] {
             use serde::{Deserialize, Serialize};
             use core::ops::{Add, AddAssign, Deref, Sub};
-            use core::cmp::Ordering;
             use bevy_reflect::Reflect;
             use lightyear_serde::{SerializationError, reader::{Reader, ReadInteger}, writer::WriteInteger, ToBytes};
             use lightyear_utils::wrapping_id::{wrapping_diff, WrappedId};
@@ -63,23 +62,6 @@ macro_rules! wrapping_id {
                 type Target = u16;
                 fn deref(&self) -> &Self::Target {
                     &self.0
-                }
-            }
-
-            impl Ord for $struct_name {
-                fn cmp(&self, other: &Self) -> Ordering {
-                    match wrapping_diff(self.0, other.0) {
-                        0 => Ordering::Equal,
-                        x if x > 0 => Ordering::Less,
-                        x if x < 0 => Ordering::Greater,
-                        _ => unreachable!(),
-                    }
-                }
-            }
-
-            impl PartialOrd for $struct_name {
-                fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                    Some(self.cmp(other))
                 }
             }
 

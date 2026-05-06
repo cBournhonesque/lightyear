@@ -13,6 +13,26 @@ use lightyear_utils::wrapping_id;
 // Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);
 
+// Sequence ordering for in-order delivery. Transport channel BTreeMap<MessageId, _>
+// users rely on this wrap-aware comparison.
+impl Ord for MessageId {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        use core::cmp::Ordering;
+        match lightyear_utils::wrapping_id::wrapping_diff(self.0, other.0) {
+            0 => Ordering::Equal,
+            x if x > 0 => Ordering::Less,
+            x if x < 0 => Ordering::Greater,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl PartialOrd for MessageId {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 /// The index of a fragment in a fragmented message.
 ///
 /// It will be serialized as a varint, so it will take only 1 byte if there

@@ -6,6 +6,25 @@ use lightyear_utils::wrapping_id;
 
 wrapping_id!(PingId);
 
+// Preserve the previous wrap-aware sequence ordering for any PingId ordering users.
+impl Ord for PingId {
+    fn cmp(&self, other: &Self) -> core::cmp::Ordering {
+        use core::cmp::Ordering;
+        match lightyear_utils::wrapping_id::wrapping_diff(self.0, other.0) {
+            0 => Ordering::Equal,
+            x if x > 0 => Ordering::Less,
+            x if x < 0 => Ordering::Greater,
+            _ => unreachable!(),
+        }
+    }
+}
+
+impl PartialOrd for PingId {
+    fn partial_cmp(&self, other: &Self) -> Option<core::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 const PING_BUFFER_SIZE: usize = 128;
 
 /// Data structure to store the latest pings sent to remote
