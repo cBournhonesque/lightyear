@@ -983,21 +983,21 @@ impl GroupChannel {
 
             // inserts
             // TODO: remove updates that are duplicate for the same component
-            actions
-                .insert
-                .into_iter()
-                .for_each(|bytes| {
-                    if let Err(e) = component_registry.buffer(
-                        bytes,
-                        &mut buffered_entity,
-                        remote_tick,
-                        &mut remote_entity_map.remote_to_local,
-                        predicted,
-                        interpolated,
-                    ) {
-                        error!("could not insert a component to entity {:?}: {:?}", local_entity, e);
-                    }
-                });
+            actions.insert.into_iter().for_each(|bytes| {
+                if let Err(e) = component_registry.buffer(
+                    bytes,
+                    &mut buffered_entity,
+                    remote_tick,
+                    &mut remote_entity_map.remote_to_local,
+                    predicted,
+                    interpolated,
+                ) {
+                    error!(
+                        "could not insert a component to entity {:?}: {:?}",
+                        local_entity, e
+                    );
+                }
+            });
 
             // removals
             actions.remove.into_iter().for_each(|component_net_id| {

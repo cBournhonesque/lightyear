@@ -38,7 +38,9 @@ commands.trigger(RoomEvent { target: RoomTarget::AddSender(client), room });
 
 */
 
-use crate::prelude::{InterpolationTarget, PerSenderReplicationState, PredictionTarget, ReplicationState};
+use crate::prelude::{
+    InterpolationTarget, PerSenderReplicationState, PredictionTarget, ReplicationState,
+};
 use crate::send::plugin::ReplicationBufferSystems;
 use crate::visibility::error::NetworkVisibilityError;
 use crate::visibility::immediate::{NetworkVisibility, NetworkVisibilityPlugin, VisibilityState};
@@ -219,9 +221,7 @@ impl RoomPlugin {
                                 // predicted/interpolated = false. Restore these flags from
                                 // the entity's PredictionTarget/InterpolationTarget so the
                                 // client spawns the entity with prediction/interpolation.
-                                if let Some(per_sender) =
-                                    vis.per_sender_state.get_mut(&sender)
-                                {
+                                if let Some(per_sender) = vis.per_sender_state.get_mut(&sender) {
                                     #[cfg(feature = "prediction")]
                                     if has_prediction {
                                         per_sender.predicted = true;

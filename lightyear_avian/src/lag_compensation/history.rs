@@ -139,20 +139,18 @@ fn update_collision_layers(
     >,
     mut commands: Commands,
 ) {
-    parent_query
-        .iter()
-        .for_each(|(parent, layers, children)| {
-            for child in children.iter() {
-                if child_query.get(child).is_ok() {
-                    commands.entity(child).insert(*layers);
-                    trace!(
-                        ?child,
-                        ?parent,
-                        "Adding layers {layers:?} on lag compensation child collider"
-                    );
-                }
+    parent_query.iter().for_each(|(parent, layers, children)| {
+        for child in children.iter() {
+            if child_query.get(child).is_ok() {
+                commands.entity(child).insert(*layers);
+                trace!(
+                    ?child,
+                    ?parent,
+                    "Adding layers {layers:?} on lag compensation child collider"
+                );
             }
-        });
+        }
+    });
 }
 
 /// For each lag-compensated collider, store every tick a copy of the
