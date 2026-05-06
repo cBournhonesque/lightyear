@@ -62,7 +62,7 @@ impl Cli {
         #[cfg(any(feature = "gui2d", feature = "gui3d"))]
         {
             let _ = mode;
-            return new_gui_app(add_inspector);
+            new_gui_app(add_inspector)
         }
         #[cfg(not(any(feature = "gui2d", feature = "gui3d")))]
         {

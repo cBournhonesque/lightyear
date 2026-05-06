@@ -551,7 +551,7 @@ fn send_catchup_request<C: Channel>(
     };
     let (client_entity, mut sender) = client.into_inner();
     debug!(?client_entity, "sending CatchUpRequest to server");
-    sender.send::<C>(CatchUpRequest::default());
+    sender.send::<C>(CatchUpRequest);
     commands.entity(client_entity).insert(CatchUpRequestSent);
 }
 

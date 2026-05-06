@@ -989,8 +989,9 @@ fn test_deterministic_predicted_skip_despawn() {
         ))
         .id();
 
-    // Rollback check: the entity should have DisableRollback added
-    trigger_rollback_check(&mut stepper, tick);
+    // Rollback: the entity should have DisableRollback added until the
+    // configured enable_rollback_after tick.
+    trigger_state_rollback(&mut stepper, tick);
     stepper.frame_step(1);
     assert!(
         stepper

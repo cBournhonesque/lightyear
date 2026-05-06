@@ -193,10 +193,8 @@ pub fn shared_player_firing(
             if controlled_by.is_none() {
                 continue;
             }
-        } else {
-            if !is_local || (has_client && !client_is_synced) {
-                continue;
-            }
+        } else if !is_local || (has_client && !client_is_synced) {
+            continue;
         }
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
         // relying on a frame-edge `just_pressed`, and the weapon cooldown already
@@ -296,10 +294,10 @@ pub(crate) fn lifetime_despawner(
 ) {
     let is_server = !server.is_empty();
     for (e, ttl, is_predicted, is_prespawned) in q.iter() {
-        if (timeline.tick() - ttl.origin_tick) > ttl.lifetime {
-            if is_server || is_predicted || is_prespawned {
-                commands.entity(e).prediction_despawn();
-            }
+        if (timeline.tick() - ttl.origin_tick) > ttl.lifetime
+            && (is_server || is_predicted || is_prespawned)
+        {
+            commands.entity(e).prediction_despawn();
         }
     }
 }

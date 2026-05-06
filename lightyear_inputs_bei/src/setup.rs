@@ -347,10 +347,10 @@ fn resolve_remote_entity<'a>(
     entity_map: Option<&ServerEntityMap>,
     mut managers: impl Iterator<Item = &'a MessageManager>,
 ) -> Option<Entity> {
-    if let Some(entity_map) = entity_map {
-        if let Some(remote_entity) = entity_map.to_server().get(&local_entity) {
-            return Some(*remote_entity);
-        }
+    if let Some(entity_map) = entity_map
+        && let Some(remote_entity) = entity_map.to_server().get(&local_entity)
+    {
+        return Some(*remote_entity);
     }
 
     managers.find_map(|manager| manager.entity_mapper.get_remote(local_entity))
@@ -372,10 +372,10 @@ fn resolve_local_entity<'a>(
     mut managers: impl Iterator<Item = &'a MessageManager>,
     all_entities: &Query<(), ()>,
 ) -> Option<Entity> {
-    if let Some(entity_map) = entity_map {
-        if let Some(local_entity) = entity_map.to_client().get(&remote_entity) {
-            return Some(*local_entity);
-        }
+    if let Some(entity_map) = entity_map
+        && let Some(local_entity) = entity_map.to_client().get(&remote_entity)
+    {
+        return Some(*local_entity);
     }
 
     if let Some(local_entity) =
