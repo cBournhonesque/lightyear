@@ -100,7 +100,7 @@ impl<R> HistoryBuffer<R> {
     /// Used to efficiently get the previous value when doing correction.
     pub fn second_most_recent(&self, tick: Tick) -> Option<&R> {
         let (most_recent_tick, most_recent) = self.most_recent()?;
-        if *most_recent_tick < tick {
+        if most_recent_tick.is_older_than(tick) {
             return most_recent.into();
         }
         let len = self.buffer.len();
@@ -115,7 +115,7 @@ impl<R> HistoryBuffer<R> {
         // find first idx `partition` such that self.buffer[partition].0 > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+            .partition_point(|(buffer_tick, _)| buffer_tick.wrapping_cmp(&tick).is_le());
         if partition == 0 {
             return None;
         }
@@ -132,7 +132,7 @@ impl<R> HistoryBuffer<R> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|(buffer_tick, _)| buffer_tick.wrapping_cmp(&tick).is_le());
         // all elements are strictly more recent than the tick
         if partition == 0 {
             return;
@@ -251,7 +251,7 @@ impl<R: Clone> HistoryBuffer<R> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|(buffer_tick, _)| buffer_tick.wrapping_cmp(&tick).is_le());
         // all elements are strictly more recent than the tick
         if partition == 0 {
             return None;
@@ -289,7 +289,7 @@ impl<R: Clone> HistoryBuffer<R> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|(buffer_tick, _)| buffer_tick.wrapping_cmp(&tick).is_le());
         // all elements are strictly more recent than the tick
         if partition == 0 {
             self.clear();

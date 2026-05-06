@@ -84,7 +84,7 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         if let Some((start_tick, start)) = self.start()
             && let Some((end_tick, end)) = self.end()
         {
-            if interpolation_tick < start_tick {
+            if interpolation_tick.is_older_than(start_tick) {
                 return None;
             }
             let fraction = ((interpolation_tick - start_tick) as f32 + interpolation_overstep)

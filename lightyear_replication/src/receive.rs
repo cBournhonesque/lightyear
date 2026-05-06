@@ -313,7 +313,10 @@ impl ReplicationReceiver {
 
         // NOTE: this is valid even after tick wrapping because we keep clamping the latest_tick values for each channel
         // if we have already applied a more recent update for this group, no need to keep this one (or should we keep it for history?)
-        if channel.latest_tick.is_some_and(|t| remote_tick <= t) {
+        if channel
+            .latest_tick
+            .is_some_and(|t| !remote_tick.is_newer_than(t))
+        {
             trace!(
                 "discard because the update's tick {remote_tick:?} is older than the latest tick {:?}",
                 channel.latest_tick
@@ -358,7 +361,7 @@ impl ReplicationReceiver {
         // skip cleanup if we did one recently
         if self
             .last_cleanup_tick
-            .is_some_and(|last| tick < last + (i16::MAX / 3))
+            .is_some_and(|last| tick.is_older_than(last + (i16::MAX / 3)))
         {
             return;
         }
@@ -616,7 +619,9 @@ impl UpdatesBuffer {
     /// Insert a new message in the right position to make sure that the buffer
     /// is still sorted in descending order
     fn insert(&mut self, message: UpdatesMessage, remote_tick: Tick) {
-        let index = self.0.partition_point(|(tick, _)| remote_tick < *tick);
+        let index = self
+            .0
+            .partition_point(|(tick, _)| remote_tick.wrapping_cmp(tick).is_lt());
         self.0.insert(index, (remote_tick, message));
     }
 
@@ -646,7 +651,7 @@ impl UpdatesBuffer {
                 // and locally we haven't applied any actions yet, we can't apply it!
                 return true;
             };
-            last_action_tick > latest_tick
+            last_action_tick.is_newer_than(latest_tick)
         });
         if idx == self.len() { None } else { Some(idx) }
     }

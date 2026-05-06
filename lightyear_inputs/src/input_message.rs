@@ -171,7 +171,7 @@ pub trait ActionStateSequence:
 
             // if the tick is within the buffer, just fetch from it
             // TODO: ideally we just clone the last element from the buffer
-            if previous_end_tick.is_some_and(|end_tick| end_tick >= tick) {
+            if previous_end_tick.is_some_and(|end_tick| !end_tick.is_older_than(tick)) {
                 previous_predicted_input = input_buffer.get(tick).cloned();
             } else {
                 // else manually decay
@@ -192,13 +192,13 @@ pub trait ActionStateSequence:
                     _ => {}
                 }
                 // only try to detect mismatches after the last_remote_tick
-                if last_remote_tick.is_none_or(|t| tick > t) {
+                if last_remote_tick.is_none_or(|t| tick.is_newer_than(t)) {
                     if match (&previous_predicted_input, &latest_received_input) {
                         (Some(prev), Some(latest)) => prev == latest,
                         (None, None) => true,
                         _ => false,
                     } {
-                        if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
+                        if previous_end_tick.is_none_or(|end_tick| tick.is_newer_than(end_tick)) {
                             input_buffer
                                 .set_raw(tick, Compressed::from(latest_received_input.clone()));
                         }

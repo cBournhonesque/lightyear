@@ -68,7 +68,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
                 // - if H1...H2..X, H2 is a good starting point for the interpolation
                 commands.entity(entity).insert(end_value.clone());
             }
-            if current_interpolate_tick >= history_tick {
+            if !current_interpolate_tick.is_older_than(history_tick) {
                 history.pop();
             }
         }

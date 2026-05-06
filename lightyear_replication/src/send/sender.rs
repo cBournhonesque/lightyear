@@ -295,7 +295,7 @@ impl ReplicationSender {
         // skip cleanup if we did one recently
         if self
             .last_cleanup_tick
-            .is_some_and(|last| tick < last + (i16::MAX / 3))
+            .is_some_and(|last| tick.is_older_than(last + (i16::MAX / 3)))
         {
             return;
         }

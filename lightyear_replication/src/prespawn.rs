@@ -138,7 +138,7 @@ impl PreSpawnedPlugin {
         // remove all the prespawned entities that have not been matched with a server entity
         let split_idx = manager
             .prespawn_tick_to_hash
-            .partition_point(|(t, _)| *t < past_tick);
+            .partition_point(|(t, _)| t.wrapping_cmp(&past_tick).is_lt());
         for (_, hash) in manager.prespawn_tick_to_hash.drain(..split_idx) {
             manager
                 .prespawn_hash_to_entities
@@ -288,7 +288,7 @@ impl PreSpawnedReceiver {
         // split_idx = first index where prespawn_tick >= tick
         let split_idx = self
             .prespawn_tick_to_hash
-            .partition_point(|(t, _)| *t < tick);
+            .partition_point(|(t, _)| t.wrapping_cmp(&tick).is_lt());
         // self.prespawn_tick_to_hash still contains elements with prespawn_tick < tick, which we might
         // still want to match
         for (_, hash) in self.prespawn_tick_to_hash.drain(split_idx..) {

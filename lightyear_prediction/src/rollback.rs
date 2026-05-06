@@ -366,7 +366,7 @@ fn check_rollback(
             };
             let confirmed_tick = entity_mut.get::<ConfirmedTick>().unwrap().tick;
             trace!("Checking rollback for entity {:?} that received update at tick {:?}", entity_mut.id(), confirmed_tick);
-            if confirmed_tick > tick {
+            if confirmed_tick.is_newer_than(tick) {
                 debug!(
                     "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
                     entity_mut.id(),
@@ -465,7 +465,7 @@ fn check_rollback(
             .deterministic_despawn
             .drain(..)
             .for_each(|(t, e)| {
-                if t > rollback_tick
+                if t.is_newer_than(rollback_tick)
                     && let Ok(mut c) = commands.get_entity(e)
                 {
                     c.despawn();
@@ -478,7 +478,7 @@ fn check_rollback(
         // - for all remaining entities (where rollback_tick < tick) we insert DisableRollback
         let split_idx = prediction_manager
             .deterministic_skip_despawn
-            .partition_point(|(t, _)| *t <= rollback_tick);
+            .partition_point(|(t, _)| t.wrapping_cmp(&rollback_tick).is_le());
         let should_disable_rollback = prediction_manager
             .deterministic_skip_despawn
             .split_off(split_idx);

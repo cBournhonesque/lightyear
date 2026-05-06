@@ -732,7 +732,7 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
         //  (for example in lockstep mode, we should have all player inputs for tick T before simulating tick T,
         //  so we will receive those inputs in advance)
         if let RollbackMode::Check = prediction_manager.rollback_policy.input
-            && mismatch <= tick
+            && !mismatch.is_newer_than(tick)
         {
             debug!(
                 ?entity,

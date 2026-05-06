@@ -118,7 +118,7 @@ impl RemoteTimeline {
         if self
             .context
             .last_received_tick
-            .is_none_or(|previous_tick| remote_tick >= previous_tick)
+            .is_none_or(|previous_tick| !remote_tick.is_older_than(previous_tick))
         {
             // only update if the remote tick is newer than the last received tick
             self.context.received_packet = true;

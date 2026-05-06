@@ -118,12 +118,12 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
             return;
         };
         let start_tick = self.start_tick.unwrap();
-        if tick < start_tick {
+        if tick.is_older_than(start_tick) {
             self.start_tick = None;
             self.buffer.clear();
             return;
         }
-        if tick >= end_tick {
+        if !tick.is_older_than(end_tick) {
             return;
         }
         let new_end = usize::try_from(tick - start_tick + 1).unwrap();
@@ -140,7 +140,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         }
         let mut current_start = self.start_tick.unwrap();
         // Extend to the left if needed
-        if start_tick < current_start {
+        if start_tick.is_older_than(current_start) {
             let prepend_count = (current_start - start_tick) as usize;
             for _ in 0..prepend_count {
                 self.buffer.push_front(Compressed::Absent);
@@ -151,7 +151,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
 
         // Extend to the right if needed
         let current_end = current_start + (self.buffer.len() as i16 - 1);
-        if end_tick > current_end {
+        if end_tick.is_newer_than(current_end) {
             let append_count = (end_tick - current_end) as usize;
             for _ in 0..append_count {
                 self.buffer.push_back(Compressed::Absent);
@@ -192,7 +192,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         };
 
         // cannot set lower values than start_tick
-        if tick < start_tick {
+        if tick.is_older_than(start_tick) {
             return;
         }
 
@@ -201,7 +201,7 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         // NOTE: we fill the value for the given tick, and we fill the ticks between start_tick and tick
         // with InputData::SameAsPrecedent (i.e. if there are any gaps, we consider that the user repeated
         // their last action)
-        if tick > end_tick {
+        if tick.is_newer_than(end_tick) {
             // TODO: Think about how to fill the buffer between ticks
             //  - we want: if an input is missing, we consider that the user did the same action (RocketLeague or Overwatch GDC)
 
@@ -226,10 +226,10 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
     /// for the given tick
     pub fn pop(&mut self, tick: Tick) -> Option<T> {
         let start_tick = self.start_tick?;
-        if tick < start_tick {
+        if tick.is_older_than(start_tick) {
             return None;
         }
-        if tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick.is_newer_than(start_tick + (self.buffer.len() as i16 - 1)) {
             // pop everything
             self.buffer = VecDeque::new();
             self.start_tick = Some(tick + 1);
@@ -269,7 +269,9 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return &Compressed::Absent;
         }
-        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick.is_older_than(start_tick)
+            || tick.is_newer_than(start_tick + (self.buffer.len() as i16 - 1))
+        {
             return &Compressed::Absent;
         }
         self.buffer.get((tick - start_tick) as usize).unwrap()
@@ -282,7 +284,9 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return None;
         }
-        if tick < start_tick || tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick.is_older_than(start_tick)
+            || tick.is_newer_than(start_tick + (self.buffer.len() as i16 - 1))
+        {
             return None;
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
@@ -304,10 +308,10 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         if self.buffer.is_empty() {
             return None;
         }
-        if tick < start_tick {
+        if tick.is_older_than(start_tick) {
             return None;
         }
-        if tick > start_tick + (self.buffer.len() as i16 - 1) {
+        if tick.is_newer_than(start_tick + (self.buffer.len() as i16 - 1)) {
             return self.get_last();
         }
         let data = self.buffer.get((tick - start_tick) as usize).unwrap();
