@@ -69,9 +69,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
 
         // Seed on first sync with the second-oldest (or oldest if that's all we have) so
         // interpolate()'s first run has a sensible starting value while the blend warms up.
-        if !present
-            && let Some((_, value)) = history.end().or(history.start())
-        {
+        if !present && let Some((_, value)) = history.end().or(history.start()) {
             commands.entity(entity).insert(value.clone());
         }
 
