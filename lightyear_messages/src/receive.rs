@@ -30,7 +30,7 @@ use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 /// Bevy Trigger emitted when a remote trigger is received and processed.
 ///
@@ -157,7 +157,13 @@ impl<M: Message> MessageReceiver<M> {
     pub(crate) unsafe fn clear_typed(receiver: MutUntyped) {
         // SAFETY: we know the type of the receiver is MessageReceiver<M>
         let mut receiver = unsafe { receiver.with_type::<Self>() };
-        receiver.recv.clear();
+        if !receiver.recv.is_empty() {
+            warn!(
+                "Unhandled messages {:?}. Clearing to avoid accumulating messages...",
+                DebugName::type_name::<M>()
+            );
+            receiver.recv.clear();
+        }
     }
 }
 
