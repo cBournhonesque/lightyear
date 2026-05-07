@@ -297,25 +297,26 @@ impl AuthorityPlugin {
                         }
                         #[allow(clippy::collapsible_match)]
                         Some(PeerId::Server) => match authority_transfer {
-                            Some(AuthorityTransfer::Request(on_request)) => {
-                                if on_request(entity, trigger.from) {
-                                    trace!(
-                                        "Peer {:?} takes authority for entity {entity:?} from server",
-                                        trigger.from
-                                    );
-                                    entity_commands.remove::<HasAuthority>();
-                                    Self::update_authority(
-                                        false,
-                                        &mut state,
-                                        sender_entity,
-                                        &mut entity_commands,
-                                    );
-                                    *current_authority = Some(trigger.from);
-                                    response_sender.trigger::<AuthorityChannel>(
-                                        AuthorityGrantedEvent { entity, from: None },
-                                    );
-                                }
+                            Some(AuthorityTransfer::Request(on_request))
+                                if on_request(entity, trigger.from) =>
+                            {
+                                trace!(
+                                    "Peer {:?} takes authority for entity {entity:?} from server",
+                                    trigger.from
+                                );
+                                entity_commands.remove::<HasAuthority>();
+                                Self::update_authority(
+                                    false,
+                                    &mut state,
+                                    sender_entity,
+                                    &mut entity_commands,
+                                );
+                                *current_authority = Some(trigger.from);
+                                response_sender.trigger::<AuthorityChannel>(
+                                    AuthorityGrantedEvent { entity, from: None },
+                                );
                             }
+                            Some(AuthorityTransfer::Request(_)) => {}
                             Some(AuthorityTransfer::Steal) => {
                                 trace!(
                                     "Peer {:?} takes authority for entity {entity:?} from server",

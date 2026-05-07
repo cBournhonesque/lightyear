@@ -80,7 +80,7 @@ use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
     PredictionAppRegistrationExt, PredictionManager, PredictionRegistry, RollbackSystems,
 };
-use lightyear_replication::prelude::TransformLinearInterpolation;
+use lightyear_replication::prelude::{ReplicationSystems, TransformLinearInterpolation};
 
 /// Indicate which components you are replicating over the network
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -151,6 +151,7 @@ impl Plugin for LightyearAvianPlugin {
                             .before(FrameInterpolationSystems::Restore),
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
+                    LightyearAvianPlugin::sync_received_position_to_transform(app);
 
                     // TODO: it seems like if we apply TransformToPosition in FixedPostUpdate, we need
                     //  to also run PositionToTransform in FixedPostUpdate; how come?
@@ -220,6 +221,7 @@ impl Plugin for LightyearAvianPlugin {
                             .after(FrameInterpolationSystems::Restore),
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
+                    LightyearAvianPlugin::sync_received_position_to_transform(app);
                 }
                 // We need to manually update the Position of child colliders after physics run
                 // since avian doesn't do it.
@@ -491,6 +493,16 @@ impl LightyearAvianPlugin {
             schedule,
             (position_to_transform, Self::add_transform)
                 .in_set(PhysicsTransformSystems::PositionToTransform)
+                .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
+        );
+    }
+
+    fn sync_received_position_to_transform(app: &mut App) {
+        app.add_systems(
+            PreUpdate,
+            (position_to_transform, Self::add_transform)
+                .in_set(PhysicsTransformSystems::PositionToTransform)
+                .after(ReplicationSystems::Receive)
                 .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
         );
     }

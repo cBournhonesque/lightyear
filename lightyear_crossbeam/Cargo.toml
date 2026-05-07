@@ -28,6 +28,12 @@ tracing.workspace = true
 # serde
 bytes.workspace = true
 
+[dev-dependencies]
+# Used by integration tests that exercise the documented pairing with
+# `RawConnectionPlugin` (server-side mirror flow).
+lightyear_raw_connection = { workspace = true, features = ["client", "server"] }
+lightyear_connection = { workspace = true, features = ["client", "server"] }
+
 [lints]
 workspace = true
 

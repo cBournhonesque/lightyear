@@ -122,17 +122,17 @@ enum_dispatch = "0.3"
 fixed = { version = "1.29", features = ["serde"] }
 fixedbitset = "0.5.7"
 governor = "0.10"
-hashbrown = { version = "0.16", default-features = false }
+hashbrown = { version = "0.17", default-features = false }
 indexmap = { version = "2.9.0", default-features = false }
 nonzero_ext = "0.3.0"
 parking_lot = "0.12.3"
 paste = { version = "1.0", default-features = false }
-rand = "0.9"
+rand = "0.10"
 ringbuffer = "0.16"
 thiserror = "2.0.3"
 seahash = "4.1.0"
 smallvec = { version = "1", features = ["union", "const_generics"] }
-variadics_please = "1.1.0"
+variadics_please = "2.0.0"
 
 # no_std
 no_std_io2 = { version = "0.9", features = ["alloc"] }
@@ -225,7 +225,9 @@ bevy_winit = { version = "0.18", default-features = false }
 tracy-client = { version = "0.18" }
 
 # input
-bevy_enhanced_input = { version = "0.24", features = ["serialize"] }
+bevy_enhanced_input = { version = "0.24", default-features = false, features = [
+  "serialize",
+] }
 leafwing-input-manager = { version = "0.20", default-features = false, features = [
   "keyboard",
 ] }

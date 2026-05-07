@@ -391,7 +391,7 @@ mod tests {
         assert_eq!(earliest_mismatch, Some(Tick(5)));
         assert_eq!(input_buffer.start_tick, Some(Tick(5)));
         assert_eq!(input_buffer.get(Tick(5)), Some(&state));
-        state.events = ActionEvents::FIRED;
+        state.events = ActionEvents::FIRE;
         assert_eq!(input_buffer.get(Tick(6)), Some(&state));
         assert_eq!(input_buffer.get(Tick(7)), None);
     }
@@ -424,7 +424,7 @@ mod tests {
         // Filled the gap with SameAsPrecedent at tick 6, then set the new action at tick 7 and 8
         assert_eq!(input_buffer.get_raw(Tick(6)), &Compressed::SameAsPrecedent);
         assert_eq!(input_buffer.get(Tick(7)), Some(&state));
-        state.events = ActionEvents::FIRED;
+        state.events = ActionEvents::FIRE;
         assert_eq!(input_buffer.get(Tick(8)), Some(&state));
     }
 

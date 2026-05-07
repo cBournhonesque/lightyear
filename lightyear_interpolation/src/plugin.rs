@@ -166,6 +166,6 @@ mod tests {
         };
         let (tick, overstep) = delay.tick_and_overstep(Tick(3));
         assert_eq!(tick, Tick(0));
-        assert!((overstep - 0.6).abs() < 0.001);
+        assert!((overstep - 0.6).abs() < 0.0001);
     }
 }

@@ -315,8 +315,6 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<(Actions<PlayerMarker>, ActionOf<PlayerMarker>)>();
-
         // inputs
         app.add_plugins(InputPlugin::new(InputConfig::<PlayerContext> {
             // enable lag compensation; the input messages sent to the server will include the

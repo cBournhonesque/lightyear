@@ -3,7 +3,7 @@ use bevy_reflect::Reflect;
 use core::time::Duration;
 use lightyear_core::time::Instant;
 use lightyear_utils::ready_buffer::ReadyBuffer;
-use rand::Rng;
+use rand::RngExt;
 
 /// Contains configuration required to initialize a LinkConditioner
 #[derive(Clone, Debug, Default, Reflect)]

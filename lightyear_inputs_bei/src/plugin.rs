@@ -85,7 +85,6 @@ impl<
 > Plugin for InputPlugin<C>
 {
     fn build(&self, app: &mut App) {
-        app.register_type::<ActionOf<C>>();
         #[cfg(feature = "server")]
         app.register_required_components::<ActionOf<C>, BEIBuffer<C>>();
         if !app.is_plugin_added::<bevy_enhanced_input::EnhancedInputPlugin>() {
