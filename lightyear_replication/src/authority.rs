@@ -295,6 +295,7 @@ impl AuthorityPlugin {
                                 from: None,
                             });
                         }
+                        #[allow(clippy::collapsible_match)]
                         Some(PeerId::Server) => match authority_transfer {
                             Some(AuthorityTransfer::Request(on_request)) => {
                                 if on_request(entity, trigger.from) {

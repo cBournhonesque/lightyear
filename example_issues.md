@@ -1,18 +1,20 @@
 # FPS
 
-- Bullets are not smooth, are they not frame interpolated?
-- Host-client: collisions from the host bullets don't work with the interpolated entity.
-- Bullets should disppear immediately when colliding with the interpolated entity
-- Client-server: at the beginning, movement is very choppy. Maybe because the time sync is not done yet?
-- Client-server: bullets from the remote client (so replicated) start by appearing at (0, 0). Maybe some avian transform propagation issue?
+- there are still rollbacks on the remote client whenever a client shoots a bullet
+- regularly the game spazzes out; maybe multiple rollbacks in a row?
 
+- Bullets from the host-client disappear immediately upon collision, but not bullets from the remote client
+- Bullets from the remote-client don't seem to take into account LagCompensation correctly for collisions
 
 # Lobby
 
-- Server-hosted lobby: the timelines seem to take a long time to sync, the movement is very jittery for the first ~5 seconds after starting the game. Maybe the timelines needs to be reset when this happens?
+
+- server-hosted lobby: i can get in a situation where the client is spazzing out even after i stop moving. Infinite rollbacks? Incorrect timeline sync?
 
 
 # Projectiles
+
+- the cursor movement (that changes the direction) is not propagated to the server
 
 Full entity replication mode
 - hitscan weapon visuals don't appear on the client
@@ -22,15 +24,14 @@ Direction only replication
 - hitscan weapon visuals appear
 - with linear projectile, sometimes 2 bullets are fired instead of 1
 
-Room Client Predicted (no lag comp or lag comp) / Client-Side prediction / All-Interpolated / Only Inputs Replicated: inputs don't work and bot is not moving
+Client predicted (no lag comp): the bot moves offscreen instead of moving left and right
+Only inputs replicated: bot does not move
 
-After changing rooms, inputs don't work. I see a lot of issues like
-`2026-05-03T23:31:49.381736Z  WARN lightyear_inputs::client: Could not find entity in entity_map for remote player input message PreSpawned(6364136223846793007)`
+Inputs seem to break down after switching rooms too much.
+
 
 
 # Spaceships
-
-The prespawned bullets are smooth, good job!
 
 Issues:
 - The remote client sees a projectile getting fired twice
@@ -38,6 +39,21 @@ Issues:
 
 # Deterministic replication
 
-The StateBasedCatchup is not working. Is it even enabled now?
-Can we display which mode is being used on the screen? Maybe it wasn't enabled.
+After disconnecting client 1 and reconnecting, I get this error:
+```
+thread 'main' (45786887) panicked at /Users/charles/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_replicon-0.39.4/src/client.rs:424:11:
+Entity despawned: The entity with ID 188v0 is invalid; its index now has generation 1.
+Note that interacting with a despawned entity is the most common cause of this error but there are others
 
+    If you were attempting to apply a command to this entity,
+    and want to handle this error gracefully, consider using `EntityCommands::queue_handled` or `queue_silenced`.
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+Encountered a panic in system `bevy_replicon::client::receive_replication`!
+```
+
+Also i tried to do:
+- client 1 connects
+- client 1 moves
+- client 2 connects
+and i get some checksum mismatch
+so StateBasedCatchup does not work even though we have an example for it
