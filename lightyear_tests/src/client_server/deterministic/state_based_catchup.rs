@@ -25,7 +25,8 @@ use bevy_enhanced_input::prelude::{
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    CatchUpServerReadiness, CatchUpSystems, request_forced_rollback_to_catch_up_tick,
+    AwaitingCatchUpSnapshot, CatchUpServerReadiness, CatchUpSystems,
+    request_forced_rollback_to_catch_up_tick,
 };
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::PreSpawned;
@@ -119,6 +120,18 @@ fn update_server_readiness(
 #[derive(Component)]
 struct PhysicsActivated;
 
+fn mark_awaiting_on_replicated_player(
+    trigger: On<Add, DetPlayerId>,
+    query: Query<(), Without<AwaitingCatchUpSnapshot>>,
+    mut commands: Commands,
+) {
+    if query.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .insert(AwaitingCatchUpSnapshot);
+    }
+}
+
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
     pending: Query<
@@ -166,6 +179,7 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
     for (i, client_app) in stepper.client_apps.iter_mut().enumerate() {
         client_app.insert_resource(RandomDrive::new(i as u64 + 1, warmup_ticks));
         add_position_samples(client_app);
+        client_app.add_observer(mark_awaiting_on_replicated_player);
         client_app.add_systems(
             FixedPreUpdate,
             (activate_physics_when_bundle_lands, drive_random_input),

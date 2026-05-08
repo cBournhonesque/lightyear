@@ -7,7 +7,7 @@ use lightyear_examples_common::automation::{
 };
 
 use crate::protocol::{
-    BallMarker, BulletMarker, ColorComponent, Player, PlayerActions, Score, Weapon,
+    BallMarker, BulletLifetime, BulletMarker, ColorComponent, Player, PlayerActions, Score, Weapon,
 };
 
 #[cfg(feature = "client")]
@@ -123,7 +123,8 @@ mod client {
         for entity in &bullets {
             commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update]),
+                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
+                    .with_component_at::<BulletLifetime>([DebugSamplePoint::Update]),
             );
         }
     }
@@ -191,7 +192,8 @@ mod server {
         for entity in &bullets {
             commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<BulletMarker>([DebugSamplePoint::FixedUpdate]),
+                    .with_component_at::<BulletMarker>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<BulletLifetime>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }

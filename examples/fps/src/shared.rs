@@ -1,19 +1,15 @@
 use crate::protocol::*;
 use avian2d::prelude::*;
 use avian2d::PhysicsPlugins;
-use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::prelude::*;
-use bevy::time::Stopwatch;
-use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::host::HostServer;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::prediction::plugin::PredictionSystems;
-use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
+use std::collections::HashMap;
 
 const EPS: f32 = 0.0001;
 pub const BOT_RADIUS: f32 = 15.0;
@@ -27,6 +23,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
+        app.init_resource::<BulletDebugRegistry>();
 
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             replication_mode: AvianReplicationMode::PositionButInterpolateTransform,
@@ -38,6 +35,15 @@ impl Plugin for SharedPlugin {
         // debug systems
         app.add_systems(FixedLast, emit_fixed_last_entities);
         app.add_systems(FixedLast, emit_predicted_bot_transform);
+        app.add_systems(
+            PostUpdate,
+            (
+                track_bullet_lifecycle_added,
+                track_bullet_lifecycle_removed,
+                detect_duplicate_bullets,
+            )
+                .chain(),
+        );
 
         // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
         app.add_systems(
@@ -54,6 +60,11 @@ impl Plugin for SharedPlugin {
         )
         .insert_resource(Gravity(Vec2::ZERO));
     }
+}
+
+#[derive(Resource, Default)]
+struct BulletDebugRegistry {
+    bullets: HashMap<Entity, BulletMarker>,
 }
 
 // Generate pseudo-random color from id
@@ -188,12 +199,18 @@ fn emit_predicted_bot_transform(
 pub(crate) fn emit_fixed_last_entities(
     timeline: Res<LocalTimeline>,
     player: Query<(Entity, &Transform), (With<PlayerMarker>, With<PlayerId>)>,
-    predicted_bullet: Query<
+    bullets: Query<
         (
             Entity,
+            &BulletMarker,
             &Position,
+            &LinearVelocity,
             &Transform,
-            Option<&PredictionHistory<Transform>>,
+            Has<Predicted>,
+            Has<Interpolated>,
+            Has<PreSpawned>,
+            Has<Replicate>,
+            Has<Replicated>,
         ),
         With<BulletMarker>,
     >,
@@ -211,18 +228,215 @@ pub(crate) fn emit_fixed_last_entities(
             "Player after fixed update"
         );
     }
-    for (entity, position, transform, history) in predicted_bullet.iter() {
+    for (
+        entity,
+        marker,
+        position,
+        velocity,
+        transform,
+        is_predicted,
+        is_interpolated,
+        is_prespawned,
+        is_replicate,
+        is_replicated,
+    ) in bullets.iter()
+    {
         lightyear_debug_event!(
             DebugCategory::Prediction,
             DebugSamplePoint::FixedLast,
             "FixedLast",
-            "bullet_transform_history",
-            tick = ?tick,
+            "bullet_state_fixed_last",
+            local_tick = tick.0 as i64,
             entity = ?entity,
+            shooter = ?marker.shooter,
+            shooter_bits = marker.shooter.to_bits(),
+            fire_tick = marker.fire_tick.0 as i64,
+            salt = marker.salt as i64,
+            prespawn_hash = marker.prespawn_hash,
             position = ?position,
+            velocity = ?velocity,
             transform = ?transform.translation.truncate(),
-            history = ?history,
-            "Bullet after fixed update"
+            is_predicted = is_predicted,
+            is_interpolated = is_interpolated,
+            is_prespawned = is_prespawned,
+            is_replicate = is_replicate,
+            is_replicated = is_replicated,
+            "Bullet state after fixed update"
+        );
+    }
+}
+
+fn track_bullet_lifecycle_added(
+    timeline: Res<LocalTimeline>,
+    mut registry: ResMut<BulletDebugRegistry>,
+    bullets: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &Position,
+            &LinearVelocity,
+            Has<Predicted>,
+            Has<Interpolated>,
+            Has<PreSpawned>,
+            Has<Replicate>,
+            Has<Replicated>,
+        ),
+        Added<BulletMarker>,
+    >,
+    rollback: Query<(), With<Rollback>>,
+) {
+    let tick = timeline.tick();
+    let in_rollback = !rollback.is_empty();
+    for (
+        entity,
+        marker,
+        position,
+        velocity,
+        is_predicted,
+        is_interpolated,
+        is_prespawned,
+        is_replicate,
+        is_replicated,
+    ) in &bullets
+    {
+        registry.bullets.insert(entity, *marker);
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "bullet_lifecycle_added",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            shooter = ?marker.shooter,
+            shooter_bits = marker.shooter.to_bits(),
+            fire_tick = marker.fire_tick.0 as i64,
+            salt = marker.salt as i64,
+            prespawn_hash = marker.prespawn_hash,
+            position = ?position,
+            velocity = ?velocity,
+            is_predicted = is_predicted,
+            is_interpolated = is_interpolated,
+            is_prespawned = is_prespawned,
+            is_replicate = is_replicate,
+            is_replicated = is_replicated,
+            in_rollback = in_rollback,
+            "Bullet lifecycle added"
+        );
+    }
+}
+
+fn track_bullet_lifecycle_removed(
+    timeline: Res<LocalTimeline>,
+    mut registry: ResMut<BulletDebugRegistry>,
+    mut removed: RemovedComponents<BulletMarker>,
+    rollback: Query<(), With<Rollback>>,
+) {
+    let tick = timeline.tick();
+    let in_rollback = !rollback.is_empty();
+    for entity in removed.read() {
+        let marker = registry.bullets.remove(&entity);
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "bullet_lifecycle_removed",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            shooter = ?marker.map(|m| m.shooter),
+            shooter_bits = marker.map(|m| m.shooter.to_bits()),
+            fire_tick = marker.map(|m| m.fire_tick.0 as i64),
+            salt = marker.map(|m| m.salt as i64),
+            prespawn_hash = marker.map(|m| m.prespawn_hash),
+            in_rollback = in_rollback,
+            "Bullet lifecycle removed"
+        );
+    }
+}
+
+fn detect_duplicate_bullets(
+    timeline: Res<LocalTimeline>,
+    bullets: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &Position,
+            Option<&Visibility>,
+            Has<Mesh2d>,
+            Has<Predicted>,
+            Has<Interpolated>,
+            Has<PreSpawned>,
+            Has<Replicate>,
+            Has<Replicated>,
+        ),
+        With<BulletMarker>,
+    >,
+    rollback: Query<(), With<Rollback>>,
+) {
+    #[derive(Debug)]
+    struct BulletDuplicateState {
+        entity: Entity,
+        position: Vec2,
+        is_visible: bool,
+        has_visual: bool,
+        is_predicted: bool,
+        is_interpolated: bool,
+        is_prespawned: bool,
+        is_replicate: bool,
+        is_replicated: bool,
+    }
+
+    let tick = timeline.tick();
+    let in_rollback = !rollback.is_empty();
+    let mut groups: HashMap<u64, Vec<BulletDuplicateState>> = HashMap::new();
+    for (
+        entity,
+        marker,
+        position,
+        visibility,
+        has_visual,
+        is_predicted,
+        is_interpolated,
+        is_prespawned,
+        is_replicate,
+        is_replicated,
+    ) in &bullets
+    {
+        let is_visible =
+            visibility.is_none_or(|visibility| !matches!(visibility, Visibility::Hidden));
+        groups
+            .entry(marker.prespawn_hash)
+            .or_default()
+            .push(BulletDuplicateState {
+                entity,
+                position: position.0,
+                is_visible,
+                has_visual,
+                is_predicted,
+                is_interpolated,
+                is_prespawned,
+                is_replicate,
+                is_replicated,
+            });
+    }
+    for (prespawn_hash, entities) in groups {
+        if entities.len() <= 1 {
+            continue;
+        }
+        let visible_count = entities.iter().filter(|state| state.is_visible).count();
+        let visual_count = entities.iter().filter(|state| state.has_visual).count();
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "bullet_duplicate_active",
+            local_tick = tick.0 as i64,
+            prespawn_hash = prespawn_hash,
+            total_count = entities.len() as i64,
+            visible_count = visible_count as i64,
+            visual_count = visual_count as i64,
+            in_rollback = in_rollback,
+            entities = ?entities,
+            "Multiple active bullets share the same shot identity"
         );
     }
 }
@@ -293,7 +507,7 @@ pub(crate) fn shoot_bullet(
                     // store the player who fired the bullet
                     *id,
                     *color,
-                    BulletMarker,
+                    BulletMarker::new(id.0, tick, salt, prespawn_hash),
                     Name::new("Bullet"),
                 );
 
@@ -336,11 +550,16 @@ pub(crate) fn shoot_bullet(
                     DebugSamplePoint::FixedUpdate,
                     "FixedUpdate",
                     "bullet_spawn",
-                    tick = ?tick,
+                    local_tick = tick.0 as i64,
                     entity = ?bullet_entity,
                     client_id = ?id.0,
+                    shooter = ?id.0,
+                    shooter_bits = id.0.to_bits(),
+                    fire_tick = tick.0 as i64,
+                    salt = salt as i64,
                     prespawn_hash = prespawn_hash,
                     is_server = is_server,
+                    is_client_spawn = !is_server,
                     position = ?bullet_position,
                     rotation = ?bullet_rotation,
                     velocity = ?bullet_velocity,

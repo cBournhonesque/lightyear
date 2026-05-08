@@ -3,6 +3,7 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::prediction::rollback::{AwaitingCatchUpSnapshot, DeterministicPredicted};
 use lightyear::prelude::client::*;
+use lightyear::prelude::input::leafwing::{LeafwingBuffer, LeafwingSnapshot};
 use lightyear::prelude::*;
 
 use crate::automation::AutomationClientPlugin;
@@ -44,7 +45,7 @@ fn mark_awaiting_catchup_on_replicated_player(
     trigger: On<Add, PlayerId>,
     // Only replicated-in entities (not server-spawned ones with `Replicate`).
     query: Query<(), (Without<AwaitingCatchUpSnapshot>, Without<Replicate>)>,
-    client: Option<Single<Entity, (With<Client>, Without<InitialCatchUpComplete>)>>,
+    client: Option<Single<(), With<Client>>>,
     mode: Res<CatchUpMode>,
     mut commands: Commands,
 ) {
@@ -66,9 +67,6 @@ struct InputMapAdded;
 
 #[derive(Component)]
 struct PhysicsActivated;
-
-#[derive(Component)]
-struct InitialCatchUpComplete;
 
 /// Add an `InputMap` to the local player's replicated entity as soon as the
 /// input timeline is synced. This is what lets the local client start
@@ -105,14 +103,21 @@ fn add_input_map_after_sync(
 /// `add_confirmed_write` has written Position/Rotation/Velocity into
 /// `PredictionHistory` at server tick `S`; once the entire bundle lands, we
 /// fire a single forced rollback from `S`. Later player spawns on an
-/// already-caught-up client arrive through normal `replicate_once` and do not
-/// need another catch-up rollback.
+/// already-caught-up client use the same path: their physics snapshot is
+/// hidden until requested, then the client rolls back from the snapshot tick
+/// so it does not miss the spawn-to-receive simulation window.
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
     // Players whose catch-up snapshot has just landed (they now have
     // `Position`) but we haven't yet added local physics components.
     pending: Query<
-        (Entity, &PlayerId, &Position, Has<AwaitingCatchUpSnapshot>),
+        (
+            Entity,
+            &PlayerId,
+            &Position,
+            Option<&ConfirmHistory>,
+            Has<AwaitingCatchUpSnapshot>,
+        ),
         Without<PhysicsActivated>,
     >,
     // Known remote players that are still waiting for the bundled snapshot
@@ -121,27 +126,64 @@ fn activate_physics_when_bundle_lands(
     // only when the *entire* bundle has arrived.
     still_pending: Query<Entity, (With<PlayerId>, Without<PhysicsActivated>, Without<Position>)>,
     awaiting_snapshots: Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
+    mut input_buffers: Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
     checkpoints: Res<ReplicationCheckpointMap>,
+    timeline: Res<LocalTimeline>,
     mode: Res<CatchUpMode>,
-    client: Option<Single<Entity, With<Client>>>,
 ) {
     let mut activated_awaiting_catchup = false;
-    for (entity, player_id, _position, awaiting_catchup) in pending.iter() {
+    let mut activation_rollback_reference = None;
+    let local_tick = timeline.tick();
+    let mut ready = Vec::new();
+    for (entity, player_id, _position, confirm, awaiting_catchup) in pending.iter() {
+        if *mode == CatchUpMode::StateBasedCatchUp {
+            let Some(reference_tick) = confirmed_server_tick(confirm, &checkpoints) else {
+                debug!(
+                    ?entity,
+                    player_id = ?player_id.0,
+                    "Client: waiting for initial replication checkpoint before activating physics"
+                );
+                continue;
+            };
+            if !input_buffers_cover_replay(reference_tick, local_tick, &mut input_buffers) {
+                let input_windows = input_buffer_windows(&input_buffers);
+                debug!(
+                    ?entity,
+                    player_id = ?player_id.0,
+                    ?reference_tick,
+                    ?local_tick,
+                    ?input_windows,
+                    "Client: waiting for input buffers to cover deterministic activation rollback"
+                );
+                continue;
+            }
+        }
+        ready.push((entity, player_id.0, awaiting_catchup));
+    }
+    // Avian's deterministic physics can depend on the order in which bodies
+    // are inserted into its internal structures. Late-joining clients can
+    // receive replicated players in a different order from the server, so
+    // activate every ready player in a stable game-defined order.
+    ready.sort_by_key(|(_, player_id, _)| player_id.to_bits());
+    for (entity, player_id, awaiting_catchup) in ready {
         if awaiting_catchup {
             info!(
                 "Client: activating physics for player {:?} (catch-up bundle snapshot landed)",
-                player_id.0
+                player_id
             );
             activated_awaiting_catchup = true;
         } else {
             info!(
-                "Client: activating physics for player {:?} (normal initial replication)",
-                player_id.0
+                "Client: activating physics for player {:?} (replicated snapshot landed without awaiting marker)",
+                player_id
             );
+            if *mode == CatchUpMode::StateBasedCatchUp {
+                activation_rollback_reference.get_or_insert(entity);
+            }
         }
         commands.entity(entity).insert((
             PhysicsBundle::player(),
-            ColorComponent(color_from_id(player_id.0)),
+            ColorComponent(color_from_id(player_id)),
             Name::from("Player"),
             // `skip_despawn: true` because the player is not spawned
             // deterministically from input. Matches the server.
@@ -152,27 +194,31 @@ fn activate_physics_when_bundle_lands(
             PhysicsActivated,
         ));
     }
+    if let Some(reference) = activation_rollback_reference {
+        commands.queue(move |world: &mut World| {
+            lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
+                world, reference,
+            );
+        });
+    }
     // Only fire the single forced rollback once ALL gated players we know
     // about have their catch-up components. Replicon emits the bundle in
     // one update at one tick `S`, so in practice every player gets
     // `Position` on the same frame and the rollback fires once.
-    if *mode == CatchUpMode::StateBasedCatchUp && still_pending.is_empty() {
+    if *mode == CatchUpMode::StateBasedCatchUp
+        && activated_awaiting_catchup
+        && still_pending.is_empty()
+    {
         let Some(reference) = catchup_snapshot_reference(&awaiting_snapshots, &checkpoints) else {
             if activated_awaiting_catchup {
                 debug!("Client: waiting for the full catch-up snapshot bundle");
             }
             return;
         };
-        let Some(client) = client else {
-            return;
-        };
-        let client = client.into_inner();
         commands.queue(move |world: &mut World| {
-            if lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
+            lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
                 world, reference,
-            ) && let Ok(mut client) = world.get_entity_mut(client) {
-                client.insert(InitialCatchUpComplete);
-            }
+            );
         });
     }
 }
@@ -197,4 +243,66 @@ fn catchup_snapshot_reference(
         }
     }
     reference
+}
+
+fn confirmed_server_tick(
+    confirm: Option<&ConfirmHistory>,
+    checkpoints: &ReplicationCheckpointMap,
+) -> Option<Tick> {
+    confirm
+        .map(ConfirmHistory::last_tick)
+        .and_then(|tick| checkpoints.get(tick))
+}
+
+fn input_buffers_cover_replay(
+    reference_tick: Tick,
+    local_tick: Tick,
+    input_buffers: &mut Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
+) -> bool {
+    let mut any = false;
+    let replay_end_tick = local_tick - 1;
+    input_buffers.iter_mut().all(|(player_id, buffer)| {
+        any = true;
+        let Some(mut buffer) = buffer else {
+            return false;
+        };
+        let Some(end_tick) = buffer.end_tick() else {
+            return false;
+        };
+        if end_tick < replay_end_tick {
+            return false;
+        }
+        if buffer.start_tick.is_none_or(|start| start > reference_tick) {
+            let old_start = buffer.start_tick.unwrap_or(reference_tick);
+            debug!(
+                player_id = ?player_id.0,
+                ?reference_tick,
+                ?old_start,
+                ?end_tick,
+                "Padding input buffer prefix before deterministic activation rollback"
+            );
+            buffer.extend_to_range(reference_tick, end_tick);
+            let mut tick = reference_tick;
+            while tick < old_start {
+                buffer.set(tick, LeafwingSnapshot::default());
+                tick = tick + 1;
+            }
+        }
+        true
+    }) && any
+}
+
+fn input_buffer_windows(
+    input_buffers: &Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
+) -> Vec<(PeerId, Option<Tick>, Option<Tick>)> {
+    input_buffers
+        .iter()
+        .map(|(player_id, buffer)| {
+            (
+                player_id.0,
+                buffer.and_then(|buffer| buffer.start_tick),
+                buffer.and_then(LeafwingBuffer::end_tick),
+            )
+        })
+        .collect()
 }

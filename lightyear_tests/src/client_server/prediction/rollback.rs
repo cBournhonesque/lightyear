@@ -373,8 +373,8 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .get::<CompFull>(predicted_a)
             .unwrap()
             .0,
-        103.0,
-        "Rollback initiator should replay from the older confirmed tick up to the last completed tick"
+        104.0,
+        "Rollback initiator should replay from the older confirmed tick through the current frame tick"
     );
     assert_eq!(
         stepper

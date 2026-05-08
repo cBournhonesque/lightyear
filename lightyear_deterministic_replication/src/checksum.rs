@@ -71,13 +71,9 @@ impl ChecksumSendPlugin {
             return;
         }
         // Skip if a one-shot forced rollback is scheduled but not yet
-        // consumed. Hashing via `pop_until_tick_and_hash` is destructive:
-        // it drains history entries up to `LastConfirmedInput.tick`.
-        // `check_rollback` will fire next `PreUpdate` and `prepare_rollback`
-        // will read `history.get(forced_tick)` to restore the component —
-        // if we drained past `forced_tick` here, that lookup returns `None`
-        // and the component gets removed from the entity. Skip until after
-        // the rollback has run.
+        // consumed. Until the rollback has replayed from the bundled
+        // snapshot tick, the client is intentionally hashing pre-catch-up
+        // state that the server should not compare against.
         if state_metadata.forced_rollback_tick().is_some() {
             return;
         }

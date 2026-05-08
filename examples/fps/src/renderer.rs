@@ -157,6 +157,7 @@ fn add_bullet_visuals(
     query: Query<
         (
             Entity,
+            &BulletMarker,
             &ColorComponent,
             &Position,
             &Rotation,
@@ -173,6 +174,7 @@ fn add_bullet_visuals(
 ) {
     for (
         entity,
+        marker,
         color,
         position,
         rotation,
@@ -200,6 +202,11 @@ fn add_bullet_visuals(
             "PostUpdate",
             "bullet_visual_added",
             entity = ?entity,
+            shooter = ?marker.shooter,
+            shooter_bits = marker.shooter.to_bits(),
+            fire_tick = marker.fire_tick.0 as i64,
+            salt = marker.salt as i64,
+            prespawn_hash = marker.prespawn_hash,
             position = ?position,
             rotation = ?rotation,
             transform = ?transform.translation.truncate(),
@@ -220,6 +227,7 @@ fn hide_interpolated_bullets_after_local_hit(
     bullets: Query<
         (
             Entity,
+            &BulletMarker,
             &Position,
             &LinearVelocity,
             &Visibility,
@@ -239,6 +247,7 @@ fn hide_interpolated_bullets_after_local_hit(
     let tick = timeline.tick();
     for (
         bullet_entity,
+        marker,
         bullet_position,
         bullet_velocity,
         visibility,
@@ -261,8 +270,13 @@ fn hide_interpolated_bullets_after_local_hit(
                     DebugSamplePoint::FixedPostUpdate,
                     "FixedPostUpdate",
                     "bullet_local_hide_interpolated_hit",
-                    tick = ?tick,
+                    local_tick = tick.0 as i64,
                     bullet = ?bullet_entity,
+                    shooter = ?marker.shooter,
+                    shooter_bits = marker.shooter.to_bits(),
+                    fire_tick = marker.fire_tick.0 as i64,
+                    salt = marker.salt as i64,
+                    prespawn_hash = marker.prespawn_hash,
                     bot = ?bot_entity,
                     bullet_position = ?bullet_position,
                     bot_position = ?bot_position,

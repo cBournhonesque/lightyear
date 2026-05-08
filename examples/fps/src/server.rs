@@ -8,7 +8,7 @@ use bevy::time::Stopwatch;
 use core::ops::DerefMut;
 use core::time::Duration;
 use leafwing_input_manager::prelude::*;
-use lightyear::connection::host::HostServer;
+use lightyear::connection::host::HostClient;
 use lightyear::interpolation::plugin::InterpolationDelay;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -120,11 +120,18 @@ pub(crate) fn compute_hit_lag_compensation(
     timeline: Res<LocalTimeline>,
     mut spatial_queries: ParamSet<(LagCompensationSpatialQuery, SpatialQuery)>,
     bullets: Query<
-        (Entity, &PlayerId, &Position, &LinearVelocity, &ControlledBy),
+        (
+            Entity,
+            &BulletMarker,
+            &PlayerId,
+            &Position,
+            &LinearVelocity,
+            &ControlledBy,
+        ),
         With<BulletMarker>,
     >,
     bot_query: Query<(), With<InterpolatedBot>>,
-    host_server: Query<(), With<HostServer>>,
+    host_clients: Query<(), With<HostClient>>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
     // metadata)
@@ -134,9 +141,11 @@ pub(crate) fn compute_hit_lag_compensation(
     let tick = timeline.tick();
     bullets
         .iter()
-        .for_each(|(entity, id, position, velocity, controlled_by)| {
-            let is_host_server = !host_server.is_empty();
-            let delay = if !is_host_server {
+        .for_each(|(entity, marker, id, position, velocity, controlled_by)| {
+            let owner_is_host_client = host_clients.get(controlled_by.owner).is_ok();
+            let delay = if owner_is_host_client {
+                InterpolationDelay::default()
+            } else {
                 let Ok(delay) = client_query.get(controlled_by.owner) else {
                     error!("Could not retrieve InterpolationDelay for client {id:?}");
                     lightyear_debug_event!(
@@ -144,20 +153,24 @@ pub(crate) fn compute_hit_lag_compensation(
                         DebugSamplePoint::FixedPostUpdate,
                         "FixedPostUpdate",
                         "fps_lag_comp_missing_interpolation_delay",
-                        tick = ?tick,
+                        local_tick = tick.0 as i64,
                         bullet = ?entity,
                         player_id = ?id.0,
+                        shooter = ?marker.shooter,
+                        shooter_bits = marker.shooter.to_bits(),
+                        fire_tick = marker.fire_tick.0 as i64,
+                        salt = marker.salt as i64,
+                        prespawn_hash = marker.prespawn_hash,
                         owner = ?controlled_by.owner,
+                        owner_is_host_client = owner_is_host_client,
                         "Missing interpolation delay for lag compensation"
                     );
                     return;
                 };
                 *delay
-            } else {
-                InterpolationDelay::default()
             };
             let direction = Dir2::new_unchecked(velocity.0.normalize());
-            let hit_data = if is_host_server {
+            let hit_data = if owner_is_host_client {
                 spatial_queries.p1().cast_ray_predicate(
                     position.0,
                     direction,
@@ -201,13 +214,18 @@ pub(crate) fn compute_hit_lag_compensation(
                     DebugSamplePoint::FixedPostUpdate,
                     "FixedPostUpdate",
                     "fps_lag_comp_hit",
-                    tick = ?tick,
+                    local_tick = tick.0 as i64,
                     bullet = ?entity,
                     player_id = ?id.0,
+                    shooter = ?marker.shooter,
+                    shooter_bits = marker.shooter.to_bits(),
+                    fire_tick = marker.fire_tick.0 as i64,
+                    salt = marker.salt as i64,
+                    prespawn_hash = marker.prespawn_hash,
                     position = ?position,
                     velocity = ?velocity,
                     delay = ?delay,
-                    is_host_server = is_host_server,
+                    owner_is_host_client = owner_is_host_client,
                     hit_data = ?hit_data,
                     score_after = ?score_after,
                     "Lag-compensated hit on interpolated bot"
@@ -221,7 +239,10 @@ pub(crate) fn compute_hit_prediction(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
     query: SpatialQuery,
-    bullets: Query<(Entity, &PlayerId, &Position, &LinearVelocity), With<BulletMarker>>,
+    bullets: Query<
+        (Entity, &BulletMarker, &PlayerId, &Position, &LinearVelocity),
+        With<BulletMarker>,
+    >,
     bot_query: Query<(), With<PredictedBot>>,
     // the InterpolationDelay component is stored directly on the client entity
     // (the server creates one entity for each client to store client-specific
@@ -229,51 +250,58 @@ pub(crate) fn compute_hit_prediction(
     mut player_query: Query<(&mut Score, &PlayerId), With<PlayerMarker>>,
 ) {
     let tick = timeline.tick();
-    bullets.iter().for_each(|(entity, id, position, velocity)| {
-        if let Some(hit_data) = query.cast_ray_predicate(
-            position.0,
-            Dir2::new_unchecked(velocity.0.normalize()),
-            // TODO: shouldn't this be based on velocity length?
-            BULLET_COLLISION_DISTANCE_CHECK,
-            false,
-            &SpatialQueryFilter::default(),
-            &|entity| {
-                // only confirm the hit on predicted bots
-                bot_query.get(entity).is_ok()
-            },
-        ) {
-            info!(
-                ?tick,
-                ?hit_data,
-                ?entity,
-                "Collision with predicted bot! Despawn bullet"
-            );
-            // if there is a hit, increment the score
-            let mut score_after = None;
-            for (mut score, player_id) in &mut player_query {
-                if player_id.0 == id.0 {
-                    score.0 += 1;
-                    score_after = Some(score.0);
-                    break;
+    bullets
+        .iter()
+        .for_each(|(entity, marker, id, position, velocity)| {
+            if let Some(hit_data) = query.cast_ray_predicate(
+                position.0,
+                Dir2::new_unchecked(velocity.0.normalize()),
+                // TODO: shouldn't this be based on velocity length?
+                BULLET_COLLISION_DISTANCE_CHECK,
+                false,
+                &SpatialQueryFilter::default(),
+                &|entity| {
+                    // only confirm the hit on predicted bots
+                    bot_query.get(entity).is_ok()
+                },
+            ) {
+                info!(
+                    ?tick,
+                    ?hit_data,
+                    ?entity,
+                    "Collision with predicted bot! Despawn bullet"
+                );
+                // if there is a hit, increment the score
+                let mut score_after = None;
+                for (mut score, player_id) in &mut player_query {
+                    if player_id.0 == id.0 {
+                        score.0 += 1;
+                        score_after = Some(score.0);
+                        break;
+                    }
                 }
+                lightyear_debug_event!(
+                    DebugCategory::Prediction,
+                    DebugSamplePoint::FixedPostUpdate,
+                    "FixedPostUpdate",
+                    "fps_prediction_hit",
+                    local_tick = tick.0 as i64,
+                    bullet = ?entity,
+                    player_id = ?id.0,
+                    shooter = ?marker.shooter,
+                    shooter_bits = marker.shooter.to_bits(),
+                    fire_tick = marker.fire_tick.0 as i64,
+                    salt = marker.salt as i64,
+                    prespawn_hash = marker.prespawn_hash,
+                    position = ?position,
+                    velocity = ?velocity,
+                    hit_data = ?hit_data,
+                    score_after = ?score_after,
+                    "Predicted hit on predicted bot"
+                );
+                commands.entity(entity).despawn();
             }
-            lightyear_debug_event!(
-                DebugCategory::Prediction,
-                DebugSamplePoint::FixedPostUpdate,
-                "FixedPostUpdate",
-                "fps_prediction_hit",
-                tick = ?tick,
-                bullet = ?entity,
-                player_id = ?id.0,
-                position = ?position,
-                velocity = ?velocity,
-                hit_data = ?hit_data,
-                score_after = ?score_after,
-                "Predicted hit on predicted bot"
-            );
-            commands.entity(entity).despawn();
-        }
-    })
+        })
 }
 
 fn interpolated_bot_movement(

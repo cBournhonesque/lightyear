@@ -54,6 +54,7 @@ mod client {
     #[derive(Resource, Clone, Default)]
     pub(super) struct AutomationSettings {
         pressed_keys: Vec<KeyCode>,
+        move_script: Option<Vec<(f32, Vec<KeyCode>)>>,
         auto_start: Option<AutoStartMode>,
     }
 
@@ -68,6 +69,7 @@ mod client {
             });
             Self {
                 pressed_keys: parse_keys(env_string("LIGHTYEAR_AUTOMOVE")),
+                move_script: parse_move_script(env_string("LIGHTYEAR_AUTOMOVE_SCRIPT")),
                 auto_start,
             }
         }
@@ -80,12 +82,20 @@ mod client {
     pub(super) fn drive_keys(
         settings: Res<AutomationSettings>,
         app_state: Res<State<AppState>>,
+        time: Res<Time>,
+        mut game_started_at: Local<Option<f32>>,
         mut previous: Local<Vec<KeyCode>>,
         mut buttons: ResMut<ButtonInput<KeyCode>>,
     ) {
         let keys = if matches!(app_state.get(), AppState::Game) {
-            settings.pressed_keys.clone()
+            let game_started_at = game_started_at.get_or_insert_with(|| time.elapsed_secs());
+            if let Some(script) = &settings.move_script {
+                script_keys(script, time.elapsed_secs() - *game_started_at)
+            } else {
+                settings.pressed_keys.clone()
+            }
         } else {
+            *game_started_at = None;
             Vec::new()
         };
         sync_pressed_keys(&mut buttons, &mut previous, &keys);
@@ -165,11 +175,11 @@ mod client {
     ) {
         for (entity, predicted, interpolated) in &players {
             if predicted || interpolated {
-                commands
-                    .entity(entity)
-                    .insert(LightyearDebug::component_at::<PlayerPosition>([
-                        DebugSamplePoint::Update,
-                    ]));
+                commands.entity(entity).insert(
+                    LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::Update])
+                        .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::Update])
+                        .with_component_at::<PlayerId>([DebugSamplePoint::Update]),
+                );
             }
         }
     }
@@ -190,6 +200,43 @@ mod client {
             }
         }
         keys
+    }
+
+    fn parse_move_script(value: Option<String>) -> Option<Vec<(f32, Vec<KeyCode>)>> {
+        let value = value?;
+        let mut script = Vec::new();
+        for chunk in value.split(',') {
+            let chunk = chunk.trim();
+            if chunk.is_empty() {
+                continue;
+            }
+            let Some((time_str, dir_str)) = chunk.split_once(':') else {
+                warn!(?chunk, "Ignoring malformed LIGHTYEAR_AUTOMOVE_SCRIPT chunk");
+                continue;
+            };
+            let Ok(time) = time_str.trim().parse::<f32>() else {
+                warn!(
+                    ?chunk,
+                    "Ignoring LIGHTYEAR_AUTOMOVE_SCRIPT chunk with bad time"
+                );
+                continue;
+            };
+            script.push((time, parse_keys(Some(dir_str.trim().to_string()))));
+        }
+        script.sort_by(|a, b| a.0.total_cmp(&b.0));
+        (!script.is_empty()).then_some(script)
+    }
+
+    fn script_keys(script: &[(f32, Vec<KeyCode>)], elapsed: f32) -> Vec<KeyCode> {
+        let mut selected = Vec::new();
+        for (start, keys) in script {
+            if elapsed >= *start {
+                selected = keys.clone();
+            } else {
+                break;
+            }
+        }
+        selected
     }
 }
 
@@ -217,7 +264,8 @@ mod server {
         for entity in &players {
             commands.entity(entity).insert(
                 LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
+                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate])
+                    .with_component_at::<PlayerId>([DebugSamplePoint::FixedUpdate]),
             );
         }
     }

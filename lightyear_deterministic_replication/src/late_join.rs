@@ -23,19 +23,19 @@
 //!    rebroadcasting inputs for those entities. Physics components
 //!    registered via [`AppCatchUpExt::register_catchup_components`] are
 //!    **hidden by default** via a replicon per-component visibility filter
-//!    for every client that has not yet caught up.
+//!    until each client requests a catch-up snapshot.
 //!
-//! 2. On the client, user code sends a single bodyless [`CatchUpRequest`]
-//!    once the [`InputTimeline`] is synced. The plugin's client-side system
-//!    drives this: if the client doesn't already have
-//!    [`CatchUpRequestSent`], it sends the request and inserts that marker
-//!    plus the [`AwaitingCatchUpSnapshot`] resource.
+//! 2. On the client, user code marks replicated deterministic entities with
+//!    [`AwaitingCatchUpSnapshot`]. Once the [`InputTimeline`] is synced, the
+//!    plugin sends one bodyless [`CatchUpRequest`] for the current pending
+//!    catch-up bundle and inserts [`CatchUpRequestSent`] to track the
+//!    in-flight request.
 //!
 //! 3. On the server, the [`CatchUpRequest`] handler enumerates every
 //!    currently-existing [`CatchUpGated`] entity, flips their catch-up
 //!    visibility bit to *visible* for the requesting client, and inserts
-//!    [`HasCaughtUp`] on the client's link entity. Because the flips all
-//!    happen in one frame, replicon emits a single bundled init message at
+//!    [`HasCaughtUp`] on the client's link entity. Because all visibility
+//!    flips happen in one frame, replicon emits a single bundled init message at
 //!    a single server tick `S` containing every gated entity's state.
 //!
 //! 4. The client receives all catch-up components at server tick `S`.
@@ -47,10 +47,10 @@
 //!    forward to the current tick across *all* entities simultaneously.
 //!
 //! 5. Subsequent entities that become [`CatchUpGated`] after the client has
-//!    caught up (e.g. another client joining later) are *not* hidden for
-//!    the caught-up client. They flow through regular `replicate_once` at
-//!    their own spawn tick; the client integrates them into its simulation
-//!    via input replication alone. No second `CatchUpRequest` is needed.
+//!    caught up (e.g. another client joining later) are hidden for that
+//!    client too. They also need a snapshot tick plus rollback, otherwise
+//!    the client receives their spawn-time physics state at a later local
+//!    tick and misses the spawn-to-receive simulation window.
 //!
 //! # Why bundled, not per-entity
 //!
@@ -170,23 +170,24 @@ fn hide_for_client(world: &mut World, entity: Entity, client_link_entity: Entity
     }
 }
 
-/// Hide `entity`'s catch-up-gated components for every client that has not
-/// yet received the bundled catch-up snapshot (i.e. lacks [`HasCaughtUp`]).
-/// Clients with [`HasCaughtUp`] keep their current visibility (visible) so
-/// the new entity reaches them via normal `replicate_once` + input
-/// replication.
-fn hide_for_not_yet_caught_up_clients(world: &mut World, entity: Entity) {
+/// Hide `entity`'s catch-up-gated components for every client.
+///
+/// Even clients that have already caught up must receive a later deterministic
+/// spawn through the catch-up path. Otherwise they see the entity's initial
+/// replicated state at receive time but never roll back to the server tick that
+/// produced it.
+fn hide_for_all_clients(world: &mut World, entity: Entity) {
     let Some(bit) = world.resource::<CatchUpRegistry>().bit() else {
         return;
     };
     let clients: Vec<Entity> = world
-        .query_filtered::<Entity, (With<ClientVisibility>, Without<HasCaughtUp>)>()
+        .query_filtered::<Entity, With<ClientVisibility>>()
         .iter(world)
         .collect();
     debug!(
         ?entity,
         num_clients = clients.len(),
-        "hiding catch-up bit on clients that haven't caught up yet",
+        "hiding catch-up bit on clients",
     );
     for client in clients {
         if let Some(mut vis) = world.get_mut::<ClientVisibility>(client) {
@@ -233,13 +234,12 @@ impl AppCatchUpExt for App {
 }
 
 /// Marker component added by server-side user code to entities whose
-/// catch-up-gated components should be hidden from clients that have not
-/// yet caught up.
+/// catch-up-gated components should be hidden from clients until the client
+/// requests and receives a bundled catch-up snapshot.
 ///
-/// On [`Add`], an observer hides the catch-up bit for every client that
-/// does *not* yet have [`HasCaughtUp`]. Clients that have already caught
-/// up receive the entity normally (visible from the start) and integrate
-/// it via input replication.
+/// On [`Add`], an observer hides the catch-up bit for every client,
+/// including clients that have already completed an earlier catch-up.
+/// Each deterministic spawn needs its own snapshot tick and rollback.
 ///
 /// In the deterministic_replication example this is inserted on the player
 /// entity next to `Replicate::to_clients(NetworkTarget::All)`.
@@ -247,16 +247,15 @@ impl AppCatchUpExt for App {
 pub struct CatchUpGated;
 
 /// Server-side marker inserted on a client's link entity once the client
-/// has received its one-shot bundled catch-up snapshot. Subsequent
-/// [`CatchUpGated`] entities are *not* hidden from clients with this
-/// marker — they flow through normal `replicate_once` replication and
-/// input replication.
+/// has received at least one bundled catch-up snapshot.
 #[derive(Component, Debug, Default)]
 pub struct HasCaughtUp;
 
 /// Client-side marker inserted on the client entity once the bodyless
-/// [`CatchUpRequest`] has been sent. Prevents the client system from
-/// sending the request more than once per session.
+/// [`CatchUpRequest`] has been sent. Prevents duplicate requests while one
+/// catch-up bundle is in flight; the marker is removed when a forced
+/// rollback is scheduled so future deterministic spawns can request another
+/// bundle.
 #[derive(Component, Debug, Default)]
 pub struct CatchUpRequestSent;
 
@@ -318,12 +317,14 @@ pub use lightyear_prediction::rollback::AwaitingCatchUpSnapshot;
 
 /// Plugin that wires up the late-join catch-up machinery.
 ///
-/// Clients send a single bodyless [`CatchUpRequest`] once they're synced.
-/// The server enumerates all [`CatchUpGated`] entities, flips their catch-up
-/// visibility bits to *visible* for the requesting client in one frame, and
-/// inserts [`HasCaughtUp`] on the client entity. Replicon sends all
-/// gated components as a single bundled init message at a single server
-/// tick, which the client then uses to drive a single forced rollback.
+/// Clients send a bodyless [`CatchUpRequest`] once they're synced and have at
+/// least one entity marked [`AwaitingCatchUpSnapshot`]. The server enumerates
+/// all [`CatchUpGated`] entities, flips their catch-up visibility bits to
+/// *visible* for the requesting client in one frame, and inserts
+/// [`HasCaughtUp`] on the client entity. Replicon sends all gated components
+/// as a single bundled init message at a single server tick, which the client
+/// then uses to drive a forced rollback. Later deterministic spawns can repeat
+/// this request/snapshot/rollback flow.
 pub struct LateJoinCatchUpPlugin<C: Channel> {
     _marker: core::marker::PhantomData<fn() -> C>,
 }
@@ -391,17 +392,14 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
 }
 
 /// When a user inserts [`CatchUpGated`] on a server entity, hide its
-/// catch-up-scoped components for every client that has *not* yet caught
-/// up. Clients with [`HasCaughtUp`] see the entity via normal
-/// `replicate_once` replication.
+/// catch-up-scoped components for every client. The entity's structural
+/// components can still replicate immediately, letting clients request a
+/// bundled physics snapshot once their input buffers can replay it.
 fn on_catch_up_gated_added(trigger: On<Add, CatchUpGated>, mut commands: Commands) {
     let entity = trigger.entity;
-    debug!(
-        ?entity,
-        "CatchUpGated added; queuing hide for not-yet-caught-up clients"
-    );
+    debug!(?entity, "CatchUpGated added; queuing hide for all clients");
     commands.queue(move |world: &mut World| {
-        hide_for_not_yet_caught_up_clients(world, entity);
+        hide_for_all_clients(world, entity);
     });
 }
 
@@ -409,8 +407,8 @@ fn on_catch_up_gated_added(trigger: On<Add, CatchUpGated>, mut commands: Command
 /// already-existing [`CatchUpGated`] entity *for that one client only*.
 ///
 /// Only the newly-connected client needs re-hiding — other clients'
-/// visibility state for those entities is already correct (either hidden
-/// if they haven't caught up, or visible because they have).
+/// visibility state for those entities is already managed by their current
+/// catch-up request/snapshot state.
 fn on_client_connected_hide_gated(
     trigger: On<Add, Connected>,
     clients: Query<(), (With<ClientOf>, With<LinkOf>)>,
@@ -460,6 +458,7 @@ pub fn apply_catch_up_for_client(world: &mut World, client_link_entity: Entity) 
     }
     if let Ok(mut entity_mut) = world.get_entity_mut(client_link_entity) {
         entity_mut.insert(HasCaughtUp);
+        entity_mut.remove::<CatchUpRequestReceived>();
     }
 }
 
@@ -504,11 +503,7 @@ fn apply_pending_catch_ups(world: &mut World) {
         return;
     }
     let pending: Vec<Entity> = world
-        .query_filtered::<Entity, (
-            With<ClientOf>,
-            With<CatchUpRequestReceived>,
-            Without<HasCaughtUp>,
-        )>()
+        .query_filtered::<Entity, (With<ClientOf>, With<CatchUpRequestReceived>)>()
         .iter(world)
         .collect();
     if pending.is_empty() {
@@ -523,14 +518,16 @@ fn apply_pending_catch_ups(world: &mut World) {
     }
 }
 
-/// Client system: send a single [`CatchUpRequest`] once the input timeline
-/// is synced, unless the client is in [`CatchUpMode::InputOnly`] or the
-/// request has already been sent.
+/// Client system: send a [`CatchUpRequest`] once the input timeline is
+/// synced and at least one entity is waiting for a catch-up snapshot, unless
+/// the client is in [`CatchUpMode::InputOnly`] or a request is already in
+/// flight.
 ///
 /// The channel type parameter `C` is the channel the request is sent on;
 /// use a reliable channel so the request is not lost.
 fn send_catchup_request<C: Channel>(
     mode: Res<CatchUpMode>,
+    awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
     client: Option<
         Single<
             (Entity, &mut MessageSender<CatchUpRequest>),
@@ -544,6 +541,9 @@ fn send_catchup_request<C: Channel>(
     mut commands: Commands,
 ) {
     if *mode == CatchUpMode::InputOnly {
+        return;
+    }
+    if awaiting.is_empty() {
         return;
     }
     let Some(client) = client else {
@@ -606,6 +606,15 @@ pub fn request_forced_rollback_to_catch_up_tick(
     for entity in entities {
         if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
             entity_mut.remove::<AwaitingCatchUpSnapshot>();
+        }
+    }
+    let clients: Vec<Entity> = world
+        .query_filtered::<Entity, (With<Client>, With<CatchUpRequestSent>)>()
+        .iter(world)
+        .collect();
+    for client in clients {
+        if let Ok(mut entity_mut) = world.get_entity_mut(client) {
+            entity_mut.remove::<CatchUpRequestSent>();
         }
     }
     true

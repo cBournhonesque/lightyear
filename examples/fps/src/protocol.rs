@@ -34,8 +34,24 @@ pub struct Score(pub usize);
 #[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BulletMarker;
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BulletMarker {
+    pub shooter: PeerId,
+    pub fire_tick: Tick,
+    pub salt: u64,
+    pub prespawn_hash: u64,
+}
+
+impl BulletMarker {
+    pub fn new(shooter: PeerId, fire_tick: Tick, salt: u64, prespawn_hash: u64) -> Self {
+        Self {
+            shooter,
+            fire_tick,
+            salt,
+            prespawn_hash,
+        }
+    }
+}
 
 // Inputs
 

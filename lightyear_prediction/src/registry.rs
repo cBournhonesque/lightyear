@@ -51,7 +51,7 @@ pub struct PredictionMetadata {
     pub(crate) should_rollback: unsafe fn(),
     pub(crate) check_rollback: CheckRollbackFn,
     #[cfg(feature = "deterministic")]
-    /// Function to call `pop_until_tick` on the [`PredictionHistory<C>`] component.
+    /// Function to hash the value in [`PredictionHistory<C>`] at a given tick.
     pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
 }
 
@@ -67,8 +67,9 @@ impl PredictionMetadata {
 type CheckRollbackFn =
     fn(&PredictionRegistry, confirmed_tick: Tick, entity_mut: &mut FilteredEntityMut) -> bool;
 
-/// Type-erased function for calling `pop_until_tick` and then `hash` on a [`PredictionHistory<C>`] component.
-/// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the value popped from the history.
+/// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
+/// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
+/// value returned by [`PredictionHistory::get`].
 pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
 
 impl PredictionMetadata {
@@ -419,7 +420,7 @@ impl PredictionRegistry {
         should_rollback
     }
 
-    /// Type-erased function for calling `pop_until_tick` on a [`PredictionHistory<C>`] component.
+    /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] at `tick`.
     ///
     /// Safety
     ///
@@ -435,11 +436,9 @@ impl PredictionRegistry {
         let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
         // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
         let history = unsafe { ptr.deref_mut::<PredictionHistory<C>>() };
-        if let Some(state) = history.pop_until_tick(tick)
-            && let Some(v) = state.value()
-        {
+        if let Some(v) = history.get(tick) {
             trace!(
-                "Popped value from PredictionHistory<{:?}? at tick {:?}: {:?} for hashing",
+                "Read value from PredictionHistory<{:?}> at tick {:?}: {:?} for hashing",
                 DebugName::type_name::<C>(),
                 tick,
                 v
@@ -848,9 +847,14 @@ fn remove_history_gated_by_catchup<C: SyncComponent>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::hash::Hasher;
 
     #[derive(Clone, PartialEq, Debug)]
     struct TestComponent(u32);
+
+    fn hash_test_component(value: &TestComponent, hasher: &mut seahash::SeaHasher) {
+        hasher.write_u32(value.0);
+    }
 
     #[test]
     fn oldest_retained_tick_tracks_history_pruning() {
@@ -869,5 +873,33 @@ mod tests {
             PredictionRegistry::oldest_retained_tick(&history).unwrap() > Tick(10),
             "a confirmed update for tick 10 is older than retained prediction history"
         );
+    }
+
+    #[test]
+    fn deterministic_hash_does_not_prune_prediction_history() {
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(Tick(10), Some(TestComponent(10)));
+        history.add_predicted(Tick(11), Some(TestComponent(11)));
+        history.add_predicted(Tick(12), Some(TestComponent(12)));
+
+        let before_len = history.len();
+        let mut hasher = seahash::SeaHasher::default();
+        let hash_fn = unsafe {
+            core::mem::transmute::<fn(&TestComponent, &mut seahash::SeaHasher), fn()>(
+                hash_test_component,
+            )
+        };
+        PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
+            PtrMut::from(&mut history),
+            Tick(11),
+            &mut hasher,
+            hash_fn,
+        );
+
+        assert_ne!(hasher.finish(), 0);
+        assert_eq!(history.len(), before_len);
+        assert_eq!(history.get(Tick(10)).unwrap().0, 10);
+        assert_eq!(history.get(Tick(11)).unwrap().0, 11);
+        assert_eq!(history.get(Tick(12)).unwrap().0, 12);
     }
 }

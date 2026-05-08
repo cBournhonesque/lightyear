@@ -3,6 +3,7 @@ use bevy::ecs::query::QueryData;
 use bevy::prelude::*;
 use core::hash::{Hash, Hasher};
 use core::time::Duration;
+use std::collections::HashMap;
 
 use crate::protocol::*;
 #[cfg(feature = "gui")]
@@ -27,6 +28,7 @@ pub struct SharedPlugin {
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
+        app.init_resource::<BulletDebugRegistry>();
 
         // bundles
         app.add_systems(Startup, init);
@@ -54,12 +56,26 @@ impl Plugin for SharedPlugin {
             (player_movement, shared_player_firing, lifetime_despawner),
         );
         app.add_systems(
+            PostUpdate,
+            (
+                track_bullet_lifecycle_added,
+                track_bullet_lifecycle_removed,
+                detect_duplicate_bullets,
+            )
+                .chain(),
+        );
+        app.add_systems(
             FixedPostUpdate,
             process_collisions.after(PhysicsSystems::StepSimulation),
         );
 
         app.add_message::<BulletHitMessage>();
     }
+}
+
+#[derive(Resource, Default)]
+struct BulletDebugRegistry {
+    bullets: HashMap<Entity, (PeerId, Tick)>,
 }
 
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
@@ -331,6 +347,165 @@ fn effective_last_fire_tick(
         last_fire_tick = history_weapon.last_fire_tick;
     }
     last_fire_tick
+}
+
+fn track_bullet_lifecycle_added(
+    timeline: Res<LocalTimeline>,
+    mut registry: ResMut<BulletDebugRegistry>,
+    bullets: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &BulletLifetime,
+            &Position,
+            Has<Predicted>,
+            Has<Interpolated>,
+            Has<PreSpawned>,
+            Has<Replicate>,
+        ),
+        Added<BulletMarker>,
+    >,
+    rollback: Query<(), With<Rollback>>,
+) {
+    let tick = timeline.tick();
+    let in_rollback = !rollback.is_empty();
+    for (
+        entity,
+        marker,
+        lifetime,
+        position,
+        is_predicted,
+        is_interpolated,
+        is_prespawned,
+        is_replicate,
+    ) in &bullets
+    {
+        registry
+            .bullets
+            .insert(entity, (marker.owner, lifetime.origin_tick));
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "spaceships_bullet_lifecycle_added",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            owner = ?marker.owner,
+            owner_bits = marker.owner.to_bits(),
+            origin_tick = lifetime.origin_tick.0 as i64,
+            position = ?position,
+            is_predicted = is_predicted,
+            is_interpolated = is_interpolated,
+            is_prespawned = is_prespawned,
+            is_replicate = is_replicate,
+            in_rollback = in_rollback,
+            "Spaceships bullet lifecycle added"
+        );
+    }
+}
+
+fn track_bullet_lifecycle_removed(
+    timeline: Res<LocalTimeline>,
+    mut registry: ResMut<BulletDebugRegistry>,
+    mut removed: RemovedComponents<BulletMarker>,
+    rollback: Query<(), With<Rollback>>,
+) {
+    let tick = timeline.tick();
+    let in_rollback = !rollback.is_empty();
+    for entity in removed.read() {
+        let identity = registry.bullets.remove(&entity);
+        let (owner, owner_bits, origin_tick) = match identity {
+            Some((owner, origin_tick)) => (
+                Some(owner),
+                Some(owner.to_bits()),
+                Some(origin_tick.0 as i64),
+            ),
+            None => (None, None, None),
+        };
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "spaceships_bullet_lifecycle_removed",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            owner = ?owner,
+            owner_bits = owner_bits,
+            origin_tick = origin_tick,
+            in_rollback = in_rollback,
+            "Spaceships bullet lifecycle removed"
+        );
+    }
+}
+
+fn detect_duplicate_bullets(
+    timeline: Res<LocalTimeline>,
+    bullets: Query<(
+        Entity,
+        &BulletMarker,
+        &BulletLifetime,
+        &Position,
+        Has<Predicted>,
+        Has<Interpolated>,
+        Has<PreSpawned>,
+        Has<Replicate>,
+    )>,
+    rollback: Query<(), With<Rollback>>,
+) {
+    #[derive(Debug)]
+    struct BulletDuplicateState {
+        entity: Entity,
+        position: Vec2,
+        is_predicted: bool,
+        is_interpolated: bool,
+        is_prespawned: bool,
+        is_replicate: bool,
+    }
+
+    let tick = timeline.tick();
+    let in_rollback = !rollback.is_empty();
+    let mut groups: HashMap<(u64, u32), Vec<BulletDuplicateState>> = HashMap::new();
+    for (
+        entity,
+        marker,
+        lifetime,
+        position,
+        is_predicted,
+        is_interpolated,
+        is_prespawned,
+        is_replicate,
+    ) in &bullets
+    {
+        groups
+            .entry((marker.owner.to_bits(), lifetime.origin_tick.0))
+            .or_default()
+            .push(BulletDuplicateState {
+                entity,
+                position: position.0,
+                is_predicted,
+                is_interpolated,
+                is_prespawned,
+                is_replicate,
+            });
+    }
+    for ((owner_bits, origin_tick), entities) in groups {
+        if entities.len() <= 1 {
+            continue;
+        }
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "spaceships_bullet_duplicate_active",
+            local_tick = tick.0 as i64,
+            owner_bits = owner_bits,
+            origin_tick = origin_tick as i64,
+            total_count = entities.len() as i64,
+            in_rollback = in_rollback,
+            entities = ?entities,
+            "Multiple active spaceships bullets share the same shot identity"
+        );
+    }
 }
 
 // Predicted/prespawned clients can predict TTL expiry. Interpolated observer bullets wait for the

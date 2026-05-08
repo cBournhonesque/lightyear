@@ -26,7 +26,6 @@ use lightyear::prelude::*;
 use lightyear_avian2d::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSpatialQuery,
 };
-use lightyear_examples_common::cli::new_headless_app;
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
 use rand::random;
 
@@ -425,9 +424,9 @@ mod bot {
         // Bots are client apps; pace their main loop to ~60 FPS so they
         // don't flood the server with packets under the
         // MinimalPlugins-default run-as-fast-as-possible scheduler.
-        let mut app = new_headless_app(Some(Duration::from_secs_f64(
+        let mut app = new_bot_headless_app(Duration::from_secs_f64(
             1.0 / lightyear_examples_common::cli::HEADLESS_CLIENT_LOOP_HZ,
-        )));
+        ));
         app.add_plugins(lightyear::prelude::client::ClientPlugins {
             tick_duration: tick_duration.0,
         });
@@ -617,6 +616,18 @@ mod bot {
     // prevent the bot from running too fast
     fn bot_wait(timeline: Res<LocalTimeline>) {
         std::thread::sleep(Duration::from_millis(15));
+    }
+
+    fn new_bot_headless_app(loop_wait: Duration) -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            MinimalPlugins.set(bevy::app::ScheduleRunnerPlugin::run_loop(loop_wait)),
+            TransformPlugin,
+            bevy::input::InputPlugin,
+            bevy::state::app::StatesPlugin,
+            bevy::diagnostic::DiagnosticsPlugin,
+        ));
+        app
     }
 }
 

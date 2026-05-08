@@ -230,9 +230,6 @@ fn test_from_snapshot_transitions_produces_just_pressed() {
 ///
 /// The wire format (`ActionDiff`) collapses `JustPressed` into `Pressed`,
 /// so the server must reconstruct the transition from the state change.
-/// Currently this test documents the known limitation: `just_pressed()`
-/// returns false on the server because `from_snapshot` raw-clones the
-/// `ActionState` without detecting transitions.
 #[test]
 fn test_server_just_pressed() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
@@ -284,11 +281,9 @@ fn test_server_just_pressed() {
         "Server should see the button as pressed"
     );
 
-    // Document current behavior until the server-side transition reconstruction
-    // path is fully enabled.
     assert!(
-        !server_action.just_pressed(&LeafwingInput1::Jump),
-        "KNOWN BUG: just_pressed is lost on the server (see PR #1438)"
+        server_action.just_pressed(&LeafwingInput1::Jump),
+        "Server should reconstruct JustPressed from the received input transition"
     );
 }
 

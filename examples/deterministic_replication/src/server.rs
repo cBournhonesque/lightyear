@@ -124,10 +124,10 @@ pub(crate) fn handle_connected(
     if *mode == CatchUpMode::StateBasedCatchUp {
         // `CatchUpGated` hides the registered physics components
         // (Position, Rotation, LinearVelocity, AngularVelocity) from
-        // every client that has not yet caught up. Each client sends a
-        // single bodyless `CatchUpRequest` once it's synced, and the
-        // server flips visibility to *visible* for every `CatchUpGated`
-        // entity at once — producing a single coherent bundled snapshot.
+        // every client. Each client sends a bodyless `CatchUpRequest`
+        // when it has a pending catch-up marker, and the server flips
+        // visibility to *visible* for every `CatchUpGated` entity at once
+        // — producing a single coherent bundled snapshot.
         // Structural components (`PlayerId`, etc.) still replicate
         // immediately, so clients see the entity + marker and can
         // subscribe to rebroadcast inputs right away.
