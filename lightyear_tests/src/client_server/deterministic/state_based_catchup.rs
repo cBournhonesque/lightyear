@@ -22,7 +22,6 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{
     Action, ActionMock, ActionOf, ActionValue, MockSpan, TriggerState,
 };
-use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
@@ -30,6 +29,7 @@ use lightyear_deterministic_replication::prelude::{
 };
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::PreSpawned;
+use std::collections::HashMap;
 use test_log::test;
 
 /// Resource on each client driving a deterministic pseudo-random walk
@@ -43,6 +43,9 @@ struct RandomDrive {
     /// machinery can settle (matches "50 ticks then start moving" request).
     warmup_ticks: u32,
 }
+
+#[derive(Resource, Default)]
+struct PositionSamples(HashMap<(u32, PeerId), Position>);
 
 impl RandomDrive {
     fn new(seed: u64, warmup_ticks: u32) -> Self {
@@ -90,21 +93,21 @@ fn drive_random_input(
 }
 
 /// Server-side: update `CatchUpServerReadiness` based on whether every
-/// player has at least one action entity with a non-empty BEI input buffer.
+/// player has real remote input through the server's current tick.
 fn update_server_readiness(
+    timeline: Res<LocalTimeline>,
     players: Query<Entity, With<DetPlayerId>>,
     actions: Query<(&ActionOf<Player>, &DetBuffer)>,
     mut readiness: ResMut<CatchUpServerReadiness>,
 ) {
     use bevy::ecs::relationship::Relationship;
+    let current_tick = timeline.tick();
     let mut any = false;
     let ready = players.iter().all(|player_entity| {
         any = true;
-        // Find an action entity parented to this player whose BEI input
-        // buffer has `start_tick.is_some()` — i.e. the server has received
-        // at least one input message from this client.
         actions.iter().any(|(action_of, buffer)| {
-            action_of.get() == player_entity && buffer.start_tick.is_some()
+            action_of.get() == player_entity
+                && matches!(buffer.last_remote_tick, Some(t) if t >= current_tick)
         })
     });
     readiness.all_clients_ready = any && ready;
@@ -159,8 +162,10 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
         PreUpdate,
         update_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
     );
+    add_position_samples(&mut stepper.server_app);
     for (i, client_app) in stepper.client_apps.iter_mut().enumerate() {
         client_app.insert_resource(RandomDrive::new(i as u64 + 1, warmup_ticks));
+        add_position_samples(client_app);
         client_app.add_systems(
             FixedPreUpdate,
             (activate_physics_when_bundle_lands, drive_random_input),
@@ -168,28 +173,35 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
     }
 }
 
-fn fixed_position_at(world: &World, entity: Entity, tick: Tick) -> Position {
-    let local_tick = world.resource::<LocalTimeline>().tick();
-    let live_position = *world
-        .get::<Position>(entity)
-        .expect("entity missing live Position");
-    let Some(frame_interpolate) = world.get::<FrameInterpolate<Position>>(entity) else {
-        assert_eq!(
-            tick, local_tick,
-            "cannot read a historical fixed position without FrameInterpolate"
-        );
-        return live_position;
-    };
-    match local_tick.0.checked_sub(tick.0) {
-        Some(0) => frame_interpolate.current_value.unwrap_or(live_position),
-        Some(1) => frame_interpolate
-            .previous_value
-            .expect("missing previous fixed Position"),
-        _ => panic!(
-            "cannot compare fixed Position at tick {:?}; entity {:?} is at local tick {:?}",
-            tick, entity, local_tick
-        ),
+fn add_position_samples(app: &mut App) {
+    app.init_resource::<PositionSamples>();
+    app.add_systems(FixedLast, sample_positions);
+}
+
+fn sample_positions(
+    timeline: Res<LocalTimeline>,
+    mut samples: ResMut<PositionSamples>,
+    players: Query<(&DetPlayerId, &Position), With<DeterministicPredicted>>,
+) {
+    let tick = timeline.tick().0;
+    for (id, position) in &players {
+        samples.0.insert((tick, id.0), *position);
     }
+}
+
+fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
+    world
+        .resource::<PositionSamples>()
+        .0
+        .get(&(tick.0, player_id))
+        .copied()
+        .unwrap_or_else(|| {
+            let local_tick = world.resource::<LocalTimeline>().tick();
+            panic!(
+                "cannot compare fixed Position for player {:?} at tick {:?}; app is at local tick {:?}",
+                player_id, tick, local_tick
+            )
+        })
 }
 
 /// Exercises state-based deterministic catch-up, the bundled forced rollback,
@@ -263,8 +275,10 @@ fn test_state_based_catchup_two_clients() {
         .fold(server_tick, |min_tick, tick| {
             if tick.0 < min_tick.0 { tick } else { min_tick }
         });
-    let server_pos_a = fixed_position_at(stepper.server_app.world(), server_player_a, compare_tick);
-    let server_pos_b = fixed_position_at(stepper.server_app.world(), server_player_b, compare_tick);
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_pos_a = fixed_position_at(stepper.server_app.world(), peer_a, compare_tick);
+    let server_pos_b = fixed_position_at(stepper.server_app.world(), peer_b, compare_tick);
 
     info!(
         ?server_tick,
@@ -276,14 +290,14 @@ fn test_state_based_catchup_two_clients() {
 
     // Assert that each client's view of both players matches the server.
     for client_id in 0..2 {
-        let client_player_a = stepper
+        let _client_player_a = stepper
             .client(client_id)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
             .get_local(server_player_a)
             .expect("client missing player A entity");
-        let client_player_b = stepper
+        let _client_player_b = stepper
             .client(client_id)
             .get::<MessageManager>()
             .unwrap()
@@ -296,16 +310,10 @@ fn test_state_based_catchup_two_clients() {
             .world()
             .resource::<LocalTimeline>()
             .tick();
-        let c_pos_a = fixed_position_at(
-            stepper.client_app(client_id).world(),
-            client_player_a,
-            compare_tick,
-        );
-        let c_pos_b = fixed_position_at(
-            stepper.client_app(client_id).world(),
-            client_player_b,
-            compare_tick,
-        );
+        let c_pos_a =
+            fixed_position_at(stepper.client_app(client_id).world(), peer_a, compare_tick);
+        let c_pos_b =
+            fixed_position_at(stepper.client_app(client_id).world(), peer_b, compare_tick);
         info!(
             client_id,
             ?client_tick,

@@ -19,11 +19,11 @@ use approx::assert_relative_eq;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{Action, ActionMock, ActionValue, MockSpan, TriggerState};
-use lightyear::frame_interpolation::FrameInterpolate;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_messages::MessageManager;
+use std::collections::HashMap;
 use test_log::test;
 
 #[derive(Resource, Clone)]
@@ -32,6 +32,9 @@ struct RandomDrive {
     ticks: u32,
     warmup_ticks: u32,
 }
+
+#[derive(Resource, Default)]
+struct PositionSamples(HashMap<(u32, PeerId), Position>);
 
 impl RandomDrive {
     fn new(seed: u64, warmup_ticks: u32) -> Self {
@@ -108,14 +111,16 @@ const SAMPLE_WINDOW: core::ops::RangeInclusive<u32> = 46..=250;
 /// Log Position/LinearVelocity for each player at multiple FixedMain phases
 /// on both server and clients, to identify the first drift in tick 61.
 fn add_phase_samplers(app: &mut App, role: &'static str) {
+    app.init_resource::<PositionSamples>();
     fn sample(
         phase: &'static str,
         role: &'static str,
     ) -> impl FnMut(
         Res<LocalTimeline>,
+        ResMut<PositionSamples>,
         Query<
             (
-                Entity,
+                &DetPlayerId,
                 &Position,
                 &LinearVelocity,
                 &Rotation,
@@ -125,9 +130,10 @@ fn add_phase_samplers(app: &mut App, role: &'static str) {
         >,
     ) {
         move |tl: Res<LocalTimeline>,
+              mut samples: ResMut<PositionSamples>,
               q: Query<
             (
-                Entity,
+                &DetPlayerId,
                 &Position,
                 &LinearVelocity,
                 &Rotation,
@@ -136,39 +142,33 @@ fn add_phase_samplers(app: &mut App, role: &'static str) {
             With<DeterministicPredicted>,
         >| {
             let tick = tl.tick().0;
+            for (id, pos, _, _, _) in q.iter() {
+                samples.0.insert((tick, id.0), *pos);
+            }
             if !SAMPLE_WINDOW.contains(&tick) {
                 return;
             }
-            for (e, pos, vel, rot, avel) in q.iter() {
-                info!(?role, ?tick, ?phase, entity=?e, pos=?pos.0, vel=?vel.0, rot_bits=rot.as_radians().to_bits(), avel_bits=avel.0.to_bits(), "sample");
+            for (id, pos, vel, rot, avel) in q.iter() {
+                info!(?role, ?tick, ?phase, player=?id.0, pos=?pos.0, vel=?vel.0, rot_bits=rot.as_radians().to_bits(), avel_bits=avel.0.to_bits(), "sample");
             }
         }
     }
     app.add_systems(FixedLast, sample("FixedLast_end", role));
 }
 
-fn fixed_position_at(world: &World, entity: Entity, tick: Tick) -> Position {
-    let local_tick = world.resource::<LocalTimeline>().tick();
-    let live_position = *world
-        .get::<Position>(entity)
-        .expect("entity missing live Position");
-    let Some(frame_interpolate) = world.get::<FrameInterpolate<Position>>(entity) else {
-        assert_eq!(
-            tick, local_tick,
-            "cannot read a historical fixed position without FrameInterpolate"
-        );
-        return live_position;
-    };
-    match local_tick.0.checked_sub(tick.0) {
-        Some(0) => frame_interpolate.current_value.unwrap_or(live_position),
-        Some(1) => frame_interpolate
-            .previous_value
-            .expect("missing previous fixed Position"),
-        _ => panic!(
-            "cannot compare fixed Position at tick {:?}; entity {:?} is at local tick {:?}",
-            tick, entity, local_tick
-        ),
-    }
+fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
+    world
+        .resource::<PositionSamples>()
+        .0
+        .get(&(tick.0, player_id))
+        .copied()
+        .unwrap_or_else(|| {
+            let local_tick = world.resource::<LocalTimeline>().tick();
+            panic!(
+                "cannot compare fixed Position for player {:?} at tick {:?}; app is at local tick {:?}",
+                player_id, tick, local_tick
+            )
+        })
 }
 
 /// On the client, when a replicated `DetPlayerId` entity arrives, insert
@@ -260,8 +260,10 @@ fn test_input_only_two_clients() {
         .fold(server_tick, |min_tick, tick| {
             if tick.0 < min_tick.0 { tick } else { min_tick }
         });
-    let server_pos_a = fixed_position_at(stepper.server_app.world(), server_player_a, compare_tick);
-    let server_pos_b = fixed_position_at(stepper.server_app.world(), server_player_b, compare_tick);
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_pos_a = fixed_position_at(stepper.server_app.world(), peer_a, compare_tick);
+    let server_pos_b = fixed_position_at(stepper.server_app.world(), peer_b, compare_tick);
     info!(
         ?server_tick,
         ?compare_tick,
@@ -271,14 +273,14 @@ fn test_input_only_two_clients() {
     );
 
     for client_id in 0..2 {
-        let c_a = stepper
+        let _c_a = stepper
             .client(client_id)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
             .get_local(server_player_a)
             .expect("client missing player A");
-        let c_b = stepper
+        let _c_b = stepper
             .client(client_id)
             .get::<MessageManager>()
             .unwrap()
@@ -290,8 +292,10 @@ fn test_input_only_two_clients() {
             .world()
             .resource::<LocalTimeline>()
             .tick();
-        let c_pos_a = fixed_position_at(stepper.client_app(client_id).world(), c_a, compare_tick);
-        let c_pos_b = fixed_position_at(stepper.client_app(client_id).world(), c_b, compare_tick);
+        let c_pos_a =
+            fixed_position_at(stepper.client_app(client_id).world(), peer_a, compare_tick);
+        let c_pos_b =
+            fixed_position_at(stepper.client_app(client_id).world(), peer_b, compare_tick);
         info!(
             client_id,
             ?client_tick,

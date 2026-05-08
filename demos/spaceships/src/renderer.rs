@@ -377,7 +377,7 @@ pub fn insert_bullet_mesh(
         ),
         (With<BulletMarker>, Added<Collider>),
     >,
-    players: Query<(&Player, &Position, Option<&Rotation>)>,
+    players: Query<(&Player, &Position, Option<&Rotation>), With<Predicted>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,

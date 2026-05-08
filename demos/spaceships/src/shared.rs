@@ -11,6 +11,7 @@ use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
+use lightyear::prediction::prelude::PredictionHistory;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use tracing::Level;
@@ -158,6 +159,7 @@ pub fn shared_player_firing(
         &ActionState<PlayerActions>,
         &LeafwingBuffer<PlayerActions>,
         &mut Weapon,
+        Option<&PredictionHistory<Weapon>>,
         Has<Controlled>,
         Option<&ControlledBy>,
         &Player,
@@ -184,6 +186,7 @@ pub fn shared_player_firing(
         action,
         input_buffer,
         mut weapon,
+        weapon_history,
         is_local,
         controlled_by,
         player,
@@ -206,10 +209,15 @@ pub fn shared_player_firing(
             continue;
         }
 
-        let wrapped_diff = weapon.last_fire_tick - current_tick;
+        let last_fire_tick = if is_server {
+            weapon.last_fire_tick
+        } else {
+            effective_last_fire_tick(&weapon, weapon_history, current_tick)
+        };
+        let wrapped_diff = last_fire_tick - current_tick;
         if wrapped_diff.abs() <= weapon.cooldown as i32 {
             // cooldown period - can't fire.
-            if weapon.last_fire_tick == current_tick {
+            if last_fire_tick == current_tick {
                 // logging because debugging latency edge conditions where
                 // inputs arrive on exact frame server replicates to you.
                 info!("Can't fire, fired this tick already! {current_tick:?}");
@@ -230,9 +238,12 @@ pub fn shared_player_firing(
         let player_velocity = player_velocity.map_or(Vec2::ZERO, |velocity| velocity.0);
         let bullet_linvel = player_rotation * (Vec2::Y * weapon.bullet_speed) + player_velocity;
 
-        // the default hashing algorithm uses the tick and component list. in order to disambiguate
-        // between two players spawning a bullet on the same tick, we add client_id to the mix.
-        let prespawned = PreSpawned::default_with_salt(player.client_id.to_bits());
+        // A bullet is uniquely identified by the owner and the simulation tick
+        // that fired it. Use an explicit hash instead of the default
+        // archetype-based hash so rollback replay/component timing cannot make
+        // the local prespawn disagree with the server spawn.
+        let prespawn_hash = bullet_prespawn_hash(player.client_id, current_tick);
+        let prespawned = PreSpawned::new(prespawn_hash);
 
         let bullet_entity = commands
             .spawn((
@@ -249,6 +260,21 @@ pub fn shared_player_firing(
                 prespawned,
             ))
             .id();
+        lightyear_debug_event!(
+            DebugCategory::Prediction,
+            DebugSamplePoint::FixedUpdate,
+            "FixedUpdate",
+            "spaceships_bullet_spawn",
+            tick = ?current_tick,
+            entity = ?bullet_entity,
+            owner = ?player.client_id,
+            is_server = is_server,
+            prespawn_hash = prespawn_hash,
+            position = ?bullet_origin,
+            linear_velocity = ?bullet_linvel,
+            previous_last_fire_tick = ?prev_last_fire_tick,
+            "Spaceships bullet spawned"
+        );
         info!(
             pressed=?action.get_pressed(),
             "spawned bullet for ActionState, bullet={bullet_entity:?} ({}, {}). prev last_fire tick: {prev_last_fire_tick:?}",
@@ -264,6 +290,15 @@ pub fn shared_player_firing(
             ));
         }
     }
+}
+
+fn bullet_prespawn_hash(owner: PeerId, tick: Tick) -> u64 {
+    let mut x = owner.to_bits() ^ ((tick.0 as u64) << 32) ^ tick.0 as u64;
+    // SplitMix64 finalizer: stable, cheap, and sufficient for example-level
+    // prespawn identity where the inputs are already unique.
+    x = (x ^ (x >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    x = (x ^ (x >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+    x ^ (x >> 31)
 }
 
 fn client_should_fire(
@@ -282,6 +317,20 @@ fn client_should_fire(
     let has_previous_sample = input_buffer.get(tick - 1).is_some();
 
     current_pressed && has_previous_sample
+}
+
+fn effective_last_fire_tick(
+    weapon: &Weapon,
+    weapon_history: Option<&PredictionHistory<Weapon>>,
+    tick: Tick,
+) -> Tick {
+    let mut last_fire_tick = weapon.last_fire_tick;
+    if let Some(history_weapon) = weapon_history.and_then(|history| history.get(tick))
+        && history_weapon.last_fire_tick - last_fire_tick > 0
+    {
+        last_fire_tick = history_weapon.last_fire_tick;
+    }
+    last_fire_tick
 }
 
 // Predicted/prespawned clients can predict TTL expiry. Interpolated observer bullets wait for the
@@ -444,3 +493,72 @@ fn hide_interpolated_bullet(commands: &mut Commands, entity: Entity) {
 
 #[cfg(not(feature = "gui"))]
 fn hide_interpolated_bullet(_commands: &mut Commands, _entity: Entity) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_last_fire_tick_uses_newer_confirmed_history() {
+        let weapon = Weapon {
+            last_fire_tick: Tick(409),
+            cooldown: 12,
+            bullet_speed: 500.0,
+        };
+        let mut history = PredictionHistory::<Weapon>::default();
+        history.add_confirmed(
+            Tick(435),
+            Some(Weapon {
+                last_fire_tick: Tick(435),
+                cooldown: 12,
+                bullet_speed: 500.0,
+            }),
+        );
+
+        assert_eq!(
+            effective_last_fire_tick(&weapon, Some(&history), Tick(435)),
+            Tick(435)
+        );
+    }
+
+    #[test]
+    fn effective_last_fire_tick_keeps_local_value_without_newer_history() {
+        let weapon = Weapon {
+            last_fire_tick: Tick(409),
+            cooldown: 12,
+            bullet_speed: 500.0,
+        };
+        let mut history = PredictionHistory::<Weapon>::default();
+        history.add_confirmed(
+            Tick(383),
+            Some(Weapon {
+                last_fire_tick: Tick(383),
+                cooldown: 12,
+                bullet_speed: 500.0,
+            }),
+        );
+
+        assert_eq!(
+            effective_last_fire_tick(&weapon, Some(&history), Tick(435)),
+            Tick(409)
+        );
+    }
+
+    #[test]
+    fn bullet_prespawn_hash_is_stable_and_distinguishes_owner_and_tick() {
+        let owner = PeerId::Netcode(31);
+
+        assert_eq!(
+            bullet_prespawn_hash(owner, Tick(435)),
+            bullet_prespawn_hash(owner, Tick(435))
+        );
+        assert_ne!(
+            bullet_prespawn_hash(owner, Tick(435)),
+            bullet_prespawn_hash(owner, Tick(436))
+        );
+        assert_ne!(
+            bullet_prespawn_hash(owner, Tick(435)),
+            bullet_prespawn_hash(PeerId::Netcode(32), Tick(435))
+        );
+    }
+}

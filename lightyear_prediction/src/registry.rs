@@ -103,6 +103,10 @@ pub struct PredictionRegistry {
 }
 
 impl PredictionRegistry {
+    fn oldest_retained_tick<C>(history: &PredictionHistory<C>) -> Option<Tick> {
+        history.oldest().map(|(tick, _)| *tick)
+    }
+
     fn register<C: SyncComponent>(&mut self, history_id: ComponentId) {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
@@ -373,13 +377,31 @@ impl PredictionRegistry {
         ))
         .set(predicted_history.len() as f64);
 
-        // Check for mismatch if requested
-        let should_rollback = if check_mismatch {
+        // Check for mismatch if requested. Authoritative mutations can be
+        // applied out of order when Replicon keeps marker history enabled:
+        // after rollback preparation prunes history at a newer confirmed tick,
+        // an older mutation may still be delivered. We should keep the
+        // confirmed sample, but a pruned prediction cannot prove a mismatch.
+        let oldest_retained_tick = Self::oldest_retained_tick(&predicted_history);
+        let history_was_pruned_past_confirmed =
+            oldest_retained_tick.is_some_and(|oldest_tick| oldest_tick > confirmed_tick);
+        let should_rollback = if check_mismatch && !history_was_pruned_past_confirmed {
             let history_value = predicted_history.get(confirmed_tick);
             self.should_rollback_check(confirmed_component.as_ref(), history_value)
         } else {
             false
         };
+        if check_mismatch && history_was_pruned_past_confirmed {
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "confirmed_history_stale_skip_mismatch",
+                entity = ?entity,
+                component = ?name,
+                confirmed_tick = confirmed_tick.0,
+                oldest_retained_tick = oldest_retained_tick.map(|tick| tick.0),
+                "skipping rollback check for confirmed tick older than retained prediction history"
+            );
+        }
 
         // Always add confirmed value to history - this value will be preserved during rollback
         predicted_history.add_confirmed(confirmed_tick, confirmed_component);
@@ -821,4 +843,31 @@ fn remove_history_gated_by_catchup<C: SyncComponent>(
         return;
     }
     remove_history::<C>(ctx, entity);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Clone, PartialEq, Debug)]
+    struct TestComponent(u32);
+
+    #[test]
+    fn oldest_retained_tick_tracks_history_pruning() {
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(Tick(10), Some(TestComponent(10)));
+        history.add_predicted(Tick(11), Some(TestComponent(11)));
+        history.add_predicted(Tick(12), Some(TestComponent(12)));
+
+        history.clear_until_tick(Tick(11));
+
+        assert_eq!(
+            PredictionRegistry::oldest_retained_tick(&history),
+            Some(Tick(11))
+        );
+        assert!(
+            PredictionRegistry::oldest_retained_tick(&history).unwrap() > Tick(10),
+            "a confirmed update for tick 10 is older than retained prediction history"
+        );
+    }
 }

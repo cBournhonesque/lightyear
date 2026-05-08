@@ -220,16 +220,34 @@ pub(crate) fn emit_before_physics(
         (
             Entity,
             &Position,
+            &Rotation,
+            &LinearVelocity,
+            &AngularVelocity,
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerId>,
+            Has<BallMarker>,
         ),
-        (Without<BallMarker>, With<PlayerId>),
+        Or<(With<PlayerId>, With<BallMarker>)>,
     >,
 ) {
     let tick = timeline.tick();
-    for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
+    for (
+        entity,
+        position,
+        rotation,
+        linear_velocity,
+        angular_velocity,
+        interpolate,
+        correction,
+        action_state,
+        input_buffer,
+        player_id,
+        is_ball,
+    ) in players.iter()
+    {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         lightyear_debug_event!(
@@ -239,7 +257,12 @@ pub(crate) fn emit_before_physics(
             "player_before_physics",
             tick = ?tick,
             entity = ?entity,
+            player_id = ?player_id,
+            is_ball,
             position = ?position,
+            rotation = ?rotation,
+            linear_velocity = ?linear_velocity,
+            angular_velocity = ?angular_velocity,
             interpolate = ?interpolate,
             correction = ?correction,
             pressed = ?pressed,
@@ -255,16 +278,34 @@ pub(crate) fn emit_fixed_last_players(
         (
             Entity,
             &Position,
+            &Rotation,
+            &LinearVelocity,
+            &AngularVelocity,
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerId>,
+            Has<BallMarker>,
         ),
-        (Without<BallMarker>, With<PlayerId>),
+        Or<(With<PlayerId>, With<BallMarker>)>,
     >,
 ) {
     let tick = timeline.tick();
-    for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
+    for (
+        entity,
+        position,
+        rotation,
+        linear_velocity,
+        angular_velocity,
+        interpolate,
+        correction,
+        action_state,
+        input_buffer,
+        player_id,
+        is_ball,
+    ) in players.iter()
+    {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
         lightyear_debug_event!(
@@ -274,7 +315,12 @@ pub(crate) fn emit_fixed_last_players(
             "player_fixed_last",
             tick = ?tick,
             entity = ?entity,
+            player_id = ?player_id,
+            is_ball,
             position = ?position,
+            rotation = ?rotation,
+            linear_velocity = ?linear_velocity,
+            angular_velocity = ?angular_velocity,
             interpolate = ?interpolate,
             correction = ?correction,
             pressed = ?pressed,

@@ -749,7 +749,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 ) {
     let (mut receiver, last_confirmed_input, prediction_manager) = link.into_inner();
     let tick = timeline.tick();
-    let has_messages = receiver.has_messages();
+    let mut received_relevant_input = false;
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", DebugName::type_name::<S::Action>());
         trace!(
@@ -776,7 +776,15 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                         .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
                 }
             }) else {
-                warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
+                if message.rebroadcast {
+                    debug!(
+                        target = ?target_data.target,
+                        end_tick = ?message.end_tick,
+                        "ignored stale remote player input message for unmapped entity"
+                    );
+                } else {
+                    warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
+                }
                 continue;
             };
             debug!(
@@ -799,7 +807,16 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             );
             // TODO: careful of entity collisions!
             let Ok(input_buffer) = predicted_query.get_mut(entity) else {
-                error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                if message.rebroadcast {
+                    debug!(
+                        ?entity,
+                        ?target_data.states,
+                        end_tick = ?message.end_tick,
+                        "ignored stale remote player input message for unrecognized entity"
+                    );
+                } else {
+                    error!(?entity, ?target_data.states, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                }
                 continue
             };
             trace!(predicted=?entity, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
@@ -823,6 +840,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     );
                     continue
                 }
+                received_relevant_input = true;
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
@@ -835,6 +853,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             } else {
                 // add the ActionState and InputBuffer if they are missing
                 let mut input_buffer = InputBuffer::<S::Snapshot, S::Action>::default();
+                received_relevant_input = true;
                 update_buffer_from_remote_player_message::<S>(
                     target_data.states,
                     &mut input_buffer,
@@ -863,7 +882,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     });
 
     if let Some(last_confirmed_input) = last_confirmed_input
-        && has_messages
+        && received_relevant_input
     {
         last_confirmed_input
             .received_any_messages

@@ -34,6 +34,7 @@ impl Plugin for ExampleServerPlugin {
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
+        app.add_observer(handle_disconnected);
         app.add_systems(
             PreUpdate,
             update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
@@ -54,30 +55,11 @@ impl Plugin for ExampleServerPlugin {
 /// server has a `LeafwingBuffer<PlayerActions>` whose `last_remote_tick`
 /// is `Some(tick)` with `tick >= server_current_tick`.
 ///
-/// For the local player (one client per server), the `LeafwingBuffer`'s
-/// `last_remote_tick` is populated as soon as the first input message from
-/// that client arrives. So the readiness flag flips to `true` once inputs
-/// have started flowing from every connected client — which is exactly
-/// when the bundled snapshot becomes consistent.
-/// Update [`CatchUpServerReadiness`] so the late-join catch-up plugin knows
-/// when it is safe to send a bundled snapshot.
-///
-/// Readiness criterion: **every player entity has a non-empty `InputBuffer`
-/// with `start_tick <= current_tick`.**
-///
-/// This guarantees that when the bundled snapshot lands on a client and
-/// that client rolls back to the snapshot tick `T`, the client's rebroadcast
-/// buffer for every remote player has entries covering the replay window
-/// `[T+1, current_tick]`. Without this, the client's `get_action_state`
-/// would hit its "no buffered entry" branch during replay and decay the
-/// current ActionState — which on a recently-received-first-press remote
-/// player is "Pressed", diverging from the server's "default Released"
-/// interpretation.
-///
-/// Equivalently: the snapshot cannot be emitted before every client has
-/// sent its first input message to the server. Before a client's first
-/// message arrives, neither the server nor any other client knows that
-/// client's ActionState for those ticks, and their fallbacks disagree.
+/// Checking only `start_tick` is not sufficient: that proves a client sent
+/// at least one input packet, but not that the server has real inputs for
+/// the tick it is about to snapshot. A catch-up snapshot emitted while the
+/// server is still extrapolating a client's input will diverge when the
+/// joining client rolls forward with the real rebroadcast input stream.
 fn update_catch_up_server_readiness(
     timeline: Res<LocalTimeline>,
     players: Query<Option<&LeafwingBuffer<PlayerActions>>, With<PlayerId>>,
@@ -88,7 +70,7 @@ fn update_catch_up_server_readiness(
     let ready = players.iter().all(|b| {
         any = true;
         match b {
-            Some(b) => matches!(b.start_tick, Some(t) if t <= current_tick),
+            Some(b) => matches!(b.last_remote_tick, Some(t) if t >= current_tick),
             None => false,
         }
     });
@@ -111,12 +93,19 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
 pub(crate) fn handle_connected(
     trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
+    players: Query<(Entity, &PlayerId)>,
     mode: Res<CatchUpMode>,
     mut commands: Commands,
 ) {
     let Ok(remote_id) = query.get(trigger.entity) else {
         return;
     };
+    despawn_players_for_remote(
+        *remote_id,
+        "before reconnect spawn",
+        &players,
+        &mut commands,
+    );
     info!("Spawning player entity for client {:?}", remote_id);
     let mut player = commands.spawn((
         Replicate::to_clients(NetworkTarget::All),
@@ -143,5 +132,44 @@ pub(crate) fn handle_connected(
         // immediately, so clients see the entity + marker and can
         // subscribe to rebroadcast inputs right away.
         player.insert(CatchUpGated);
+    }
+}
+
+/// Remove the simulation entity owned by a disconnecting client.
+///
+/// The deterministic example treats player entities as connection-bound.
+/// Leaving the old player alive after a disconnect means that reconnecting
+/// with the same [`RemoteId`] creates duplicate `PlayerId(remote)` entities;
+/// the reconnecting client then assigns local input to both, and the next
+/// catch-up snapshot diverges immediately.
+pub(crate) fn handle_disconnected(
+    trigger: On<Add, Disconnected>,
+    query: Query<&RemoteId, With<ClientOf>>,
+    players: Query<(Entity, &PlayerId)>,
+    mut commands: Commands,
+) {
+    let Ok(remote_id) = query.get(trigger.entity) else {
+        return;
+    };
+    despawn_players_for_remote(*remote_id, "on disconnect", &players, &mut commands);
+}
+
+fn despawn_players_for_remote(
+    remote_id: RemoteId,
+    reason: &'static str,
+    players: &Query<(Entity, &PlayerId)>,
+    commands: &mut Commands,
+) {
+    for (entity, player_id) in players
+        .iter()
+        .filter(|(_, player_id)| player_id.0 == remote_id.0)
+    {
+        info!(
+            ?entity,
+            ?remote_id,
+            reason,
+            "Despawning deterministic player entity"
+        );
+        commands.entity(entity).despawn();
     }
 }
