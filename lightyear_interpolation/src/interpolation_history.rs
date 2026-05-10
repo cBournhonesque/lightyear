@@ -14,19 +14,32 @@ use tracing::{info, trace};
 #[derive(Component, Debug, Reflect)]
 pub struct ConfirmedHistory<C> {
     history: HistoryBuffer<C>,
+    /// True when the newest anchor was synthesized from an empty mutate tick.
+    ///
+    /// Empty mutate ticks confirm that a component did not change. While this stays true, newer
+    /// empty mutate ticks can slide the same anchor forward instead of cloning the value again.
+    newest_is_unchanged: bool,
+}
+
+#[derive(Debug, PartialEq)]
+pub(crate) enum ConfirmedHistorySample<C> {
+    Pending,
+    Removed,
+    Present(C),
 }
 
 impl<C> Default for ConfirmedHistory<C> {
     fn default() -> Self {
         Self {
             history: HistoryBuffer::<C>::default(),
+            newest_is_unchanged: false,
         }
     }
 }
 
 impl<C> PartialEq for ConfirmedHistory<C> {
     fn eq(&self, other: &Self) -> bool {
-        self.history.eq(&other.history)
+        self.history.eq(&other.history) && self.newest_is_unchanged == other.newest_is_unchanged
     }
 }
 
@@ -38,6 +51,10 @@ impl<C> ConfirmedHistory<C> {
     /// Get the n-th oldest tick in the buffer (starts from n = 0)
     pub fn get_nth_tick(&self, n: usize) -> Option<Tick> {
         self.history.get_nth(n).map(|(t, _)| *t)
+    }
+
+    fn get_nth_state(&self, n: usize) -> Option<(Tick, &HistoryState<C>)> {
+        self.history.get_nth(n).map(|(t, state)| (*t, state))
     }
 
     /// The oldest value in the history, which is used as the start value for the interpolation
@@ -70,19 +87,117 @@ impl<C> ConfirmedHistory<C> {
     /// It MUST be more recent than all previous values, which is guaranteed from
     /// how lightyear_replication::receive works
     pub fn push(&mut self, tick: Tick, value: C) {
-        self.history.add_update(tick, value)
+        self.history.add_update(tick, value);
+        self.newest_is_unchanged = false;
+    }
+
+    /// Push a removal in the history.
+    pub(crate) fn push_remove(&mut self, tick: Tick) {
+        self.history.add_remove(tick);
+        self.newest_is_unchanged = false;
     }
 
     /// Pop the oldest value in the history
     pub fn pop(&mut self) -> Option<(Tick, C)> {
-        match self.history.pop() {
+        let popped = match self.history.pop() {
             None | Some((_, HistoryState::Removed)) => None,
             Some((t, HistoryState::Updated(v))) => Some((t, v)),
+        };
+        if self.history.len() == 0 {
+            self.newest_is_unchanged = false;
         }
+        popped
+    }
+}
+
+impl<C: Clone> ConfirmedHistory<C> {
+    /// Mark the newest value as unchanged at `tick`.
+    ///
+    /// If the newest anchor was already synthesized from an empty mutate tick, only its tick is
+    /// advanced. Otherwise a single unchanged anchor is appended by cloning the newest value.
+    pub(crate) fn push_unchanged(&mut self, tick: Tick) -> Option<Tick> {
+        let (newest_tick, newest_value) = self.newest()?;
+        if tick <= newest_tick {
+            return None;
+        }
+
+        if self.newest_is_unchanged {
+            self.history.set_most_recent_tick(tick);
+        } else {
+            self.history.add_update(tick, newest_value.clone());
+            self.newest_is_unchanged = true;
+        }
+        Some(newest_tick)
     }
 }
 
 impl<C: Component + Clone> ConfirmedHistory<C> {
+    pub(crate) fn sample(
+        &self,
+        interpolation_tick: Tick,
+        interpolation_overstep: f32,
+        interpolation_registry: &InterpolationRegistry,
+    ) -> ConfirmedHistorySample<C> {
+        let Some(previous_index) = (0..self.len())
+            .take_while(|i| {
+                self.get_nth_tick(*i)
+                    .is_some_and(|tick| tick <= interpolation_tick)
+            })
+            .last()
+        else {
+            return ConfirmedHistorySample::Pending;
+        };
+
+        let Some((start_tick, start_state)) = self.get_nth_state(previous_index) else {
+            return ConfirmedHistorySample::Pending;
+        };
+        let HistoryState::Updated(start) = start_state else {
+            return ConfirmedHistorySample::Removed;
+        };
+
+        let Some((end_tick, HistoryState::Updated(end))) = self.get_nth_state(previous_index + 1)
+        else {
+            return ConfirmedHistorySample::Present(start.clone());
+        };
+
+        if !interpolation_registry.has_interpolation_fn::<C>() {
+            return ConfirmedHistorySample::Present(start.clone());
+        }
+
+        // Clamp rather than extrapolate beyond the newest confirmed value. This
+        // makes late packets converge to the freshest server state instead of
+        // overshooting when motion changes direction.
+        let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+            / (end_tick - start_tick) as f32)
+            .clamp(0.0, 1.0);
+        trace!(
+            ?start_tick,
+            ?end_tick,
+            ?interpolation_tick,
+            ?interpolation_overstep,
+            ?fraction,
+            "Interpolate {:?}",
+            DebugName::type_name::<C>()
+        );
+        trace!(
+            target: "lightyear_debug::interpolation",
+            kind = "interpolation_history_sample",
+            component = ?DebugName::type_name::<C>(),
+            interpolation_tick = interpolation_tick.0,
+            start_tick = start_tick.0,
+            end_tick = end_tick.0,
+            interpolation_overstep,
+            fraction,
+            history_len = self.len(),
+            "sampled interpolation history"
+        );
+        ConfirmedHistorySample::Present(interpolation_registry.interpolate(
+            start.clone(),
+            end.clone(),
+            fraction,
+        ))
+    }
+
     pub fn interpolate(
         &self,
         interpolation_tick: Tick,
@@ -157,7 +272,10 @@ pub(crate) fn insert_confirmed_history_on_interpolated<C: Component + Clone>(
 
     let mut history = ConfirmedHistory::<C>::default();
     history.push(tick, component.clone());
-    commands.entity(trigger.entity).insert(history);
+    commands
+        .entity(trigger.entity)
+        .insert(history)
+        .remove::<C>();
 }
 #[cfg(test)]
 mod tests {
@@ -235,72 +353,9 @@ mod tests {
             history.start().map(|(tick, value)| (tick, value.clone())),
             Some((Tick(42), TestComp(2.0)))
         );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy_app::App;
-    use lightyear_core::prelude::Tick;
-
-    #[derive(Component, Clone, PartialEq, Debug)]
-    struct TestComp(f32);
-
-    #[test]
-    fn inserts_history_when_confirmed_added_after_interpolated() {
-        let mut app = App::new();
-        app.add_observer(insert_confirmed_history::<TestComp>);
-        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
-
-        let entity = app.world_mut().spawn(Interpolated).id();
-        app.update();
-        app.world_mut()
-            .entity_mut(entity)
-            .insert((Confirmed(TestComp(1.0)), ConfirmedTick { tick: Tick(7) }));
-        app.update();
-
         assert!(
-            app.world()
-                .entity(entity)
-                .contains::<ConfirmedHistory<TestComp>>()
-        );
-    }
-
-    #[test]
-    fn inserts_history_when_interpolated_added_after_confirmed() {
-        let mut app = App::new();
-        app.add_observer(insert_confirmed_history::<TestComp>);
-        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
-
-        let entity = app
-            .world_mut()
-            .spawn((Confirmed(TestComp(2.0)), ConfirmedTick { tick: Tick(11) }))
-            .id();
-        app.update();
-        app.world_mut().entity_mut(entity).insert(Interpolated);
-        app.update();
-
-        assert!(
-            app.world()
-                .entity(entity)
-                .contains::<ConfirmedHistory<TestComp>>()
-        );
-    }
-
-    #[test]
-    fn does_not_insert_history_without_confirmed_component() {
-        let mut app = App::new();
-        app.add_observer(insert_confirmed_history::<TestComp>);
-        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
-
-        let entity = app.world_mut().spawn(Interpolated).id();
-        app.update();
-
-        assert!(
-            !app.world()
-                .entity(entity)
-                .contains::<ConfirmedHistory<TestComp>>()
+            !app.world().entity(entity).contains::<TestComp>(),
+            "live interpolated component should be removed until the interpolation timeline reaches the history start tick"
         );
     }
 }

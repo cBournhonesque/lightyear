@@ -12,6 +12,7 @@ use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
+use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prediction::prelude::PredictionHistory;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
@@ -58,6 +59,7 @@ impl Plugin for SharedPlugin {
         app.add_systems(
             PostUpdate,
             (
+                emit_bullet_post_update_state.after(TransformSystems::Propagate),
                 track_bullet_lifecycle_added,
                 track_bullet_lifecycle_removed,
                 detect_duplicate_bullets,
@@ -76,6 +78,86 @@ impl Plugin for SharedPlugin {
 #[derive(Resource, Default)]
 struct BulletDebugRegistry {
     bullets: HashMap<Entity, (PeerId, Tick)>,
+}
+
+fn emit_bullet_post_update_state(
+    timeline: Res<LocalTimeline>,
+    interpolation_timeline: Query<&InterpolationTimeline>,
+    bullets: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &BulletLifetime,
+            &Position,
+            &LinearVelocity,
+            &Transform,
+            &GlobalTransform,
+            Option<&ConfirmedHistory<Position>>,
+            Has<Predicted>,
+            Has<Interpolated>,
+            Has<PreSpawned>,
+            Has<Replicate>,
+            Has<Replicated>,
+        ),
+        With<BulletMarker>,
+    >,
+) {
+    let tick = timeline.tick();
+    let interpolation_tick = interpolation_timeline
+        .iter()
+        .next()
+        .map(|timeline| timeline.tick().0 as i64);
+    for (
+        entity,
+        marker,
+        lifetime,
+        position,
+        velocity,
+        transform,
+        global_transform,
+        position_history,
+        is_predicted,
+        is_interpolated,
+        is_prespawned,
+        is_replicate,
+        is_replicated,
+    ) in &bullets
+    {
+        let position_history_start_tick =
+            position_history.and_then(|history| history.start().map(|(tick, _)| tick.0 as i64));
+        let position_history_end_tick =
+            position_history.and_then(|history| history.end().map(|(tick, _)| tick.0 as i64));
+        let position_visual_ready = position_history_end_tick.is_some()
+            && position_history_start_tick
+                .zip(interpolation_tick)
+                .is_some_and(|(start_tick, interpolation_tick)| interpolation_tick >= start_tick);
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "spaceships_bullet_post_update_state",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            owner = ?marker.owner,
+            owner_bits = marker.owner.to_bits(),
+            origin_tick = lifetime.origin_tick.0 as i64,
+            position = ?position,
+            velocity = ?velocity,
+            transform = ?transform.translation.truncate(),
+            global_transform = ?global_transform.translation().truncate(),
+            position_history_ready = position_history_end_tick.is_some(),
+            position_visual_ready = position_visual_ready,
+            position_history_start_tick = ?position_history_start_tick,
+            position_history_end_tick = ?position_history_end_tick,
+            interpolation_tick = ?interpolation_tick,
+            is_predicted = is_predicted,
+            is_interpolated = is_interpolated,
+            is_prespawned = is_prespawned,
+            is_replicate = is_replicate,
+            is_replicated = is_replicated,
+            "Spaceships bullet state after transform propagation"
+        );
+    }
 }
 
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {

@@ -43,6 +43,8 @@ use bytes::{Buf, Bytes, BytesMut};
 
 use bevy_ecs::prelude::Resource;
 use bevy_platform::collections::HashMap;
+use bevy_replicon::client::confirm_history::ConfirmHistory;
+use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::RepliconTick;
 use lightyear_core::tick::Tick;
 
@@ -122,6 +124,27 @@ impl ReplicationCheckpointMap {
         self.entries.clear();
         self.order.clear();
     }
+}
+
+pub fn resolve_message_tick(
+    checkpoints: &ReplicationCheckpointMap,
+    tick: RepliconTick,
+) -> Option<Tick> {
+    checkpoints.get(tick)
+}
+
+pub fn resolve_confirm_history_tick(
+    checkpoints: &ReplicationCheckpointMap,
+    history: &ConfirmHistory,
+) -> Option<Tick> {
+    resolve_message_tick(checkpoints, history.last_tick())
+}
+
+pub fn resolve_server_mutate_tick(
+    checkpoints: &ReplicationCheckpointMap,
+    ticks: &ServerMutateTicks,
+) -> Option<Tick> {
+    resolve_message_tick(checkpoints, ticks.last_tick())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

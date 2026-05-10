@@ -29,6 +29,7 @@ impl Plugin for ExampleRendererPlugin {
                 add_interpolated_bot_visuals,
                 add_predicted_bot_visuals,
                 add_bullet_visuals,
+                emit_bullet_visual_state,
             )
                 .after(TransformSystems::Propagate),
         );
@@ -165,6 +166,7 @@ fn add_bullet_visuals(
             Has<Interpolated>,
             Has<Predicted>,
             Has<PreSpawned>,
+            Has<Replicate>,
         ),
         (With<BulletMarker>, With<GlobalTransform>, Without<Mesh2d>),
     >,
@@ -182,9 +184,15 @@ fn add_bullet_visuals(
         is_interpolated,
         is_predicted,
         is_prespawned,
+        is_replicate,
     ) in &query
     {
-        commands.entity(entity).insert((
+        if !is_predicted && !is_prespawned && !is_interpolated && !is_replicate {
+            continue;
+        }
+
+        let mut entity_commands = commands.entity(entity);
+        entity_commands.insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -193,8 +201,10 @@ fn add_bullet_visuals(
                 color: color.0,
                 ..Default::default()
             })),
-            FrameInterpolate::<Transform>::default(),
         ));
+        if is_predicted || is_prespawned {
+            entity_commands.insert(FrameInterpolate::<Transform>::default());
+        }
 
         lightyear_debug_event!(
             DebugCategory::Component,
@@ -214,6 +224,64 @@ fn add_bullet_visuals(
             is_predicted = is_predicted,
             is_prespawned = is_prespawned,
             "Bullet visual added after transform propagation"
+        );
+    }
+}
+
+fn emit_bullet_visual_state(
+    timeline: Res<LocalTimeline>,
+    query: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &Position,
+            &Transform,
+            &GlobalTransform,
+            Option<&Visibility>,
+            Option<&FrameInterpolate<Transform>>,
+            Has<Interpolated>,
+            Has<Predicted>,
+            Has<PreSpawned>,
+        ),
+        With<BulletMarker>,
+    >,
+) {
+    let tick = timeline.tick();
+    for (
+        entity,
+        marker,
+        position,
+        transform,
+        global_transform,
+        visibility,
+        frame_interpolate,
+        is_interpolated,
+        is_predicted,
+        is_prespawned,
+    ) in &query
+    {
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "fps_bullet_visual_state",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            shooter = ?marker.shooter,
+            shooter_bits = marker.shooter.to_bits(),
+            fire_tick = marker.fire_tick.0 as i64,
+            salt = marker.salt as i64,
+            prespawn_hash = marker.prespawn_hash,
+            position = ?position,
+            transform = ?transform.translation.truncate(),
+            global_transform = ?global_transform.translation().truncate(),
+            visibility = ?visibility,
+            has_frame_interpolate = frame_interpolate.is_some(),
+            frame_interpolate = ?frame_interpolate,
+            is_interpolated = is_interpolated,
+            is_predicted = is_predicted,
+            is_prespawned = is_prespawned,
+            "FPS bullet visual state after transform propagation"
         );
     }
 }

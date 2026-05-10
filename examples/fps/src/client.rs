@@ -1,3 +1,4 @@
+use avian2d::prelude::RigidBody;
 use bevy::prelude::*;
 use core::time::Duration;
 use leafwing_input_manager::action_state::ActionData;
@@ -13,6 +14,7 @@ use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_player_movement};
+use lightyear_frame_interpolation::FrameInterpolate;
 
 pub struct ExampleClientPlugin;
 
@@ -27,9 +29,31 @@ impl Plugin for ExampleClientPlugin {
                 .before(InputSystems::BufferClientInputs)
                 .in_set(InputManagerSystem::ManualControl),
         );
+        app.add_systems(
+            PreUpdate,
+            strip_interpolated_bullet_local_physics.after(ReplicationSystems::Receive),
+        );
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
+    }
+}
+
+fn strip_interpolated_bullet_local_physics(
+    mut commands: Commands,
+    bullets: Query<
+        Entity,
+        (
+            With<BulletMarker>,
+            With<Interpolated>,
+            Or<(With<RigidBody>, With<FrameInterpolate<Transform>>)>,
+        ),
+    >,
+) {
+    for entity in &bullets {
+        commands
+            .entity(entity)
+            .remove::<(RigidBody, FrameInterpolate<Transform>)>();
     }
 }
 

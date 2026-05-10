@@ -38,6 +38,7 @@ impl Plugin for ExampleRendererPlugin {
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
                 draw_explosions,
+                emit_bullet_visual_state,
             )
                 .chain()
                 .after(TransformSystems::Propagate),
@@ -365,7 +366,7 @@ pub fn render_shape(
     }
 }
 
-pub fn insert_bullet_mesh(
+fn insert_bullet_mesh(
     q: Query<
         (
             Entity,
@@ -374,15 +375,37 @@ pub fn insert_bullet_mesh(
             &BulletMarker,
             Option<&Position>,
             Has<Interpolated>,
+            Has<Predicted>,
+            Has<PreSpawned>,
+            Has<Replicate>,
         ),
-        (With<BulletMarker>, Added<Collider>),
+        (
+            With<BulletMarker>,
+            With<Collider>,
+            Without<BulletVisualAttached>,
+        ),
     >,
     players: Query<(&Player, &Position, Option<&Rotation>), With<Predicted>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (entity, collider, col, bullet, bullet_position, is_interpolated) in q.iter() {
+    for (
+        entity,
+        collider,
+        col,
+        bullet,
+        bullet_position,
+        is_interpolated,
+        is_predicted,
+        is_prespawned,
+        is_replicate,
+    ) in q.iter()
+    {
+        if !is_predicted && !is_prespawned && !is_interpolated && !is_replicate {
+            continue;
+        }
+
         let ball = collider
             .shape()
             .as_ball()
@@ -421,7 +444,9 @@ pub fn insert_bullet_mesh(
             );
         }
 
-        commands.entity(entity).try_insert(Visibility::default());
+        commands
+            .entity(entity)
+            .try_insert((Visibility::default(), BulletVisualAttached));
         commands.entity(entity).with_children(|parent| {
             let mut child = parent.spawn((
                 BulletVisualMesh,
@@ -436,6 +461,9 @@ pub fn insert_bullet_mesh(
         });
     }
 }
+
+#[derive(Component)]
+struct BulletVisualAttached;
 
 #[derive(Component)]
 struct BulletVisualMesh;
@@ -471,6 +499,84 @@ fn update_bullet_visual_offsets(
             transform.translation = Vec3::Z;
             commands.entity(entity).remove::<BulletVisualCatchup>();
         }
+    }
+}
+
+fn emit_bullet_visual_state(
+    timeline: Res<LocalTimeline>,
+    bullets: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &BulletLifetime,
+            &Position,
+            &Transform,
+            &GlobalTransform,
+            Option<&Visibility>,
+            Has<Interpolated>,
+            Has<Predicted>,
+            Has<PreSpawned>,
+        ),
+        With<BulletMarker>,
+    >,
+    visual_children: Query<
+        (
+            Entity,
+            &ChildOf,
+            &Transform,
+            &GlobalTransform,
+            Has<BulletVisualCatchup>,
+        ),
+        With<BulletVisualMesh>,
+    >,
+) {
+    let tick = timeline.tick();
+    for (
+        entity,
+        marker,
+        lifetime,
+        position,
+        transform,
+        global_transform,
+        visibility,
+        is_interpolated,
+        is_predicted,
+        is_prespawned,
+    ) in &bullets
+    {
+        let visual = visual_children
+            .iter()
+            .find(|(_, child_of, _, _, _)| child_of.parent() == entity)
+            .map(
+                |(child, _, visual_transform, visual_global_transform, has_catchup)| {
+                    (
+                        child,
+                        visual_transform.translation.truncate(),
+                        visual_global_transform.translation().truncate(),
+                        has_catchup,
+                    )
+                },
+            );
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "spaceships_bullet_visual_state",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            owner = ?marker.owner,
+            owner_bits = marker.owner.to_bits(),
+            origin_tick = lifetime.origin_tick.0 as i64,
+            position = ?position,
+            transform = ?transform.translation.truncate(),
+            global_transform = ?global_transform.translation().truncate(),
+            visibility = ?visibility,
+            visual = ?visual,
+            is_interpolated = is_interpolated,
+            is_predicted = is_predicted,
+            is_prespawned = is_prespawned,
+            "Spaceships bullet visual state after transform propagation"
+        );
     }
 }
 

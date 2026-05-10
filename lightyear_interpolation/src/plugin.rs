@@ -1,4 +1,5 @@
 use crate::SyncComponent;
+use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{interpolate, update_confirmed_history};
 use crate::interpolation_history::insert_confirmed_history_on_interpolated;
 use crate::registry::InterpolationRegistry;
@@ -125,6 +126,7 @@ impl Plugin for InterpolationPlugin {
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
+        configure_delayed_interpolated_despawn(app);
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();

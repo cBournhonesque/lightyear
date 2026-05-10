@@ -21,6 +21,10 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_ball_physics);
         app.add_observer(handle_new_player);
         app.add_observer(handle_controlled_player);
+        app.add_systems(
+            PreUpdate,
+            strip_interpolated_bullet_rigid_body.after(ReplicationSystems::Receive),
+        );
         app.add_systems(FixedPreUpdate, add_bullet_physics);
 
         #[cfg(feature = "gui")]
@@ -69,12 +73,19 @@ fn add_bullet_physics(
                 .insert((PhysicsBundle::bullet(), bullet_mass_properties()));
         } else if is_interpolated {
             info!("Adding visual sensor collider to an interpolated replicated bullet: {entity:?}");
-            commands.entity(entity).insert((
-                Collider::circle(BULLET_SIZE),
-                RigidBody::Kinematic,
-                Sensor,
-            ));
+            commands
+                .entity(entity)
+                .insert((Collider::circle(BULLET_SIZE), Sensor));
         }
+    }
+}
+
+fn strip_interpolated_bullet_rigid_body(
+    mut commands: Commands,
+    bullets: Query<Entity, (With<BulletMarker>, With<Interpolated>, With<RigidBody>)>,
+) {
+    for entity in &bullets {
+        commands.entity(entity).remove::<RigidBody>();
     }
 }
 

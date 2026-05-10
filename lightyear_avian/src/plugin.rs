@@ -221,6 +221,11 @@ impl Plugin for LightyearAvianPlugin {
                             .after(FrameInterpolationSystems::Restore),
                     );
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
+                    // Network interpolation updates Position in Update. Sync that interpolated
+                    // Position into Transform before Bevy propagates transforms for rendering.
+                    // Run this before FrameInterpolation/VisualCorrection so those visual systems
+                    // can still override Transform for predicted entities.
+                    LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
                     LightyearAvianPlugin::sync_received_position_to_transform(app);
                 }
                 // We need to manually update the Position of child colliders after physics run
@@ -249,6 +254,7 @@ impl Plugin for LightyearAvianPlugin {
                 app.configure_sets(
                     PostUpdate,
                     (
+                        PhysicsSystems::Writeback,
                         FrameInterpolationSystems::Interpolate,
                         // We don't want the correction to be overwritten by FrameInterpolation
                         RollbackSystems::VisualCorrection,
@@ -466,8 +472,10 @@ impl LightyearAvianPlugin {
             .position_to_transform
         {
             // Make sure that PositionToTransform sync also runs for Interpolated entities
-            app.register_required_components::<Position, ApplyPosToTransform>();
-            app.register_required_components::<Rotation, ApplyPosToTransform>();
+            app.try_register_required_components::<Position, ApplyPosToTransform>()
+                .ok();
+            app.try_register_required_components::<Rotation, ApplyPosToTransform>()
+                .ok();
 
             // NOTE: we do NOT register Transform as required for Position/Rotation because
             //  they might not be added at the same time (e.g. on Interpolated entities).

@@ -65,6 +65,13 @@ impl InterpolationRegistry {
         self.interpolation_map.get(&kind).is_some()
     }
 
+    pub(crate) fn has_interpolation_fn<C: Component>(&self) -> bool {
+        let kind = ComponentKind::of::<C>();
+        self.interpolation_map
+            .get(&kind)
+            .is_some_and(|metadata| metadata.interpolation.is_some())
+    }
+
     pub fn interpolate<C: Component>(&self, start: C, end: C, t: f32) -> C {
         let kind = ComponentKind::of::<C>();
         let interpolation_metadata = self
@@ -280,10 +287,36 @@ fn write_history<C: Component<Mutability = Mutable>>(
     Ok(())
 }
 
-/// Removes component `C`
-fn remove_history<C: Component>(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
-    // TODO: only remove once the tick is reached1
-    entity.remove::<C>();
+/// Records a component removal in `ConfirmedHistory<C>`.
+///
+/// The live component is removed later by interpolation systems once the interpolation timeline
+/// reaches the server tick that produced this removal.
+fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+    let checkpoints = {
+        let world = unsafe { entity.world_mut() };
+        let checkpoints =
+            world.resource::<ReplicationCheckpointMap>() as *const ReplicationCheckpointMap;
+        unsafe { &*checkpoints }
+    };
+    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+        error!(
+            message_tick = ?ctx.message_tick,
+            "missing authoritative checkpoint mapping while recording interpolation removal"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while recording interpolation removal"
+        );
+        return;
+    };
+    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
+        history.push_remove(tick);
+    } else {
+        let mut history = ConfirmedHistory::<C>::default();
+        history.push_remove(tick);
+        entity.insert(history);
+    }
 }
 
 #[cfg(test)]
