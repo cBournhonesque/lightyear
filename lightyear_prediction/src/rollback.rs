@@ -629,10 +629,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     "Rollback to the value stored in the PredictionHistory"
                 );
                 (
-                    original_predicted_value.as_ref().and_then(|v| match v {
-                        HistoryState::Updated(v) => Some(v),
+                    match original_predicted_value.as_ref() {
+                        Some(HistoryState::Updated(v)) => Some(v),
                         _ => None,
-                    }),
+                    },
                     true,
                 )
             }
@@ -704,13 +704,22 @@ pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
 
     // 1. restore the resource to the historical value
     match history_value {
-        None | Some(HistoryState::Removed) => {
+        None => {
+            // No captured value at or before `rollback_tick`. We have no
+            // evidence about what the resource's value was.
+            //
+            // The best strategy is to leave the resource alone. Deleting it
+            // would conflate "no recorded data" with "explicit absence". Bevy
+            // may panic if it runs systems that require access to the resource
+            // next tick.
+        }
+        Some(HistoryState::Removed) => {
             if resource.is_some() {
                 debug!(
                     ?kind,
-                    "Resource didn't exist at time of rollback, removing it"
+                    "Resource was removed at time of rollback, removing it"
                 );
-                // the resource didn't exist at the time, remove it!
+                // the resource was removed at the time, remove it!
                 commands.remove_resource::<R>();
             }
         }
