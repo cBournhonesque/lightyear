@@ -37,7 +37,39 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_disconnected);
         app.add_systems(
             PreUpdate,
-            update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
+            (
+                update_player_activation_ticks,
+                update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
+            ),
+        );
+    }
+}
+
+fn update_player_activation_ticks(
+    timeline: Res<LocalTimeline>,
+    mut players: Query<(
+        &PlayerId,
+        &mut PlayerActivationTick,
+        Option<&LeafwingBuffer<PlayerActions>>,
+    )>,
+) {
+    let current_tick = timeline.tick();
+    for (player_id, mut activation_tick, buffer) in &mut players {
+        if !activation_tick.is_pending() {
+            continue;
+        }
+        let Some(buffer) = buffer else {
+            continue;
+        };
+        if !matches!(buffer.last_remote_tick, Some(tick) if tick >= current_tick) {
+            continue;
+        }
+        activation_tick.0 = current_tick + PlayerActivationTick::DELAY_TICKS as i32;
+        info!(
+            player_id = ?player_id.0,
+            ?current_tick,
+            activation_tick = ?activation_tick.0,
+            "Activating deterministic player after input rebroadcast warmup"
         );
     }
 }
@@ -110,6 +142,7 @@ pub(crate) fn handle_connected(
     let mut player = commands.spawn((
         Replicate::to_clients(NetworkTarget::All),
         PlayerId(remote_id.0),
+        PlayerActivationTick::pending(),
         player_bundle(remote_id.0),
         // `skip_despawn: true` — the player is spawned by a
         // non-deterministic event (the user connecting). Rollback must

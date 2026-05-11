@@ -31,12 +31,13 @@
 //!    catch-up bundle and inserts [`CatchUpRequestSent`] to track the
 //!    in-flight request.
 //!
-//! 3. On the server, the [`CatchUpRequest`] handler enumerates every
-//!    currently-existing [`CatchUpGated`] entity, flips their catch-up
-//!    visibility bit to *visible* for the requesting client, and inserts
-//!    [`HasCaughtUp`] on the client's link entity. Because all visibility
-//!    flips happen in one frame, replicon emits a single bundled init message at
-//!    a single server tick `S` containing every gated entity's state.
+//! 3. On the server, the [`CatchUpRequest`] handler waits until the server
+//!    reports that the snapshot tick is safe, then inserts [`HasCaughtUp`] on
+//!    the client's link entity. Replicon's catch-up visibility filter observes
+//!    that marker and reveals the hidden catch-up component scope for every
+//!    [`CatchUpGated`] entity. Because the marker is inserted once in one
+//!    frame, replicon emits a single bundled init message at a single server
+//!    tick `S` containing the gated entities' state.
 //!
 //! 4. The client receives all catch-up components at server tick `S`.
 //!    `add_confirmed_write` routes those writes into `PredictionHistory<C>`
@@ -46,21 +47,18 @@
 //!    single forced rollback from `S` — re-simulating deterministically
 //!    forward to the current tick across *all* entities simultaneously.
 //!
-//! 5. Subsequent entities that become [`CatchUpGated`] after the client has
-//!    caught up (e.g. another client joining later) are hidden for that
-//!    client too. They also need a snapshot tick plus rollback, otherwise
-//!    the client receives their spawn-time physics state at a later local
-//!    tick and misses the spawn-to-receive simulation window.
+//! 5. [`HasCaughtUp`] is not removed. After the initial catch-up, the rest of
+//!    the simulation is deterministic, so later catch-up-gated components are
+//!    replicated normally to that client.
 //!
 //! # Why bundled, not per-entity
 //!
 //! A per-entity catch-up (one [`CatchUpRequest`] per gated entity, each
 //! producing its own snapshot at its own tick) causes divergence. The first
-//! forced rollback replays every entity, but entities that haven't been
-//! snapshotted yet are replayed from stale local state, producing drift
-//! that subsequent per-entity rollbacks can't fully cancel. Bundling
-//! guarantees a single consistent snapshot tick `S` for all catch-up-gated
-//! entities.
+//! forced rollback replays every entity, but entities that neither have a
+//! snapshot nor valid local history at that tick are replayed from stale local
+//! state. Bundling guarantees a single consistent snapshot tick `S` for the
+//! pending catch-up entities.
 //!
 //! # Why per-component visibility, not entity-level
 //!
@@ -77,26 +75,26 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::*;
 use bevy_ecs::resource::Resource;
 use bevy_ecs::system::Commands;
-use bevy_replicon::prelude::FilterScope;
+use bevy_replicon::prelude::RepliconTick;
+use bevy_replicon::prelude::{AppVisibilityExt, FilterScope, VisibilityFilter};
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
-use bevy_replicon::server::visibility::filters_mask::FilterBit;
-use bevy_replicon::server::visibility::registry::FilterRegistry;
-use bevy_replicon::shared::replication::registry::ReplicationRegistry;
+use core::marker::PhantomData;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
+use lightyear_core::tick::Tick;
 use lightyear_inputs::server::InputSystems;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageSender};
 use lightyear_messages::receive::MessageReceiver;
-use lightyear_prediction::prelude::StateRollbackMetadata;
+use lightyear_prediction::prelude::{PredictionSystems, StateRollbackMetadata};
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-use lightyear_replication::prelude::ConfirmHistory;
+use lightyear_replication::prelude::{ConfirmHistory, ReplicationSystems};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use lightyear_transport::prelude::Channel;
 use serde::{Deserialize, Serialize};
-use tracing::{debug, warn};
+use tracing::debug;
 
 use crate::mode::CatchUpMode;
 
@@ -113,86 +111,42 @@ use crate::mode::CatchUpMode;
 #[derive(Event, Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CatchUpRequest;
 
-/// Stores the single replicon [`FilterBit`] that controls visibility for
-/// every catch-up-gated component on every [`CatchUpGated`] entity.
-/// Populated by [`AppCatchUpExt::register_catchup_components`].
+/// Client-side event emitted when the bundled catch-up snapshot has landed.
 ///
-/// # One bit, not one bit per component
-///
-/// bevy_replicon 0.39 caps the total number of registered visibility scopes
-/// at 8 (see `FilterRegistry::register_scope`). lightyear already consumes
-/// several (Replicate, Predicted, Interpolated, Controlled, NetworkVisibility)
-/// so allocating one bit per physics component would quickly exhaust the
-/// budget. Instead we register **one scope** with a tuple of all catch-up
-/// components, so the single bit hides/shows the whole bundle together.
-///
-/// This also matches the intended semantics: catch-up is atomic (you either
-/// have the full state snapshot or you don't), so per-component flipping is
-/// never useful.
+/// The plugin emits this in [`CatchUpSystems::DetectSnapshotReady`], which is
+/// scheduled after [`ReplicationSystems::Receive`] and before
+/// [`PredictionSystems::Rollback`]. User code can react in
+/// [`CatchUpSystems::OnSnapshotReady`] to add application-specific components
+/// (for example physics bundles) before the forced rollback runs.
+#[derive(Message, Clone, Debug)]
+pub struct CatchUpSnapshotReady {
+    /// Any entity from the coherent catch-up bundle. This can be passed to
+    /// [`request_forced_rollback_to_catch_up_tick`] once user code has added
+    /// the components needed for rollback replay.
+    pub reference_entity: Entity,
+    /// The Replicon checkpoint tick shared by every awaiting entity in this
+    /// bundled snapshot.
+    pub replicon_tick: RepliconTick,
+    /// The authoritative Lightyear simulation tick for [`replicon_tick`].
+    ///
+    /// [`replicon_tick`]: Self::replicon_tick
+    pub server_tick: Tick,
+    /// The awaiting entities that share this bundled snapshot tick.
+    pub entities: Vec<Entity>,
+}
+
+/// Tracks whether [`AppCatchUpExt::register_catchup_components`] has
+/// registered the Replicon visibility filter for catch-up components.
 #[derive(Resource, Default)]
 pub struct CatchUpRegistry {
-    bit: Option<FilterBit>,
+    initialized: bool,
 }
 
 impl CatchUpRegistry {
     /// Returns true if [`AppCatchUpExt::register_catchup_components`] has
     /// been called.
     pub fn is_initialized(&self) -> bool {
-        self.bit.is_some()
-    }
-
-    pub(crate) fn bit(&self) -> Option<FilterBit> {
-        self.bit
-    }
-}
-
-fn set_visible_for_client(world: &mut World, entity: Entity, client_link_entity: Entity) {
-    let Some(bit) = world.resource::<CatchUpRegistry>().bit() else {
-        warn!("CatchUpRegistry not initialized; cannot set catch-up visibility");
-        return;
-    };
-    debug!(
-        ?entity,
-        ?client_link_entity,
-        "setting catch-up bit to visible for client",
-    );
-    if let Some(mut vis) = world.get_mut::<ClientVisibility>(client_link_entity) {
-        vis.set(entity, bit, true);
-    }
-}
-
-fn hide_for_client(world: &mut World, entity: Entity, client_link_entity: Entity) {
-    let Some(bit) = world.resource::<CatchUpRegistry>().bit() else {
-        return;
-    };
-    if let Some(mut vis) = world.get_mut::<ClientVisibility>(client_link_entity) {
-        vis.set(entity, bit, false);
-    }
-}
-
-/// Hide `entity`'s catch-up-gated components for every client.
-///
-/// Even clients that have already caught up must receive a later deterministic
-/// spawn through the catch-up path. Otherwise they see the entity's initial
-/// replicated state at receive time but never roll back to the server tick that
-/// produced it.
-fn hide_for_all_clients(world: &mut World, entity: Entity) {
-    let Some(bit) = world.resource::<CatchUpRegistry>().bit() else {
-        return;
-    };
-    let clients: Vec<Entity> = world
-        .query_filtered::<Entity, With<ClientVisibility>>()
-        .iter(world)
-        .collect();
-    debug!(
-        ?entity,
-        num_clients = clients.len(),
-        "hiding catch-up bit on clients",
-    );
-    for client in clients {
-        if let Some(mut vis) = world.get_mut::<ClientVisibility>(client) {
-            vis.set(entity, bit, false);
-        }
+        self.initialized
     }
 }
 
@@ -202,44 +156,81 @@ pub trait AppCatchUpExt {
     /// `(Position, Rotation, LinearVelocity, AngularVelocity)`) as the
     /// catch-up scope.
     ///
-    /// Allocates a single replicon [`FilterBit`] covering all components
-    /// in `T` at once, stored in [`CatchUpRegistry`].
+    /// Registers a single Replicon [`VisibilityFilter`] covering all
+    /// components in `T` at once.
     ///
     /// Calling this more than once is a no-op — the plugin supports a
-    /// single catch-up scope. If you need multiple independent scopes
-    /// you can call replicon's `FilterRegistry::register_scope` directly
-    /// and drive the bit manually.
+    /// single catch-up scope.
     ///
     /// The components in `T` must also be registered for replication
     /// separately (typically via `replicate_once::<C>()` and
     /// `add_rollback::<C>().add_confirmed_write()`).
-    fn register_catchup_components<T: FilterScope + 'static>(&mut self) -> &mut Self;
+    fn register_catchup_components<T: FilterScope + Send + Sync + 'static>(&mut self) -> &mut Self;
 }
 
 impl AppCatchUpExt for App {
-    fn register_catchup_components<T: FilterScope + 'static>(&mut self) -> &mut Self {
+    fn register_catchup_components<T: FilterScope + Send + Sync + 'static>(&mut self) -> &mut Self {
         if self.world().resource::<CatchUpRegistry>().is_initialized() {
             return self;
         }
-        let bit =
+        self.add_visibility_filter::<CatchUpVisibility<T>>();
+        self.add_observer(on_catch_up_gated_added::<T>);
+        self.add_observer(on_has_caught_up_added::<T>);
+        self.world_mut()
+            .resource_mut::<CatchUpRegistry>()
+            .initialized = true;
+
+        let gated: Vec<Entity> = {
+            let world = self.world_mut();
+            let mut query = world.query_filtered::<Entity, With<CatchUpGated>>();
+            query.iter(world).collect()
+        };
+        for entity in gated {
             self.world_mut()
-                .resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
-                    world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                        filter_registry.register_scope::<T>(world, &mut registry)
-                    })
-                });
-        self.world_mut().resource_mut::<CatchUpRegistry>().bit = Some(bit);
+                .entity_mut(entity)
+                .insert(CatchUpVisibility::<T>::default());
+        }
+        let caught_up_clients: Vec<Entity> = {
+            let world = self.world_mut();
+            let mut query = world.query_filtered::<Entity, With<HasCaughtUp>>();
+            query.iter(world).collect()
+        };
+        for entity in caught_up_clients {
+            self.world_mut()
+                .entity_mut(entity)
+                .insert(CatchUpVisibility::<T>::default());
+        }
         self
+    }
+}
+
+#[derive(Component)]
+#[component(immutable)]
+struct CatchUpVisibility<T: FilterScope + Send + Sync + 'static>(PhantomData<fn() -> T>);
+
+impl<T: FilterScope + Send + Sync + 'static> Default for CatchUpVisibility<T> {
+    fn default() -> Self {
+        Self(PhantomData)
+    }
+}
+
+impl<T: FilterScope + Send + Sync + 'static> VisibilityFilter for CatchUpVisibility<T> {
+    type ClientComponent = Self;
+    type Scope = T;
+
+    fn is_visible(&self, _client: Entity, component: Option<&Self::ClientComponent>) -> bool {
+        component.is_some()
     }
 }
 
 /// Marker component added by server-side user code to entities whose
 /// catch-up-gated components should be hidden from clients until the client
-/// requests and receives a bundled catch-up snapshot.
+/// has completed the initial bundled catch-up snapshot.
 ///
-/// On [`Add`], an observer hides the catch-up bit for every client,
-/// including clients that have already completed an earlier catch-up.
-/// Each deterministic spawn needs its own snapshot tick and rollback.
+/// On [`Add`], the registered [`CatchUpVisibility`] filter is inserted on
+/// the same entity. Replicon hides the registered catch-up component scope
+/// from clients that do not yet have [`HasCaughtUp`] on their client link
+/// entity.
 ///
 /// In the deterministic_replication example this is inserted on the player
 /// entity next to `Replicate::to_clients(NetworkTarget::All)`.
@@ -249,13 +240,13 @@ pub struct CatchUpGated;
 /// Server-side marker inserted on a client's link entity once the client
 /// has received at least one bundled catch-up snapshot.
 #[derive(Component, Debug, Default)]
+#[component(immutable)]
 pub struct HasCaughtUp;
 
 /// Client-side marker inserted on the client entity once the bodyless
-/// [`CatchUpRequest`] has been sent. Prevents duplicate requests while one
-/// catch-up bundle is in flight; the marker is removed when a forced
-/// rollback is scheduled so future deterministic spawns can request another
-/// bundle.
+/// [`CatchUpRequest`] has been sent. Prevents duplicate requests while the
+/// initial catch-up bundle is in flight; the marker is removed when a forced
+/// rollback is scheduled.
 #[derive(Component, Debug, Default)]
 pub struct CatchUpRequestSent;
 
@@ -292,11 +283,38 @@ pub struct CatchUpRequestReceived;
 ///
 /// While `all_clients_ready == false`, any received [`CatchUpRequest`] is
 /// kept pending on the `ClientOf` via [`CatchUpRequestReceived`]. When the
-/// flag flips to `true`, pending requests are applied on the next frame
-/// (replicon emits the bundled snapshot at that server tick).
+/// flag flips to `true`, pending requests are applied on the next frame by
+/// inserting [`HasCaughtUp`] on the client link entity (replicon emits the
+/// bundled snapshot at that server tick).
 #[derive(Resource, Debug, Default)]
 pub struct CatchUpServerReadiness {
     pub all_clients_ready: bool,
+}
+
+/// Client-side resource that gates when [`send_catchup_request`] is allowed
+/// to send a [`CatchUpRequest`].
+///
+/// The late-join plugin can tell that the input timeline is synced, but it
+/// cannot know whether an application's concrete input buffers have enough
+/// real input history to replay from the eventual snapshot tick. Applications
+/// that use state-based catch-up for input-driven deterministic simulations
+/// can set this to `false` until their local and rebroadcast input buffers are
+/// ready. The default is `true` to preserve the old behavior for users that
+/// do not need an extra gate.
+#[derive(Resource, Debug)]
+pub struct CatchUpClientReadiness {
+    pub can_request: bool,
+}
+
+impl Default for CatchUpClientReadiness {
+    fn default() -> Self {
+        Self { can_request: true }
+    }
+}
+
+#[derive(Resource, Default)]
+struct CatchUpSnapshotReadyState {
+    last_emitted_replicon_tick: Option<RepliconTick>,
 }
 
 /// Re-export of [`lightyear_prediction::rollback::AwaitingCatchUpSnapshot`]
@@ -318,13 +336,11 @@ pub use lightyear_prediction::rollback::AwaitingCatchUpSnapshot;
 /// Plugin that wires up the late-join catch-up machinery.
 ///
 /// Clients send a bodyless [`CatchUpRequest`] once they're synced and have at
-/// least one entity marked [`AwaitingCatchUpSnapshot`]. The server enumerates
-/// all [`CatchUpGated`] entities, flips their catch-up visibility bits to
-/// *visible* for the requesting client in one frame, and inserts
-/// [`HasCaughtUp`] on the client entity. Replicon sends all gated components
-/// as a single bundled init message at a single server tick, which the client
-/// then uses to drive a forced rollback. Later deterministic spawns can repeat
-/// this request/snapshot/rollback flow.
+/// least one entity marked [`AwaitingCatchUpSnapshot`]. Once server readiness
+/// is met, the server inserts [`HasCaughtUp`] on the client entity. Replicon
+/// then sends the catch-up-gated components as a single bundled init message
+/// at a single server tick, which the client uses to drive a forced rollback.
+/// The [`HasCaughtUp`] marker is kept after success.
 pub struct LateJoinCatchUpPlugin<C: Channel> {
     _marker: core::marker::PhantomData<fn() -> C>,
 }
@@ -351,8 +367,13 @@ pub enum CatchUpSystems {
     /// [`CatchUpRequestReceived`] markers.
     HandleRequests,
     /// Server-side: if readiness is met, apply pending catch-ups by flipping
-    /// catch-up visibility on all [`CatchUpGated`] entities.
+    /// catch-up visibility on the client's pending [`CatchUpGated`] entities.
     ApplyPending,
+    /// Client-side: detect that a coherent bundled snapshot has landed.
+    DetectSnapshotReady,
+    /// Client-side: user hook for reacting to [`CatchUpSnapshotReady`] before
+    /// prediction rollback runs.
+    OnSnapshotReady,
 }
 
 impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
@@ -364,8 +385,10 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
         app.init_resource::<CatchUpRegistry>();
         app.init_resource::<CatchUpMode>();
         app.init_resource::<CatchUpServerReadiness>();
-        app.add_observer(on_catch_up_gated_added);
-        app.add_observer(on_client_connected_hide_gated);
+        app.init_resource::<CatchUpClientReadiness>();
+        app.init_resource::<CatchUpSnapshotReadyState>();
+        app.add_message::<CatchUpSnapshotReady>();
+        app.add_observer(mark_client_caught_up_if_no_gated_on_connect);
         app.configure_sets(
             PreUpdate,
             (
@@ -377,11 +400,22 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
                 .after(MessageSystems::Receive)
                 .after(InputSystems::ReceiveInputs),
         );
+        app.configure_sets(
+            PreUpdate,
+            (
+                CatchUpSystems::DetectSnapshotReady,
+                CatchUpSystems::OnSnapshotReady,
+            )
+                .chain()
+                .after(ReplicationSystems::Receive)
+                .before(PredictionSystems::Rollback),
+        );
         app.add_systems(
             PreUpdate,
             (
                 handle_catch_up_requests.in_set(CatchUpSystems::HandleRequests),
                 apply_pending_catch_ups.in_set(CatchUpSystems::ApplyPending),
+                detect_catch_up_snapshot_ready.in_set(CatchUpSystems::DetectSnapshotReady),
             ),
         );
         app.add_systems(
@@ -391,71 +425,74 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
     }
 }
 
-/// When a user inserts [`CatchUpGated`] on a server entity, hide its
-/// catch-up-scoped components for every client. The entity's structural
-/// components can still replicate immediately, letting clients request a
-/// bundled physics snapshot once their input buffers can replay it.
-fn on_catch_up_gated_added(trigger: On<Add, CatchUpGated>, mut commands: Commands) {
+/// When a user inserts [`CatchUpGated`] on a server entity, attach the
+/// Replicon visibility filter that hides the catch-up-scoped components
+/// from clients until their link entity has [`HasCaughtUp`].
+fn on_catch_up_gated_added<T: FilterScope + Send + Sync + 'static>(
+    trigger: On<Add, CatchUpGated>,
+    mut commands: Commands,
+) {
     let entity = trigger.entity;
-    debug!(?entity, "CatchUpGated added; queuing hide for all clients");
-    commands.queue(move |world: &mut World| {
-        hide_for_all_clients(world, entity);
-    });
+    debug!(
+        ?entity,
+        "CatchUpGated added; inserting catch-up visibility filter"
+    );
+    commands
+        .entity(entity)
+        .insert(CatchUpVisibility::<T>::default());
 }
 
-/// When a new client connects, hide the catch-up-scoped components on every
-/// already-existing [`CatchUpGated`] entity *for that one client only*.
-///
-/// Only the newly-connected client needs re-hiding — other clients'
-/// visibility state for those entities is already managed by their current
-/// catch-up request/snapshot state.
-fn on_client_connected_hide_gated(
+/// Once a server marks a client as caught up, insert the same internal
+/// visibility filter component on the client link entity. Replicon's filter
+/// observer reevaluates existing [`CatchUpGated`] entities when this
+/// component is inserted.
+fn on_has_caught_up_added<T: FilterScope + Send + Sync + 'static>(
+    trigger: On<Add, HasCaughtUp>,
+    clients: Query<(), With<ClientVisibility>>,
+    mut commands: Commands,
+) {
+    let entity = trigger.entity;
+    if clients.get(entity).is_err() {
+        return;
+    }
+    debug!(
+        ?entity,
+        "HasCaughtUp added; inserting catch-up visibility marker on client"
+    );
+    commands
+        .entity(entity)
+        .insert(CatchUpVisibility::<T>::default());
+}
+
+/// If a client joins before any catch-up-gated entities exist, it is already
+/// part of the deterministic simulation and does not need the late-join
+/// snapshot flow. Mark it caught up so future gated entities replicate
+/// normally to it.
+fn mark_client_caught_up_if_no_gated_on_connect(
     trigger: On<Add, Connected>,
     clients: Query<(), (With<ClientOf>, With<LinkOf>)>,
+    gated: Query<(), With<CatchUpGated>>,
     mut commands: Commands,
 ) {
     let client = trigger.entity;
-    if clients.get(client).is_err() {
+    if clients.get(client).is_err() || !gated.is_empty() {
         return;
     }
     debug!(
         ?client,
-        "client connected; queuing hide for all existing CatchUpGated entities"
+        "client connected before any catch-up-gated entities; marking caught up"
     );
-    commands.queue(move |world: &mut World| {
-        // New connection — `HasCaughtUp` cannot be set yet.
-        let gated: Vec<Entity> = world
-            .query_filtered::<Entity, With<CatchUpGated>>()
-            .iter(world)
-            .collect();
-        debug!(
-            ?client,
-            gated_count = gated.len(),
-            "hiding gated entities for new client"
-        );
-        for entity in gated {
-            hide_for_client(world, entity, client);
-        }
-    });
+    commands.entity(client).insert(HasCaughtUp);
 }
 
-/// Flip the catch-up visibility bit to *visible* for every
-/// [`CatchUpGated`] entity for the given client, and mark the client as
-/// [`HasCaughtUp`]. Exposed as a standalone helper so tests and custom
-/// triggers can invoke it without constructing a message receiver.
+/// Mark the client as [`HasCaughtUp`], which lets Replicon's catch-up
+/// visibility filter reveal catch-up-scoped components for every
+/// [`CatchUpGated`] entity.
+///
+/// Exposed as a standalone helper so tests and custom triggers can invoke
+/// it without constructing a message receiver.
 pub fn apply_catch_up_for_client(world: &mut World, client_link_entity: Entity) {
-    let gated: Vec<Entity> = world
-        .query_filtered::<Entity, With<CatchUpGated>>()
-        .iter(world)
-        .collect();
-    debug!(
-        ?client_link_entity,
-        gated_count = gated.len(),
-        "applying bundled catch-up for client",
-    );
-    for entity in gated {
-        set_visible_for_client(world, entity, client_link_entity);
-    }
+    debug!(?client_link_entity, "applying bundled catch-up for client");
     if let Ok(mut entity_mut) = world.get_entity_mut(client_link_entity) {
         entity_mut.insert(HasCaughtUp);
         entity_mut.remove::<CatchUpRequestReceived>();
@@ -492,11 +529,14 @@ fn handle_catch_up_requests(
     }
 }
 
-/// Server system: apply any pending catch-up requests once the server
-/// reports it has received input from every client up through its current
-/// tick ([`CatchUpServerReadiness::all_clients_ready`] is `true`). Applies
-/// via [`apply_catch_up_for_client`] which flips visibility for every
-/// [`CatchUpGated`] entity and inserts [`HasCaughtUp`].
+/// Server system: apply catch-up snapshots once the server reports it has
+/// received input from every client up through its current tick
+/// ([`CatchUpServerReadiness::all_clients_ready`] is `true`).
+///
+/// First-time clients still need to send [`CatchUpRequest`]. Once a client
+/// has [`HasCaughtUp`], the marker is kept permanently; later deterministic
+/// state is part of the normal deterministic simulation and no second
+/// catch-up visibility flow is needed.
 fn apply_pending_catch_ups(world: &mut World) {
     let ready = world.resource::<CatchUpServerReadiness>().all_clients_ready;
     if !ready {
@@ -518,6 +558,67 @@ fn apply_pending_catch_ups(world: &mut World) {
     }
 }
 
+/// Client system: emits [`CatchUpSnapshotReady`] once all entities currently
+/// marked [`AwaitingCatchUpSnapshot`] have a confirmation at the same Replicon
+/// checkpoint and that checkpoint can be resolved to a Lightyear simulation
+/// tick.
+fn detect_catch_up_snapshot_ready(
+    mode: Res<CatchUpMode>,
+    client: Option<Single<(), With<Client>>>,
+    awaiting: Query<(Entity, Option<Ref<ConfirmHistory>>), With<AwaitingCatchUpSnapshot>>,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    mut state: ResMut<CatchUpSnapshotReadyState>,
+    mut events: MessageWriter<CatchUpSnapshotReady>,
+) {
+    if *mode == CatchUpMode::InputOnly || client.is_none() {
+        return;
+    }
+
+    let mut reference_entity = None;
+    let mut bundled_tick = None;
+    let mut entities = Vec::new();
+    let mut any_changed = false;
+
+    for (entity, confirm) in &awaiting {
+        let Some(confirm) = confirm else {
+            return;
+        };
+        any_changed |= confirm.is_changed();
+        let tick = confirm.last_tick();
+        match bundled_tick {
+            Some(expected) if expected != tick => return,
+            Some(_) => {}
+            None => {
+                bundled_tick = Some(tick);
+                reference_entity = Some(entity);
+            }
+        }
+        entities.push(entity);
+    }
+
+    let Some(replicon_tick) = bundled_tick else {
+        state.last_emitted_replicon_tick = None;
+        return;
+    };
+    if !any_changed || state.last_emitted_replicon_tick == Some(replicon_tick) {
+        return;
+    }
+    let Some(server_tick) = checkpoints.get(replicon_tick) else {
+        return;
+    };
+    let Some(reference_entity) = reference_entity else {
+        return;
+    };
+
+    state.last_emitted_replicon_tick = Some(replicon_tick);
+    events.write(CatchUpSnapshotReady {
+        reference_entity,
+        replicon_tick,
+        server_tick,
+        entities,
+    });
+}
+
 /// Client system: send a [`CatchUpRequest`] once the input timeline is
 /// synced and at least one entity is waiting for a catch-up snapshot, unless
 /// the client is in [`CatchUpMode::InputOnly`] or a request is already in
@@ -527,6 +628,7 @@ fn apply_pending_catch_ups(world: &mut World) {
 /// use a reliable channel so the request is not lost.
 fn send_catchup_request<C: Channel>(
     mode: Res<CatchUpMode>,
+    readiness: Res<CatchUpClientReadiness>,
     awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
     client: Option<
         Single<
@@ -541,6 +643,9 @@ fn send_catchup_request<C: Channel>(
     mut commands: Commands,
 ) {
     if *mode == CatchUpMode::InputOnly {
+        return;
+    }
+    if !readiness.can_request {
         return;
     }
     if awaiting.is_empty() {
@@ -622,27 +727,11 @@ pub fn request_forced_rollback_to_catch_up_tick(
 
 #[cfg(test)]
 mod tests {
-    //! Unit tests for the late-join catch-up registry and observer wiring.
-    //!
-    //! bevy_replicon keeps `FiltersMask` and `ClientVisibility::get`
-    //! crate-private, so we can't directly assert on the bit state of a
-    //! `ClientVisibility` component from outside the crate. These tests
-    //! instead verify:
-    //! - registration allocates a single replicon filter bit (via the
-    //!   public [`FilterRegistry::register_scope`]) and is idempotent;
-    //! - the observers (`on_catch_up_gated_added`,
-    //!   `on_client_connected_hide_gated`) and
-    //!   [`apply_catch_up_for_client`] do not panic in either state
-    //!   (with or without the registry initialized), and they dispatch
-    //!   through [`ClientVisibility::set`] exactly via the single shared
-    //!   bit in [`CatchUpRegistry`].
-    //!
-    //! The actual visibility-flipping inside replicon is covered by
-    //! replicon's own tests. The full init-message round-trip (replicon
-    //! writing the component as an insertion once the bit is flipped,
-    //! and `add_confirmed_write` seeding `PredictionHistory`) is covered
-    //! by the integration test `test_prediction_history_seeded_from_init_message`
-    //! in `lightyear_tests`.
+    //! Unit tests for the late-join catch-up registry and filter marker
+    //! wiring. Replicon's own tests cover the private visibility mask state;
+    //! these tests verify that `CatchUpGated` gets the registered filter
+    //! component and that applying catch-up permanently marks the client with
+    //! `HasCaughtUp`.
     use super::*;
     use bevy_app::App;
     use bevy_replicon::prelude::SingleComponent;
@@ -658,25 +747,31 @@ mod tests {
     #[derive(Component, Default)]
     struct C;
 
+    #[derive(Resource, Default)]
+    struct ReadyEvents(Vec<CatchUpSnapshotReady>);
+
+    fn collect_ready_events(
+        mut reader: MessageReader<CatchUpSnapshotReady>,
+        mut events: ResMut<ReadyEvents>,
+    ) {
+        events.0.extend(reader.read().cloned());
+    }
+
     /// Build an app with the full catch-up wiring: replicon filter
-    /// registry + the plugin's registry and observers. Allocates a real
-    /// replicon filter bit via `register_catchup_components`.
+    /// registry + the plugin's registry and observer.
     fn test_app() -> App {
         let mut app = App::new();
         app.init_resource::<FilterRegistry>();
         app.init_resource::<ReplicationRegistry>();
         app.init_resource::<CatchUpRegistry>();
         app.register_catchup_components::<(A, B, C)>();
-        app.add_observer(on_catch_up_gated_added);
-        app.add_observer(on_client_connected_hide_gated);
         app
     }
 
     fn spawn_client(app: &mut App) -> Entity {
         // `Connected`'s on_insert hook asserts that the entity carries a
-        // `RemoteId`. `on_client_connected_hide_gated` filters on
-        // `With<ClientOf>` + `With<LinkOf>`, so the test client must be
-        // fully shaped to look like a real remote-client link entity.
+        // `RemoteId`, so the test client is shaped like a real remote-client
+        // link entity.
         let server = app.world_mut().spawn_empty().id();
         app.world_mut()
             .spawn((
@@ -689,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn register_allocates_one_bit_and_is_idempotent() {
+    fn register_is_idempotent() {
         let mut app = App::new();
         app.init_resource::<FilterRegistry>();
         app.init_resource::<ReplicationRegistry>();
@@ -697,13 +792,11 @@ mod tests {
         assert!(!app.world().resource::<CatchUpRegistry>().is_initialized());
 
         app.register_catchup_components::<(A, B, C)>();
-        let first_bit = app.world().resource::<CatchUpRegistry>().bit();
-        assert!(first_bit.is_some());
+        assert!(app.world().resource::<CatchUpRegistry>().is_initialized());
 
-        // Second call is a no-op — a second scope is NOT registered.
+        // Second call is a no-op and must not register the same filter twice.
         app.register_catchup_components::<(A, B, C)>();
-        let second_bit = app.world().resource::<CatchUpRegistry>().bit();
-        assert_eq!(first_bit, second_bit);
+        assert!(app.world().resource::<CatchUpRegistry>().is_initialized());
     }
 
     #[test]
@@ -721,20 +814,30 @@ mod tests {
     #[test]
     fn catch_up_gated_does_not_panic_with_no_clients() {
         let mut app = test_app();
-        let _entity = app.world_mut().spawn(CatchUpGated).id();
+        let entity = app.world_mut().spawn(CatchUpGated).id();
         app.update();
+        assert!(
+            app.world()
+                .get::<CatchUpVisibility<(A, B, C)>>(entity)
+                .is_some()
+        );
     }
 
     #[test]
-    fn catch_up_gated_does_not_panic_with_clients() {
+    fn catch_up_gated_inserts_filter_with_clients() {
         let mut app = test_app();
         let _client_a = spawn_client(&mut app);
         let _client_b = spawn_client(&mut app);
         app.update();
 
-        let _entity = app.world_mut().spawn(CatchUpGated).id();
+        let entity = app.world_mut().spawn(CatchUpGated).id();
         // Observer runs via commands.queue; another update flushes.
         app.update();
+        assert!(
+            app.world()
+                .get::<CatchUpVisibility<(A, B, C)>>(entity)
+                .is_some()
+        );
     }
 
     #[test]
@@ -752,15 +855,15 @@ mod tests {
     }
 
     #[test]
-    fn apply_catch_up_for_client_does_not_panic() {
+    fn apply_catch_up_for_client_marks_client_caught_up() {
         let mut app = test_app();
         let client = spawn_client(&mut app);
         let _entity_one = app.world_mut().spawn(CatchUpGated).id();
         let _entity_two = app.world_mut().spawn(CatchUpGated).id();
         app.update();
 
+        assert!(app.world().get::<HasCaughtUp>(client).is_none());
         apply_catch_up_for_client(app.world_mut(), client);
-        // Client should be marked HasCaughtUp after the helper.
         assert!(app.world().get::<HasCaughtUp>(client).is_some());
     }
 
@@ -777,8 +880,80 @@ mod tests {
             .id();
         let _entity = app.world_mut().spawn(CatchUpGated).id();
         apply_catch_up_for_client(app.world_mut(), client);
-        // Even without a registry, HasCaughtUp should still be inserted
-        // (the visibility no-op happens at a lower layer).
+        // Even without a registered filter, HasCaughtUp is just the durable
+        // client-side marker.
         assert!(app.world().get::<HasCaughtUp>(client).is_some());
+    }
+
+    #[test]
+    fn new_gated_entity_after_catch_up_gets_filter_without_removing_client_marker() {
+        let mut app = test_app();
+        let client = spawn_client(&mut app);
+        let entity_one = app.world_mut().spawn(CatchUpGated).id();
+        app.update();
+
+        assert!(
+            app.world()
+                .get::<CatchUpVisibility<(A, B, C)>>(entity_one)
+                .is_some()
+        );
+
+        apply_catch_up_for_client(app.world_mut(), client);
+        assert!(app.world().get::<HasCaughtUp>(client).is_some());
+
+        let entity_two = app.world_mut().spawn(CatchUpGated).id();
+        app.update();
+
+        assert!(
+            app.world()
+                .get::<CatchUpVisibility<(A, B, C)>>(entity_two)
+                .is_some()
+        );
+        assert!(app.world().get::<HasCaughtUp>(client).is_some());
+    }
+
+    #[test]
+    fn snapshot_ready_event_fires_before_user_hook() {
+        let mut app = App::new();
+        app.init_resource::<CatchUpSnapshotReadyState>();
+        app.init_resource::<CatchUpMode>();
+        app.init_resource::<ReplicationCheckpointMap>();
+        app.init_resource::<ReadyEvents>();
+        app.add_message::<CatchUpSnapshotReady>();
+        app.configure_sets(
+            PreUpdate,
+            (
+                CatchUpSystems::DetectSnapshotReady,
+                CatchUpSystems::OnSnapshotReady,
+            )
+                .chain(),
+        );
+        app.add_systems(
+            PreUpdate,
+            (
+                detect_catch_up_snapshot_ready.in_set(CatchUpSystems::DetectSnapshotReady),
+                collect_ready_events.in_set(CatchUpSystems::OnSnapshotReady),
+            ),
+        );
+
+        app.world_mut().spawn(Client::default());
+        let replicon_tick = RepliconTick::new(7);
+        let server_tick = Tick(42);
+        app.world_mut()
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(replicon_tick, server_tick);
+        let entity = app
+            .world_mut()
+            .spawn((AwaitingCatchUpSnapshot, ConfirmHistory::new(replicon_tick)))
+            .id();
+
+        app.update();
+
+        let events = &app.world().resource::<ReadyEvents>().0;
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].reference_entity, entity);
+        assert_eq!(events[0].replicon_tick, replicon_tick);
+        assert_eq!(events[0].server_tick, server_tick);
+        assert_eq!(events[0].entities, alloc::vec![entity]);
     }
 }

@@ -18,7 +18,7 @@ use bevy_math::{
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
+use bevy_replicon::prelude::{AppMarkerExt, RepliconTick, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
@@ -354,9 +354,6 @@ impl PredictionRegistry {
 
         let Some(mut predicted_history) = entity_mut.get_mut::<PredictionHistory<C>>() else {
             let mut history = PredictionHistory::<C>::default();
-            // Mark as confirmed since this came from the server
-            history.add_confirmed(confirmed_tick, confirmed_component);
-            entity_mut.insert(history);
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "confirmed_history_insert",
@@ -365,8 +362,12 @@ impl PredictionRegistry {
                 confirmed_tick = confirmed_tick.0,
                 check_mismatch,
                 should_rollback = check_mismatch,
+                value = ?confirmed_component.as_ref(),
                 "created prediction history from confirmed value"
             );
+            // Mark as confirmed since this came from the server
+            history.add_confirmed(confirmed_tick, confirmed_component);
+            entity_mut.insert(history);
             // If there was no history, we can't compare, so we should rollback to be safe
             return check_mismatch;
         };
@@ -405,7 +406,6 @@ impl PredictionRegistry {
         }
 
         // Always add confirmed value to history - this value will be preserved during rollback
-        predicted_history.add_confirmed(confirmed_tick, confirmed_component);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "confirmed_history_update",
@@ -415,8 +415,10 @@ impl PredictionRegistry {
             check_mismatch,
             should_rollback,
             history_len = predicted_history.len(),
+            value = ?confirmed_component.as_ref(),
             "recorded confirmed value in prediction history"
         );
+        predicted_history.add_confirmed(confirmed_tick, confirmed_component);
         should_rollback
     }
 
@@ -512,10 +514,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !self.app.world().contains_resource::<PredictionRegistry>() {
             return self;
         }
-        // Gate keyed on `DeterministicPredicted` (backwards-compatible);
-        // the gated fns `write_history_gated_by_catchup` /
-        // `remove_history_gated_by_catchup` additionally check for
-        // `AwaitingCatchUpSnapshot` per entity at write time, so:
+        // Gate keyed on both `AwaitingCatchUpSnapshot` and
+        // `DeterministicPredicted` (backwards-compatible). The Awaiting
+        // marker is important for init messages: Replicon chooses the
+        // receive function before applying the incoming components, so a
+        // late-join catch-up snapshot must be routed to history while the
+        // entity is still awaiting catch-up, before `DeterministicPredicted`
+        // is inserted by user code.
         //
         // - StateBasedCatchUp: while the client is expecting the bundled
         //   snapshot, user code inserts `AwaitingCatchUpSnapshot` on the
@@ -528,13 +533,20 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         //   `replicate_once` value lands directly on the live component
         //   via the default replicon write path.
         //
-        // We do this check at write time (rather than by swapping the
-        // replicon marker from `DeterministicPredicted` to
-        // `AwaitingCatchUpSnapshot`) because dynamic marker registration
-        // invalidates previously-returned `ReceiveMarkerIndex`es when new
-        // markers are inserted at the same priority, destabilizing
-        // unrelated components' write behavior.
+        // The `DeterministicPredicted` marker remains registered for older
+        // flows where the entity is already deterministic when the
+        // authoritative value arrives.
+        use crate::rollback::AwaitingCatchUpSnapshot;
         use crate::rollback::DeterministicPredicted;
+        self.app
+            .register_marker_with::<AwaitingCatchUpSnapshot>(MarkerConfig {
+                priority: 110,
+                need_history: true,
+            });
+        self.app.set_marker_fns::<AwaitingCatchUpSnapshot, C>(
+            write_history_gated_by_catchup::<C>,
+            remove_history_gated_by_catchup::<C>,
+        );
         self.app
             .register_marker_with::<DeterministicPredicted>(MarkerConfig {
                 priority: 100,
@@ -710,6 +722,23 @@ fn write_history<C: SyncComponent>(
     message: &mut Bytes,
 ) -> Result<()> {
     let component: C = rule_fns.deserialize(ctx, message)?;
+    let (tick, should_rollback) =
+        add_confirmed_to_history(ctx.message_tick, Some(component), entity, true)?;
+    if should_rollback {
+        // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
+        unsafe { entity.world_mut() }
+            .resource_mut::<StateRollbackMetadata>()
+            .record_mismatch(tick);
+    }
+    Ok(())
+}
+
+fn add_confirmed_to_history<C: SyncComponent>(
+    message_tick: RepliconTick,
+    confirmed_component: Option<C>,
+    entity: &mut DeferredEntity,
+    check_state_rollback: bool,
+) -> Result<(Tick, bool)> {
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     // We extract all needed values and drop the world borrow before using `entity` again.
     let (registry, checkpoints, should_check) = {
@@ -729,29 +758,27 @@ fn write_history<C: SyncComponent>(
             should_check,
         )
     };
-    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+    let Some(tick) = resolve_message_tick(checkpoints, message_tick) else {
         error!(
-            message_tick = ?ctx.message_tick,
+            ?message_tick,
             "missing authoritative checkpoint mapping while writing prediction history"
         );
         debug_assert!(
             false,
             "missing authoritative checkpoint mapping while writing prediction history"
         );
-        return Ok(());
+        return Ok((Tick(0), false));
     };
 
     // Always add confirmed values to history (needed for rollback in any mode).
     // If RollbackMode::Check, also check for mismatch.
-    let should_rollback =
-        registry.add_confirmed_and_check_rollback(tick, Some(component), entity, should_check);
-    if should_rollback {
-        // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
-        unsafe { entity.world_mut() }
-            .resource_mut::<StateRollbackMetadata>()
-            .record_mismatch(tick);
-    }
-    Ok(())
+    let should_rollback = registry.add_confirmed_and_check_rollback(
+        tick,
+        confirmed_component,
+        entity,
+        check_state_rollback && should_check,
+    );
+    Ok((tick, should_rollback))
 }
 
 /// Removes component `C` and records the removal in history.
@@ -808,8 +835,9 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
 /// Checks for `AwaitingCatchUpSnapshot` on the entity at write time:
 /// - If absent (e.g. InputOnly mode, or post-catch-up), performs a normal
 ///   replicon default write directly to the live component.
-/// - If present (StateBasedCatchUp bundled snapshot en route), routes the
-///   write into `PredictionHistory<C>` via [`write_history`].
+/// - If present (StateBasedCatchUp bundled snapshot en route), records the
+///   write in `PredictionHistory<C>` and updates the live component so
+///   activation systems can see that the bundled component has landed.
 fn write_history_gated_by_catchup<C: SyncComponent>(
     ctx: &mut WriteCtx,
     rule_fns: &RuleFns<C>,
@@ -825,23 +853,42 @@ fn write_history_gated_by_catchup<C: SyncComponent>(
         }
         return Ok(());
     }
-    write_history::<C>(ctx, rule_fns, entity, message)
+    let component: C = rule_fns.deserialize(ctx, message)?;
+    let live_component = component.clone();
+    let (_, should_rollback) =
+        add_confirmed_to_history(ctx.message_tick, Some(component), entity, false)?;
+    debug_assert!(!should_rollback);
+    if let Some(mut component) = entity.get_mut::<C>() {
+        *component = live_component;
+    } else {
+        entity.insert(live_component);
+    }
+    Ok(())
 }
 
 /// Variant of [`remove_history`] used by `add_confirmed_write`.
 ///
-/// Mirrors [`write_history_gated_by_catchup`]: if the entity is not
-/// `AwaitingCatchUpSnapshot`, removes the component directly; otherwise
-/// records the removal in history.
+/// Mirrors [`write_history_gated_by_catchup`], but treats removals from
+/// deterministic catch-up-gated components as visibility-reset noise.
+/// Replicon resends `replicate_once` components by hiding and showing them;
+/// the hide half can arrive as a component removal even though the server did
+/// not authoritatively remove the simulation component.
 fn remove_history_gated_by_catchup<C: SyncComponent>(
     ctx: &mut RemoveCtx,
     entity: &mut DeferredEntity,
 ) {
-    if !entity.contains::<crate::rollback::AwaitingCatchUpSnapshot>() {
-        entity.remove::<C>();
+    let awaiting_catchup = entity.contains::<crate::rollback::AwaitingCatchUpSnapshot>();
+    if awaiting_catchup || entity.contains::<crate::rollback::DeterministicPredicted>() {
+        trace!(
+            component = ?DebugName::type_name::<C>(),
+            entity = ?entity.id(),
+            message_tick = ?ctx.message_tick,
+            awaiting_catchup,
+            "Ignoring deterministic catch-up component removal"
+        );
         return;
     }
-    remove_history::<C>(ctx, entity);
+    entity.remove::<C>();
 }
 
 #[cfg(test)]

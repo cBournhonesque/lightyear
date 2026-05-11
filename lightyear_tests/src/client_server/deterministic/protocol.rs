@@ -18,7 +18,9 @@ use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::InputRegistryExt;
 use lightyear::prelude::input::bei;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{AppCatchUpExt, LateJoinCatchUpPlugin};
+use lightyear_deterministic_replication::prelude::{
+    AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode, LateJoinCatchUpPlugin,
+};
 use lightyear_prediction::rollback::DeterministicPredicted;
 use serde::{Deserialize, Serialize};
 
@@ -28,9 +30,25 @@ pub const BALL_SIZE: f32 = 8.0;
 pub const WALL_HALF_EXTENT: f32 = 80.0;
 pub const MOVE_ACCEL: f32 = 12.0;
 pub const MAX_VELOCITY: f32 = 120.0;
+const BALL_PRESPAWN_HASH: u64 = 0xD37E_12B4_0000_0002;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct DetPlayerId(pub PeerId);
+
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
+pub struct DetPlayerActivationTick(pub Tick);
+
+impl DetPlayerActivationTick {
+    pub const DELAY_TICKS: u32 = 30;
+
+    pub fn pending() -> Self {
+        Self(Tick(u32::MAX))
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.0 == Tick(u32::MAX)
+    }
+}
 
 #[derive(Component, Debug)]
 pub struct DetBallMarker;
@@ -130,6 +148,7 @@ impl Plugin for DetProtocolPlugin {
         app.add_observer(add_frame_interpolation);
 
         app.register_component::<DetPlayerId>();
+        app.register_component::<DetPlayerActivationTick>();
 
         app.replicate_once::<Position>();
         app.add_rollback::<Position>()
@@ -153,15 +172,58 @@ impl Plugin for DetProtocolPlugin {
 
         // Apply movement via a Fire observer on the action.
         app.add_observer(apply_movement);
+        app.add_systems(PreUpdate, update_player_activation_ticks);
 
         app.add_systems(Startup, init_shared);
     }
 }
 
+fn update_player_activation_ticks(
+    server: Option<Single<(), With<Server>>>,
+    timeline: Res<LocalTimeline>,
+    mut players: Query<(Entity, &DetPlayerId, &mut DetPlayerActivationTick)>,
+    actions: Query<(&ActionOf<Player>, &DetBuffer)>,
+) {
+    use bevy::ecs::relationship::Relationship;
+
+    if server.is_none() {
+        return;
+    }
+    let current_tick = timeline.tick();
+    for (player_entity, player_id, mut activation_tick) in &mut players {
+        if !activation_tick.is_pending() {
+            continue;
+        }
+        let ready = actions.iter().any(|(action_of, buffer)| {
+            action_of.get() == player_entity
+                && matches!(buffer.last_remote_tick, Some(tick) if tick >= current_tick)
+        });
+        if !ready {
+            continue;
+        }
+        activation_tick.0 = current_tick + DetPlayerActivationTick::DELAY_TICKS as i32;
+        info!(
+            player_id = ?player_id.0,
+            ?current_tick,
+            activation_tick = ?activation_tick.0,
+            "Activating deterministic test player after input rebroadcast warmup"
+        );
+    }
+}
+
 /// Spawn the ball + walls on every peer. These are NOT replicated —
 /// deterministic init means identical starting state on both sides.
-fn init_shared(mut commands: Commands) {
-    commands.spawn((
+fn init_shared(
+    mut commands: Commands,
+    mode: Res<CatchUpMode>,
+    server: Option<Single<(), With<Server>>>,
+    client: Option<Single<(), With<Client>>>,
+) {
+    let is_state_based = *mode == CatchUpMode::StateBasedCatchUp;
+    let is_server = server.is_some();
+    let is_client = client.is_some();
+
+    let mut ball = commands.spawn((
         Position::default(),
         DetPhysicsBundle::ball(),
         DetBallMarker,
@@ -171,6 +233,14 @@ fn init_shared(mut commands: Commands) {
         },
         Name::from("Ball"),
     ));
+    if is_state_based {
+        ball.insert(PreSpawned::new(BALL_PRESPAWN_HASH));
+        if is_server {
+            ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
+        } else if is_client {
+            ball.insert(AwaitingCatchUpSnapshot);
+        }
+    }
 
     let w = WALL_HALF_EXTENT;
     for (start, end) in [
@@ -194,20 +264,23 @@ fn init_shared(mut commands: Commands) {
 /// acceleration on the player entity.
 fn apply_movement(
     trigger: On<Fire<DetMovement>>,
-    mut players: Query<&mut LinearVelocity, With<DetPlayerId>>,
+    mut players: Query<(&mut LinearVelocity, Option<&DetPlayerActivationTick>), With<DetPlayerId>>,
     tl: Res<lightyear_core::prelude::LocalTimeline>,
 ) {
-    let Ok(mut velocity) = players.get_mut(trigger.context) else {
+    let Ok((mut velocity, activation_tick)) = players.get_mut(trigger.context) else {
         return;
     };
+    let tick = tl.tick();
+    if activation_tick.is_some_and(|activation_tick| tick < activation_tick.0) {
+        return;
+    }
     let input = trigger.value;
     let before = **velocity;
     velocity.x += input.x * MOVE_ACCEL;
     velocity.y += input.y * MOVE_ACCEL;
     **velocity = velocity.clamp_length_max(MAX_VELOCITY);
-    let tick = tl.tick().0;
-    if (58..=62).contains(&tick) {
-        info!(tick, context=?trigger.context, input=?input, ?before, after=?**velocity, "apply_movement fire");
+    if (58..=62).contains(&tick.0) {
+        info!(tick = tick.0, context=?trigger.context, input=?input, ?before, after=?**velocity, "apply_movement fire");
     }
 }
 

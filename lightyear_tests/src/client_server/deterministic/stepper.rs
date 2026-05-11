@@ -260,6 +260,29 @@ impl DetStepper {
         panic!("Client {} failed to connect+sync in time", id);
     }
 
+    /// Disconnect and remove the most recently added client.
+    pub fn disconnect_last_client(&mut self) {
+        let last = self.client_entities.len() - 1;
+        let client_entity = self.client_entities[last];
+        self.client_apps[last].world_mut().trigger(Disconnect {
+            entity: client_entity,
+        });
+
+        // Let the in-memory disconnect packet reach the server so netcode
+        // releases the peer id before a reconnect with the same id.
+        self.frame_step(10);
+
+        let client_entity = self.client_entities.pop().unwrap();
+        let server_entity = self.client_of_entities.pop().unwrap();
+        let mut client_app = self.client_apps.pop().unwrap();
+        client_app.world_mut().flush();
+        client_app.world_mut().despawn(client_entity);
+        if self.server_app.world().get_entity(server_entity).is_ok() {
+            self.server_app.world_mut().despawn(server_entity);
+        }
+        self.frame_step(1);
+    }
+
     pub fn wait_for_connection(&mut self) {
         for _ in 0..100 {
             if (0..self.client_entities.len()).all(|id| self.client(id).contains::<Connected>()) {
@@ -322,7 +345,8 @@ pub fn spawn_player_on_server(
     gated: bool,
 ) -> Entity {
     use crate::client_server::deterministic::protocol::{
-        DetMovement, DetPhysicsBundle, DetPlayerId, Player, action_prespawn_hash,
+        DetMovement, DetPhysicsBundle, DetPlayerActivationTick, DetPlayerId, Player,
+        action_prespawn_hash,
     };
     use bevy_enhanced_input::prelude::{Action, ActionOf};
     use lightyear_deterministic_replication::prelude::CatchUpGated;
@@ -331,6 +355,7 @@ pub fn spawn_player_on_server(
     let mut entity = server_app.world_mut().spawn((
         Replicate::to_clients(NetworkTarget::All),
         DetPlayerId(peer_id),
+        DetPlayerActivationTick::pending(),
         Player,
         Position::from_xy(spawn_xy.x, spawn_xy.y),
         Rotation::default(),

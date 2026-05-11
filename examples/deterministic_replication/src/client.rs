@@ -9,7 +9,9 @@ use lightyear::prelude::*;
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::color_from_id;
-use lightyear_deterministic_replication::prelude::CatchUpMode;
+use lightyear_deterministic_replication::prelude::{
+    CatchUpMode, CatchUpRequestSent, CatchUpSystems,
+};
 
 pub struct ExampleClientPlugin;
 
@@ -28,23 +30,33 @@ impl Plugin for ExampleClientPlugin {
             PreUpdate,
             add_input_map_after_sync.after(ReplicationSystems::Receive),
         );
-        app.add_systems(FixedPreUpdate, activate_physics_when_bundle_lands);
-        // When a catch-up-gated player replicates to us (structural
-        // components arrive first, physics is hidden), mark it
-        // `AwaitingCatchUpSnapshot`. This gates `add_confirmed_write` so
-        // the eventual Position/Rotation/LinearVelocity/AngularVelocity
-        // writes land in `PredictionHistory<C>` (for forced rollback to
-        // restore), not on the live component.
-        // `request_forced_rollback_to_catch_up_tick` removes the marker
-        // once the forced rollback is scheduled.
-        app.add_observer(mark_awaiting_catchup_on_replicated_player);
+        app.add_systems(
+            PreUpdate,
+            activate_physics_when_bundle_lands
+                .in_set(CatchUpSystems::OnSnapshotReady)
+                .after(add_input_map_after_sync),
+        );
+        // After a replication update, catch-up-gated players whose physics
+        // components are still hidden need the initial catch-up snapshot.
+        app.add_systems(
+            PreUpdate,
+            mark_awaiting_catchup_for_hidden_players
+                .after(ReplicationSystems::Receive)
+                .before(CatchUpSystems::DetectSnapshotReady),
+        );
     }
 }
 
-fn mark_awaiting_catchup_on_replicated_player(
-    trigger: On<Add, PlayerId>,
-    // Only replicated-in entities (not server-spawned ones with `Replicate`).
-    query: Query<(), (Without<AwaitingCatchUpSnapshot>, Without<Replicate>)>,
+fn mark_awaiting_catchup_for_hidden_players(
+    players: Query<
+        Entity,
+        (
+            With<PlayerId>,
+            Without<Position>,
+            Without<AwaitingCatchUpSnapshot>,
+            Without<Replicate>,
+        ),
+    >,
     client: Option<Single<(), With<Client>>>,
     mode: Res<CatchUpMode>,
     mut commands: Commands,
@@ -55,10 +67,8 @@ fn mark_awaiting_catchup_on_replicated_player(
     if client.is_none() {
         return;
     }
-    if query.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .insert(AwaitingCatchUpSnapshot);
+    for entity in &players {
+        commands.entity(entity).insert(AwaitingCatchUpSnapshot);
     }
 }
 
@@ -67,6 +77,13 @@ struct InputMapAdded;
 
 #[derive(Component)]
 struct PhysicsActivated;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReplayCoverage {
+    Ready,
+    Wait,
+    Stale,
+}
 
 /// Add an `InputMap` to the local player's replicated entity as soon as the
 /// input timeline is synced. This is what lets the local client start
@@ -103,9 +120,8 @@ fn add_input_map_after_sync(
 /// `add_confirmed_write` has written Position/Rotation/Velocity into
 /// `PredictionHistory` at server tick `S`; once the entire bundle lands, we
 /// fire a single forced rollback from `S`. Later player spawns on an
-/// already-caught-up client use the same path: their physics snapshot is
-/// hidden until requested, then the client rolls back from the snapshot tick
-/// so it does not miss the spawn-to-receive simulation window.
+/// already-caught-up client receive their physics components normally and
+/// bypass the catch-up path.
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
     // Players whose catch-up snapshot has just landed (they now have
@@ -130,10 +146,17 @@ fn activate_physics_when_bundle_lands(
     checkpoints: Res<ReplicationCheckpointMap>,
     timeline: Res<LocalTimeline>,
     mode: Res<CatchUpMode>,
+    local_id: Option<Single<&LocalId, With<Client>>>,
+    client_request: Option<Single<Entity, (With<Client>, With<CatchUpRequestSent>)>>,
+    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
 ) {
     let mut activated_awaiting_catchup = false;
     let mut activation_rollback_reference = None;
     let local_tick = timeline.tick();
+    let max_rollback_ticks = prediction_manager
+        .as_ref()
+        .map(|manager| manager.rollback_policy.max_rollback_ticks)
+        .unwrap_or(100);
     let mut ready = Vec::new();
     for (entity, player_id, _position, confirm, awaiting_catchup) in pending.iter() {
         if *mode == CatchUpMode::StateBasedCatchUp {
@@ -145,14 +168,31 @@ fn activate_physics_when_bundle_lands(
                 );
                 continue;
             };
-            if !input_buffers_cover_replay(reference_tick, local_tick, &mut input_buffers) {
+            let local_peer_id = local_id.as_ref().map(|id| id.0);
+            let coverage = input_buffers_cover_replay(
+                reference_tick,
+                local_tick,
+                local_peer_id,
+                max_rollback_ticks,
+                &mut input_buffers,
+            );
+            if coverage == ReplayCoverage::Stale
+                && let Some(client_request) = client_request.as_ref()
+            {
+                commands
+                    .entity(**client_request)
+                    .remove::<CatchUpRequestSent>();
+            }
+            if coverage != ReplayCoverage::Ready {
                 let input_windows = input_buffer_windows(&input_buffers);
                 debug!(
                     ?entity,
                     player_id = ?player_id.0,
+                    ?local_peer_id,
                     ?reference_tick,
                     ?local_tick,
                     ?input_windows,
+                    ?coverage,
                     "Client: waiting for input buffers to cover deterministic activation rollback"
                 );
                 continue;
@@ -257,50 +297,69 @@ fn confirmed_server_tick(
 fn input_buffers_cover_replay(
     reference_tick: Tick,
     local_tick: Tick,
+    local_id: Option<PeerId>,
+    max_rollback_ticks: u16,
     input_buffers: &mut Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
-) -> bool {
+) -> ReplayCoverage {
+    if local_tick - reference_tick > i32::from(max_rollback_ticks) {
+        return ReplayCoverage::Stale;
+    }
     let mut any = false;
-    let replay_end_tick = local_tick - 1;
-    input_buffers.iter_mut().all(|(player_id, buffer)| {
+    for (player_id, buffer) in input_buffers.iter_mut() {
         any = true;
         let Some(mut buffer) = buffer else {
-            return false;
+            return ReplayCoverage::Wait;
         };
-        let Some(end_tick) = buffer.end_tick() else {
-            return false;
-        };
-        if end_tick < replay_end_tick {
-            return false;
-        }
-        if buffer.start_tick.is_none_or(|start| start > reference_tick) {
-            let old_start = buffer.start_tick.unwrap_or(reference_tick);
-            debug!(
-                player_id = ?player_id.0,
-                ?reference_tick,
-                ?old_start,
-                ?end_tick,
-                "Padding input buffer prefix before deterministic activation rollback"
-            );
-            buffer.extend_to_range(reference_tick, end_tick);
-            let mut tick = reference_tick;
-            while tick < old_start {
-                buffer.set(tick, LeafwingSnapshot::default());
-                tick = tick + 1;
+        if Some(player_id.0) == local_id {
+            let replay_end_tick = local_tick - 1;
+            let Some(end_tick) = buffer.end_tick() else {
+                return ReplayCoverage::Wait;
+            };
+            if end_tick < replay_end_tick {
+                return ReplayCoverage::Wait;
             }
+            if buffer.start_tick.is_none_or(|start| start > reference_tick) {
+                let old_start = buffer.start_tick.unwrap_or(reference_tick);
+                debug!(
+                    player_id = ?player_id.0,
+                    ?reference_tick,
+                    ?old_start,
+                    ?end_tick,
+                    "Padding local input buffer prefix before deterministic activation rollback"
+                );
+                buffer.extend_to_range(reference_tick, end_tick);
+                let mut tick = reference_tick;
+                while tick < old_start {
+                    buffer.set(tick, LeafwingSnapshot::default());
+                    tick = tick + 1;
+                }
+            }
+        } else if buffer.start_tick.is_none_or(|start| start > reference_tick) {
+            return ReplayCoverage::Stale;
+        } else if buffer
+            .last_remote_tick
+            .is_none_or(|last_remote_tick| last_remote_tick < reference_tick)
+        {
+            return ReplayCoverage::Wait;
         }
-        true
-    }) && any
+    }
+    if any {
+        ReplayCoverage::Ready
+    } else {
+        ReplayCoverage::Wait
+    }
 }
 
 fn input_buffer_windows(
     input_buffers: &Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
-) -> Vec<(PeerId, Option<Tick>, Option<Tick>)> {
+) -> Vec<(PeerId, Option<Tick>, Option<Tick>, Option<Tick>)> {
     input_buffers
         .iter()
         .map(|(player_id, buffer)| {
             (
                 player_id.0,
                 buffer.and_then(|buffer| buffer.start_tick),
+                buffer.and_then(|buffer| buffer.last_remote_tick),
                 buffer.and_then(LeafwingBuffer::end_tick),
             )
         })

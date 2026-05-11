@@ -12,7 +12,9 @@
 //! Position on each client matches the server bit-perfectly (via Avian's
 //! `enhanced-determinism` feature + our catch-up machinery).
 
-use crate::client_server::deterministic::protocol::{DetBuffer, DetMovement, DetPlayerId, Player};
+use crate::client_server::deterministic::protocol::{
+    DetBallMarker, DetBuffer, DetMovement, DetPlayerId, Player,
+};
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
 };
@@ -22,10 +24,11 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{
     Action, ActionMock, ActionOf, ActionValue, MockSpan, TriggerState,
 };
-use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::input::bei::input_message::ActionsSnapshot;
+use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AwaitingCatchUpSnapshot, CatchUpServerReadiness, CatchUpSystems,
+    AwaitingCatchUpSnapshot, CatchUpRequestSent, CatchUpServerReadiness, CatchUpSystems,
     request_forced_rollback_to_catch_up_tick,
 };
 use lightyear_messages::MessageManager;
@@ -120,22 +123,38 @@ fn update_server_readiness(
 #[derive(Component)]
 struct PhysicsActivated;
 
-fn mark_awaiting_on_replicated_player(
-    trigger: On<Add, DetPlayerId>,
-    query: Query<(), Without<AwaitingCatchUpSnapshot>>,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ReplayCoverage {
+    Ready,
+    Wait,
+    Stale,
+}
+
+fn mark_awaiting_on_hidden_replicated_players(
+    players: Query<
+        Entity,
+        (
+            With<DetPlayerId>,
+            Without<Position>,
+            Without<AwaitingCatchUpSnapshot>,
+        ),
+    >,
     mut commands: Commands,
 ) {
-    if query.get(trigger.entity).is_ok() {
-        commands
-            .entity(trigger.entity)
-            .insert(AwaitingCatchUpSnapshot);
+    for entity in &players {
+        commands.entity(entity).insert(AwaitingCatchUpSnapshot);
     }
 }
 
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
     pending: Query<
-        (Entity, &DetPlayerId, &Position),
+        (
+            Entity,
+            &DetPlayerId,
+            &Position,
+            Has<AwaitingCatchUpSnapshot>,
+        ),
         (With<DetPlayerId>, Without<PhysicsActivated>),
     >,
     still_pending: Query<
@@ -146,10 +165,62 @@ fn activate_physics_when_bundle_lands(
             Without<Position>,
         ),
     >,
+    awaiting_snapshots: Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    timeline: Res<LocalTimeline>,
+    local_id: Option<Single<&LocalId, With<Client>>>,
+    client_request: Option<Single<Entity, (With<Client>, With<CatchUpRequestSent>)>>,
+    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
+    all_players: Query<(Entity, &DetPlayerId)>,
+    mut input_buffers: Query<(&ActionOf<Player>, Option<&mut DetBuffer>)>,
 ) {
     use crate::client_server::deterministic::protocol::DetPhysicsBundle;
+    let reference = catchup_snapshot_reference(&awaiting_snapshots, &checkpoints);
+    let max_rollback_ticks = prediction_manager
+        .as_ref()
+        .map(|manager| manager.rollback_policy.max_rollback_ticks)
+        .unwrap_or(100);
+    let coverage = if still_pending.is_empty() {
+        reference.map_or(ReplayCoverage::Wait, |reference| {
+            let Some(local_id) = local_id.as_ref() else {
+                return ReplayCoverage::Wait;
+            };
+            let reference_tick = checkpoints
+                .get(
+                    awaiting_snapshots
+                        .get(reference)
+                        .ok()
+                        .and_then(|(_, confirm)| confirm.map(ConfirmHistory::last_tick))
+                        .expect("catch-up reference has a confirmation tick"),
+                )
+                .expect("catch-up reference has a replication checkpoint");
+            input_buffers_cover_replay(
+                reference_tick,
+                timeline.tick(),
+                local_id.0,
+                max_rollback_ticks,
+                &all_players,
+                &mut input_buffers,
+            )
+        })
+    } else {
+        ReplayCoverage::Wait
+    };
+    if coverage == ReplayCoverage::Stale
+        && let Some(client_request) = client_request
+    {
+        commands
+            .entity(client_request.into_inner())
+            .remove::<CatchUpRequestSent>();
+    }
+    let catchup_ready = coverage == ReplayCoverage::Ready;
+
     let mut newly: Vec<Entity> = Vec::new();
-    for (entity, _id, _pos) in pending.iter() {
+    let mut activated_awaiting_catchup = false;
+    for (entity, _id, _pos, awaiting_catchup) in pending.iter() {
+        if awaiting_catchup && !catchup_ready {
+            continue;
+        }
         commands.entity(entity).insert((
             DetPhysicsBundle::player(),
             DeterministicPredicted {
@@ -159,12 +230,107 @@ fn activate_physics_when_bundle_lands(
             PhysicsActivated,
         ));
         newly.push(entity);
+        activated_awaiting_catchup |= awaiting_catchup;
     }
-    if !newly.is_empty() && still_pending.is_empty() {
-        let reference = newly[0];
+    if catchup_ready
+        && (activated_awaiting_catchup || (!awaiting_snapshots.is_empty() && newly.is_empty()))
+        && let Some(reference) = reference
+    {
         commands.queue(move |world: &mut World| {
             request_forced_rollback_to_catch_up_tick(world, reference);
         });
+    }
+}
+
+fn catchup_snapshot_reference(
+    awaiting_snapshots: &Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
+    checkpoints: &ReplicationCheckpointMap,
+) -> Option<Entity> {
+    let mut reference = None;
+    let mut bundled_tick = None;
+    for (entity, confirm) in awaiting_snapshots.iter() {
+        let confirm = confirm?;
+        let tick = confirm.last_tick();
+        checkpoints.get(tick)?;
+        match bundled_tick {
+            Some(expected) if expected != tick => return None,
+            Some(_) => {}
+            None => {
+                bundled_tick = Some(tick);
+                reference = Some(entity);
+            }
+        }
+    }
+    reference
+}
+
+fn input_buffers_cover_replay(
+    reference_tick: Tick,
+    local_tick: Tick,
+    local_id: PeerId,
+    max_rollback_ticks: u16,
+    players: &Query<(Entity, &DetPlayerId)>,
+    input_buffers: &mut Query<(&ActionOf<Player>, Option<&mut DetBuffer>)>,
+) -> ReplayCoverage {
+    use bevy::ecs::relationship::Relationship;
+
+    if local_tick - reference_tick > i32::from(max_rollback_ticks) {
+        return ReplayCoverage::Stale;
+    }
+    let mut any_player = false;
+    for (player, player_id) in players.iter() {
+        any_player = true;
+        let mut found = false;
+        for (action_of, buffer) in input_buffers.iter_mut() {
+            if action_of.get() != player {
+                continue;
+            }
+            let Some(mut buffer) = buffer else {
+                continue;
+            };
+            if player_id.0 == local_id {
+                let replay_end_tick = local_tick - 1;
+                let Some(end_tick) = buffer.end_tick() else {
+                    return ReplayCoverage::Wait;
+                };
+                if end_tick < replay_end_tick {
+                    return ReplayCoverage::Wait;
+                }
+                if buffer.start_tick.is_none_or(|start| start > reference_tick) {
+                    let old_start = buffer.start_tick.unwrap_or(reference_tick);
+                    buffer.extend_to_range(reference_tick, end_tick);
+                    let mut tick = reference_tick;
+                    while tick < old_start {
+                        buffer.set(
+                            tick,
+                            ActionsSnapshot {
+                                state: TriggerState::None,
+                                value: ActionValue::Axis2D(Vec2::ZERO),
+                                ..default()
+                            },
+                        );
+                        tick = tick + 1;
+                    }
+                }
+            } else if buffer.start_tick.is_none_or(|start| start > reference_tick) {
+                return ReplayCoverage::Stale;
+            } else if buffer
+                .last_remote_tick
+                .is_none_or(|last_remote_tick| last_remote_tick < reference_tick)
+            {
+                return ReplayCoverage::Wait;
+            }
+            found = true;
+            break;
+        }
+        if !found {
+            return ReplayCoverage::Wait;
+        }
+    }
+    if any_player {
+        ReplayCoverage::Ready
+    } else {
+        ReplayCoverage::Wait
     }
 }
 
@@ -177,14 +343,23 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
     );
     add_position_samples(&mut stepper.server_app);
     for (i, client_app) in stepper.client_apps.iter_mut().enumerate() {
-        client_app.insert_resource(RandomDrive::new(i as u64 + 1, warmup_ticks));
-        add_position_samples(client_app);
-        client_app.add_observer(mark_awaiting_on_replicated_player);
-        client_app.add_systems(
-            FixedPreUpdate,
-            (activate_physics_when_bundle_lands, drive_random_input),
-        );
+        configure_client_app(client_app, i as u64 + 1, warmup_ticks);
     }
+}
+
+fn configure_client_app(client_app: &mut App, seed: u64, warmup_ticks: u32) {
+    client_app.insert_resource(RandomDrive::new(seed, warmup_ticks));
+    add_position_samples(client_app);
+    client_app.add_systems(
+        PreUpdate,
+        (
+            mark_awaiting_on_hidden_replicated_players
+                .after(ReplicationSystems::Receive)
+                .before(CatchUpSystems::DetectSnapshotReady),
+            activate_physics_when_bundle_lands.in_set(CatchUpSystems::OnSnapshotReady),
+        ),
+    );
+    client_app.add_systems(FixedPreUpdate, drive_random_input);
 }
 
 fn add_position_samples(app: &mut App) {
@@ -216,6 +391,185 @@ fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
                 player_id, tick, local_tick
             )
         })
+}
+
+fn wait_for_client_mapping(
+    stepper: &mut DetStepper,
+    client_id: usize,
+    server_entity: Entity,
+) -> Entity {
+    for _ in 0..120 {
+        if let Some(local) = stepper
+            .client(client_id)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+        {
+            return local;
+        }
+        stepper.frame_step(1);
+    }
+    panic!("client {client_id} did not receive server entity {server_entity:?}");
+}
+
+fn spawn_local_action_after_mapping(
+    stepper: &mut DetStepper,
+    client_id: usize,
+    server_player: Entity,
+    peer: PeerId,
+) {
+    let local_player = wait_for_client_mapping(stepper, client_id, server_player);
+    spawn_local_action_on_client(stepper.client_app(client_id), local_player, peer);
+}
+
+fn despawn_server_player_and_action(stepper: &mut DetStepper, player: Entity) {
+    use crate::client_server::deterministic::protocol::Player;
+    use bevy::ecs::relationship::Relationship;
+
+    let mut query = stepper
+        .server_app
+        .world_mut()
+        .query::<(Entity, &ActionOf<Player>)>();
+    let actions: Vec<Entity> = query
+        .iter(stepper.server_app.world())
+        .filter_map(|(entity, action_of)| (action_of.get() == player).then_some(entity))
+        .collect();
+    for action in actions {
+        stepper.server_app.world_mut().despawn(action);
+    }
+    if stepper.server_app.world().get_entity(player).is_ok() {
+        stepper.server_app.world_mut().despawn(player);
+    }
+}
+
+fn compare_players_to_server(
+    stepper: &mut DetStepper,
+    server_players: &[Entity],
+    peers: &[PeerId],
+) {
+    let latest_tick = stepper
+        .client_apps
+        .iter()
+        .enumerate()
+        .map(|(client_id, _)| stepper.client_tick(client_id))
+        .fold(stepper.server_tick(), |min_tick, tick| {
+            if tick.0 < min_tick.0 { tick } else { min_tick }
+        });
+    let compare_tick = latest_common_sample_tick(stepper, peers, latest_tick);
+
+    for (server_player, peer) in server_players.iter().copied().zip(peers.iter().copied()) {
+        let server_pos = fixed_position_at(stepper.server_app.world(), peer, compare_tick);
+        for client_id in 0..stepper.client_apps.len() {
+            let _client_player = stepper
+                .client(client_id)
+                .get::<MessageManager>()
+                .unwrap()
+                .entity_mapper
+                .get_local(server_player)
+                .expect("client missing player entity");
+            let client_pos =
+                fixed_position_at(stepper.client_app(client_id).world(), peer, compare_tick);
+            info!(
+                client_id,
+                ?peer,
+                server_tick = ?stepper.server_tick(),
+                ?compare_tick,
+                ?server_pos,
+                ?client_pos,
+                "comparing deterministic fixed positions"
+            );
+            assert_relative_eq!(client_pos.x, server_pos.x, epsilon = 0.01);
+            assert_relative_eq!(client_pos.y, server_pos.y, epsilon = 0.01);
+        }
+    }
+}
+
+fn latest_common_sample_tick(
+    stepper: &mut DetStepper,
+    peers: &[PeerId],
+    latest_tick: Tick,
+) -> Tick {
+    let mut tick = latest_tick;
+    for _ in 0..300 {
+        if has_position_samples(stepper.server_app.world(), peers, tick)
+            && stepper
+                .client_apps
+                .iter()
+                .all(|app| has_position_samples(app.world(), peers, tick))
+        {
+            return tick;
+        }
+        tick = tick - 1;
+    }
+    log_entity_availability("server", stepper.server_app.world_mut(), peers);
+    for (i, app) in stepper.client_apps.iter_mut().enumerate() {
+        let label = if i == 0 { "client0" } else { "client1" };
+        log_entity_availability(label, app.world_mut(), peers);
+    }
+    panic!("no common deterministic position sample found near {latest_tick:?}");
+}
+
+fn log_entity_availability(label: &str, world: &mut World, peers: &[PeerId]) {
+    let local_tick = world.resource::<LocalTimeline>().tick();
+    let mut latest_by_peer = Vec::new();
+    {
+        let samples = world.resource::<PositionSamples>();
+        for peer in peers {
+            let latest = samples
+                .0
+                .keys()
+                .filter_map(|(tick, sample_peer)| (*sample_peer == *peer).then_some(*tick))
+                .max();
+            latest_by_peer.push((*peer, latest));
+        }
+    }
+    info!(label, ?local_tick, ?latest_by_peer, "sample availability");
+    let mut query = world.query::<(
+        Entity,
+        Option<&DetPlayerId>,
+        Option<&DetBallMarker>,
+        Option<&Position>,
+        Has<DeterministicPredicted>,
+        Has<PhysicsActivated>,
+        Has<AwaitingCatchUpSnapshot>,
+        Has<DisableRollback>,
+    )>();
+    let entities: Vec<_> = query
+        .iter(world)
+        .filter(|(_, player_id, ball, _, _, _, _, _)| player_id.is_some() || ball.is_some())
+        .map(
+            |(
+                entity,
+                player_id,
+                ball,
+                position,
+                deterministic,
+                activated,
+                awaiting,
+                rollback_disabled,
+            )| {
+                (
+                    entity,
+                    player_id.map(|p| p.0),
+                    ball.is_some(),
+                    position.copied(),
+                    deterministic,
+                    activated,
+                    awaiting,
+                    rollback_disabled,
+                )
+            },
+        )
+        .collect();
+    info!(label, ?entities, "deterministic entity availability");
+}
+
+fn has_position_samples(world: &World, peers: &[PeerId], tick: Tick) -> bool {
+    let samples = world.resource::<PositionSamples>();
+    peers
+        .iter()
+        .all(|peer| samples.0.contains_key(&(tick.0, *peer)))
 }
 
 /// Exercises state-based deterministic catch-up, the bundled forced rollback,
@@ -341,6 +695,60 @@ fn test_state_based_catchup_two_clients() {
         assert_relative_eq!(c_pos_b.x, server_pos_b.x, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.y, server_pos_b.y, epsilon = 0.01);
     }
+}
+
+/// Covers the example flow where an existing client has already moved and
+/// collided before a second client late-joins, disconnects, then reconnects
+/// with the same peer id and catches up again.
+#[test]
+fn test_state_based_catchup_late_join_reconnect_after_movement() {
+    let mut stepper = DetStepper::new_server();
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper(&mut stepper, 50);
+
+    stepper.start();
+    stepper.connect_single(0);
+
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_player_a =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+
+    // Client 0 moves and collides before the second client appears.
+    stepper.frame_step(140);
+
+    stepper.connect_single(1);
+    let server_player_b =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+
+    // Continue with both clients driving random inputs, then disconnect
+    // client 1 and remove its server-owned deterministic entities.
+    stepper.frame_step(160);
+    despawn_server_player_and_action(&mut stepper, server_player_b);
+    stepper.disconnect_last_client();
+    stepper.frame_step(30);
+
+    // Recreate client 1 with the same peer id and catch up again while
+    // client 0 keeps simulating.
+    let reconnected = stepper.new_client();
+    assert_eq!(reconnected, 1);
+    configure_client_app(stepper.client_app(reconnected), 3, 50);
+    stepper.connect_single(reconnected);
+    let server_player_b_reconnect =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, reconnected, server_player_b_reconnect, peer_b);
+
+    stepper.frame_step(220);
+
+    compare_players_to_server(
+        &mut stepper,
+        &[server_player_a, server_player_b_reconnect],
+        &[peer_a, peer_b],
+    );
 }
 
 // Suppress unused-import warnings when only some items of PreSpawned are

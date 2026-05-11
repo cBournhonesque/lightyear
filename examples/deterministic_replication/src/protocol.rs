@@ -42,6 +42,21 @@ impl PhysicsBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct PlayerId(pub PeerId);
 
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
+pub struct PlayerActivationTick(pub Tick);
+
+impl PlayerActivationTick {
+    pub const DELAY_TICKS: u32 = 30;
+
+    pub fn pending() -> Self {
+        Self(Tick(u32::MAX))
+    }
+
+    pub fn is_pending(&self) -> bool {
+        self.0 == Tick(u32::MAX)
+    }
+}
+
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
 pub struct ColorComponent(pub(crate) Color);
 
@@ -95,6 +110,7 @@ impl Plugin for ProtocolPlugin {
 
         // components
         app.register_component::<PlayerId>();
+        app.register_component::<PlayerActivationTick>();
         // Physics components are replicated once (initial value on entity spawn)
         // so that late-joining clients get the correct starting state.
         // add_rollback registers PredictionHistory for rollback/checksums.

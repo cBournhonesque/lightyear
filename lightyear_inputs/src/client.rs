@@ -70,7 +70,9 @@ use lightyear_connection::client::Client;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::*;
 use lightyear_messages::plugin::MessageSystems;
-use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+#[cfg(feature = "prediction")]
+use lightyear_messages::prelude::MessageReceiver;
+use lightyear_messages::prelude::MessageSender;
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned};
 use lightyear_sync::plugin::SyncSystems;
@@ -527,6 +529,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     sender: Query<(), (With<Client>, With<InputTimeline>, Without<HostClient>)>,
+    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
@@ -535,8 +538,7 @@ fn clean_buffers<S: ActionStateSequence>(
     if sender.single().is_err() {
         return;
     }
-    // assuming that we don't rollback more than 20 ticks, or send more than 20 ticks worth of inputs
-    let old_tick = timeline.tick() - HISTORY_DEPTH;
+    let old_tick = timeline.tick() - input_history_depth(prediction_manager.as_deref().copied());
 
     // trace!(
     //     "popping all input buffers since old tick: {old_tick:?}",
@@ -544,6 +546,35 @@ fn clean_buffers<S: ActionStateSequence>(
     for mut input_buffer in input_buffer_query.iter_mut() {
         input_buffer.pop(old_tick);
         //  for now do NOT spawn Transform, instead directly use Position/Rotation!
+    }
+}
+
+fn input_history_depth(prediction_manager: Option<&PredictionManager>) -> u32 {
+    prediction_manager
+        .map(|manager| u32::from(manager.rollback_policy.max_rollback_ticks) + 1)
+        .unwrap_or(0)
+        .max(HISTORY_DEPTH)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_history_depth_covers_prediction_rollback_window() {
+        assert_eq!(input_history_depth(None), HISTORY_DEPTH);
+
+        let mut manager = PredictionManager {
+            rollback_policy: RollbackPolicy {
+                max_rollback_ticks: 100,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(input_history_depth(Some(&manager)), 101);
+
+        manager.rollback_policy.max_rollback_ticks = 5;
+        assert_eq!(input_history_depth(Some(&manager)), HISTORY_DEPTH);
     }
 }
 

@@ -242,12 +242,12 @@ pub(crate) fn player_movement(
     }
 }
 
-/// Clients only prespawn bullets for the locally controlled player. The server replicates those bullets
-/// back as predicted entities for the owner, and as interpolated entities for observers.
+/// Clients prespawn bullets for any predicted player whose rebroadcast input is available. The
+/// server replicates those bullets back as predicted entities so the local prespawn can be matched.
 ///
-/// When spawning locally, we add the `PreSpawned` component. When the owner receives the replication
-/// packet from the server, it matches the hashes on its own `PreSpawned`, allowing it to treat the
-/// locally spawned bullet as the `Predicted` entity.
+/// When spawning locally, we add the `PreSpawned` component. When a client receives the replication
+/// packet from the server, it matches the hash on its own `PreSpawned` entity and treats that entity
+/// as the authoritative predicted bullet.
 pub fn shared_player_firing(
     mut q: Query<(
         &Position,
@@ -259,16 +259,16 @@ pub fn shared_player_firing(
         &mut Weapon,
         Option<&PredictionHistory<Weapon>>,
         Has<Controlled>,
+        Has<Predicted>,
+        Has<Interpolated>,
         Option<&ControlledBy>,
         &Player,
     )>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    client: Query<(), With<Client>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
     server: Query<(), With<Server>>,
 ) {
-    let has_client = !client.is_empty();
     let client_is_synced = !synced_client.is_empty();
     let is_server = !server.is_empty();
     if q.is_empty() {
@@ -286,6 +286,8 @@ pub fn shared_player_firing(
         mut weapon,
         weapon_history,
         is_local,
+        is_predicted,
+        is_interpolated,
         controlled_by,
         player,
     ) in q.iter_mut()
@@ -294,7 +296,7 @@ pub fn shared_player_firing(
             if controlled_by.is_none() {
                 continue;
             }
-        } else if !is_local || (has_client && !client_is_synced) {
+        } else if !client_is_synced || !is_predicted || is_interpolated {
             continue;
         }
         // Firing runs in FixedUpdate. Using a level-trigger here is more robust than
@@ -303,7 +305,9 @@ pub fn shared_player_firing(
         if !action.pressed(&PlayerActions::Fire) {
             continue;
         }
-        if !is_server && !client_should_fire(input_buffer, &weapon, current_tick) {
+        if !is_server
+            && !client_should_fire(input_buffer, &weapon, current_tick, !is_local, !is_local)
+        {
             continue;
         }
 
@@ -371,6 +375,7 @@ pub fn shared_player_firing(
             position = ?bullet_origin,
             linear_velocity = ?bullet_linvel,
             previous_last_fire_tick = ?prev_last_fire_tick,
+            is_local = is_local,
             "Spaceships bullet spawned"
         );
         info!(
@@ -383,8 +388,7 @@ pub fn shared_player_firing(
             #[cfg(feature = "server")]
             commands.entity(bullet_entity).insert((
                 Replicate::to_clients(NetworkTarget::All),
-                PredictionTarget::to_clients(NetworkTarget::Single(player.client_id)),
-                InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(player.client_id)),
+                PredictionTarget::to_clients(NetworkTarget::All),
             ));
         }
     }
@@ -403,10 +407,21 @@ fn client_should_fire(
     input_buffer: &LeafwingBuffer<PlayerActions>,
     weapon: &Weapon,
     tick: Tick,
+    allow_initial_fire: bool,
+    require_remote_input: bool,
 ) -> bool {
-    // Let the server own the first shot. Before the first replicated Weapon update, a held Fire
-    // input can be older than the client's synced timeline and produce an unmatched prespawn.
-    if weapon.last_fire_tick == Tick(0) {
+    // Local players keep the first-shot guard: before the first server Weapon confirmation,
+    // a held local Fire input can be older than the synced timeline and create an unmatched
+    // prespawn. Remote predicted players can predict their first shot when the rebroadcast
+    // buffer has the relevant tick, otherwise Weapon prediction would always lag the server.
+    if !allow_initial_fire && weapon.last_fire_tick == Tick(0) {
+        return false;
+    }
+    if require_remote_input
+        && input_buffer
+            .last_remote_tick
+            .is_none_or(|last_tick| last_tick < tick)
+    {
         return false;
     }
     let current_pressed = input_buffer
@@ -754,6 +769,124 @@ fn hide_interpolated_bullet(_commands: &mut Commands, _entity: Entity) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear::input::leafwing::prelude::LeafwingSnapshot;
+
+    fn action_state<const N: usize>(pressed: [PlayerActions; N]) -> ActionState<PlayerActions> {
+        let mut action_state = ActionState::default();
+        for action in pressed {
+            action_state.press(&action);
+        }
+        action_state
+    }
+
+    #[test]
+    fn client_should_fire_allows_first_predicted_shot_with_buffered_input() {
+        let mut input_buffer = LeafwingBuffer::<PlayerActions>::default();
+        let weapon = Weapon::new(12);
+        input_buffer.set(Tick(99), LeafwingSnapshot(action_state([])));
+        input_buffer.set(
+            Tick(100),
+            LeafwingSnapshot(action_state([PlayerActions::Fire])),
+        );
+
+        input_buffer.last_remote_tick = Some(Tick(100));
+
+        assert!(client_should_fire(
+            &input_buffer,
+            &weapon,
+            Tick(100),
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn client_should_fire_blocks_remote_shot_without_rebroadcasted_tick() {
+        let mut input_buffer = LeafwingBuffer::<PlayerActions>::default();
+        let weapon = Weapon::new(12);
+        input_buffer.set(Tick(99), LeafwingSnapshot(action_state([])));
+        input_buffer.set(
+            Tick(100),
+            LeafwingSnapshot(action_state([PlayerActions::Fire])),
+        );
+        input_buffer.last_remote_tick = Some(Tick(99));
+
+        assert!(!client_should_fire(
+            &input_buffer,
+            &weapon,
+            Tick(100),
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn client_should_fire_blocks_local_initial_shot_until_weapon_confirmed() {
+        let mut input_buffer = LeafwingBuffer::<PlayerActions>::default();
+        let weapon = Weapon::new(12);
+        input_buffer.set(Tick(99), LeafwingSnapshot(action_state([])));
+        input_buffer.set(
+            Tick(100),
+            LeafwingSnapshot(action_state([PlayerActions::Fire])),
+        );
+
+        assert!(!client_should_fire(
+            &input_buffer,
+            &weapon,
+            Tick(100),
+            false,
+            false
+        ));
+    }
+
+    #[test]
+    fn client_should_fire_waits_for_previous_input_sample() {
+        let mut input_buffer = LeafwingBuffer::<PlayerActions>::default();
+        let weapon = Weapon {
+            last_fire_tick: Tick(90),
+            cooldown: 12,
+            bullet_speed: 500.0,
+        };
+        input_buffer.set(
+            Tick(100),
+            LeafwingSnapshot(action_state([PlayerActions::Fire])),
+        );
+
+        input_buffer.last_remote_tick = Some(Tick(100));
+
+        assert!(!client_should_fire(
+            &input_buffer,
+            &weapon,
+            Tick(100),
+            true,
+            true
+        ));
+    }
+
+    #[test]
+    fn client_should_fire_requires_fire_pressed_this_tick() {
+        let mut input_buffer = LeafwingBuffer::<PlayerActions>::default();
+        let weapon = Weapon {
+            last_fire_tick: Tick(90),
+            cooldown: 12,
+            bullet_speed: 500.0,
+        };
+        input_buffer.set(
+            Tick(99),
+            LeafwingSnapshot(action_state([PlayerActions::Fire])),
+        );
+        input_buffer.set(Tick(100), LeafwingSnapshot(action_state([])));
+
+        input_buffer.last_remote_tick = Some(Tick(100));
+
+        assert!(!client_should_fire(
+            &input_buffer,
+            &weapon,
+            Tick(100),
+            true,
+            true
+        ));
+    }
 
     #[test]
     fn effective_last_fire_tick_uses_newer_confirmed_history() {

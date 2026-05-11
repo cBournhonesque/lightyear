@@ -205,9 +205,21 @@ fn shared_movement_behaviour(
 
 /// In deterministic replication, every peer simulates every player.
 fn player_movement(
-    mut players: Query<(&mut LinearVelocity, &ActionState<PlayerActions>), With<PlayerId>>,
+    timeline: Res<LocalTimeline>,
+    mut players: Query<
+        (
+            &mut LinearVelocity,
+            &ActionState<PlayerActions>,
+            Option<&PlayerActivationTick>,
+        ),
+        With<PlayerId>,
+    >,
 ) {
-    for (velocity, action_state) in players.iter_mut() {
+    let tick = timeline.tick();
+    for (velocity, action_state, activation_tick) in players.iter_mut() {
+        if activation_tick.is_some_and(|activation_tick| tick < activation_tick.0) {
+            continue;
+        }
         if !action_state.get_pressed().is_empty() {
             shared_movement_behaviour(velocity, action_state);
         }
