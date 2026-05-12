@@ -1,8 +1,15 @@
 # FPS
 
-- Bullets from the remote client seem to briefly go back in time; I think the interpolation is doing something weird? There is no rollback though
+- Example is broken in host-client mode, the bullets get stuck shortly after being fired (both bullets from host or from client)
 
 # Lobby
+
+- server hosted game:
+panics with
+```
+thread 'main' (69659296) panicked at /Users/charles/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_replicon-0.39.4/src/server.rs:306:29:
+registry should always exist on the server
+```
 
 - server-hosted game: the player entities are 'vibrating' instead of having a fixed position when no inputs are being sent
 It seems to happen mostly on Predicted entities; what is the VisualPlayerPosition component?
@@ -15,10 +22,7 @@ The example is broken; i don't see the bots, the input keys are not working, etc
 # Spaceships
 
 Issues:
-- bullets colliding with players are causing weird rollbacks, is it because that physics interaction is not predicted?
-- Bullets from the remote client seem to briefly go back in time; I think the interpolation is doing something weird? There is no rollback though
 - Sometimes bullets can 'go through' the circles
-- the projectile on the remote client starts from further away from the source then what is shown on the local client (firing)
 
 # Deterministic replication
 
@@ -27,3 +31,11 @@ I tried to do:
 - client 1 moves
 - client 2 connects
 and i get some checksum mismatch so StateBasedCatchup does not work even though we have an example for it
+Also got this panic:
+```
+thread 'main' (69666476) panicked at /Users/charles/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/bevy_replicon-0.39.4/src/client.rs:424:11:
+Entity despawned: The entity with ID 189v0 is invalid; its index now has generation 1.
+Note that interacting with a despawned entity is the most common cause of this error but there are others
+```
+especially wen reconnecting.
+
