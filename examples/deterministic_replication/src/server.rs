@@ -5,6 +5,7 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prelude::server::input::InputSystems as ServerInputSystems;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
@@ -37,10 +38,61 @@ impl Plugin for ExampleServerPlugin {
         app.add_observer(handle_disconnected);
         app.add_systems(
             PreUpdate,
-            (
-                update_player_activation_ticks,
-                update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
+            update_player_activation_ticks
+                .before(update_catch_up_server_readiness)
+                .before(CatchUpSystems::UpdateReadiness),
+        );
+        app.add_systems(
+            PreUpdate,
+            update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
+        );
+        app.add_systems(
+            FixedPreUpdate,
+            assert_active_player_inputs_are_available.after(ServerInputSystems::UpdateActionState),
+        );
+    }
+}
+
+fn assert_active_player_inputs_are_available(
+    timeline: Res<LocalTimeline>,
+    players: Query<(
+        Entity,
+        &PlayerId,
+        &PlayerActivationTick,
+        Option<&LeafwingBuffer<PlayerActions>>,
+    )>,
+) {
+    let current_tick = timeline.tick();
+    for (entity, player_id, activation_tick, buffer) in &players {
+        if activation_tick.is_pending() || current_tick < activation_tick.0 {
+            continue;
+        }
+        let (last_remote_tick, buffer_end_tick, exact_input_available) = match buffer {
+            Some(buffer) => (
+                buffer.last_remote_tick,
+                buffer.end_tick(),
+                buffer.get(current_tick).is_some(),
             ),
+            None => (None, None, false),
+        };
+        let covered =
+            matches!(last_remote_tick, Some(tick) if tick >= current_tick) && exact_input_available;
+        if !covered {
+            error!(
+                ?entity,
+                player_id = ?player_id.0,
+                ?current_tick,
+                ?last_remote_tick,
+                ?buffer_end_tick,
+                exact_input_available,
+                "deterministic server is missing real input before simulating an active player tick"
+            );
+        }
+        assert!(
+            covered,
+            "deterministic server missing real input for player {:?} at tick {:?}; \
+             last_remote_tick={:?}, buffer_end_tick={:?}, exact_input_available={}",
+            player_id.0, current_tick, last_remote_tick, buffer_end_tick, exact_input_available
         );
     }
 }
@@ -94,14 +146,23 @@ fn update_player_activation_ticks(
 /// joining client rolls forward with the real rebroadcast input stream.
 fn update_catch_up_server_readiness(
     timeline: Res<LocalTimeline>,
-    players: Query<Option<&LeafwingBuffer<PlayerActions>>, With<PlayerId>>,
+    players: Query<
+        (
+            Option<&LeafwingBuffer<PlayerActions>>,
+            &PlayerActivationTick,
+        ),
+        With<PlayerId>,
+    >,
     mut readiness: ResMut<CatchUpServerReadiness>,
 ) {
     let current_tick = timeline.tick();
     let mut any = false;
-    let ready = players.iter().all(|b| {
+    let ready = players.iter().all(|(buffer, activation_tick)| {
         any = true;
-        match b {
+        if activation_tick.is_pending() {
+            return false;
+        }
+        match buffer {
             Some(b) => matches!(b.last_remote_tick, Some(t) if t >= current_tick),
             None => false,
         }

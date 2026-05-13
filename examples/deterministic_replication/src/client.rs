@@ -11,6 +11,7 @@ use crate::protocol::*;
 use crate::shared::color_from_id;
 use lightyear_deterministic_replication::prelude::{
     CatchUpMode, CatchUpRequestSent, CatchUpSystems,
+    request_forced_rollback_to_catch_up_tick_with_commands,
 };
 
 pub struct ExampleClientPlugin;
@@ -52,8 +53,8 @@ fn mark_awaiting_catchup_for_hidden_players(
         Entity,
         (
             With<PlayerId>,
-            Without<Position>,
             Without<AwaitingCatchUpSnapshot>,
+            Without<DeterministicPredicted>,
             Without<Replicate>,
         ),
     >,
@@ -74,9 +75,6 @@ fn mark_awaiting_catchup_for_hidden_players(
 
 #[derive(Component)]
 struct InputMapAdded;
-
-#[derive(Component)]
-struct PhysicsActivated;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReplayCoverage {
@@ -134,24 +132,35 @@ fn activate_physics_when_bundle_lands(
             Option<&ConfirmHistory>,
             Has<AwaitingCatchUpSnapshot>,
         ),
-        Without<PhysicsActivated>,
+        Without<DeterministicPredicted>,
     >,
     // Known remote players that are still waiting for the bundled snapshot
     // (they have `PlayerId` from structural replication but no `Position`
     // yet). The `still_pending` guard ensures the forced rollback fires
     // only when the *entire* bundle has arrived.
-    still_pending: Query<Entity, (With<PlayerId>, Without<PhysicsActivated>, Without<Position>)>,
+    still_pending: Query<
+        Entity,
+        (
+            With<PlayerId>,
+            Without<DeterministicPredicted>,
+            Without<Position>,
+        ),
+    >,
     awaiting_snapshots: Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
-    mut input_buffers: Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
+    mut input_buffers: Query<(
+        &PlayerId,
+        Option<&PlayerActivationTick>,
+        Option<&mut LeafwingBuffer<PlayerActions>>,
+    )>,
     checkpoints: Res<ReplicationCheckpointMap>,
     timeline: Res<LocalTimeline>,
     mode: Res<CatchUpMode>,
     local_id: Option<Single<&LocalId, With<Client>>>,
     client_request: Option<Single<Entity, (With<Client>, With<CatchUpRequestSent>)>>,
     prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
+    mut state_metadata: ResMut<StateRollbackMetadata>,
 ) {
     let mut activated_awaiting_catchup = false;
-    let mut activation_rollback_reference = None;
     let local_tick = timeline.tick();
     let max_rollback_ticks = prediction_manager
         .as_ref()
@@ -217,9 +226,6 @@ fn activate_physics_when_bundle_lands(
                 "Client: activating physics for player {:?} (replicated snapshot landed without awaiting marker)",
                 player_id
             );
-            if *mode == CatchUpMode::StateBasedCatchUp {
-                activation_rollback_reference.get_or_insert(entity);
-            }
         }
         commands.entity(entity).insert((
             PhysicsBundle::player(),
@@ -231,15 +237,7 @@ fn activate_physics_when_bundle_lands(
                 skip_despawn: true,
                 ..default()
             },
-            PhysicsActivated,
         ));
-    }
-    if let Some(reference) = activation_rollback_reference {
-        commands.queue(move |world: &mut World| {
-            lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
-                world, reference,
-            );
-        });
     }
     // Only fire the single forced rollback once ALL gated players we know
     // about have their catch-up components. Replicon emits the bundle in
@@ -255,11 +253,22 @@ fn activate_physics_when_bundle_lands(
             }
             return;
         };
-        commands.queue(move |world: &mut World| {
-            lightyear_deterministic_replication::prelude::request_forced_rollback_to_catch_up_tick(
-                world, reference,
-            );
-        });
+        let Ok((_, Some(reference_confirm))) = awaiting_snapshots.get(reference) else {
+            return;
+        };
+        let awaiting_entities = awaiting_snapshots
+            .iter()
+            .map(|(entity, _)| entity)
+            .collect::<Vec<_>>();
+        let catchup_clients = client_request.as_ref().map(|entity| **entity).into_iter();
+        request_forced_rollback_to_catch_up_tick_with_commands(
+            reference_confirm,
+            &checkpoints,
+            &mut state_metadata,
+            awaiting_entities,
+            catchup_clients,
+            &mut commands,
+        );
     }
 }
 
@@ -299,23 +308,26 @@ fn input_buffers_cover_replay(
     local_tick: Tick,
     local_id: Option<PeerId>,
     max_rollback_ticks: u16,
-    input_buffers: &mut Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
+    input_buffers: &mut Query<(
+        &PlayerId,
+        Option<&PlayerActivationTick>,
+        Option<&mut LeafwingBuffer<PlayerActions>>,
+    )>,
 ) -> ReplayCoverage {
     if local_tick - reference_tick > i32::from(max_rollback_ticks) {
         return ReplayCoverage::Stale;
     }
     let mut any = false;
-    for (player_id, buffer) in input_buffers.iter_mut() {
+    for (player_id, activation_tick, buffer) in input_buffers.iter_mut() {
         any = true;
         let Some(mut buffer) = buffer else {
             return ReplayCoverage::Wait;
         };
         if Some(player_id.0) == local_id {
-            let replay_end_tick = local_tick - 1;
             let Some(end_tick) = buffer.end_tick() else {
                 return ReplayCoverage::Wait;
             };
-            if end_tick < replay_end_tick {
+            if end_tick < reference_tick {
                 return ReplayCoverage::Wait;
             }
             if buffer.start_tick.is_none_or(|start| start > reference_tick) {
@@ -327,15 +339,28 @@ fn input_buffers_cover_replay(
                     ?end_tick,
                     "Padding local input buffer prefix before deterministic activation rollback"
                 );
-                buffer.extend_to_range(reference_tick, end_tick);
-                let mut tick = reference_tick;
-                while tick < old_start {
-                    buffer.set(tick, LeafwingSnapshot::default());
-                    tick = tick + 1;
-                }
+                pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
             }
         } else if buffer.start_tick.is_none_or(|start| start > reference_tick) {
-            return ReplayCoverage::Stale;
+            let old_start = buffer.start_tick.unwrap_or(reference_tick);
+            let Some(end_tick) = buffer.end_tick() else {
+                return ReplayCoverage::Wait;
+            };
+            let Some(activation_tick) = activation_tick else {
+                return ReplayCoverage::Stale;
+            };
+            if old_start > activation_tick.0 {
+                return ReplayCoverage::Stale;
+            }
+            debug!(
+                player_id = ?player_id.0,
+                ?reference_tick,
+                ?old_start,
+                ?end_tick,
+                activation_tick = ?activation_tick.0,
+                "Padding remote input buffer prefix before deterministic activation rollback"
+            );
+            pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
         } else if buffer
             .last_remote_tick
             .is_none_or(|last_remote_tick| last_remote_tick < reference_tick)
@@ -350,12 +375,30 @@ fn input_buffers_cover_replay(
     }
 }
 
+fn pad_neutral_prefix(
+    buffer: &mut LeafwingBuffer<PlayerActions>,
+    reference_tick: Tick,
+    old_start: Tick,
+    end_tick: Tick,
+) {
+    buffer.extend_to_range(reference_tick, end_tick);
+    let mut tick = reference_tick;
+    while tick < old_start {
+        buffer.set(tick, LeafwingSnapshot::default());
+        tick = tick + 1;
+    }
+}
+
 fn input_buffer_windows(
-    input_buffers: &Query<(&PlayerId, Option<&mut LeafwingBuffer<PlayerActions>>)>,
+    input_buffers: &Query<(
+        &PlayerId,
+        Option<&PlayerActivationTick>,
+        Option<&mut LeafwingBuffer<PlayerActions>>,
+    )>,
 ) -> Vec<(PeerId, Option<Tick>, Option<Tick>, Option<Tick>)> {
     input_buffers
         .iter()
-        .map(|(player_id, buffer)| {
+        .map(|(player_id, _activation_tick, buffer)| {
             (
                 player_id.0,
                 buffer.and_then(|buffer| buffer.start_tick),

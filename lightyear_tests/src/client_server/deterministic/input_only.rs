@@ -98,7 +98,10 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
         // In InputOnly mode we do NOT insert `AwaitingCatchUpSnapshot`,
         // so `add_confirmed_write`'s history gate doesn't fire — the
         // initial replicated Position lands on the live component.
-        client_app.add_observer(activate_replicated_player);
+        client_app.add_systems(
+            PreUpdate,
+            activate_replicated_players_at_tick.after(ReplicationSystems::Receive),
+        );
         let role = if i == 0 { "client_0" } else { "client_1" };
         add_phase_samplers(client_app, role);
     }
@@ -171,17 +174,15 @@ fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
         })
 }
 
-/// On the client, when a replicated `DetPlayerId` entity arrives, insert
-/// the local physics bundle (Collider/RigidBody) + `DeterministicPredicted`.
-/// Without this the entity has Position/Rotation but nothing for Avian to
-/// simulate → player stays stuck at its spawn value.
-fn activate_replicated_player(
-    trigger: On<Add, DetPlayerId>,
-    query: Query<(), (With<Position>, Without<DeterministicPredicted>)>,
+/// Insert the local physics bundle (Collider/RigidBody) +
+/// `DeterministicPredicted` once the replicated player exists locally.
+/// Movement is still gated by `DetPlayerActivationTick` in shared logic.
+fn activate_replicated_players_at_tick(
+    players: Query<Entity, (With<Position>, Without<DeterministicPredicted>)>,
     mut commands: Commands,
 ) {
-    if query.get(trigger.entity).is_ok() {
-        commands.entity(trigger.entity).insert((
+    for entity in &players {
+        commands.entity(entity).insert((
             DetPhysicsBundle::player(),
             DeterministicPredicted {
                 skip_despawn: true,

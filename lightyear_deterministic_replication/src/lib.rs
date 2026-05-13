@@ -38,10 +38,11 @@ pub mod prelude {
         ChecksumHistory, ChecksumMessage, ChecksumReceivePlugin, ChecksumSendPlugin,
     };
     pub use crate::late_join::{
-        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpClientReadiness, CatchUpGated,
-        CatchUpRegistry, CatchUpRequest, CatchUpRequestReceived, CatchUpRequestSent,
+        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpClientReadiness, CatchUpClientTimeout,
+        CatchUpGated, CatchUpRegistry, CatchUpRequest, CatchUpRequestReceived, CatchUpRequestSent,
         CatchUpServerReadiness, CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp,
         LateJoinCatchUpPlugin, request_forced_rollback_to_catch_up_tick,
+        request_forced_rollback_to_catch_up_tick_with_commands,
     };
     pub use crate::mode::CatchUpMode;
     pub use crate::plugin::DeterministicReplicationPlugin;

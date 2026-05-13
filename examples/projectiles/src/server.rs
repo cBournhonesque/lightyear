@@ -373,6 +373,14 @@ fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Sco
 #[cfg(feature = "client")]
 mod bot {
     use super::*;
+    use bevy::app::{AppExit, PluginsState};
+    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicU32, Ordering},
+    };
+    use std::time::Instant;
+
     pub struct BotPlugin;
 
     impl Plugin for BotPlugin {
@@ -382,11 +390,18 @@ mod bot {
         fn cleanup(&self, app: &mut App) {
             app.add_observer(spawn_bot_app);
             app.add_systems(Startup, spawn_bots);
+            app.add_systems(Last, update_bot_server_ticks);
         }
     }
 
     #[derive(Component)]
     pub struct BotClient;
+
+    #[derive(Clone, Component)]
+    struct BotServerTick(Arc<AtomicU32>);
+
+    const BOT_MAX_TICK_AHEAD: u32 = 8;
+    const BOT_INPUT_DELAY_TICKS: u16 = 12;
 
     #[derive(Event)]
     pub struct SpawnBot;
@@ -415,18 +430,22 @@ mod bot {
     fn spawn_bot_app(
         trigger: On<SpawnBot>,
         tick_duration: Res<TickDuration>,
+        timeline: Res<LocalTimeline>,
         server: Single<Entity, With<Server>>,
         mut commands: Commands,
     ) {
         info!("Spawning bot app");
         let (crossbeam_client, crossbeam_server) = CrossbeamIo::new_pair();
+        let server_tick = Arc::new(AtomicU32::new(timeline.tick().0));
+        let bot_runner_server_tick = server_tick.clone();
 
         // Bots are client apps; pace their main loop to ~60 FPS so they
         // don't flood the server with packets under the
         // MinimalPlugins-default run-as-fast-as-possible scheduler.
-        let mut app = new_bot_headless_app(Duration::from_secs_f64(
-            1.0 / lightyear_examples_common::cli::HEADLESS_CLIENT_LOOP_HZ,
-        ));
+        let loop_wait =
+            Duration::from_secs_f64(1.0 / lightyear_examples_common::cli::HEADLESS_CLIENT_LOOP_HZ);
+        let mut app = new_bot_headless_app(loop_wait);
+        app.set_runner(move |app| run_bot_app(app, bot_runner_server_tick, loop_wait));
         app.add_plugins(lightyear::prelude::client::ClientPlugins {
             tick_duration: tick_duration.0,
         });
@@ -455,6 +474,8 @@ mod bot {
             .unwrap(),
             crossbeam_client,
             PredictionManager::default(),
+            InputTimelineConfig::default()
+                .with_input_delay(InputDelayConfig::fixed_input_delay(BOT_INPUT_DELAY_TICKS)),
             Name::from("BotClient"),
         ));
         let server = server.into_inner();
@@ -464,23 +485,67 @@ mod bot {
             Linked,
             ClientOf,
             BotClient,
+            BotServerTick(server_tick),
             crossbeam_server,
             ReplicationSender,
         ));
 
         app.add_systems(Startup, bot_connect);
         app.add_systems(FixedFirst, bot_inputs.run_if(not(is_in_rollback)));
-        app.add_systems(Update, bot_wait);
         let mut bot_app = BotApp(app);
         std::thread::spawn(move || {
             bot_app.run();
         });
     }
 
+    fn update_bot_server_ticks(timeline: Res<LocalTimeline>, pacers: Query<&BotServerTick>) {
+        for pacer in &pacers {
+            pacer.0.store(timeline.tick().0, Ordering::Relaxed);
+        }
+    }
+
     fn bot_connect(bot: Single<Entity, (With<BotClient>, With<Client>)>, mut commands: Commands) {
         let entity = bot.into_inner();
         info!("Bot entity {entity:?} connecting to server");
         commands.trigger(Connect { entity });
+    }
+
+    fn run_bot_app(mut app: App, server_tick: Arc<AtomicU32>, loop_wait: Duration) -> AppExit {
+        while app.plugins_state() == PluginsState::Adding {
+            std::thread::yield_now();
+        }
+        app.finish();
+        app.cleanup();
+
+        loop {
+            let start = Instant::now();
+            app.update();
+
+            if let Some(exit) = app.should_exit() {
+                return exit;
+            }
+
+            wait_until_bot_is_not_too_far_ahead(&app, &server_tick);
+
+            let elapsed = start.elapsed();
+            if elapsed < loop_wait {
+                std::thread::sleep(loop_wait - elapsed);
+            }
+        }
+    }
+
+    fn wait_until_bot_is_not_too_far_ahead(app: &App, server_tick: &AtomicU32) {
+        let Some(timeline) = app.world().get_resource::<LocalTimeline>() else {
+            return;
+        };
+        let bot_tick = timeline.tick().0;
+        while bot_tick
+            > server_tick
+                .load(Ordering::Relaxed)
+                .saturating_add(BOT_MAX_TICK_AHEAD)
+        {
+            std::thread::sleep(Duration::from_millis(5));
+        }
     }
 
     #[derive(Debug, Clone, Copy, Default)]
@@ -611,11 +676,6 @@ mod bot {
             current_mode.name(),
             input.get_pressed().collect::<Vec<_>>()
         );
-    }
-
-    // prevent the bot from running too fast
-    fn bot_wait(timeline: Res<LocalTimeline>) {
-        std::thread::sleep(Duration::from_millis(15));
     }
 
     fn new_bot_headless_app(loop_wait: Duration) -> App {

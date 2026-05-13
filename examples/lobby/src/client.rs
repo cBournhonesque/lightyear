@@ -20,6 +20,9 @@ pub enum AppState {
     Game,
 }
 
+#[derive(Component)]
+struct SwitchingGameConnection;
+
 impl Default for AppState {
     fn default() -> Self {
         AppState::Lobby { joined_lobby: None }
@@ -65,19 +68,25 @@ impl Plugin for ExampleClientPlugin {
 fn on_disconnect(
     trigger: On<Add, Disconnected>,
     local_id: Single<&LocalId>,
-    lobbies: Query<Entity, With<Lobbies>>,
+    server: Single<Entity, With<Server>>,
     mut commands: Commands,
-    entities: Query<Entity, (With<Lobbies>, With<PlayerId>)>,
+    entities: Query<Entity, Or<(With<Lobbies>, With<PlayerId>)>>,
+    switching_game_connection: Query<(), With<SwitchingGameConnection>>,
 ) -> Result {
+    if switching_game_connection.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .remove::<SwitchingGameConnection>();
+        return Ok(());
+    }
+
     // despawn every entity
     for entity in entities.iter() {
         commands.entity(entity).despawn();
     }
 
     // stop the server if it was started (if the player was host)
-    commands.trigger(Stop {
-        entity: trigger.entity,
-    });
+    commands.trigger(Stop { entity: *server });
 
     // reset the netcode config to connect to the lobby server
     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT);
@@ -451,6 +460,10 @@ mod lobby {
                     info!(
                         "We are the host of the game! Unlinking existing client {local_client:?}"
                     );
+                    commands
+                        .entity(local_client)
+                        .insert(SwitchingGameConnection);
+                    commands.trigger(Start { entity: server });
                     // First remove the previous link
                     commands.trigger(Unlink {
                         entity: local_client,
@@ -473,6 +486,9 @@ mod lobby {
                     info!(
                         "The game is hosted by another client ({host:?}). Connecting to the host..."
                     );
+                    commands
+                        .entity(local_client)
+                        .insert(SwitchingGameConnection);
                     // First unlink from the dedicated server
                     commands.trigger(Unlink {
                         entity: local_client,

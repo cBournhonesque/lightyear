@@ -16,7 +16,6 @@ use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
-use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::{client::*, server::*, *};
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_replication::delta::DeltaManager;
@@ -350,6 +349,7 @@ pub fn spawn_player_on_server(
     };
     use bevy_enhanced_input::prelude::{Action, ActionOf};
     use lightyear_deterministic_replication::prelude::CatchUpGated;
+    use lightyear_prediction::rollback::DeterministicPredicted;
     use lightyear_replication::prelude::PreSpawned;
 
     let mut entity = server_app.world_mut().spawn((

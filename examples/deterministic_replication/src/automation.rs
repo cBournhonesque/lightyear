@@ -5,10 +5,10 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::CatchUpMode;
+use lightyear_deterministic_replication::prelude::{AwaitingCatchUpSnapshot, CatchUpMode};
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
-use crate::protocol::{PlayerActions, PlayerId};
+use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -151,13 +151,25 @@ mod client {
         settings: Res<AutomationSettings>,
         random_state: Option<ResMut<RandomState>>,
         mode: Res<CatchUpMode>,
+        timeline: Res<LocalTimeline>,
         client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
-        players: Query<(&PlayerId, Option<&LeafwingBuffer<PlayerActions>>)>,
+        players: Query<(
+            &PlayerId,
+            Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerActivationTick>,
+            Has<AwaitingCatchUpSnapshot>,
+        )>,
         mut previous: Local<Vec<KeyCode>>,
         mut ready_logged: Local<bool>,
         mut buttons: ResMut<ButtonInput<KeyCode>>,
     ) {
-        if !input_rebroadcast_ready(&mode, client.as_deref().copied(), &players, &settings) {
+        if !input_rebroadcast_ready(
+            &mode,
+            timeline.tick(),
+            client.as_deref().copied(),
+            &players,
+            &settings,
+        ) {
             if *ready_logged {
                 info!("automation paused until input rebroadcast is ready");
                 *ready_logged = false;
@@ -186,11 +198,23 @@ mod client {
         settings: Res<AutomationSettings>,
         random_state: Option<Res<RandomState>>,
         mode: Res<CatchUpMode>,
+        timeline: Res<LocalTimeline>,
         client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
-        players: Query<(&PlayerId, Option<&LeafwingBuffer<PlayerActions>>)>,
+        players: Query<(
+            &PlayerId,
+            Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerActivationTick>,
+            Has<AwaitingCatchUpSnapshot>,
+        )>,
         mut query: Query<&mut ActionState<PlayerActions>, With<InputMap<PlayerActions>>>,
     ) {
-        if !input_rebroadcast_ready(&mode, client.as_deref().copied(), &players, &settings) {
+        if !input_rebroadcast_ready(
+            &mode,
+            timeline.tick(),
+            client.as_deref().copied(),
+            &players,
+            &settings,
+        ) {
             for mut action_state in &mut query {
                 release_all(&mut action_state);
             }
@@ -220,31 +244,47 @@ mod client {
 
     fn input_rebroadcast_ready(
         mode: &CatchUpMode,
+        local_tick: Tick,
         client: Option<&LocalId>,
-        players: &Query<(&PlayerId, Option<&LeafwingBuffer<PlayerActions>>)>,
+        players: &Query<(
+            &PlayerId,
+            Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerActivationTick>,
+            Has<AwaitingCatchUpSnapshot>,
+        )>,
         settings: &AutomationSettings,
     ) -> bool {
-        if *mode != CatchUpMode::InputOnly {
-            return true;
-        }
         let Some(local_id) = client else {
             return false;
         };
         let mut count = 0;
-        for (player_id, buffer) in players.iter() {
+        let mut local_can_move = false;
+        for (player_id, buffer, activation_tick, awaiting_catchup) in players.iter() {
             count += 1;
-            let Some(buffer) = buffer else {
-                return false;
-            };
             if player_id.0 == local_id.0 {
+                if awaiting_catchup {
+                    return false;
+                }
+                let Some(buffer) = buffer else {
+                    return false;
+                };
                 if buffer.start_tick.is_none() {
                     return false;
                 }
-            } else if buffer.last_remote_tick.is_none() {
-                return false;
+                let Some(activation_tick) = activation_tick else {
+                    return false;
+                };
+                local_can_move = !activation_tick.is_pending() && local_tick >= activation_tick.0;
+            } else if *mode == CatchUpMode::InputOnly {
+                let Some(buffer) = buffer else {
+                    return false;
+                };
+                if buffer.last_remote_tick.is_none() {
+                    return false;
+                }
             }
         }
-        count >= settings.min_players_before_move
+        count >= settings.min_players_before_move && local_can_move
     }
 
     fn release_all(action_state: &mut ActionState<PlayerActions>) {

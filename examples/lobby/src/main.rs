@@ -124,7 +124,11 @@ fn main() {
                 shared: SHARED_SETTINGS,
             })
             .id();
-        app.world_mut().trigger(Start { entity: server });
+        // Client-mode apps keep a local server configured so they can later host a game,
+        // but it must stay stopped while they are still connected to the lobby server.
+        if matches!(cli.mode, Some(Mode::Server)) {
+            app.world_mut().trigger(Start { entity: server });
+        }
     }
 
     #[cfg(feature = "gui")]

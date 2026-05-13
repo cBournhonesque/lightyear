@@ -221,6 +221,7 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -378,6 +379,7 @@ fn check_rollback(
     >,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
+    awaiting_catchup: Query<(), With<AwaitingCatchUpSnapshot>>,
     parallel_commands: ParallelCommands,
     mut commands: Commands,
 ) {
@@ -477,214 +479,236 @@ fn check_rollback(
         forced_rollback_requested = true;
     }
 
-    // if there we check for rollback on both state and input, state takes precedence
-    match prediction_manager.rollback_policy.state {
-        // if we received a state update, we don't check for mismatches and just set the rollback tick
-        RollbackMode::Always => {
-            if received_state && !predicted_entities.is_empty() {
-                debug!(
-                    ?server_confirmed_tick,
-                    "Rollback because we have received a new confirmed state. (no mismatch check)"
-                );
-                do_rollback(
-                    server_confirmed_tick,
-                    &prediction_manager,
-                    &mut commands,
-                    Rollback::FromState,
-                );
-            };
-        }
-        RollbackMode::Check => {
-            // First check: maybe we already know we should rollback after there was a mismatch
-            // when receiving a confirmed update (in write_history).
-            // The mismatch flags persist across frames since check_rollback may run
-            // before receive_replication in the same frame.
-            if let Some(mismatch_tick) = state_metadata.not_ready_mismatch_tick(tick) {
-                trace!(
-                    target: "lightyear_debug::prediction",
-                    kind = "state_mismatch_deferred",
-                    schedule = "PreUpdate",
-                    sample_point = "PreUpdate",
-                    local_tick = tick.0,
-                    rollback_tick = mismatch_tick.0,
-                    "state mismatch rollback deferred until confirmed tick is in the local past"
-                );
-            }
-            if let Some(mismatch_tick) = state_metadata.take_ready_mismatch_tick(tick) {
-                debug!(
-                    ?mismatch_tick,
-                    "Rollback from mismatch detected when receiving confirmed update"
-                );
-                trace!(
-                    target: "lightyear_debug::prediction",
-                    kind = "state_mismatch_consumed",
-                    schedule = "PreUpdate",
-                    sample_point = "PreUpdate",
-                    local_tick = tick.0,
-                    confirmed_tick = server_confirmed_tick.0,
-                    rollback_tick = mismatch_tick.0,
-                    "state mismatch consumed by rollback checker"
-                );
-                do_rollback(
-                    mismatch_tick,
-                    &prediction_manager,
-                    &mut commands,
-                    Rollback::FromState,
-                );
-            }
-
-            // Check if ServerMutateTicks has advanced since we last processed it
-            let server_ticks_advanced =
-                state_metadata.has_server_mutate_ticks_advanced(server_confirmed_tick);
-
-            // Second check: if ServerMutateTicks has advanced, check unchanged entities
-            // Only check if we haven't already triggered a rollback and ServerMutateTicks advanced
-            if !prediction_manager.is_rollback() && server_ticks_advanced {
-                if server_confirmed_tick > tick {
+    let has_pending_catchup = !awaiting_catchup.is_empty();
+    if forced_rollback_requested {
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "policy_rollbacks_skipped_forced",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            local_tick = tick.0,
+            "policy-driven rollback checks skipped because a forced rollback is already requested"
+        );
+    } else if has_pending_catchup {
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "rollback_deferred_awaiting_catchup",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            local_tick = tick.0,
+            server_confirmed_tick = server_confirmed_tick.0,
+            "policy-driven rollback checks deferred while a catch-up snapshot is pending"
+        );
+    } else {
+        // If we check for rollback on both state and input, state takes precedence.
+        match prediction_manager.rollback_policy.state {
+            // if we received a state update, we don't check for mismatches and just set the rollback tick
+            RollbackMode::Always => {
+                if received_state && !predicted_entities.is_empty() {
                     debug!(
-                        "ServerMutateTicks tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
-                        server_confirmed_tick, tick
-                    );
-                } else {
-                    // Check unchanged entities: those where ConfirmHistory.last_tick < ServerMutateTicks.last_tick
-                    // For these entities, we know their value at server_confirmed_tick = their last confirmed value
-                    trace!(
-                        ?tick,
                         ?server_confirmed_tick,
-                        "Checking for state-based rollback on unchanged entities"
+                        "Rollback because we have received a new confirmed state. (no mismatch check)"
                     );
-
-                    predicted_entities.par_iter_mut().for_each(|(confirm_history, mut entity_mut)| {
-                        if prediction_manager.is_rollback() {
-                            return
-                        }
-
-                        let Some(confirm_history_tick) =
-                            resolve_confirm_history_tick(&checkpoints, confirm_history)
-                        else {
-                            debug!(
-                                entity = ?entity_mut.id(),
-                                replicon_tick = ?confirm_history.last_tick(),
-                                "Skipping unchanged rollback check for entity with missing ConfirmHistory checkpoint mapping"
-                            );
-                            return
-                        };
-                        // Only check entities that didn't receive an explicit update at server_confirmed_tick
-                        if confirm_history_tick >= server_confirmed_tick {
-                            return
-                        }
-
-                        trace!(
-                            "Checking rollback for entity {:?} (unchanged): ConfirmHistory={:?}, ServerMutateTicks={:?}",
-                            entity_mut.id(),
-                            confirm_history_tick,
-                            server_confirmed_tick
-                        );
-
-                        // For each predicted component, check if the predicted value matches the confirmed value
-                        // Also mark the last confirmed value as confirmed at server_confirmed_tick
-                        for check_rollback in prediction_registry.prediction_map
-                            .iter()
-                            .filter_map(|(kind, p)|
-                                // only check rollback for components that are replicated (ignore non-networked)
-                                component_registry.component_metadata_map.contains_key(kind).then_some(p.check_rollback)
-                            )
-                            .take_while(|_| !prediction_manager.is_rollback())
-                        {
-                            if check_rollback(&prediction_registry, server_confirmed_tick, &mut entity_mut) {
-                                debug!(
-                                    ?server_confirmed_tick,
-                                    "Rollback because of mismatch on unchanged entity"
-                                );
-                                trace!(
-                                    target: "lightyear_debug::prediction",
-                                    kind = "unchanged_entity_mismatch",
-                                    schedule = "PreUpdate",
-                                    sample_point = "PreUpdate",
-                                    entity = ?entity_mut.id(),
-                                    local_tick = tick.0,
-                                    confirmed_tick = server_confirmed_tick.0,
-                                    rollback_tick = server_confirmed_tick.0,
-                                    "rollback mismatch detected on unchanged entity"
-                                );
-                                parallel_commands.command_scope(|mut c| {
-                                    do_rollback(server_confirmed_tick, &prediction_manager, &mut c, Rollback::FromState);
-                                });
-                                return;
-                            }
-                        }
-                    });
+                    do_rollback(
+                        server_confirmed_tick,
+                        &prediction_manager,
+                        &mut commands,
+                        Rollback::FromState,
+                    );
+                };
+            }
+            RollbackMode::Check => {
+                // First check: maybe we already know we should rollback after there was a mismatch
+                // when receiving a confirmed update (in write_history).
+                // The mismatch flags persist across frames since check_rollback may run
+                // before receive_replication in the same frame.
+                if let Some(mismatch_tick) = state_metadata.not_ready_mismatch_tick(tick) {
+                    trace!(
+                        target: "lightyear_debug::prediction",
+                        kind = "state_mismatch_deferred",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        local_tick = tick.0,
+                        rollback_tick = mismatch_tick.0,
+                        "state mismatch rollback deferred until confirmed tick is in the local past"
+                    );
+                }
+                if let Some(mismatch_tick) = state_metadata.take_ready_mismatch_tick(tick) {
+                    debug!(
+                        ?mismatch_tick,
+                        "Rollback from mismatch detected when receiving confirmed update"
+                    );
+                    trace!(
+                        target: "lightyear_debug::prediction",
+                        kind = "state_mismatch_consumed",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        local_tick = tick.0,
+                        confirmed_tick = server_confirmed_tick.0,
+                        rollback_tick = mismatch_tick.0,
+                        "state mismatch consumed by rollback checker"
+                    );
+                    do_rollback(
+                        mismatch_tick,
+                        &prediction_manager,
+                        &mut commands,
+                        Rollback::FromState,
+                    );
                 }
 
-                // Update the last processed tick
-                state_metadata.set_last_processed_tick(server_confirmed_tick);
-            }
-        }
-        RollbackMode::Disabled => {}
-    }
+                // Check if ServerMutateTicks has advanced since we last processed it
+                let server_ticks_advanced =
+                    state_metadata.has_server_mutate_ticks_advanced(server_confirmed_tick);
 
-    // if we don't have state-based rollbacks, check for input-rollbacks
-    match prediction_manager.rollback_policy.input {
-        // If we have received any input message, rollback from the last confirmed input
-        RollbackMode::Always => {
-            if prediction_manager.is_rollback() {
-                debug!("Rollback was triggered by state, skipping input rollback checks");
-            } else if let Some(last_confirmed_input) = last_confirmed_input
-                && last_confirmed_input.received_input()
-            {
-                debug!(
-                    ?last_confirmed_input,
-                    "Rollback because we have received a new remote input. (no mismatch check)"
-                );
-                let rollback_tick = last_confirmed_input.tick.get();
-                trace!(
-                    target: "lightyear_debug::prediction",
-                    kind = "input_rollback_always",
-                    schedule = "PreUpdate",
-                    sample_point = "PreUpdate",
-                    local_tick = tick.0,
-                    rollback_tick = rollback_tick.0,
-                    last_confirmed_input = ?last_confirmed_input,
-                    "input rollback requested from latest confirmed input"
-                );
-                do_rollback(
-                    rollback_tick,
-                    &prediction_manager,
-                    &mut commands,
-                    Rollback::FromInputs,
-                );
+                // Second check: if ServerMutateTicks has advanced, check unchanged entities
+                // Only check if we haven't already triggered a rollback and ServerMutateTicks advanced
+                if !prediction_manager.is_rollback() && server_ticks_advanced {
+                    if server_confirmed_tick > tick {
+                        debug!(
+                            "ServerMutateTicks tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
+                            server_confirmed_tick, tick
+                        );
+                    } else {
+                        // Check unchanged entities: those where ConfirmHistory.last_tick < ServerMutateTicks.last_tick
+                        // For these entities, we know their value at server_confirmed_tick = their last confirmed value
+                        trace!(
+                            ?tick,
+                            ?server_confirmed_tick,
+                            "Checking for state-based rollback on unchanged entities"
+                        );
+
+                        predicted_entities.par_iter_mut().for_each(|(confirm_history, mut entity_mut)| {
+                            if prediction_manager.is_rollback() {
+                                return
+                            }
+
+                            let Some(confirm_history_tick) =
+                                resolve_confirm_history_tick(&checkpoints, confirm_history)
+                            else {
+                                debug!(
+                                    entity = ?entity_mut.id(),
+                                    replicon_tick = ?confirm_history.last_tick(),
+                                    "Skipping unchanged rollback check for entity with missing ConfirmHistory checkpoint mapping"
+                                );
+                                return
+                            };
+                            // Only check entities that didn't receive an explicit update at server_confirmed_tick
+                            if confirm_history_tick >= server_confirmed_tick {
+                                return
+                            }
+
+                            trace!(
+                                "Checking rollback for entity {:?} (unchanged): ConfirmHistory={:?}, ServerMutateTicks={:?}",
+                                entity_mut.id(),
+                                confirm_history_tick,
+                                server_confirmed_tick
+                            );
+
+                            // For each predicted component, check if the predicted value matches the confirmed value
+                            // Also mark the last confirmed value as confirmed at server_confirmed_tick
+                            for check_rollback in prediction_registry.prediction_map
+                                .iter()
+                                .filter_map(|(kind, p)|
+                                    // only check rollback for components that are replicated (ignore non-networked)
+                                    component_registry.component_metadata_map.contains_key(kind).then_some(p.check_rollback)
+                                )
+                                .take_while(|_| !prediction_manager.is_rollback())
+                            {
+                                if check_rollback(&prediction_registry, server_confirmed_tick, &mut entity_mut) {
+                                    debug!(
+                                        ?server_confirmed_tick,
+                                        "Rollback because of mismatch on unchanged entity"
+                                    );
+                                    trace!(
+                                        target: "lightyear_debug::prediction",
+                                        kind = "unchanged_entity_mismatch",
+                                        schedule = "PreUpdate",
+                                        sample_point = "PreUpdate",
+                                        entity = ?entity_mut.id(),
+                                        local_tick = tick.0,
+                                        confirmed_tick = server_confirmed_tick.0,
+                                        rollback_tick = server_confirmed_tick.0,
+                                        "rollback mismatch detected on unchanged entity"
+                                    );
+                                    parallel_commands.command_scope(|mut c| {
+                                        do_rollback(server_confirmed_tick, &prediction_manager, &mut c, Rollback::FromState);
+                                    });
+                                    return;
+                                }
+                            }
+                        });
+                    }
+
+                    // Update the last processed tick
+                    state_metadata.set_last_processed_tick(server_confirmed_tick);
+                }
             }
+            RollbackMode::Disabled => {}
         }
-        // Rollback from any mismatched input
-        RollbackMode::Check => {
-            if prediction_manager.is_rollback() {
-                debug!("Rollback was triggered by state, skipping input rollback checks");
-            } else if prediction_manager.earliest_mismatch_input.has_mismatches() {
-                // we rollback to the tick right before the mismatch
-                let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
-                debug!(
-                    ?rollback_tick,
-                    "Rollback because we have received a remote input that doesn't match our input buffer history"
-                );
-                trace!(
-                    target: "lightyear_debug::prediction",
-                    kind = "input_mismatch_rollback",
-                    schedule = "PreUpdate",
-                    sample_point = "PreUpdate",
-                    local_tick = tick.0,
-                    rollback_tick = rollback_tick.0,
-                    mismatch_tick = prediction_manager.earliest_mismatch_input.tick.get().0,
-                    "input mismatch rollback requested"
-                );
-                do_rollback(
-                    rollback_tick,
-                    &prediction_manager,
-                    &mut commands,
-                    Rollback::FromInputs,
-                );
+
+        // If we don't have state-based rollbacks, check for input-rollbacks.
+        match prediction_manager.rollback_policy.input {
+            // If we have received any input message, rollback from the last confirmed input.
+            RollbackMode::Always => {
+                if prediction_manager.is_rollback() {
+                    debug!("Rollback was triggered by state, skipping input rollback checks");
+                } else if let Some(last_confirmed_input) = last_confirmed_input
+                    && last_confirmed_input.received_input()
+                {
+                    debug!(
+                        ?last_confirmed_input,
+                        "Rollback because we have received a new remote input. (no mismatch check)"
+                    );
+                    let rollback_tick = last_confirmed_input.tick.get();
+                    trace!(
+                        target: "lightyear_debug::prediction",
+                        kind = "input_rollback_always",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        local_tick = tick.0,
+                        rollback_tick = rollback_tick.0,
+                        last_confirmed_input = ?last_confirmed_input,
+                        "input rollback requested from latest confirmed input"
+                    );
+                    do_rollback(
+                        rollback_tick,
+                        &prediction_manager,
+                        &mut commands,
+                        Rollback::FromInputs,
+                    );
+                }
             }
+            // Rollback from any mismatched input.
+            RollbackMode::Check => {
+                if prediction_manager.is_rollback() {
+                    debug!("Rollback was triggered by state, skipping input rollback checks");
+                } else if prediction_manager.earliest_mismatch_input.has_mismatches() {
+                    // we rollback to the tick right before the mismatch
+                    let rollback_tick = prediction_manager.earliest_mismatch_input.tick.get() - 1;
+                    debug!(
+                        ?rollback_tick,
+                        "Rollback because we have received a remote input that doesn't match our input buffer history"
+                    );
+                    trace!(
+                        target: "lightyear_debug::prediction",
+                        kind = "input_mismatch_rollback",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        local_tick = tick.0,
+                        rollback_tick = rollback_tick.0,
+                        mismatch_tick = prediction_manager.earliest_mismatch_input.tick.get().0,
+                        "input mismatch rollback requested"
+                    );
+                    do_rollback(
+                        rollback_tick,
+                        &prediction_manager,
+                        &mut commands,
+                        Rollback::FromInputs,
+                    );
+                }
+            }
+            RollbackMode::Disabled => {}
         }
-        RollbackMode::Disabled => {}
     }
 
     // if we have a rollback, despawn any PreSpawned/DeterministicPredicted entities that were spawned since the rollback tick
@@ -876,6 +900,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // (because ServerMutateTicks confirms they weren't mutated), mark the latest completed
         // server checkpoint as confirmed using their last explicit confirmed value.
         if matches!(rollback, Rollback::FromState)
+            && !matches!(manager.rollback_policy.state, RollbackMode::Disabled)
             && let Some(confirm_history) = confirm_history
         {
             let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
@@ -905,8 +930,16 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             // a rollback), but we haven't received the full update yet, so we will still rollback
             // from that earliest mismatch tick.
             let restore_value = predicted_history.get(rollback_tick).cloned();
-            // Remove all old entries that are older than the server_confirmed_tick
-            predicted_history.clear_until_tick(server_confirmed_tick);
+            // If state rollback is disabled, ServerMutateTicks do not certify deterministic
+            // component values; they only say no replicated state update arrived. Keep enough
+            // predicted history to support later input rollbacks to the same window.
+            let clear_until_tick =
+                if matches!(manager.rollback_policy.state, RollbackMode::Disabled) {
+                    rollback_tick
+                } else {
+                    server_confirmed_tick
+                };
+            predicted_history.clear_until_tick(clear_until_tick);
             // Clear all predicted values that are more recent than the rollback tick.
             // (We keep the confirmed values that are more recent than the rollback tick, as we don't
             // want to lose them when we re-simulate)

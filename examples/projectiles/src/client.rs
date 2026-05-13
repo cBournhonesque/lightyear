@@ -1,3 +1,4 @@
+use crate::HostClientMode;
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
@@ -45,6 +46,7 @@ impl Plugin for ExampleClientPlugin {
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
     client: Single<&LocalId, With<Client>>,
+    host_client: Option<Res<HostClientMode>>,
     mut commands: Commands,
     mut player_query: Query<(&PlayerId, &Position, &GameReplicationMode), With<Predicted>>,
 ) {
@@ -67,18 +69,21 @@ pub(crate) fn handle_predicted_spawn(
         if player_id.0 != client_id {
             return;
         }
-        info!(
-            ?pos,
-            "Adding actions to predicted player {:?}", trigger.entity
-        );
         // add actions on the local entity (remote predicted entities will have actions propagated by the server)
-        shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
+        if should_spawn_client_actions(&host_client) {
+            info!(
+                ?pos,
+                "Adding actions to predicted player {:?}", trigger.entity
+            );
+            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
+        }
     }
 }
 
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, (PlayerMarker, Interpolated)>,
     client: Single<&LocalId, With<Client>>,
+    host_client: Option<Res<HostClientMode>>,
     mut interpolated: Query<
         (&PlayerId, &Interpolated, &GameReplicationMode),
         (With<Interpolated>, With<PlayerMarker>),
@@ -97,6 +102,7 @@ pub(crate) fn handle_interpolated_spawn(
         // Only the server applies the inputs, and the position changes are replicated back
         if let GameReplicationMode::AllInterpolated = mode
             && client_id.0 == player_id.0
+            && should_spawn_client_actions(&host_client)
         {
             shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
         }
@@ -107,6 +113,7 @@ pub(crate) fn handle_deterministic_spawn(
     trigger: On<Add, PlayerMarker>,
     query: Query<(&PlayerId, &GameReplicationMode)>,
     client: Single<&LocalId, With<Client>>,
+    host_client: Option<Res<HostClientMode>>,
     mut commands: Commands,
 ) {
     let client_id = client.into_inner();
@@ -124,7 +131,7 @@ pub(crate) fn handle_deterministic_spawn(
         info!("Adding PlayerContext for player {:?}", player_id);
 
         // add actions for the local client
-        if player_id.0 == client_id.0 {
+        if player_id.0 == client_id.0 && should_spawn_client_actions(&host_client) {
             info!(
                 "Spawning actions for DeterministicPredicted player {:?}",
                 player_id
@@ -134,14 +141,25 @@ pub(crate) fn handle_deterministic_spawn(
     }
 }
 
-pub(crate) fn add_global_actions(trigger: On<Add, ClientContext>, mut commands: Commands) {
-    shared::spawn_global_actions(&mut commands, trigger.entity, false);
+pub(crate) fn add_global_actions(
+    trigger: On<Add, ClientContext>,
+    host_client: Option<Res<HostClientMode>>,
+    mut commands: Commands,
+) {
+    if should_spawn_client_actions(&host_client) {
+        shared::spawn_global_actions(&mut commands, trigger.entity, false);
+    }
+}
+
+fn should_spawn_client_actions(host_client: &Option<Res<HostClientMode>>) -> bool {
+    host_client.is_none()
 }
 
 fn update_active_player_action_markers(
     client: Query<&LocalId, With<Client>>,
     global_mode: Query<&GameReplicationMode, With<ClientContext>>,
-    players: Query<(&PlayerId, &GameReplicationMode), With<PlayerMarker>>,
+    players: Query<(&PlayerId, &GameReplicationMode, Has<Controlled>), With<PlayerMarker>>,
+    host_client: Option<Res<HostClientMode>>,
     movement_actions: Query<
         (
             Entity,
@@ -184,7 +202,13 @@ fn update_active_player_action_markers(
         configure_player_action(
             &mut commands,
             entity,
-            is_active_local_action(action_of, &players, client_id.0, global_mode),
+            is_active_local_action(
+                action_of,
+                &players,
+                client_id.0,
+                global_mode,
+                host_client.is_some(),
+            ),
             has_marker,
             externally_mocked,
             PlayerActionSource::Movement { has_bindings },
@@ -194,7 +218,13 @@ fn update_active_player_action_markers(
         configure_player_action(
             &mut commands,
             entity,
-            is_active_local_action(action_of, &players, client_id.0, global_mode),
+            is_active_local_action(
+                action_of,
+                &players,
+                client_id.0,
+                global_mode,
+                host_client.is_some(),
+            ),
             has_marker,
             externally_mocked,
             PlayerActionSource::Cursor { mock },
@@ -204,7 +234,13 @@ fn update_active_player_action_markers(
         configure_player_action(
             &mut commands,
             entity,
-            is_active_local_action(action_of, &players, client_id.0, global_mode),
+            is_active_local_action(
+                action_of,
+                &players,
+                client_id.0,
+                global_mode,
+                host_client.is_some(),
+            ),
             has_marker,
             externally_mocked,
             PlayerActionSource::Shoot { has_bindings },
@@ -214,13 +250,16 @@ fn update_active_player_action_markers(
 
 fn is_active_local_action(
     action_of: &ActionOf<PlayerContext>,
-    players: &Query<(&PlayerId, &GameReplicationMode), With<PlayerMarker>>,
+    players: &Query<(&PlayerId, &GameReplicationMode, Has<Controlled>), With<PlayerMarker>>,
     client_id: PeerId,
     global_mode: &GameReplicationMode,
+    host_client: bool,
 ) -> bool {
     players
         .get(action_of.get())
-        .is_ok_and(|(player_id, mode)| player_id.0 == client_id && mode == global_mode)
+        .is_ok_and(|(player_id, mode, controlled)| {
+            player_id.0 == client_id && mode == global_mode && (controlled || host_client)
+        })
 }
 
 enum PlayerActionSource<'a> {

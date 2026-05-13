@@ -13,7 +13,8 @@
 //! `enhanced-determinism` feature + our catch-up machinery).
 
 use crate::client_server::deterministic::protocol::{
-    DetBallMarker, DetBuffer, DetMovement, DetPlayerId, Player,
+    DetBallMarker, DetBuffer, DetMovement, DetPlayerActivationTick, DetPlayerId, DetWallMarker,
+    Player,
 };
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
@@ -29,7 +30,7 @@ use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
     AwaitingCatchUpSnapshot, CatchUpRequestSent, CatchUpServerReadiness, CatchUpSystems,
-    request_forced_rollback_to_catch_up_tick,
+    request_forced_rollback_to_catch_up_tick_with_commands,
 };
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::PreSpawned;
@@ -50,6 +51,95 @@ struct RandomDrive {
 
 #[derive(Resource, Default)]
 struct PositionSamples(HashMap<(u32, PeerId), Position>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+enum MotionSubject {
+    Player(PeerId),
+    Ball,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct MotionSample {
+    position: Position,
+    velocity: LinearVelocity,
+}
+
+#[derive(Resource, Default)]
+struct MotionSamples(HashMap<(u32, MotionSubject), MotionSample>);
+
+#[derive(Resource, Default)]
+struct InputSamples(HashMap<(u32, PeerId), Option<ActionsSnapshot>>);
+
+#[derive(Clone, Copy, Debug)]
+struct ExecutionSample {
+    tick: Tick,
+    rollback: Option<Rollback>,
+    rollback_start: Option<Tick>,
+}
+
+#[derive(Resource, Default)]
+struct ExecutionSamples(Vec<ExecutionSample>);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SampleStage {
+    PrePhysics,
+    PostPhysics,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct StageMotionSample {
+    tick: Tick,
+    stage: SampleStage,
+    rollback: Option<Rollback>,
+    rollback_start: Option<Tick>,
+    subject: MotionSubject,
+    motion: MotionSample,
+}
+
+#[derive(Resource, Default)]
+struct StageMotionSamples(Vec<StageMotionSample>);
+
+#[derive(Clone, Debug)]
+struct ContactPairSample {
+    collider1: String,
+    collider2: String,
+    body1: Option<String>,
+    body2: Option<String>,
+    touching: bool,
+    normals: Vec<Vec2>,
+    max_normal_impulse: f32,
+}
+
+#[derive(Clone, Debug)]
+struct ContactSample {
+    tick: Tick,
+    stage: SampleStage,
+    rollback: Option<Rollback>,
+    rollback_start: Option<Tick>,
+    pairs: Vec<ContactPairSample>,
+}
+
+#[derive(Resource, Default)]
+struct ContactSamples(Vec<ContactSample>);
+
+#[derive(Clone, Debug)]
+struct CatchUpActivationTrace {
+    client_label: String,
+    local_tick: Tick,
+    reference_tick: Tick,
+    positions: Vec<(PeerId, Position)>,
+    buffers: Vec<(
+        PeerId,
+        Option<Tick>,
+        Option<Tick>,
+        Option<Tick>,
+        Option<ActionsSnapshot>,
+        Vec<(Tick, Option<ActionsSnapshot>)>,
+    )>,
+}
+
+#[derive(Resource, Default)]
+struct CatchUpTrace(Vec<CatchUpActivationTrace>);
 
 impl RandomDrive {
     fn new(seed: u64, warmup_ticks: u32) -> Self {
@@ -100,15 +190,18 @@ fn drive_random_input(
 /// player has real remote input through the server's current tick.
 fn update_server_readiness(
     timeline: Res<LocalTimeline>,
-    players: Query<Entity, With<DetPlayerId>>,
+    players: Query<(Entity, &DetPlayerActivationTick), With<DetPlayerId>>,
     actions: Query<(&ActionOf<Player>, &DetBuffer)>,
     mut readiness: ResMut<CatchUpServerReadiness>,
 ) {
     use bevy::ecs::relationship::Relationship;
     let current_tick = timeline.tick();
     let mut any = false;
-    let ready = players.iter().all(|player_entity| {
+    let ready = players.iter().all(|(player_entity, activation_tick)| {
         any = true;
+        if activation_tick.is_pending() {
+            return false;
+        }
         actions.iter().any(|(action_of, buffer)| {
             action_of.get() == player_entity
                 && matches!(buffer.last_remote_tick, Some(t) if t >= current_tick)
@@ -120,9 +213,6 @@ fn update_server_readiness(
 /// Client-side: once the catch-up bundle for every known player entity
 /// has landed (Position present), insert the physics bundle +
 /// `DeterministicPredicted` and fire the bundled forced rollback.
-#[derive(Component)]
-struct PhysicsActivated;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ReplayCoverage {
     Ready,
@@ -135,8 +225,8 @@ fn mark_awaiting_on_hidden_replicated_players(
         Entity,
         (
             With<DetPlayerId>,
-            Without<Position>,
             Without<AwaitingCatchUpSnapshot>,
+            Without<DeterministicPredicted>,
         ),
     >,
     mut commands: Commands,
@@ -155,13 +245,13 @@ fn activate_physics_when_bundle_lands(
             &Position,
             Has<AwaitingCatchUpSnapshot>,
         ),
-        (With<DetPlayerId>, Without<PhysicsActivated>),
+        (With<DetPlayerId>, Without<DeterministicPredicted>),
     >,
     still_pending: Query<
         Entity,
         (
             With<DetPlayerId>,
-            Without<PhysicsActivated>,
+            Without<DeterministicPredicted>,
             Without<Position>,
         ),
     >,
@@ -171,8 +261,15 @@ fn activate_physics_when_bundle_lands(
     local_id: Option<Single<&LocalId, With<Client>>>,
     client_request: Option<Single<Entity, (With<Client>, With<CatchUpRequestSent>)>>,
     prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
-    all_players: Query<(Entity, &DetPlayerId)>,
+    mut state_metadata: ResMut<StateRollbackMetadata>,
+    all_players: Query<(
+        Entity,
+        &DetPlayerId,
+        Option<&DetPlayerActivationTick>,
+        Option<&Position>,
+    )>,
     mut input_buffers: Query<(&ActionOf<Player>, Option<&mut DetBuffer>)>,
+    mut trace: ResMut<CatchUpTrace>,
 ) {
     use crate::client_server::deterministic::protocol::DetPhysicsBundle;
     let reference = catchup_snapshot_reference(&awaiting_snapshots, &checkpoints);
@@ -207,39 +304,124 @@ fn activate_physics_when_bundle_lands(
         ReplayCoverage::Wait
     };
     if coverage == ReplayCoverage::Stale
-        && let Some(client_request) = client_request
+        && let Some(client_request) = client_request.as_ref()
     {
         commands
-            .entity(client_request.into_inner())
+            .entity(**client_request)
             .remove::<CatchUpRequestSent>();
     }
     let catchup_ready = coverage == ReplayCoverage::Ready;
 
-    let mut newly: Vec<Entity> = Vec::new();
-    let mut activated_awaiting_catchup = false;
-    for (entity, _id, _pos, awaiting_catchup) in pending.iter() {
+    let mut ready = Vec::new();
+    for (entity, id, _pos, awaiting_catchup) in pending.iter() {
         if awaiting_catchup && !catchup_ready {
             continue;
         }
+        ready.push((entity, id.0));
+    }
+    // Avian can depend on insertion order for internal proxy/body ordering.
+    // The deterministic example activates players in this game-defined order;
+    // keep the regression test on the same path.
+    ready.sort_by_key(|(_, peer_id)| peer_id.to_bits());
+
+    let mut newly: Vec<Entity> = Vec::new();
+    for (entity, _id) in ready {
         commands.entity(entity).insert((
             DetPhysicsBundle::player(),
             DeterministicPredicted {
                 skip_despawn: true,
                 ..default()
             },
-            PhysicsActivated,
         ));
         newly.push(entity);
-        activated_awaiting_catchup |= awaiting_catchup;
     }
     if catchup_ready
-        && (activated_awaiting_catchup || (!awaiting_snapshots.is_empty() && newly.is_empty()))
+        && !awaiting_snapshots.is_empty()
+        && newly.is_empty()
         && let Some(reference) = reference
     {
-        commands.queue(move |world: &mut World| {
-            request_forced_rollback_to_catch_up_tick(world, reference);
-        });
+        let Ok((_, Some(reference_confirm))) = awaiting_snapshots.get(reference) else {
+            return;
+        };
+        if let Some(reference_tick) = checkpoints.get(reference_confirm.last_tick()) {
+            record_catchup_activation_trace(
+                &mut trace,
+                timeline.tick(),
+                reference_tick,
+                &all_players,
+                &mut input_buffers,
+            );
+        }
+        let awaiting_entities = awaiting_snapshots
+            .iter()
+            .map(|(entity, _)| entity)
+            .collect::<Vec<_>>();
+        let catchup_clients = client_request.as_ref().map(|entity| **entity).into_iter();
+        request_forced_rollback_to_catch_up_tick_with_commands(
+            reference_confirm,
+            &checkpoints,
+            &mut state_metadata,
+            awaiting_entities,
+            catchup_clients,
+            &mut commands,
+        );
     }
+}
+
+fn record_catchup_activation_trace(
+    trace: &mut CatchUpTrace,
+    local_tick: Tick,
+    reference_tick: Tick,
+    players: &Query<(
+        Entity,
+        &DetPlayerId,
+        Option<&DetPlayerActivationTick>,
+        Option<&Position>,
+    )>,
+    input_buffers: &mut Query<(&ActionOf<Player>, Option<&mut DetBuffer>)>,
+) {
+    use bevy::ecs::relationship::Relationship;
+
+    let mut buffers = Vec::new();
+    let mut positions = Vec::new();
+    for (player, player_id, _, position) in players.iter() {
+        if let Some(position) = position {
+            positions.push((player_id.0, *position));
+        }
+        let input = input_buffers.iter_mut().find_map(|(action_of, buffer)| {
+            if action_of.get() != player {
+                return None;
+            }
+            let buffer = buffer?;
+            let start = reference_tick - 3;
+            let end = reference_tick + 8;
+            let mut window = Vec::new();
+            let mut tick = start;
+            while tick <= end {
+                window.push((tick, buffer.get(tick).cloned()));
+                tick = tick + 1;
+            }
+            Some((
+                buffer.start_tick,
+                buffer.end_tick(),
+                buffer.last_remote_tick,
+                buffer.get(reference_tick).cloned(),
+                window,
+            ))
+        });
+        if let Some((start, end, last_remote, value, window)) = input {
+            buffers.push((player_id.0, start, end, last_remote, value, window));
+        } else {
+            buffers.push((player_id.0, None, None, None, None, Vec::new()));
+        }
+    }
+    trace.0.push(CatchUpActivationTrace {
+        client_label: "client".to_string(),
+        local_tick,
+        reference_tick,
+        positions,
+        buffers,
+    });
 }
 
 fn catchup_snapshot_reference(
@@ -269,7 +451,12 @@ fn input_buffers_cover_replay(
     local_tick: Tick,
     local_id: PeerId,
     max_rollback_ticks: u16,
-    players: &Query<(Entity, &DetPlayerId)>,
+    players: &Query<(
+        Entity,
+        &DetPlayerId,
+        Option<&DetPlayerActivationTick>,
+        Option<&Position>,
+    )>,
     input_buffers: &mut Query<(&ActionOf<Player>, Option<&mut DetBuffer>)>,
 ) -> ReplayCoverage {
     use bevy::ecs::relationship::Relationship;
@@ -278,7 +465,7 @@ fn input_buffers_cover_replay(
         return ReplayCoverage::Stale;
     }
     let mut any_player = false;
-    for (player, player_id) in players.iter() {
+    for (player, player_id, activation_tick, _) in players.iter() {
         any_player = true;
         let mut found = false;
         for (action_of, buffer) in input_buffers.iter_mut() {
@@ -289,31 +476,28 @@ fn input_buffers_cover_replay(
                 continue;
             };
             if player_id.0 == local_id {
-                let replay_end_tick = local_tick - 1;
                 let Some(end_tick) = buffer.end_tick() else {
                     return ReplayCoverage::Wait;
                 };
-                if end_tick < replay_end_tick {
+                if end_tick < reference_tick {
                     return ReplayCoverage::Wait;
                 }
                 if buffer.start_tick.is_none_or(|start| start > reference_tick) {
                     let old_start = buffer.start_tick.unwrap_or(reference_tick);
-                    buffer.extend_to_range(reference_tick, end_tick);
-                    let mut tick = reference_tick;
-                    while tick < old_start {
-                        buffer.set(
-                            tick,
-                            ActionsSnapshot {
-                                state: TriggerState::None,
-                                value: ActionValue::Axis2D(Vec2::ZERO),
-                                ..default()
-                            },
-                        );
-                        tick = tick + 1;
-                    }
+                    pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
                 }
             } else if buffer.start_tick.is_none_or(|start| start > reference_tick) {
-                return ReplayCoverage::Stale;
+                let old_start = buffer.start_tick.unwrap_or(reference_tick);
+                let Some(end_tick) = buffer.end_tick() else {
+                    return ReplayCoverage::Wait;
+                };
+                let Some(activation_tick) = activation_tick else {
+                    return ReplayCoverage::Stale;
+                };
+                if old_start > activation_tick.0 {
+                    return ReplayCoverage::Stale;
+                }
+                pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
             } else if buffer
                 .last_remote_tick
                 .is_none_or(|last_remote_tick| last_remote_tick < reference_tick)
@@ -334,6 +518,27 @@ fn input_buffers_cover_replay(
     }
 }
 
+fn pad_neutral_prefix(
+    buffer: &mut DetBuffer,
+    reference_tick: Tick,
+    old_start: Tick,
+    end_tick: Tick,
+) {
+    buffer.extend_to_range(reference_tick, end_tick);
+    let mut tick = reference_tick;
+    while tick < old_start {
+        buffer.set(
+            tick,
+            ActionsSnapshot {
+                state: TriggerState::None,
+                value: ActionValue::Axis2D(Vec2::ZERO),
+                ..default()
+            },
+        );
+        tick = tick + 1;
+    }
+}
+
 /// Wire up the readiness system on the server and the physics-activation
 /// + random-drive systems on each client.
 fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
@@ -349,6 +554,7 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
 
 fn configure_client_app(client_app: &mut App, seed: u64, warmup_ticks: u32) {
     client_app.insert_resource(RandomDrive::new(seed, warmup_ticks));
+    client_app.init_resource::<CatchUpTrace>();
     add_position_samples(client_app);
     client_app.add_systems(
         PreUpdate,
@@ -364,17 +570,236 @@ fn configure_client_app(client_app: &mut App, seed: u64, warmup_ticks: u32) {
 
 fn add_position_samples(app: &mut App) {
     app.init_resource::<PositionSamples>();
+    app.init_resource::<MotionSamples>();
+    app.init_resource::<InputSamples>();
+    app.init_resource::<ExecutionSamples>();
+    app.init_resource::<StageMotionSamples>();
+    app.init_resource::<ContactSamples>();
+    app.add_systems(
+        FixedPostUpdate,
+        (
+            sample_pre_physics_state.before(PhysicsSystems::StepSimulation),
+            sample_post_physics_state.after(PhysicsSystems::StepSimulation),
+        ),
+    );
     app.add_systems(FixedLast, sample_positions);
+}
+
+fn sample_pre_physics_state(
+    timeline: Res<LocalTimeline>,
+    motion_samples: ResMut<StageMotionSamples>,
+    contact_samples: ResMut<ContactSamples>,
+    player_motion: Query<(&DetPlayerId, &Position, &LinearVelocity), With<DeterministicPredicted>>,
+    ball_motion: Query<
+        (&Position, &LinearVelocity),
+        (With<DetBallMarker>, With<DeterministicPredicted>),
+    >,
+    contact_graph: Option<Res<ContactGraph>>,
+    players: Query<(Entity, &DetPlayerId)>,
+    balls: Query<Entity, With<DetBallMarker>>,
+    walls: Query<Entity, With<DetWallMarker>>,
+    rollback_markers: Query<&Rollback>,
+    prediction_managers: Query<&PredictionManager>,
+) {
+    sample_physics_state(
+        SampleStage::PrePhysics,
+        timeline,
+        motion_samples,
+        contact_samples,
+        player_motion,
+        ball_motion,
+        contact_graph,
+        players,
+        balls,
+        walls,
+        rollback_markers,
+        prediction_managers,
+    );
+}
+
+fn sample_post_physics_state(
+    timeline: Res<LocalTimeline>,
+    motion_samples: ResMut<StageMotionSamples>,
+    contact_samples: ResMut<ContactSamples>,
+    player_motion: Query<(&DetPlayerId, &Position, &LinearVelocity), With<DeterministicPredicted>>,
+    ball_motion: Query<
+        (&Position, &LinearVelocity),
+        (With<DetBallMarker>, With<DeterministicPredicted>),
+    >,
+    contact_graph: Option<Res<ContactGraph>>,
+    players: Query<(Entity, &DetPlayerId)>,
+    balls: Query<Entity, With<DetBallMarker>>,
+    walls: Query<Entity, With<DetWallMarker>>,
+    rollback_markers: Query<&Rollback>,
+    prediction_managers: Query<&PredictionManager>,
+) {
+    sample_physics_state(
+        SampleStage::PostPhysics,
+        timeline,
+        motion_samples,
+        contact_samples,
+        player_motion,
+        ball_motion,
+        contact_graph,
+        players,
+        balls,
+        walls,
+        rollback_markers,
+        prediction_managers,
+    );
+}
+
+#[allow(clippy::too_many_arguments)]
+fn sample_physics_state(
+    stage: SampleStage,
+    timeline: Res<LocalTimeline>,
+    mut motion_samples: ResMut<StageMotionSamples>,
+    mut contact_samples: ResMut<ContactSamples>,
+    player_motion: Query<(&DetPlayerId, &Position, &LinearVelocity), With<DeterministicPredicted>>,
+    ball_motion: Query<
+        (&Position, &LinearVelocity),
+        (With<DetBallMarker>, With<DeterministicPredicted>),
+    >,
+    contact_graph: Option<Res<ContactGraph>>,
+    players: Query<(Entity, &DetPlayerId)>,
+    balls: Query<Entity, With<DetBallMarker>>,
+    walls: Query<Entity, With<DetWallMarker>>,
+    rollback_markers: Query<&Rollback>,
+    prediction_managers: Query<&PredictionManager>,
+) {
+    let tick = timeline.tick();
+    let rollback = rollback_markers.iter().next().copied();
+    let rollback_start = prediction_managers
+        .iter()
+        .next()
+        .and_then(PredictionManager::get_rollback_start_tick);
+    for (id, position, velocity) in &player_motion {
+        motion_samples.0.push(StageMotionSample {
+            tick,
+            stage,
+            rollback,
+            rollback_start,
+            subject: MotionSubject::Player(id.0),
+            motion: MotionSample {
+                position: *position,
+                velocity: *velocity,
+            },
+        });
+    }
+    for (position, velocity) in &ball_motion {
+        motion_samples.0.push(StageMotionSample {
+            tick,
+            stage,
+            rollback,
+            rollback_start,
+            subject: MotionSubject::Ball,
+            motion: MotionSample {
+                position: *position,
+                velocity: *velocity,
+            },
+        });
+    }
+    let Some(contact_graph) = contact_graph else {
+        return;
+    };
+    let mut labels = HashMap::<Entity, String>::new();
+    for (entity, player) in &players {
+        labels.insert(entity, format!("player:{:?}", player.0));
+    }
+    for entity in &balls {
+        labels.insert(entity, "ball".to_string());
+    }
+    for entity in &walls {
+        labels.insert(entity, "wall".to_string());
+    }
+    let pairs = contact_graph
+        .iter_active()
+        .map(|pair| ContactPairSample {
+            collider1: entity_label(pair.collider1, &labels),
+            collider2: entity_label(pair.collider2, &labels),
+            body1: pair.body1.map(|entity| entity_label(entity, &labels)),
+            body2: pair.body2.map(|entity| entity_label(entity, &labels)),
+            touching: pair.is_touching(),
+            normals: pair
+                .manifolds
+                .iter()
+                .map(|manifold| manifold.normal)
+                .collect(),
+            max_normal_impulse: pair.max_normal_impulse_magnitude(),
+        })
+        .collect();
+    contact_samples.0.push(ContactSample {
+        tick,
+        stage,
+        rollback,
+        rollback_start,
+        pairs,
+    });
+}
+
+fn entity_label(entity: Entity, labels: &HashMap<Entity, String>) -> String {
+    labels
+        .get(&entity)
+        .cloned()
+        .unwrap_or_else(|| format!("{entity:?}"))
 }
 
 fn sample_positions(
     timeline: Res<LocalTimeline>,
     mut samples: ResMut<PositionSamples>,
+    mut motion_samples: ResMut<MotionSamples>,
+    mut input_samples: ResMut<InputSamples>,
+    mut execution_samples: ResMut<ExecutionSamples>,
     players: Query<(&DetPlayerId, &Position), With<DeterministicPredicted>>,
+    player_motion: Query<(&DetPlayerId, &Position, &LinearVelocity), With<DeterministicPredicted>>,
+    ball_motion: Query<
+        (&Position, &LinearVelocity),
+        (With<DetBallMarker>, With<DeterministicPredicted>),
+    >,
+    action_players: Query<(Entity, &DetPlayerId)>,
+    action_buffers: Query<(&ActionOf<Player>, &DetBuffer)>,
+    rollback_markers: Query<&Rollback>,
+    prediction_managers: Query<&PredictionManager>,
 ) {
+    use bevy::ecs::relationship::Relationship;
+
     let tick = timeline.tick().0;
+    let rollback = rollback_markers.iter().next().copied();
+    let rollback_start = prediction_managers
+        .iter()
+        .next()
+        .and_then(PredictionManager::get_rollback_start_tick);
+    execution_samples.0.push(ExecutionSample {
+        tick: Tick(tick),
+        rollback,
+        rollback_start,
+    });
     for (id, position) in &players {
         samples.0.insert((tick, id.0), *position);
+    }
+    for (id, position, velocity) in &player_motion {
+        motion_samples.0.insert(
+            (tick, MotionSubject::Player(id.0)),
+            MotionSample {
+                position: *position,
+                velocity: *velocity,
+            },
+        );
+    }
+    for (position, velocity) in &ball_motion {
+        motion_samples.0.insert(
+            (tick, MotionSubject::Ball),
+            MotionSample {
+                position: *position,
+                velocity: *velocity,
+            },
+        );
+    }
+    for (player, player_id) in &action_players {
+        let input = action_buffers.iter().find_map(|(action_of, buffer)| {
+            (action_of.get() == player).then(|| buffer.get(Tick(tick)).cloned())
+        });
+        input_samples.0.insert((tick, player_id.0), input.flatten());
     }
 }
 
@@ -485,6 +910,307 @@ fn compare_players_to_server(
     }
 }
 
+fn dump_catchup_trace(stepper: &mut DetStepper, peers: &[PeerId]) {
+    let server_samples = stepper
+        .server_app
+        .world()
+        .resource::<PositionSamples>()
+        .0
+        .clone();
+    let server_motion_samples = stepper
+        .server_app
+        .world()
+        .resource::<MotionSamples>()
+        .0
+        .clone();
+    let server_input_samples = stepper
+        .server_app
+        .world()
+        .resource::<InputSamples>()
+        .0
+        .clone();
+    let server_execution_samples = stepper
+        .server_app
+        .world()
+        .resource::<ExecutionSamples>()
+        .0
+        .clone();
+    let server_stage_motion_samples = stepper
+        .server_app
+        .world()
+        .resource::<StageMotionSamples>()
+        .0
+        .clone();
+    let server_contact_samples = stepper
+        .server_app
+        .world()
+        .resource::<ContactSamples>()
+        .0
+        .clone();
+    let client_samples = stepper
+        .client_apps
+        .iter()
+        .map(|app| app.world().resource::<PositionSamples>().0.clone())
+        .collect::<Vec<_>>();
+    let client_motion_samples = stepper
+        .client_apps
+        .iter()
+        .map(|app| app.world().resource::<MotionSamples>().0.clone())
+        .collect::<Vec<_>>();
+    let client_input_samples = stepper
+        .client_apps
+        .iter()
+        .map(|app| app.world().resource::<InputSamples>().0.clone())
+        .collect::<Vec<_>>();
+    let client_execution_samples = stepper
+        .client_apps
+        .iter()
+        .map(|app| app.world().resource::<ExecutionSamples>().0.clone())
+        .collect::<Vec<_>>();
+    let client_stage_motion_samples = stepper
+        .client_apps
+        .iter()
+        .map(|app| app.world().resource::<StageMotionSamples>().0.clone())
+        .collect::<Vec<_>>();
+    let client_contact_samples = stepper
+        .client_apps
+        .iter()
+        .map(|app| app.world().resource::<ContactSamples>().0.clone())
+        .collect::<Vec<_>>();
+    for client_id in 0..stepper.client_apps.len() {
+        let trace = stepper
+            .client_app(client_id)
+            .world()
+            .resource::<CatchUpTrace>()
+            .0
+            .clone();
+        for (activation_idx, activation) in trace.iter().enumerate() {
+            if activation_idx + 1 != trace.len() {
+                continue;
+            }
+            println!(
+                "catchup trace client={client_id} activation={activation_idx} local_tick={:?} reference_tick={:?}",
+                activation.local_tick, activation.reference_tick
+            );
+            println!(
+                "  snapshot positions on activation: {:?}",
+                activation.positions
+            );
+            for (peer, start, end, last_remote, value, window) in &activation.buffers {
+                println!(
+                    "  buffer peer={peer:?} start={start:?} end={end:?} last_remote={last_remote:?} input_at_ref={value:?}"
+                );
+                println!("  buffer_window peer={peer:?} {window:?}");
+            }
+            let start = activation.reference_tick - 3;
+            let end = activation.reference_tick + 8;
+            dump_input_window(stepper.server_app.world_mut(), "server", start.0..=end.0);
+            dump_input_window(
+                stepper.client_app(client_id).world_mut(),
+                &format!("client{client_id}"),
+                start.0..=end.0,
+            );
+            let mut tick = start;
+            while tick <= end {
+                let mut row = Vec::new();
+                for peer in peers {
+                    let server = server_samples.get(&(tick.0, *peer)).copied();
+                    let client = client_samples
+                        .get(client_id)
+                        .and_then(|samples| samples.get(&(tick.0, *peer)).copied());
+                    row.push((*peer, server, client));
+                }
+                println!("  samples tick={tick:?} {row:?}");
+                let mut motion_row = Vec::new();
+                for subject in peers
+                    .iter()
+                    .copied()
+                    .map(MotionSubject::Player)
+                    .chain([MotionSubject::Ball])
+                {
+                    let server = server_motion_samples
+                        .get(&(tick.0, subject.clone()))
+                        .copied();
+                    let client = client_motion_samples
+                        .get(client_id)
+                        .and_then(|samples| samples.get(&(tick.0, subject.clone())).copied());
+                    motion_row.push((subject, server, client));
+                }
+                println!("  motion tick={tick:?} {motion_row:?}");
+                tick = tick + 1;
+            }
+        }
+    }
+    let mut first_mismatches = Vec::new();
+    for client_id in 0..stepper.client_apps.len() {
+        for peer in peers {
+            let first_mismatch = (0..=stepper.server_tick().0).find_map(|tick| {
+                let tick = Tick(tick);
+                let server = server_motion_samples.get(&(tick.0, MotionSubject::Player(*peer)))?;
+                let client = client_motion_samples
+                    .get(client_id)?
+                    .get(&(tick.0, MotionSubject::Player(*peer)))?;
+                let pos_delta = (server.position.0 - client.position.0).length();
+                let vel_delta = (server.velocity.0 - client.velocity.0).length();
+                (pos_delta > 0.01 || vel_delta > 0.01)
+                    .then_some((tick, *server, *client, pos_delta, vel_delta))
+            });
+            println!("first mismatch client={client_id} peer={peer:?}: {first_mismatch:?}");
+            if let Some((tick, ..)) = first_mismatch {
+                first_mismatches.push((client_id, *peer, tick));
+            }
+        }
+    }
+    for (client_id, peer, tick) in first_mismatches {
+        let start = tick.0.saturating_sub(5);
+        let end = tick.0 + 5;
+        println!("mismatch window client={client_id} peer={peer:?} ticks={start}..={end}");
+        dump_player_entities(stepper.server_app.world_mut(), "server");
+        dump_player_entities(
+            stepper.client_app(client_id).world_mut(),
+            &format!("client{client_id}"),
+        );
+        println!(
+            "  execution server {:?}",
+            execution_window(&server_execution_samples, start..=end)
+        );
+        println!(
+            "  execution client{client_id} {:?}",
+            execution_window(&client_execution_samples[client_id], start..=end)
+        );
+        let boundary_start = tick.0.saturating_sub(1);
+        let boundary_end = tick.0;
+        println!(
+            "  stage_motion server {:?}",
+            stage_motion_window(&server_stage_motion_samples, boundary_start..=boundary_end)
+        );
+        println!(
+            "  stage_motion client{client_id} {:?}",
+            stage_motion_window(
+                &client_stage_motion_samples[client_id],
+                boundary_start..=boundary_end
+            )
+        );
+        println!(
+            "  contacts server {:?}",
+            contact_window(&server_contact_samples, boundary_start..=boundary_end)
+        );
+        println!(
+            "  contacts client{client_id} {:?}",
+            contact_window(
+                &client_contact_samples[client_id],
+                boundary_start..=boundary_end
+            )
+        );
+        dump_input_window(stepper.server_app.world_mut(), "server", start..=end);
+        dump_input_window(
+            stepper.client_app(client_id).world_mut(),
+            &format!("client{client_id}"),
+            start..=end,
+        );
+        for sample_tick in start..=end {
+            let tick = Tick(sample_tick);
+            let mut input_row = Vec::new();
+            for peer in peers {
+                let server = server_input_samples.get(&(tick.0, *peer)).cloned();
+                let client = client_input_samples
+                    .get(client_id)
+                    .and_then(|samples| samples.get(&(tick.0, *peer)).cloned());
+                input_row.push((*peer, server, client));
+            }
+            println!("  mismatch input tick={tick:?} {input_row:?}");
+            let mut motion_row = Vec::new();
+            for subject in peers
+                .iter()
+                .copied()
+                .map(MotionSubject::Player)
+                .chain([MotionSubject::Ball])
+            {
+                let server = server_motion_samples
+                    .get(&(tick.0, subject.clone()))
+                    .copied();
+                let client = client_motion_samples
+                    .get(client_id)
+                    .and_then(|samples| samples.get(&(tick.0, subject.clone())).copied());
+                motion_row.push((subject, server, client));
+            }
+            println!("  mismatch motion tick={tick:?} {motion_row:?}");
+        }
+    }
+}
+
+fn dump_player_entities(world: &mut World, label: &str) {
+    let mut players = world.query::<(Entity, &DetPlayerId, Has<DeterministicPredicted>)>();
+    let rows = players
+        .iter(world)
+        .map(|(entity, player_id, deterministic)| (entity, player_id.0, deterministic))
+        .collect::<Vec<_>>();
+    println!("  player_entities label={label} {rows:?}");
+}
+
+fn stage_motion_window(
+    samples: &[StageMotionSample],
+    ticks: std::ops::RangeInclusive<u32>,
+) -> Vec<StageMotionSample> {
+    samples
+        .iter()
+        .copied()
+        .filter(|sample| ticks.contains(&sample.tick.0))
+        .collect()
+}
+
+fn contact_window(
+    samples: &[ContactSample],
+    ticks: std::ops::RangeInclusive<u32>,
+) -> Vec<ContactSample> {
+    samples
+        .iter()
+        .filter(|sample| ticks.contains(&sample.tick.0))
+        .cloned()
+        .collect()
+}
+
+fn execution_window(
+    samples: &[ExecutionSample],
+    ticks: std::ops::RangeInclusive<u32>,
+) -> Vec<ExecutionSample> {
+    samples
+        .iter()
+        .copied()
+        .filter(|sample| ticks.contains(&sample.tick.0))
+        .collect()
+}
+
+fn dump_input_window(world: &mut World, label: &str, ticks: std::ops::RangeInclusive<u32>) {
+    use bevy::ecs::relationship::Relationship;
+
+    let mut players = world.query::<(Entity, &DetPlayerId, Option<&DetPlayerActivationTick>)>();
+    let player_rows = players
+        .iter(world)
+        .map(|(entity, player_id, activation_tick)| (entity, player_id.0, activation_tick.copied()))
+        .collect::<Vec<_>>();
+    let mut actions = world.query::<(&ActionOf<Player>, &DetBuffer)>();
+    for (player, player_id, activation_tick) in player_rows {
+        let row = actions.iter(world).find_map(|(action_of, buffer)| {
+            (action_of.get() == player).then(|| {
+                let values = ticks
+                    .clone()
+                    .map(|tick| (Tick(tick), buffer.get(Tick(tick)).cloned()))
+                    .collect::<Vec<_>>();
+                (
+                    buffer.start_tick,
+                    buffer.end_tick(),
+                    buffer.last_remote_tick,
+                    values,
+                )
+            })
+        });
+        println!(
+            "  input_window label={label} peer={player_id:?} activation_tick={activation_tick:?} row={row:?}"
+        );
+    }
+}
+
 fn latest_common_sample_tick(
     stepper: &mut DetStepper,
     peers: &[PeerId],
@@ -531,31 +1257,20 @@ fn log_entity_availability(label: &str, world: &mut World, peers: &[PeerId]) {
         Option<&DetBallMarker>,
         Option<&Position>,
         Has<DeterministicPredicted>,
-        Has<PhysicsActivated>,
         Has<AwaitingCatchUpSnapshot>,
         Has<DisableRollback>,
     )>();
     let entities: Vec<_> = query
         .iter(world)
-        .filter(|(_, player_id, ball, _, _, _, _, _)| player_id.is_some() || ball.is_some())
+        .filter(|(_, player_id, ball, _, _, _, _)| player_id.is_some() || ball.is_some())
         .map(
-            |(
-                entity,
-                player_id,
-                ball,
-                position,
-                deterministic,
-                activated,
-                awaiting,
-                rollback_disabled,
-            )| {
+            |(entity, player_id, ball, position, deterministic, awaiting, rollback_disabled)| {
                 (
                     entity,
                     player_id.map(|p| p.0),
                     ball.is_some(),
                     position.copied(),
                     deterministic,
-                    activated,
                     awaiting,
                     rollback_disabled,
                 )
@@ -744,6 +1459,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
 
     stepper.frame_step(220);
 
+    dump_catchup_trace(&mut stepper, &[peer_a, peer_b]);
     compare_players_to_server(
         &mut stepper,
         &[server_player_a, server_player_b_reconnect],

@@ -79,10 +79,12 @@ use bevy_replicon::prelude::RepliconTick;
 use bevy_replicon::prelude::{AppVisibilityExt, FilterScope, VisibilityFilter};
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use core::marker::PhantomData;
+use core::time::Duration;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_core::tick::Tick;
+use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_inputs::server::InputSystems;
 use lightyear_link::server::LinkOf;
 use lightyear_messages::plugin::MessageSystems;
@@ -247,8 +249,10 @@ pub struct HasCaughtUp;
 /// [`CatchUpRequest`] has been sent. Prevents duplicate requests while the
 /// initial catch-up bundle is in flight; the marker is removed when a forced
 /// rollback is scheduled.
-#[derive(Component, Debug, Default)]
-pub struct CatchUpRequestSent;
+#[derive(Component, Clone, Copy, Debug, Default)]
+pub struct CatchUpRequestSent {
+    pub sent_at_tick: Tick,
+}
 
 /// Server-side marker inserted on a `ClientOf` entity once a
 /// [`CatchUpRequest`] has been received but not yet applied. The request
@@ -309,6 +313,24 @@ pub struct CatchUpClientReadiness {
 impl Default for CatchUpClientReadiness {
     fn default() -> Self {
         Self { can_request: true }
+    }
+}
+
+/// Client-side timeout for an in-flight catch-up request.
+///
+/// This is intentionally a hard panic by default. A client that requested a
+/// state-based catch-up but never activates it is running from stale state and
+/// should fail loudly instead of silently producing misleading checksums.
+#[derive(Resource, Clone, Copy, Debug)]
+pub struct CatchUpClientTimeout {
+    pub duration: Duration,
+}
+
+impl Default for CatchUpClientTimeout {
+    fn default() -> Self {
+        Self {
+            duration: Duration::from_secs(1),
+        }
     }
 }
 
@@ -386,6 +408,7 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
         app.init_resource::<CatchUpMode>();
         app.init_resource::<CatchUpServerReadiness>();
         app.init_resource::<CatchUpClientReadiness>();
+        app.init_resource::<CatchUpClientTimeout>();
         app.init_resource::<CatchUpSnapshotReadyState>();
         app.add_message::<CatchUpSnapshotReady>();
         app.add_observer(mark_client_caught_up_if_no_gated_on_connect);
@@ -420,7 +443,9 @@ impl<C: Channel> Plugin for LateJoinCatchUpPlugin<C> {
         );
         app.add_systems(
             PostUpdate,
-            send_catchup_request::<C>.before(MessageSystems::Send),
+            (panic_if_catchup_request_stalled, send_catchup_request::<C>)
+                .chain()
+                .before(MessageSystems::Send),
         );
     }
 }
@@ -629,6 +654,7 @@ fn detect_catch_up_snapshot_ready(
 fn send_catchup_request<C: Channel>(
     mode: Res<CatchUpMode>,
     readiness: Res<CatchUpClientReadiness>,
+    timeline: Res<LocalTimeline>,
     awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
     client: Option<
         Single<
@@ -657,7 +683,41 @@ fn send_catchup_request<C: Channel>(
     let (client_entity, mut sender) = client.into_inner();
     debug!(?client_entity, "sending CatchUpRequest to server");
     sender.send::<C>(CatchUpRequest);
-    commands.entity(client_entity).insert(CatchUpRequestSent);
+    commands.entity(client_entity).insert(CatchUpRequestSent {
+        sent_at_tick: timeline.tick(),
+    });
+}
+
+fn panic_if_catchup_request_stalled(
+    mode: Res<CatchUpMode>,
+    timeout: Res<CatchUpClientTimeout>,
+    timeline: Res<LocalTimeline>,
+    tick_duration: Res<TickDuration>,
+    awaiting: Query<Entity, With<AwaitingCatchUpSnapshot>>,
+    requests: Query<(Entity, &CatchUpRequestSent), With<Client>>,
+) {
+    if *mode == CatchUpMode::InputOnly || awaiting.is_empty() {
+        return;
+    }
+    let now = timeline.tick();
+    for (client_entity, request) in &requests {
+        let elapsed_ticks = now - request.sent_at_tick;
+        if elapsed_ticks <= 0 {
+            continue;
+        }
+        let elapsed = tick_duration.0.mul_f32(elapsed_ticks as f32);
+        if elapsed > timeout.duration {
+            panic!(
+                "client {client_entity:?} requested deterministic catch-up at tick {:?}, \
+                 but still has {} AwaitingCatchUpSnapshot entities after {:?} \
+                 (timeout {:?})",
+                request.sent_at_tick,
+                awaiting.iter().count(),
+                elapsed,
+                timeout.duration
+            );
+        }
+    }
 }
 
 /// Resolve the server tick at which `entity`'s most recent replication
@@ -721,6 +781,39 @@ pub fn request_forced_rollback_to_catch_up_tick(
         if let Ok(mut entity_mut) = world.get_entity_mut(client) {
             entity_mut.remove::<CatchUpRequestSent>();
         }
+    }
+    true
+}
+
+/// Request the bundled catch-up rollback from a regular system, without
+/// deferring the rollback request through [`Commands::queue`].
+///
+/// This must run before [`PredictionSystems::Rollback`]. Deferring the request
+/// until commands are applied lets an ordinary input rollback run first, which
+/// can prune prediction history older than the catch-up snapshot tick.
+pub fn request_forced_rollback_to_catch_up_tick_with_commands(
+    reference_confirm: &ConfirmHistory,
+    checkpoints: &ReplicationCheckpointMap,
+    state_metadata: &mut StateRollbackMetadata,
+    awaiting_entities: impl IntoIterator<Item = Entity>,
+    catchup_request_clients: impl IntoIterator<Item = Entity>,
+    commands: &mut Commands,
+) -> bool {
+    let replicon_tick = reference_confirm.last_tick();
+    let Some(server_tick) = checkpoints.get(replicon_tick) else {
+        return false;
+    };
+    debug!(
+        ?server_tick,
+        ?replicon_tick,
+        "requesting bundled forced rollback to catch-up tick"
+    );
+    state_metadata.request_forced_rollback(server_tick);
+    for entity in awaiting_entities {
+        commands.entity(entity).remove::<AwaitingCatchUpSnapshot>();
+    }
+    for client in catchup_request_clients {
+        commands.entity(client).remove::<CatchUpRequestSent>();
     }
     true
 }
@@ -955,5 +1048,31 @@ mod tests {
         assert_eq!(events[0].replicon_tick, replicon_tick);
         assert_eq!(events[0].server_tick, server_tick);
         assert_eq!(events[0].entities, alloc::vec![entity]);
+    }
+
+    #[test]
+    #[should_panic(expected = "requested deterministic catch-up")]
+    fn stalled_catch_up_request_panics_after_timeout() {
+        let mut app = App::new();
+        let mut timeline = lightyear_core::prelude::LocalTimeline::default();
+        timeline.apply_delta(11);
+        app.insert_resource(timeline);
+        app.insert_resource(lightyear_core::tick::TickDuration(
+            core::time::Duration::from_millis(10),
+        ));
+        app.insert_resource(CatchUpClientTimeout {
+            duration: core::time::Duration::from_millis(100),
+        });
+        app.init_resource::<CatchUpMode>();
+        app.world_mut().spawn((
+            Client::default(),
+            CatchUpRequestSent {
+                sent_at_tick: Tick(0),
+            },
+        ));
+        app.world_mut().spawn(AwaitingCatchUpSnapshot);
+        app.add_systems(PreUpdate, panic_if_catchup_request_stalled);
+
+        app.update();
     }
 }

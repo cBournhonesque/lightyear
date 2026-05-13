@@ -39,29 +39,100 @@ clippy_examples:
     cargo clippy -p simple_box --all-features -- -D warnings --no-deps
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
-# jq filter shared by all example/demo build recipes
-_example_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression") and (.name != "simple_setup")) | .name'
-# simple_setup is excluded from headless/split builds because it has no client/server/gui feature gates
+# jq filters shared by all example/demo build recipes.
+_example_demo_default_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'
+_example_demo_feature_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression") and (.name != "simple_setup")) | .name'
+# simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
 
-# Build all examples with default features (GUI)
-build_examples_demos:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 $pkgs'
+# Build all examples/demos. Modes: both (default), client, server, or default.
+build_examples_demos mode="both":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="{{ mode }}"
+    filter='{{ _example_demo_feature_pkgs_filter }}'
+    features=""
+    target_dir=()
+    case "$mode" in
+        ""|both) features="client,gui,server,netcode,udp" ;;
+        client) features="client,gui,netcode,udp" ;;
+        server)
+            features="server,netcode,udp"
+            target_dir=(--target-dir target/server-only)
+            ;;
+        default) filter='{{ _example_demo_default_pkgs_filter }}' ;;
+        *)
+            echo "usage: just build_examples_demos [both|client|server|default]" >&2
+            exit 2
+            ;;
+    esac
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r "$filter" | sort | sed 's/^/-p /' | tr "\n" " ")
+    if [ -n "$features" ]; then
+        cargo build -j 1 --no-default-features --features="$features" "${target_dir[@]}" $pkgs
+    else
+        cargo build -j 1 $pkgs
+    fi
 
-build_examples_demos_release:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build --release -j 2 $pkgs'
+build_examples_demos_release mode="both":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="{{ mode }}"
+    filter='{{ _example_demo_feature_pkgs_filter }}'
+    features=""
+    target_dir=()
+    case "$mode" in
+        ""|both) features="client,gui,server,netcode,udp" ;;
+        client) features="client,gui,netcode,udp" ;;
+        server)
+            features="server,netcode,udp"
+            target_dir=(--target-dir target/server-only-release)
+            ;;
+        default) filter='{{ _example_demo_default_pkgs_filter }}' ;;
+        *)
+            echo "usage: just build_examples_demos_release [both|client|server|default]" >&2
+            exit 2
+            ;;
+    esac
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r "$filter" | sort | sed 's/^/-p /' | tr "\n" " ")
+    if [ -n "$features" ]; then
+        cargo build --release -j 1 --no-default-features --features="$features" "${target_dir[@]}" $pkgs
+    else
+        cargo build --release -j 1 $pkgs
+    fi
 
-# Build all examples headless (no GUI, no window). Uses a separate target dir
+# Build all examples/demos headless (no GUI, no window). Uses a separate target dir
 # to avoid feature unification pulling in bevy_winit. Binaries in target/headless/debug/.
-build_examples_headless:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'{{ _example_pkgs_filter }}'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 --no-default-features --features=client,server,netcode,udp --target-dir target/headless $pkgs'
+build_examples_headless mode="both":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="{{ mode }}"
+    case "$mode" in
+        ""|both)
+            features="client,server,netcode,udp"
+            target_dir="target/headless"
+            ;;
+        client)
+            features="client,netcode,udp"
+            target_dir="target/headless-client"
+            ;;
+        server)
+            features="server,netcode,udp"
+            target_dir="target/headless-server"
+            ;;
+        *)
+            echo "usage: just build_examples_headless [both|client|server]" >&2
+            exit 2
+            ;;
+    esac
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '{{ _example_demo_feature_pkgs_filter }}' | sort | sed 's/^/-p /' | tr "\n" " ")
+    cargo build -j 1 --no-default-features --features="$features" --target-dir "$target_dir" $pkgs
 
-# Build all examples with only client features (no server)
+# Build all examples/demos with only client features (no server)
 build_examples_client_only:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'{{ _example_pkgs_filter }}'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 --no-default-features --features=client,gui,netcode,udp $pkgs'
+    just build_examples_demos client
 
-# Build all examples with only server features (no client, no GUI)
+# Build all examples/demos with only server features (no client, no GUI)
 build_examples_server_only:
-    bash -lc 'set -euo pipefail; pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '"'"'{{ _example_pkgs_filter }}'"'"' | sort | sed '"'"'s/^/-p /'"'"' | tr "\n" " "); cargo build -j 2 --no-default-features --features=server,netcode,udp --target-dir target/server-only $pkgs'
+    just build_examples_demos server
 
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.

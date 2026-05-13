@@ -1,11 +1,13 @@
 //! Handle input messages received from the clients
 
+use crate::HISTORY_DEPTH;
+#[cfg(feature = "prediction")]
+use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
 };
 use crate::plugin::InputPlugin;
-use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
@@ -21,6 +23,7 @@ use bevy_ecs::{
 };
 use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
+use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
@@ -151,6 +154,7 @@ fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S::Action>>,
     server: Query<&Server>,
     // make sure to only rebroadcast inputs to connected clients
+    #[cfg_attr(not(feature = "prediction"), allow(unused_mut))]
     mut sender: ServerMultiMessageSender<With<Connected>>,
     tick_duration: Res<TickDuration>,
     rooms_query: Query<(Entity, &Rooms), With<Connected>>,
@@ -183,7 +187,9 @@ fn receive_input_message<S: ActionStateSequence>(
         //  should we just read instead?
         let server_entity = link_of.server;
         let tick = timeline.tick();
-        receiver.receive().try_for_each(|mut message| {
+        receiver.receive().try_for_each(|message| {
+            #[cfg(feature = "prediction")]
+            let mut message = message;
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
@@ -304,12 +310,89 @@ fn receive_input_message<S: ActionStateSequence>(
                 };
                 if let Ok(buffer) = query.get_mut(entity) {
                     if let Some(mut buffer) = buffer {
-                       trace!(
+                        trace!(
                             "Updating InputBuffer: {} using: {:?}",
                             buffer.as_ref(),
                             data.states
                         );
-                        data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        let previous_last_remote_tick = buffer.last_remote_tick;
+                        if let Some((rewrite_tick, previous, incoming)) =
+                            detect_input_history_rewrite::<S>(
+                                data.states.clone(),
+                                &buffer,
+                                message.end_tick,
+                                tick_duration.0,
+                            )
+                        {
+                            if rewrite_tick < tick {
+                                error!(
+                                    target: "lightyear_debug::input",
+                                    kind = "server_input_history_rewrite",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity,
+                                    client_entity = ?client_entity,
+                                    client_id = ?client_id.0,
+                                    action = ?DebugName::type_name::<S::Action>(),
+                                    local_tick = tick.0,
+                                    rewrite_tick = rewrite_tick.0,
+                                    end_tick = message.end_tick.0,
+                                    previous_last_remote_tick = ?previous_last_remote_tick,
+                                    already_simulated = true,
+                                    previous = ?previous,
+                                    incoming = ?incoming,
+                                    buffer_len = buffer.len(),
+                                    input_buffer = %*buffer,
+                                    "server received a different input for an already-simulated tick"
+                                );
+                            } else {
+                                trace!(
+                                    target: "lightyear_debug::input",
+                                    kind = "server_input_history_rewrite",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity,
+                                    client_entity = ?client_entity,
+                                    client_id = ?client_id.0,
+                                    action = ?DebugName::type_name::<S::Action>(),
+                                    local_tick = tick.0,
+                                    rewrite_tick = rewrite_tick.0,
+                                    end_tick = message.end_tick.0,
+                                    previous_last_remote_tick = ?previous_last_remote_tick,
+                                    already_simulated = false,
+                                    previous = ?previous,
+                                    incoming = ?incoming,
+                                    buffer_len = buffer.len(),
+                                    input_buffer = %*buffer,
+                                    "server received a different input for a future tick already covered by an earlier client input packet"
+                                );
+                            }
+                        }
+                        let mismatch =
+                            data.states
+                                .update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        if let Some(mismatch_tick) = mismatch
+                            && mismatch_tick < tick
+                        {
+                            error!(
+                                target: "lightyear_debug::input",
+                                kind = "server_late_input_mismatch",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                client_entity = ?client_entity,
+                                client_id = ?client_id.0,
+                                action = ?DebugName::type_name::<S::Action>(),
+                                local_tick = tick.0,
+                                mismatch_tick = mismatch_tick.0,
+                                end_tick = message.end_tick.0,
+                                previous_last_remote_tick = ?previous_last_remote_tick,
+                                last_remote_tick = ?buffer.last_remote_tick,
+                                buffer_len = buffer.len(),
+                                input_buffer = %*buffer,
+                                "server received an input correction for an already-simulated tick"
+                            );
+                        }
                         trace!(
                             target: "lightyear_debug::input",
                             kind = "server_input_buffer_update",
@@ -327,7 +410,31 @@ fn receive_input_message<S: ActionStateSequence>(
                     } else {
                         debug!("Adding InputBuffer and ActionState which are missing on the entity");
                         let mut buffer = InputBuffer::<S::Snapshot, S::Action>::default();
-                        data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        let mismatch =
+                            data.states
+                                .update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        if let Some(mismatch_tick) = mismatch
+                            && mismatch_tick < tick
+                        {
+                            error!(
+                                target: "lightyear_debug::input",
+                                kind = "server_late_input_mismatch",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                client_entity = ?client_entity,
+                                client_id = ?client_id.0,
+                                action = ?DebugName::type_name::<S::Action>(),
+                                local_tick = tick.0,
+                                mismatch_tick = mismatch_tick.0,
+                                end_tick = message.end_tick.0,
+                                previous_last_remote_tick = ?None::<lightyear_core::tick::Tick>,
+                                last_remote_tick = ?buffer.last_remote_tick,
+                                buffer_len = buffer.len(),
+                                input_buffer = %buffer,
+                                "server received initial input for an already-simulated tick"
+                            );
+                        }
                         trace!(
                             target: "lightyear_debug::input",
                             kind = "server_input_buffer_insert",
@@ -360,6 +467,45 @@ fn receive_input_message<S: ActionStateSequence>(
             Ok(())
         })
     })
+}
+
+fn detect_input_history_rewrite<S: ActionStateSequence>(
+    states: S,
+    input_buffer: &InputBuffer<S::Snapshot, S::Action>,
+    end_tick: lightyear_core::tick::Tick,
+    tick_duration: Duration,
+) -> Option<(
+    lightyear_core::tick::Tick,
+    Option<S::Snapshot>,
+    Option<S::Snapshot>,
+)> {
+    let last_remote_tick = input_buffer.last_remote_tick?;
+    let buffer_start_tick = input_buffer.start_tick?;
+    let buffer_end_tick = input_buffer.end_tick()?;
+    let start_tick = end_tick + 1 - states.len() as u32;
+    let mut incoming = None;
+    for (delta, input) in states.get_snapshots_from_message(tick_duration).enumerate() {
+        let tick = start_tick + lightyear_core::tick::Tick(delta as u32);
+        match input {
+            crate::input_buffer::Compressed::Absent => incoming = None,
+            crate::input_buffer::Compressed::Input(value) => incoming = Some(value),
+            crate::input_buffer::Compressed::SameAsPrecedent => {}
+        }
+        if tick <= last_remote_tick {
+            // The server keeps very little input history after simulating a
+            // tick, so ordinary redundant input packets can mention older
+            // ticks that have already been popped from the buffer. Those
+            // cannot be compared reliably here.
+            if tick < buffer_start_tick || tick > buffer_end_tick {
+                continue;
+            }
+            let previous = input_buffer.get(tick).cloned();
+            if previous != incoming {
+                return Some((tick, previous, incoming));
+            }
+        }
+    }
+    None
 }
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState

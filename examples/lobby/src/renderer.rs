@@ -87,11 +87,9 @@ fn update_player_visual_positions(
     >,
 ) {
     for (position, mut visual) in &mut players {
-        if visual.current != position.0 {
-            let current = visual.current;
-            visual.previous = Some(current);
-            visual.current = position.0;
-        }
+        let current = visual.current;
+        visual.previous = Some(current);
+        visual.current = position.0;
     }
 }
 

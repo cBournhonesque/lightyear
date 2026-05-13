@@ -46,6 +46,8 @@ fn strip_interpolated_bullet_local_physics(
         (
             With<BulletMarker>,
             With<Interpolated>,
+            // Host-client authoritative bullets can also carry client markers.
+            Without<Replicate>,
             Or<(With<RigidBody>, With<FrameInterpolate<Transform>>)>,
         ),
     >,

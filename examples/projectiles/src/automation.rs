@@ -136,7 +136,7 @@ mod client {
         players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
     ) {
         for entity in &players {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
                     .with_component_at::<PlayerId>([DebugSamplePoint::Update])
                     .with_component_at::<Score>([DebugSamplePoint::Update]),
@@ -149,7 +149,7 @@ mod client {
         bullets: Query<Entity, Added<BulletMarker>>,
     ) {
         for entity in &bullets {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
                     .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
                     .with_component_at::<HitscanVisual>([DebugSamplePoint::Update]),
@@ -162,7 +162,7 @@ mod client {
         modes: Query<Entity, Added<ClientContext>>,
     ) {
         for entity in &modes {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
                     .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
             );
@@ -201,7 +201,7 @@ mod server {
         players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
     ) {
         for entity in &players {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
                     .with_component_at::<PlayerId>([DebugSamplePoint::Update])
                     .with_component_at::<Score>([DebugSamplePoint::Update]),
@@ -214,7 +214,7 @@ mod server {
         bullets: Query<Entity, Added<BulletMarker>>,
     ) {
         for entity in &bullets {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
                     .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
                     .with_component_at::<HitscanVisual>([DebugSamplePoint::Update]),
@@ -227,7 +227,7 @@ mod server {
         modes: Query<Entity, Added<ClientContext>>,
     ) {
         for entity in &modes {
-            commands.entity(entity).insert(
+            commands.entity(entity).try_insert(
                 LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
                     .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
             );

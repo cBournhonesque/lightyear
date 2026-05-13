@@ -46,11 +46,16 @@ use tracing::trace;
 use {
     crate::correction_2d as correction,
     avian2d::{
-        collider_tree::{ColliderTreeProxyKey, ColliderTrees, MovedProxies},
+        collider_tree::{
+            ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
+            MovedProxies,
+        },
         collision::collider::{ColliderAabb, EnlargedAabb},
+        collision::contact_types::ContactEdgeFlags,
         dynamics::solver::{
             constraint_graph::ConstraintGraph,
             islands::{BodyIslandNode, PhysicsIslands},
+            joint_graph::JointGraph,
         },
         math::*,
         physics_transform::*,
@@ -61,11 +66,16 @@ use {
 use {
     crate::correction_3d as correction,
     avian3d::{
-        collider_tree::{ColliderTreeProxyKey, ColliderTrees, MovedProxies},
+        collider_tree::{
+            ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
+            MovedProxies,
+        },
         collision::collider::{ColliderAabb, EnlargedAabb},
+        collision::contact_types::ContactEdgeFlags,
         dynamics::solver::{
             constraint_graph::ConstraintGraph,
             islands::{BodyIslandNode, PhysicsIslands},
+            joint_graph::JointGraph,
         },
         math::*,
         physics_transform::*,
@@ -128,6 +138,16 @@ struct RollbackMovedProxies {
     // Avian's `MovedProxies` resource is not `Clone`; keep a cloneable snapshot
     // so rollback replay uses the same broad-phase update set as the first run.
     proxies: Vec<ColliderTreeProxyKey>,
+}
+
+#[derive(Clone, Copy)]
+struct RollbackColliderProxy {
+    proxy_key: ColliderTreeProxyKey,
+    collider: Entity,
+    body: Option<Entity>,
+    aabb: ColliderAabb,
+    layers: CollisionLayers,
+    flags: ColliderTreeProxyFlags,
 }
 
 impl Plugin for LightyearAvianPlugin {
@@ -382,6 +402,8 @@ impl LightyearAvianPlugin {
         mut trees: ResMut<ColliderTrees>,
         mut moved_proxies: ResMut<MovedProxies>,
         rollback_moved_proxies: Res<RollbackMovedProxies>,
+        mut contact_graph: ResMut<ContactGraph>,
+        joint_graph: Option<Res<JointGraph>>,
         colliders: Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
     ) {
         if prediction_manager.get_rollback_start_tick().is_none() {
@@ -410,6 +432,13 @@ impl LightyearAvianPlugin {
             tree.refit_all();
         }
 
+        Self::repair_missing_contact_pairs_from_restored_aabbs(
+            &trees,
+            &colliders,
+            &mut contact_graph,
+            joint_graph.as_deref(),
+        );
+
         // Preserve the original moved-proxy set instead of marking every proxy
         // moved; extra pairs can perturb contact ordering and produce tiny
         // floating point differences.
@@ -421,6 +450,111 @@ impl LightyearAvianPlugin {
             if tree.get_proxy(proxy_key.id()).is_some() && moved_proxies.insert(proxy_key) {
                 tree.moved_proxies.push(proxy_key.id());
             }
+        }
+    }
+
+    fn repair_missing_contact_pairs_from_restored_aabbs(
+        trees: &ColliderTrees,
+        colliders: &Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
+        contact_graph: &mut ContactGraph,
+        joint_graph: Option<&JointGraph>,
+    ) {
+        // `ColliderTrees` is not cloneable, and a stale or incomplete tree can
+        // miss contacts during replay. Preserve restored graph state and only
+        // repair pairs that should exist according to the restored AABBs.
+
+        let mut proxies = Vec::new();
+        for (proxy_key, enlarged_aabb) in colliders {
+            if *proxy_key == ColliderTreeProxyKey::PLACEHOLDER {
+                continue;
+            }
+            let Some(proxy) = trees.get_proxy(*proxy_key) else {
+                continue;
+            };
+            proxies.push(RollbackColliderProxy {
+                proxy_key: *proxy_key,
+                collider: proxy.collider,
+                body: proxy.body,
+                aabb: enlarged_aabb.get(),
+                layers: proxy.layers,
+                flags: proxy.flags,
+            });
+        }
+
+        proxies.sort_by_key(|proxy| (proxy.proxy_key.tree_type() as u8, proxy.proxy_key.id().id()));
+
+        let mut pairs = Vec::new();
+        for (index, proxy1) in proxies.iter().enumerate() {
+            for proxy2 in &proxies[index + 1..] {
+                if !proxy1.aabb.intersects(&proxy2.aabb) {
+                    continue;
+                }
+                if !proxy1.layers.interacts_with(proxy2.layers) {
+                    continue;
+                }
+                if proxy1.body == proxy2.body {
+                    continue;
+                }
+                let flags_union = proxy1.flags.union(proxy2.flags);
+                if proxy1.proxy_key.tree_type() == ColliderTreeType::Static
+                    && proxy2.proxy_key.tree_type() == ColliderTreeType::Static
+                    && !flags_union.contains(ColliderTreeProxyFlags::SENSOR)
+                {
+                    continue;
+                }
+                if let (Some(joint_graph), Some(body1), Some(body2)) =
+                    (joint_graph, proxy1.body, proxy2.body)
+                    && joint_graph
+                        .joints_between(body1, body2)
+                        .any(|edge| edge.collision_disabled)
+                {
+                    continue;
+                }
+                pairs.push((*proxy1, *proxy2, flags_union));
+            }
+        }
+
+        let mut repaired_pairs = 0;
+        let mut skipped_custom_filter_pairs = 0;
+        for (proxy1, proxy2, flags_union) in pairs {
+            if contact_graph.contains(proxy1.collider, proxy2.collider) {
+                continue;
+            }
+            if flags_union.contains(ColliderTreeProxyFlags::CUSTOM_FILTER) {
+                skipped_custom_filter_pairs += 1;
+                continue;
+            }
+
+            let mut contact_edge = ContactEdge::new(proxy1.collider, proxy2.collider);
+            contact_edge.body1 = proxy1.body;
+            contact_edge.body2 = proxy2.body;
+            contact_edge.flags.set(
+                ContactEdgeFlags::CONTACT_EVENTS,
+                flags_union.contains(ColliderTreeProxyFlags::CONTACT_EVENTS),
+            );
+
+            contact_graph.add_edge_with(contact_edge, |contact_pair| {
+                contact_pair.body1 = proxy1.body;
+                contact_pair.body2 = proxy2.body;
+                contact_pair.flags.set(
+                    ContactPairFlags::MODIFY_CONTACTS,
+                    flags_union.contains(ColliderTreeProxyFlags::MODIFY_CONTACTS),
+                );
+                contact_pair.flags.set(
+                    ContactPairFlags::GENERATE_CONSTRAINTS,
+                    !flags_union.contains(ColliderTreeProxyFlags::BODY_DISABLED)
+                        && !flags_union.contains(ColliderTreeProxyFlags::SENSOR),
+                );
+            });
+            repaired_pairs += 1;
+        }
+
+        if repaired_pairs > 0 || skipped_custom_filter_pairs > 0 {
+            trace!(
+                repaired_pairs,
+                skipped_custom_filter_pairs,
+                "Repaired Avian ContactGraph from restored rollback AABBs"
+            );
         }
     }
 
@@ -740,5 +874,81 @@ impl LightyearAvianPlugin {
                     .into();
             }
         }
+    }
+}
+
+#[cfg(all(test, feature = "2d", not(feature = "3d")))]
+mod tests {
+    use super::*;
+
+    use avian2d::collider_tree::ColliderTreeProxy;
+    use bevy_ecs::system::RunSystemOnce;
+
+    fn add_dynamic_proxy(app: &mut App, collider: Entity, body: Entity, aabb: ColliderAabb) {
+        let proxy_id = app
+            .world_mut()
+            .resource_mut::<ColliderTrees>()
+            .dynamic_tree
+            .add_proxy(
+                aabb.into(),
+                ColliderTreeProxy {
+                    collider,
+                    body: Some(body),
+                    layers: CollisionLayers::default(),
+                    flags: ColliderTreeProxyFlags::empty(),
+                },
+            );
+        let proxy_key = ColliderTreeProxyKey::new(proxy_id, ColliderTreeType::Dynamic);
+        app.world_mut()
+            .entity_mut(collider)
+            .insert((proxy_key, EnlargedAabb::new(aabb)));
+    }
+
+    fn repair_contact_graph_system(
+        trees: Res<ColliderTrees>,
+        mut contact_graph: ResMut<ContactGraph>,
+        colliders: Query<(&ColliderTreeProxyKey, &EnlargedAabb), Without<ColliderDisabled>>,
+    ) {
+        LightyearAvianPlugin::repair_missing_contact_pairs_from_restored_aabbs(
+            &trees,
+            &colliders,
+            &mut contact_graph,
+            None,
+        );
+    }
+
+    #[test]
+    fn repairs_missing_contact_pair_from_restored_aabbs() {
+        let mut app = App::new();
+        app.init_resource::<ColliderTrees>();
+        app.init_resource::<ContactGraph>();
+
+        let body1 = app.world_mut().spawn_empty().id();
+        let body2 = app.world_mut().spawn_empty().id();
+        let collider1 = app.world_mut().spawn_empty().id();
+        let collider2 = app.world_mut().spawn_empty().id();
+
+        add_dynamic_proxy(
+            &mut app,
+            collider1,
+            body1,
+            ColliderAabb::new(Vector::ZERO, Vector::splat(1.0)),
+        );
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            ColliderAabb::new(Vector::new(1.5, 0.0), Vector::splat(1.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
     }
 }
