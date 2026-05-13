@@ -364,17 +364,24 @@ fn check_rollback(
             if !confirmed_ticks.is_changed(system_ticks.last_run(), system_ticks.this_run()) {
                 return
             };
-            let confirmed_tick = entity_mut.get::<ConfirmedTick>().unwrap().tick;
-            trace!("Checking rollback for entity {:?} that received update at tick {:?}", entity_mut.id(), confirmed_tick);
-            if confirmed_tick > tick {
-                debug!(
-                    "Confirmed entity {:?} is at a tick in the future: {:?} compared to client timeline. Current tick: {:?}",
-                    entity_mut.id(),
-                    confirmed_tick,
-                    tick
-                );
-                return;
-            }
+            let raw_confirmed_tick = entity_mut.get::<ConfirmedTick>().unwrap().tick;
+            trace!("Checking rollback for entity {:?} that received update at tick {:?}", entity_mut.id(), raw_confirmed_tick);
+            // Clamp `confirmed_tick` to local `tick` when the latest
+            // confirmed snapshot lands ahead of local (sync slip under
+            // jitter). Previously this case returned early and silently
+            // skipped the mismatch check, leaving predicted state
+            // diverged from confirmed indefinitely until something else
+            // tripped a rollback at a later tick. After clamping, the
+            // mismatch check runs normally and — if it fires —
+            // `do_rollback`'s `delta = tick - rollback_tick = 0` passes
+            // the `max_rollback_ticks` guard and the resulting
+            // re-simulation loop runs zero iterations. Effectively a
+            // snap-to-confirmed with no replay cost.
+            let confirmed_tick = if raw_confirmed_tick > tick {
+                tick
+            } else {
+                raw_confirmed_tick
+            };
 
             // TODO: maybe pre-cache the components of the archetypes that we want to iterate over?
             //  we need to archetypes that have Predicted, and we cache the history id and the confirmed id. (The confirmed could be absent)
@@ -611,12 +618,23 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 // since it will be replaced with the state-replicated value
                 predicted_history.clear();
                 trace!(?entity, "Rollback to the confirmed state");
-                // Confirm that we are in rollback, with the correct tick
-                debug_assert_eq!(
-                    rollback_tick,
-                    confirmed.unwrap().tick,
-                    "The rollback tick (LEFT) does not match the confirmed tick (RIGHT) for confirmed entity {entity:?}. Are all predicted entities in the same replication group?",
-                );
+                // The pre-existing `debug_assert_eq!(rollback_tick,
+                // confirmed.tick)` was a sanity check tying the rollback
+                // tick to the entity's ConfirmedTick. After the
+                // sync-slip clamp at `check_rollback` (see the comment
+                // around line 369), those values can legitimately differ
+                // when `confirmed.tick > local_tick`. The downstream
+                // logic — write `Confirmed<C>.0` into the predicted
+                // component, record the value at `rollback_tick` in
+                // history — is correct regardless of the relationship.
+                if rollback_tick != confirmed.unwrap().tick {
+                    trace!(
+                        ?entity,
+                        ?rollback_tick,
+                        confirmed_tick = ?confirmed.unwrap().tick,
+                        "rollback_tick clamped to local tick because confirmed_tick was ahead",
+                    );
+                }
                 (confirmed_component.map(|c| &c.0), false)
             }
             // we will rollback to the value stored in the PredictionHistory

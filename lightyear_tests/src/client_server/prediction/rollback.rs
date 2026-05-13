@@ -193,6 +193,68 @@ fn test_check_rollback() {
     );
 }
 
+/// Regression test for the rollback short-circuit when the latest confirmed
+/// snapshot's tick lands ahead of the local client tick (sync slip under
+/// jitter). On `main`, `check_rollback` at `lightyear_prediction/src/rollback.rs`
+/// returns early in that case:
+///
+/// ```ignore
+/// if confirmed_tick > tick {
+///     debug!("Confirmed entity ... is at a tick in the future ...");
+///     return;
+/// }
+/// ```
+///
+/// — silently skipping the per-component mismatch check. If predicted state
+/// has diverged from confirmed at the moment of the slip, the rollback that
+/// would otherwise reconcile it never fires, and predicted stays diverged
+/// indefinitely (until something else trips a rollback at a later
+/// `confirmed_tick <= tick`).
+///
+/// This test sets up a confirmed-predicted mismatch and triggers a rollback
+/// check with `ConfirmedTick` ahead of local. Rollback must fire.
+#[test]
+fn test_rollback_fires_when_confirmed_tick_is_ahead_of_local() {
+    let (mut stepper, predicted) = setup();
+    // The setup already triggered an initial rollback check; consume it.
+    stepper.frame_step(1);
+    let rollbacks_before = stepper
+        .client_app()
+        .world()
+        .resource::<PredictionMetrics>()
+        .rollbacks;
+
+    // Diverge predicted from confirmed.
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .insert(Confirmed(CompFull(2.0)));
+
+    // Trigger a rollback check with ConfirmedTick set ahead of local tick.
+    // `trigger_rollback_check` writes `confirmed_tick.tick = local_tick + 5`
+    // into the predicted entity. The rollback check then runs with
+    // `confirmed_tick > tick`, which is the sync-slip condition.
+    let local_tick = stepper.client_tick(0);
+    trigger_rollback_check(&mut stepper, local_tick + 5);
+    stepper.frame_step(1);
+
+    let rollbacks_after = stepper
+        .client_app()
+        .world()
+        .resource::<PredictionMetrics>()
+        .rollbacks;
+
+    assert!(
+        rollbacks_after > rollbacks_before,
+        "rollback should have fired (predicted CompFull missing vs Confirmed CompFull(2.0) with \
+         ConfirmedTick ahead of local), but the upstream `confirmed_tick > tick` short-circuit \
+         silently skipped the check. rollbacks: {} → {}",
+        rollbacks_before,
+        rollbacks_after,
+    );
+}
+
 /// Test that:
 /// - we remove a component from the predicted entity
 /// - rolling back before the remove should re-add it
