@@ -59,6 +59,7 @@ use bevy_app::{
 };
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
+use bevy_time::{Real, Time, Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::*;
@@ -76,8 +77,6 @@ use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
-use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -483,7 +482,6 @@ fn prepare_input_message<S: ActionStateSequence>(
         // case we prepare the input-message, which will be send_local to the server)
         (With<IsSynced<InputTimeline>>, Without<Rollback>),
     >,
-    channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
         (
             Entity,
@@ -492,7 +490,19 @@ fn prepare_input_message<S: ActionStateSequence>(
         ),
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
+    real_time: Res<Time<Real>>,
+    mut send_timer: Local<Option<Timer>>,
 ) {
+    // Only prepare input every send-interval.
+    if !input_config.send_interval.is_zero() {
+        let timer = send_timer
+            .get_or_insert_with(|| Timer::new(input_config.send_interval, TimerMode::Repeating));
+        timer.tick(real_time.delta());
+        if !timer.is_finished() {
+            return;
+        }
+    }
+
     let (input_timeline, is_host_client) = sender.into_inner();
     #[cfg(not(feature = "prediction"))]
     if is_host_client {
@@ -516,16 +526,12 @@ fn prepare_input_message<S: ActionStateSequence>(
     //  this means we would also want to track packet->message acks for unreliable channels as well, so we can notify
     //  this system what the latest acked input tick is?
 
-    let input_send_interval = channel_registry
-        .settings(ChannelKind::of::<InputChannel>())
-        .unwrap()
-        .send_frequency;
-    // we send redundant inputs, so that if a packet is lost, we can still recover
-    // A redundancy of 2 means that we can recover from 1 lost packet
-    let mut num_tick: u16 = ((input_send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
+    // Send redundant inputs so that if a packet is lost, we can still recover.
+    // The size of the input bundle scales with `send_interval`.
+    let mut num_ticks: u16 = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
         .try_into()
         .unwrap();
-    num_tick *= input_config.packet_redundancy;
+    num_ticks *= input_config.packet_redundancy;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned) in input_buffer_query.iter() {
         trace!(
@@ -545,7 +551,7 @@ fn prepare_input_message<S: ActionStateSequence>(
             InputTarget::Entity(entity)
         };
 
-        if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_tick, tick) {
+        if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_ticks, tick) {
             message.inputs.push(PerTargetData {
                 target,
                 states: state_sequence,
@@ -557,7 +563,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     // we send a message even when there are 0 inputs because that itself is information
     debug!(
         ?tick,
-        ?num_tick,
+        ?num_ticks,
         ?is_host_client,
         "sending input message for {:?}: {}",
         DebugName::type_name::<S::Action>().shortname(),

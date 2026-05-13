@@ -26,10 +26,14 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
     fn build(&self, app: &mut App) {
         app.add_channel::<InputChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
-            // sending every frame is ok because:
-            // - we want the clients to send inputs as fast as possible
-            // - the server might have a very high frame rate but it's only
-            //   rebroadcast inputs when it receives them
+            // Input channel should flush as soon as it has data in order to
+            // minimize latency between input capture and the peer receiving
+            // it. Data rate is controlled by the producer
+            // (`prepare_input_message` which is gated on
+            // `InputConfig::send_interval`), not here. Raising this above zero
+            // adds extra latency on top of `send_interval`. Raising it above
+            // `send_interval` makes the producer run multiple times before the
+            // buffer is flushed, inserting duplicate data into the buffer.
             send_frequency: Duration::default(),
             // we always want to include the inputs in the packet
             priority: f32::INFINITY,
