@@ -28,10 +28,12 @@ impl Plugin for AutomationClientPlugin {
     }
 }
 
-#[cfg(feature = "server")]
+// Lobby clients can also host games, so client-only builds still compile the
+// server plugin path.
+#[cfg(any(feature = "client", feature = "server"))]
 pub struct AutomationServerPlugin;
 
-#[cfg(feature = "server")]
+#[cfg(any(feature = "client", feature = "server"))]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
@@ -240,7 +242,7 @@ mod client {
     }
 }
 
-#[cfg(feature = "server")]
+#[cfg(any(feature = "client", feature = "server"))]
 mod server {
     use super::*;
 

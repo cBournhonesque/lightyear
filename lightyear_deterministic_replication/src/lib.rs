@@ -41,7 +41,8 @@ pub mod prelude {
         AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpClientReadiness, CatchUpClientTimeout,
         CatchUpGated, CatchUpRegistry, CatchUpRequest, CatchUpRequestReceived, CatchUpRequestSent,
         CatchUpServerReadiness, CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp,
-        LateJoinCatchUpPlugin, request_forced_rollback_to_catch_up_tick,
+        LateJoinCatchUpPlugin, request_forced_rollback_to_catch_up_server_tick_with_commands,
+        request_forced_rollback_to_catch_up_tick,
         request_forced_rollback_to_catch_up_tick_with_commands,
     };
     pub use crate::mode::CatchUpMode;

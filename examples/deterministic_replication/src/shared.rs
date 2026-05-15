@@ -119,10 +119,38 @@ pub(crate) fn init(
     server: Option<Single<(), With<Server>>>,
     client: Option<Single<(), With<Client>>>,
 ) {
-    let is_state_based = *mode == CatchUpMode::StateBasedCatchUp;
     let is_server = server.is_some();
     let is_client = client.is_some();
 
+    spawn_ball(&mut commands, &mode, is_server, is_client);
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+}
+
+pub(crate) fn spawn_ball(
+    commands: &mut Commands,
+    mode: &CatchUpMode,
+    is_server: bool,
+    is_client: bool,
+) -> Entity {
     let mut ball = commands.spawn((
         Position::default(),
         ColorComponent(css::AZURE.into()),
@@ -134,7 +162,7 @@ pub(crate) fn init(
         },
         Name::from("Ball"),
     ));
-    if is_state_based {
+    if *mode == CatchUpMode::StateBasedCatchUp {
         ball.insert(PreSpawned::new(BALL_PRESPAWN_HASH));
         if is_server {
             ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
@@ -142,26 +170,7 @@ pub(crate) fn init(
             ball.insert(AwaitingCatchUpSnapshot);
         }
     }
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
+    ball.id()
 }
 
 pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {

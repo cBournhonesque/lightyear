@@ -803,9 +803,32 @@ pub fn request_forced_rollback_to_catch_up_tick_with_commands(
     let Some(server_tick) = checkpoints.get(replicon_tick) else {
         return false;
     };
+    request_forced_rollback_to_catch_up_server_tick_with_commands(
+        server_tick,
+        state_metadata,
+        awaiting_entities,
+        catchup_request_clients,
+        commands,
+    )
+}
+
+/// Request a bundled catch-up rollback when the authoritative server tick is
+/// already known from [`CatchUpSnapshotReady`].
+///
+/// This is useful when user code must wait for additional local preconditions
+/// after the coherent snapshot arrives. During that wait, later replicated
+/// updates can advance [`ConfirmHistory`], so callers should keep the
+/// original [`CatchUpSnapshotReady::server_tick`] instead of recomputing it
+/// from the latest confirmation.
+pub fn request_forced_rollback_to_catch_up_server_tick_with_commands(
+    server_tick: Tick,
+    state_metadata: &mut StateRollbackMetadata,
+    awaiting_entities: impl IntoIterator<Item = Entity>,
+    catchup_request_clients: impl IntoIterator<Item = Entity>,
+    commands: &mut Commands,
+) -> bool {
     debug!(
         ?server_tick,
-        ?replicon_tick,
         "requesting bundled forced rollback to catch-up tick"
     );
     state_metadata.request_forced_rollback(server_tick);

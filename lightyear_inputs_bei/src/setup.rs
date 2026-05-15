@@ -122,6 +122,8 @@ impl InputRegistryPlugin {
         entity_map: Option<Res<ServerEntityMap>>,
         managers: Query<&MessageManager>,
         all_entities: Query<(), ()>,
+        host_clients: Query<(), With<HostClient>>,
+        servers: Query<(), (With<Server>, With<Started>)>,
         mut commands: Commands,
     ) {
         let entity = trigger.entity;
@@ -129,11 +131,13 @@ impl InputRegistryPlugin {
             return;
         };
 
+        let allow_identity = !host_clients.is_empty() || !servers.is_empty();
         if let Some(mapped) = resolve_local_entity(
             network_action_of.get(),
             entity_map.as_deref(),
             managers.iter(),
             &all_entities,
+            allow_identity,
         )
         .filter(|mapped| *mapped != entity)
         {
@@ -146,14 +150,18 @@ impl InputRegistryPlugin {
         entity_map: Option<Res<ServerEntityMap>>,
         managers: Query<&MessageManager>,
         all_entities: Query<(), ()>,
+        host_clients: Query<(), With<HostClient>>,
+        servers: Query<(), (With<Server>, With<Started>)>,
         mut commands: Commands,
     ) {
+        let allow_identity = !host_clients.is_empty() || !servers.is_empty();
         for (entity, network_action_of) in pending.iter() {
             if let Some(mapped) = resolve_local_entity(
                 network_action_of.get(),
                 entity_map.as_deref(),
                 managers.iter(),
                 &all_entities,
+                allow_identity,
             )
             .filter(|mapped| *mapped != entity)
             {
@@ -371,6 +379,7 @@ fn resolve_local_entity<'a>(
     entity_map: Option<&ServerEntityMap>,
     mut managers: impl Iterator<Item = &'a MessageManager>,
     all_entities: &Query<(), ()>,
+    allow_identity: bool,
 ) -> Option<Entity> {
     if let Some(entity_map) = entity_map
         && let Some(local_entity) = entity_map.to_client().get(&remote_entity)
@@ -384,7 +393,9 @@ fn resolve_local_entity<'a>(
         return Some(local_entity);
     }
 
-    all_entities.get(remote_entity).ok().map(|()| remote_entity)
+    allow_identity
+        .then(|| all_entities.get(remote_entity).ok().map(|()| remote_entity))
+        .flatten()
 }
 
 // we don't care about the actual data in Action<A>, so nothing to serialize

@@ -222,6 +222,7 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -380,6 +381,7 @@ fn check_rollback(
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
     awaiting_catchup: Query<(), With<AwaitingCatchUpSnapshot>>,
+    deterministic_predicted: Query<&DeterministicPredicted>,
     parallel_commands: ParallelCommands,
     mut commands: Commands,
 ) {
@@ -721,8 +723,25 @@ fn check_rollback(
             ?rollback_tick,
             "Rollback! Despawning all PreSpawned/DeterministicPredicted entities spawned after the rollback tick"
         );
+        let protected_prespawn_entities = prediction_manager
+            .deterministic_skip_despawn
+            .iter()
+            .filter_map(|(protection_tick, entity)| {
+                (*protection_tick > rollback_tick).then_some(*entity)
+            })
+            .collect::<Vec<_>>();
         // If the prespawned entity didn't exist at the rollback tick, despawn it
-        prespawned_receiver.despawn_prespawned_after(rollback_tick + 1, &mut commands);
+        prespawned_receiver.despawn_prespawned_after_with(
+            rollback_tick + 1,
+            |entity| {
+                protected_prespawn_entities.contains(&entity)
+                    || (forced_rollback_requested
+                        && deterministic_predicted
+                            .get(entity)
+                            .is_ok_and(|predicted| predicted.skip_despawn))
+            },
+            &mut commands,
+        );
 
         // If the deterministic predicted entity didn't exist at the rollback tick, despawn it
         // We can drain everything because:

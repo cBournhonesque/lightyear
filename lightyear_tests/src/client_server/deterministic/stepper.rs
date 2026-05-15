@@ -415,7 +415,7 @@ pub fn spawn_local_action_on_client(
     peer_id: PeerId,
 ) -> Entity {
     use crate::client_server::deterministic::protocol::{
-        DetMovement, Player, action_prespawn_hash,
+        DetBuffer, DetMovement, Player, action_prespawn_hash,
     };
     use bevy_enhanced_input::prelude::{Action, ActionOf};
     use lightyear::prelude::input::bei::InputMarker;
@@ -437,8 +437,10 @@ pub fn spawn_local_action_on_client(
         .spawn((
             ActionOf::<Player>::new(client_player_entity),
             Action::<DetMovement>::new(),
+            DetBuffer::default(),
             PreSpawned::new(hash).for_receiver(client_player_entity),
             ActionMock::default(),
+            InputMarker::<Player>::default(),
         ))
         .id()
 }

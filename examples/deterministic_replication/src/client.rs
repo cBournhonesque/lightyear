@@ -8,10 +8,10 @@ use lightyear::prelude::*;
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
-use crate::shared::color_from_id;
+use crate::shared::{color_from_id, spawn_ball};
 use lightyear_deterministic_replication::prelude::{
-    CatchUpMode, CatchUpRequestSent, CatchUpSystems,
-    request_forced_rollback_to_catch_up_tick_with_commands,
+    CatchUpMode, CatchUpRequestSent, CatchUpSnapshotReady, CatchUpSystems,
+    request_forced_rollback_to_catch_up_server_tick_with_commands,
 };
 
 pub struct ExampleClientPlugin;
@@ -19,6 +19,7 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
+        app.init_resource::<PendingCatchUpSnapshot>();
         if !app
             .is_plugin_added::<lightyear_deterministic_replication::prelude::ChecksumSendPlugin>()
         {
@@ -45,7 +46,76 @@ impl Plugin for ExampleClientPlugin {
                 .after(ReplicationSystems::Receive)
                 .before(CatchUpSystems::DetectSnapshotReady),
         );
+        app.add_systems(
+            PreUpdate,
+            ensure_awaiting_prespawned_ball
+                .after(ReplicationSystems::Receive)
+                .before(CatchUpSystems::DetectSnapshotReady),
+        );
+        app.add_observer(reset_initial_catchup_on_connected);
     }
+}
+
+#[derive(Resource, Default)]
+struct InitialCatchUpComplete;
+
+#[derive(Resource, Default)]
+struct PendingCatchUpSnapshot(Option<Tick>);
+
+fn reset_initial_catchup_on_connected(
+    _trigger: On<Add, Connected>,
+    mut commands: Commands,
+    mode: Res<CatchUpMode>,
+    balls: Query<(Entity, Has<AwaitingCatchUpSnapshot>), With<BallMarker>>,
+) {
+    commands.remove_resource::<InitialCatchUpComplete>();
+    commands.insert_resource(PendingCatchUpSnapshot::default());
+    ensure_awaiting_prespawned_ball_inner(&mut commands, &mode, false, balls.iter().collect());
+}
+
+fn ensure_awaiting_prespawned_ball(
+    mut commands: Commands,
+    mode: Res<CatchUpMode>,
+    completed: Option<Res<InitialCatchUpComplete>>,
+    balls: Query<(Entity, Has<AwaitingCatchUpSnapshot>), With<BallMarker>>,
+) {
+    ensure_awaiting_prespawned_ball_inner(
+        &mut commands,
+        &mode,
+        completed.is_some(),
+        balls.iter().collect(),
+    );
+}
+
+fn ensure_awaiting_prespawned_ball_inner(
+    commands: &mut Commands,
+    mode: &CatchUpMode,
+    completed: bool,
+    ball_rows: Vec<(Entity, bool)>,
+) {
+    if completed {
+        return;
+    }
+    if *mode != CatchUpMode::StateBasedCatchUp {
+        return;
+    }
+
+    if ball_rows.len() == 1 && ball_rows[0].1 {
+        return;
+    }
+
+    if !ball_rows.is_empty() {
+        for (entity, _) in ball_rows {
+            commands.entity(entity).despawn();
+        }
+        return;
+    }
+
+    let entity = spawn_ball(commands, mode, false, true);
+    info!(
+        ?entity,
+        "Client: recreated local prespawned ball for state-based catch-up"
+    );
 }
 
 fn mark_awaiting_catchup_for_hidden_players(
@@ -60,12 +130,16 @@ fn mark_awaiting_catchup_for_hidden_players(
     >,
     client: Option<Single<(), With<Client>>>,
     mode: Res<CatchUpMode>,
+    completed: Option<Res<InitialCatchUpComplete>>,
     mut commands: Commands,
 ) {
     if *mode == CatchUpMode::InputOnly {
         return;
     }
     if client.is_none() {
+        return;
+    }
+    if completed.is_some() {
         return;
     }
     for entity in &players {
@@ -122,6 +196,8 @@ fn add_input_map_after_sync(
 /// bypass the catch-up path.
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
+    mut snapshot_ready_events: MessageReader<CatchUpSnapshotReady>,
+    mut pending_snapshot: ResMut<PendingCatchUpSnapshot>,
     // Players whose catch-up snapshot has just landed (they now have
     // `Position`) but we haven't yet added local physics components.
     pending: Query<
@@ -132,7 +208,7 @@ fn activate_physics_when_bundle_lands(
             Option<&ConfirmHistory>,
             Has<AwaitingCatchUpSnapshot>,
         ),
-        Without<DeterministicPredicted>,
+        (With<PlayerActivationTick>, Without<DeterministicPredicted>),
     >,
     // Known remote players that are still waiting for the bundled snapshot
     // (they have `PlayerId` from structural replication but no `Position`
@@ -160,55 +236,153 @@ fn activate_physics_when_bundle_lands(
     prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
 ) {
-    let mut activated_awaiting_catchup = false;
+    for event in snapshot_ready_events.read() {
+        pending_snapshot.0 = Some(event.server_tick);
+    }
     let local_tick = timeline.tick();
     let max_rollback_ticks = prediction_manager
         .as_ref()
         .map(|manager| manager.rollback_policy.max_rollback_ticks)
         .unwrap_or(100);
+    let local_peer_id = local_id.as_ref().map(|id| id.0);
+
+    let catchup_coverage = if *mode == CatchUpMode::StateBasedCatchUp && still_pending.is_empty() {
+        pending_snapshot
+            .0
+            .map_or(ReplayCoverage::Wait, |reference_tick| {
+                input_buffers_cover_replay(
+                    reference_tick,
+                    local_tick,
+                    local_peer_id,
+                    max_rollback_ticks,
+                    &mut input_buffers,
+                )
+            })
+    } else {
+        ReplayCoverage::Wait
+    };
+    if catchup_coverage == ReplayCoverage::Stale
+        && let Some(client_request) = client_request.as_ref()
+    {
+        commands
+            .entity(**client_request)
+            .remove::<CatchUpRequestSent>();
+        pending_snapshot.0 = None;
+    }
+    let catchup_ready = catchup_coverage == ReplayCoverage::Ready;
+
     let mut ready = Vec::new();
     for (entity, player_id, _position, confirm, awaiting_catchup) in pending.iter() {
         if *mode == CatchUpMode::StateBasedCatchUp {
-            let Some(reference_tick) = confirmed_server_tick(confirm, &checkpoints) else {
-                debug!(
-                    ?entity,
-                    player_id = ?player_id.0,
-                    "Client: waiting for initial replication checkpoint before activating physics"
+            if awaiting_catchup {
+                if !catchup_ready {
+                    let input_windows = input_buffer_windows(&input_buffers);
+                    debug!(
+                        ?entity,
+                        player_id = ?player_id.0,
+                        ?local_peer_id,
+                        reference_tick = ?pending_snapshot.0,
+                        ?local_tick,
+                        ?input_windows,
+                        coverage = ?catchup_coverage,
+                        "Client: waiting for input buffers to cover deterministic activation rollback"
+                    );
+                    continue;
+                }
+            } else {
+                let Some(reference_tick) = confirmed_server_tick(confirm, &checkpoints) else {
+                    debug!(
+                        ?entity,
+                        player_id = ?player_id.0,
+                        "Client: waiting for initial replication checkpoint before activating physics"
+                    );
+                    continue;
+                };
+                let coverage = input_buffers_cover_replay(
+                    reference_tick,
+                    local_tick,
+                    local_peer_id,
+                    max_rollback_ticks,
+                    &mut input_buffers,
                 );
-                continue;
-            };
-            let local_peer_id = local_id.as_ref().map(|id| id.0);
-            let coverage = input_buffers_cover_replay(
-                reference_tick,
-                local_tick,
-                local_peer_id,
-                max_rollback_ticks,
-                &mut input_buffers,
-            );
-            if coverage == ReplayCoverage::Stale
-                && let Some(client_request) = client_request.as_ref()
-            {
-                commands
-                    .entity(**client_request)
-                    .remove::<CatchUpRequestSent>();
-            }
-            if coverage != ReplayCoverage::Ready {
-                let input_windows = input_buffer_windows(&input_buffers);
-                debug!(
-                    ?entity,
-                    player_id = ?player_id.0,
-                    ?local_peer_id,
-                    ?reference_tick,
-                    ?local_tick,
-                    ?input_windows,
-                    ?coverage,
-                    "Client: waiting for input buffers to cover deterministic activation rollback"
-                );
-                continue;
+                if coverage != ReplayCoverage::Ready {
+                    let input_windows = input_buffer_windows(&input_buffers);
+                    debug!(
+                        ?entity,
+                        player_id = ?player_id.0,
+                        ?local_peer_id,
+                        ?reference_tick,
+                        ?local_tick,
+                        ?input_windows,
+                        ?coverage,
+                        "Client: waiting for input buffers to cover deterministic activation rollback"
+                    );
+                    continue;
+                }
             }
         }
         ready.push((entity, player_id.0, awaiting_catchup));
     }
+
+    if *mode == CatchUpMode::StateBasedCatchUp
+        && catchup_ready
+        && !awaiting_snapshots.is_empty()
+        && ready.is_empty()
+    {
+        let Some(reference_tick) = pending_snapshot.0 else {
+            debug!("Client: waiting for the full catch-up snapshot bundle");
+            return;
+        };
+        let awaiting_entities = awaiting_snapshots
+            .iter()
+            .map(|(entity, _)| entity)
+            .collect::<Vec<_>>();
+        let catchup_clients = client_request.as_ref().map(|entity| **entity).into_iter();
+        if request_forced_rollback_to_catch_up_server_tick_with_commands(
+            reference_tick,
+            &mut state_metadata,
+            awaiting_entities,
+            catchup_clients,
+            &mut commands,
+        ) {
+            pending_snapshot.0 = None;
+            commands.insert_resource(InitialCatchUpComplete);
+        }
+        return;
+    }
+
+    if *mode == CatchUpMode::StateBasedCatchUp
+        && !ready.is_empty()
+        && !catchup_ready
+        && pending.iter().any(|(_, _, _, _, awaiting)| awaiting)
+    {
+        let input_windows = input_buffer_windows(&input_buffers);
+        debug!(
+            ?local_peer_id,
+            reference_tick = ?pending_snapshot.0,
+            ?local_tick,
+            ?input_windows,
+            coverage = ?catchup_coverage,
+            "Client: waiting for full catch-up readiness before forcing rollback"
+        );
+    }
+
+    if *mode == CatchUpMode::StateBasedCatchUp
+        && ready.is_empty()
+        && !awaiting_snapshots.is_empty()
+        && !catchup_ready
+    {
+        let input_windows = input_buffer_windows(&input_buffers);
+        debug!(
+            ?local_peer_id,
+            reference_tick = ?pending_snapshot.0,
+            ?local_tick,
+            ?input_windows,
+            coverage = ?catchup_coverage,
+            "Client: waiting for input buffers to cover deterministic activation rollback"
+        );
+    }
+
     // Avian's deterministic physics can depend on the order in which bodies
     // are inserted into its internal structures. Late-joining clients can
     // receive replicated players in a different order from the server, so
@@ -220,7 +394,6 @@ fn activate_physics_when_bundle_lands(
                 "Client: activating physics for player {:?} (catch-up bundle snapshot landed)",
                 player_id
             );
-            activated_awaiting_catchup = true;
         } else {
             info!(
                 "Client: activating physics for player {:?} (replicated snapshot landed without awaiting marker)",
@@ -239,59 +412,6 @@ fn activate_physics_when_bundle_lands(
             },
         ));
     }
-    // Only fire the single forced rollback once ALL gated players we know
-    // about have their catch-up components. Replicon emits the bundle in
-    // one update at one tick `S`, so in practice every player gets
-    // `Position` on the same frame and the rollback fires once.
-    if *mode == CatchUpMode::StateBasedCatchUp
-        && activated_awaiting_catchup
-        && still_pending.is_empty()
-    {
-        let Some(reference) = catchup_snapshot_reference(&awaiting_snapshots, &checkpoints) else {
-            if activated_awaiting_catchup {
-                debug!("Client: waiting for the full catch-up snapshot bundle");
-            }
-            return;
-        };
-        let Ok((_, Some(reference_confirm))) = awaiting_snapshots.get(reference) else {
-            return;
-        };
-        let awaiting_entities = awaiting_snapshots
-            .iter()
-            .map(|(entity, _)| entity)
-            .collect::<Vec<_>>();
-        let catchup_clients = client_request.as_ref().map(|entity| **entity).into_iter();
-        request_forced_rollback_to_catch_up_tick_with_commands(
-            reference_confirm,
-            &checkpoints,
-            &mut state_metadata,
-            awaiting_entities,
-            catchup_clients,
-            &mut commands,
-        );
-    }
-}
-
-fn catchup_snapshot_reference(
-    awaiting_snapshots: &Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
-    checkpoints: &ReplicationCheckpointMap,
-) -> Option<Entity> {
-    let mut reference = None;
-    let mut bundled_tick = None;
-    for (entity, confirm) in awaiting_snapshots.iter() {
-        let confirm = confirm?;
-        let tick = confirm.last_tick();
-        checkpoints.get(tick)?;
-        match bundled_tick {
-            Some(expected) if expected != tick => return None,
-            Some(_) => {}
-            None => {
-                bundled_tick = Some(tick);
-                reference = Some(entity);
-            }
-        }
-    }
-    reference
 }
 
 fn confirmed_server_tick(
@@ -320,6 +440,11 @@ fn input_buffers_cover_replay(
     let mut any = false;
     for (player_id, activation_tick, buffer) in input_buffers.iter_mut() {
         any = true;
+        if activation_tick.is_some_and(|activation_tick| {
+            activation_tick.is_pending() || activation_tick.0 > reference_tick
+        }) {
+            continue;
+        }
         let Some(mut buffer) = buffer else {
             return ReplayCoverage::Wait;
         };
@@ -407,4 +532,64 @@ fn input_buffer_windows(
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy::ecs::system::RunSystemOnce;
+
+    #[test]
+    fn reconnect_recreates_missing_state_based_ball() {
+        let mut app = App::new();
+        app.insert_resource(CatchUpMode::StateBasedCatchUp);
+        app.insert_resource(LocalTimeline::default());
+
+        app.world_mut()
+            .run_system_once(ensure_awaiting_prespawned_ball)
+            .unwrap();
+
+        assert_single_awaiting_prespawned_ball(app.world_mut(), None);
+    }
+
+    #[test]
+    fn reconnect_replaces_non_awaiting_state_based_ball() {
+        let mut app = App::new();
+        app.insert_resource(CatchUpMode::StateBasedCatchUp);
+        app.insert_resource(LocalTimeline::default());
+        let stale_ball = app.world_mut().spawn(BallMarker).id();
+
+        app.world_mut()
+            .run_system_once(ensure_awaiting_prespawned_ball)
+            .unwrap();
+        app.world_mut().flush();
+        app.world_mut()
+            .run_system_once(ensure_awaiting_prespawned_ball)
+            .unwrap();
+
+        assert_single_awaiting_prespawned_ball(app.world_mut(), Some(stale_ball));
+    }
+
+    fn assert_single_awaiting_prespawned_ball(world: &mut World, stale_ball: Option<Entity>) {
+        let mut balls = world.query_filtered::<(
+            Entity,
+            Has<AwaitingCatchUpSnapshot>,
+            Has<PreSpawned>,
+            Has<DeterministicPredicted>,
+            Has<Position>,
+        ), With<BallMarker>>();
+        let rows = balls
+            .iter(world)
+            .map(|(entity, awaiting, prespawned, deterministic, position)| {
+                (entity, awaiting, prespawned, deterministic, position)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(rows.len(), 1, "expected exactly one ball; rows={rows:?}");
+        let (entity, awaiting, prespawned, deterministic, position) = rows[0];
+        assert!(awaiting && prespawned && deterministic && position);
+        if let Some(stale_ball) = stale_ball {
+            assert_ne!(entity, stale_ball);
+            assert!(world.get_entity(stale_ball).is_err());
+        }
+    }
 }

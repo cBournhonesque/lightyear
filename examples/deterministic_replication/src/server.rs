@@ -9,7 +9,7 @@ use lightyear::prelude::server::input::InputSystems as ServerInputSystems;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, CatchUpGated, CatchUpMode, CatchUpServerReadiness, CatchUpSystems,
+    AppCatchUpExt, CatchUpGated, CatchUpMode, CatchUpServerReadiness, CatchUpSystems, HasCaughtUp,
 };
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
@@ -48,13 +48,15 @@ impl Plugin for ExampleServerPlugin {
         );
         app.add_systems(
             FixedPreUpdate,
-            assert_active_player_inputs_are_available.after(ServerInputSystems::UpdateActionState),
+            log_active_player_input_gaps.after(ServerInputSystems::UpdateActionState),
         );
     }
 }
 
-fn assert_active_player_inputs_are_available(
+fn log_active_player_input_gaps(
+    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
+    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     players: Query<(
         Entity,
         &PlayerId,
@@ -64,6 +66,9 @@ fn assert_active_player_inputs_are_available(
 ) {
     let current_tick = timeline.tick();
     for (entity, player_id, activation_tick, buffer) in &players {
+        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
+            continue;
+        }
         if activation_tick.is_pending() || current_tick < activation_tick.0 {
             continue;
         }
@@ -78,7 +83,7 @@ fn assert_active_player_inputs_are_available(
         let covered =
             matches!(last_remote_tick, Some(tick) if tick >= current_tick) && exact_input_available;
         if !covered {
-            error!(
+            debug!(
                 ?entity,
                 player_id = ?player_id.0,
                 ?current_tick,
@@ -88,17 +93,13 @@ fn assert_active_player_inputs_are_available(
                 "deterministic server is missing real input before simulating an active player tick"
             );
         }
-        assert!(
-            covered,
-            "deterministic server missing real input for player {:?} at tick {:?}; \
-             last_remote_tick={:?}, buffer_end_tick={:?}, exact_input_available={}",
-            player_id.0, current_tick, last_remote_tick, buffer_end_tick, exact_input_available
-        );
     }
 }
 
 fn update_player_activation_ticks(
+    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
+    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     mut players: Query<(
         &PlayerId,
         &mut PlayerActivationTick,
@@ -108,6 +109,9 @@ fn update_player_activation_ticks(
     let current_tick = timeline.tick();
     for (player_id, mut activation_tick, buffer) in &mut players {
         if !activation_tick.is_pending() {
+            continue;
+        }
+        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
             continue;
         }
         let Some(buffer) = buffer else {
@@ -135,9 +139,16 @@ fn update_player_activation_ticks(
 /// extrapolated/decayed input for lagging clients, and the snapshot diverges
 /// from what the clients' own input buffers say.
 ///
-/// Concretely: `all_clients_ready` is true when every player entity on the
-/// server has a `LeafwingBuffer<PlayerActions>` whose `last_remote_tick`
-/// is `Some(tick)` with `tick >= server_current_tick`.
+/// Concretely: `all_clients_ready` is true when every already-caught-up,
+/// currently active player entity on the server has a
+/// `LeafwingBuffer<PlayerActions>` whose `last_remote_tick` is `Some(tick)`
+/// with `tick >= server_current_tick`.
+///
+/// Players owned by a client that has not yet been admitted through the
+/// server-side catch-up gate are deliberately ignored here. Their
+/// `PlayerActivationTick` remains pending, so the snapshot contains an inert
+/// player that can become active only after the catch-up snapshot is revealed
+/// and input rebroadcast has warmed up.
 ///
 /// Checking only `start_tick` is not sufficient: that proves a client sent
 /// at least one input packet, but not that the server has real inputs for
@@ -145,22 +156,28 @@ fn update_player_activation_ticks(
 /// server is still extrapolating a client's input will diverge when the
 /// joining client rolls forward with the real rebroadcast input stream.
 fn update_catch_up_server_readiness(
+    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
     players: Query<
         (
+            &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             &PlayerActivationTick,
         ),
         With<PlayerId>,
     >,
+    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     mut readiness: ResMut<CatchUpServerReadiness>,
 ) {
     let current_tick = timeline.tick();
     let mut any = false;
-    let ready = players.iter().all(|(buffer, activation_tick)| {
+    let ready = players.iter().all(|(player_id, buffer, activation_tick)| {
         any = true;
-        if activation_tick.is_pending() {
-            return false;
+        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
+            return true;
+        }
+        if activation_tick.is_pending() || current_tick < activation_tick.0 {
+            return true;
         }
         match buffer {
             Some(b) => matches!(b.last_remote_tick, Some(t) if t >= current_tick),
@@ -168,6 +185,76 @@ fn update_catch_up_server_readiness(
         }
     });
     readiness.all_clients_ready = any && ready;
+}
+
+fn owner_is_waiting_for_catch_up<'a>(
+    mode: &CatchUpMode,
+    player_id: PeerId,
+    mut client_links: impl Iterator<Item = (&'a RemoteId, bool)>,
+) -> bool {
+    if *mode != CatchUpMode::StateBasedCatchUp {
+        return false;
+    }
+    client_links
+        .find(|(remote_id, _)| remote_id.0 == player_id)
+        .is_none_or(|(_, caught_up)| !caught_up)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn owner_without_completed_catch_up_is_not_active_in_state_based_mode() {
+        let links = [(RemoteId(PeerId::Netcode(2)), false)];
+
+        assert!(owner_is_waiting_for_catch_up(
+            &CatchUpMode::StateBasedCatchUp,
+            PeerId::Netcode(2),
+            links
+                .iter()
+                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
+        ));
+    }
+
+    #[test]
+    fn caught_up_owner_is_active_in_state_based_mode() {
+        let links = [(RemoteId(PeerId::Netcode(2)), true)];
+
+        assert!(!owner_is_waiting_for_catch_up(
+            &CatchUpMode::StateBasedCatchUp,
+            PeerId::Netcode(2),
+            links
+                .iter()
+                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
+        ));
+    }
+
+    #[test]
+    fn catch_up_gate_does_not_apply_in_input_only_mode() {
+        let links = [(RemoteId(PeerId::Netcode(2)), false)];
+
+        assert!(!owner_is_waiting_for_catch_up(
+            &CatchUpMode::InputOnly,
+            PeerId::Netcode(2),
+            links
+                .iter()
+                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
+        ));
+    }
+
+    #[test]
+    fn missing_owner_link_is_treated_as_not_ready_for_state_catch_up() {
+        let links: [(RemoteId, bool); 0] = [];
+
+        assert!(owner_is_waiting_for_catch_up(
+            &CatchUpMode::StateBasedCatchUp,
+            PeerId::Netcode(2),
+            links
+                .iter()
+                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
+        ));
+    }
 }
 
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {

@@ -17,9 +17,11 @@ use lightyear::input::bei::prelude::BEIBuffer;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::InputRegistryExt;
 use lightyear::prelude::input::bei;
+use lightyear::prelude::server::ClientOf;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode, LateJoinCatchUpPlugin,
+    AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode, HasCaughtUp,
+    LateJoinCatchUpPlugin,
 };
 use lightyear_prediction::rollback::DeterministicPredicted;
 use serde::{Deserialize, Serialize};
@@ -180,7 +182,9 @@ impl Plugin for DetProtocolPlugin {
 
 fn update_player_activation_ticks(
     server: Option<Single<(), With<Server>>>,
+    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
+    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     mut players: Query<(Entity, &DetPlayerId, &mut DetPlayerActivationTick)>,
     actions: Query<(&ActionOf<Player>, &DetBuffer)>,
 ) {
@@ -192,6 +196,9 @@ fn update_player_activation_ticks(
     let current_tick = timeline.tick();
     for (player_entity, player_id, mut activation_tick) in &mut players {
         if !activation_tick.is_pending() {
+            continue;
+        }
+        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
             continue;
         }
         let ready = actions.iter().any(|(action_of, buffer)| {
@@ -209,6 +216,19 @@ fn update_player_activation_ticks(
             "Activating deterministic test player after input rebroadcast warmup"
         );
     }
+}
+
+pub fn owner_is_waiting_for_catch_up<'a>(
+    mode: &CatchUpMode,
+    player_id: PeerId,
+    mut client_links: impl Iterator<Item = (&'a RemoteId, bool)>,
+) -> bool {
+    if *mode != CatchUpMode::StateBasedCatchUp {
+        return false;
+    }
+    client_links
+        .find(|(remote_id, _)| remote_id.0 == player_id)
+        .is_none_or(|(_, caught_up)| !caught_up)
 }
 
 /// Spawn the ball + walls on every peer. These are NOT replicated —

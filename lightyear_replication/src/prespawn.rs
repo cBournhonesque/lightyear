@@ -206,13 +206,12 @@ impl PreSpawnedPlugin {
     }
 
     /// When a prespawned entity is matched with a server entity (ConfirmHistory added),
-    /// clean up the PreSpawnedReceiver tracking and remove Signature.
+    /// clean up the PreSpawnedReceiver tracking.
     fn cleanup_matched_prespawn(
         trigger: On<Add, ConfirmHistory>,
         query: Query<&PreSpawned>,
         mut active_signatures: ResMut<ActivePreSpawnedSignatures>,
         mut receiver_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
-        mut commands: Commands,
     ) {
         let entity = trigger.entity;
         if let Ok(prespawn) = query.get(entity) {
@@ -232,7 +231,12 @@ impl PreSpawnedPlugin {
                         .push((spawn_tick, entity));
                 }
             }
-            commands.entity(entity).remove::<Signature>();
+            // Keep Signature attached for the rest of the entity lifetime.
+            // Replicon removes SignatureMap during receive_replication, so
+            // removing Signature during or shortly after the match can miss the
+            // private map update and leave a stale hash -> entity entry. With
+            // Signature kept on the matched entity, normal despawn always gives
+            // Replicon a live entity whose on-remove hook can clear the hash.
         }
     }
 }
@@ -395,10 +399,27 @@ impl PreSpawnedReceiver {
     /// leaving the previous matched instance live.
     #[doc(hidden)]
     pub fn despawn_prespawned_after(&mut self, tick: Tick, commands: &mut Commands) {
+        self.despawn_prespawned_after_with(tick, |_| false, commands);
+    }
+
+    /// Despawn all local PreSpawned entities spawned at a tick >= Tick,
+    /// except entities that the caller marks as protected from this rollback.
+    ///
+    /// Deterministic one-shot entities can be prespawned and later matched by
+    /// Replicon, but not recreated by rollback replay. Prediction uses this to
+    /// keep `DeterministicPredicted { skip_despawn: true }` entities alive
+    /// during catch-up rollback.
+    #[doc(hidden)]
+    pub fn despawn_prespawned_after_with(
+        &mut self,
+        tick: Tick,
+        should_keep: impl Fn(Entity) -> bool,
+        commands: &mut Commands,
+    ) {
         let mut entities_to_despawn = Vec::new();
         self.prespawn_tick_to_hash
             .retain(|(spawn_tick, hash, entity)| {
-                if *spawn_tick >= tick {
+                if *spawn_tick >= tick && !should_keep(*entity) {
                     entities_to_despawn.push((*entity, Some(*hash)));
                     false
                 } else {
@@ -407,7 +428,7 @@ impl PreSpawnedReceiver {
             });
         self.matched_prespawn_spawn_tick_to_entities
             .retain(|(spawn_tick, entity)| {
-                if *spawn_tick >= tick {
+                if *spawn_tick >= tick && !should_keep(*entity) {
                     entities_to_despawn.push((*entity, None));
                     false
                 } else {
@@ -457,6 +478,9 @@ impl PreSpawnedReceiver {
         manager
             .prespawn_tick_to_hash
             .retain(|(_, _, candidate)| *candidate != entity);
+        manager
+            .matched_prespawn_spawn_tick_to_entities
+            .retain(|(_, candidate)| *candidate != entity);
     }
 }
 

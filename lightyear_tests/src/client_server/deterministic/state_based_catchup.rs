@@ -14,7 +14,7 @@
 
 use crate::client_server::deterministic::protocol::{
     DetBallMarker, DetBuffer, DetMovement, DetPlayerActivationTick, DetPlayerId, DetWallMarker,
-    Player,
+    Player, owner_is_waiting_for_catch_up,
 };
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
@@ -27,10 +27,12 @@ use bevy_enhanced_input::prelude::{
 };
 use lightyear::input::bei::input_message::ActionsSnapshot;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
+use lightyear::prelude::server::ClientOf;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AwaitingCatchUpSnapshot, CatchUpRequestSent, CatchUpServerReadiness, CatchUpSystems,
-    request_forced_rollback_to_catch_up_tick_with_commands,
+    AwaitingCatchUpSnapshot, CatchUpMode, CatchUpRequestSent, CatchUpServerReadiness,
+    CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp,
+    request_forced_rollback_to_catch_up_server_tick_with_commands,
 };
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::PreSpawned;
@@ -41,9 +43,7 @@ use test_log::test;
 /// for its BEI action.
 #[derive(Resource, Clone)]
 struct RandomDrive {
-    rng_state: u64,
-    /// Number of ticks we've driven so far.
-    ticks: u32,
+    seed: u64,
     /// Keep the action still for this many ticks at the start so catch-up
     /// machinery can settle (matches "50 ticks then start moving" request).
     warmup_ticks: u32,
@@ -99,6 +99,12 @@ struct StageMotionSample {
 #[derive(Resource, Default)]
 struct StageMotionSamples(Vec<StageMotionSample>);
 
+#[derive(Resource, Default)]
+struct InitialCatchUpComplete;
+
+#[derive(Resource, Default)]
+struct PendingCatchUpSnapshot(Option<Tick>);
+
 #[derive(Clone, Debug)]
 struct ContactPairSample {
     collider1: String,
@@ -144,8 +150,7 @@ struct CatchUpTrace(Vec<CatchUpActivationTrace>);
 impl RandomDrive {
     fn new(seed: u64, warmup_ticks: u32) -> Self {
         Self {
-            rng_state: seed.wrapping_add(0x9E3779B97F4A7C15),
-            ticks: 0,
+            seed: seed.wrapping_add(0x9E3779B97F4A7C15),
             warmup_ticks,
         }
     }
@@ -162,15 +167,19 @@ fn splitmix64(state: &mut u64) -> u64 {
 /// Each tick, write a random unit vector into the client's `ActionMock`
 /// so BEI reports a non-zero `Axis2D` via `Fire<DetMovement>`.
 fn drive_random_input(
-    mut random: ResMut<RandomDrive>,
+    random: Res<RandomDrive>,
+    timeline: Res<LocalTimeline>,
     mut actions: Query<&mut ActionMock, With<Action<DetMovement>>>,
 ) {
-    random.ticks += 1;
-    let dir = if random.ticks < random.warmup_ticks {
+    let tick = timeline.tick();
+    let dir = if tick.0 < random.warmup_ticks {
         Vec2::ZERO
     } else {
         // Pick one of 4 cardinal directions pseudo-randomly.
-        let r = splitmix64(&mut random.rng_state);
+        let mut state = random
+            .seed
+            .wrapping_add((tick.0 as u64).wrapping_mul(0xD1B5_4A32_D192_ED03));
+        let r = splitmix64(&mut state);
         match r & 0b11 {
             0 => Vec2::X,
             1 => -Vec2::X,
@@ -189,24 +198,31 @@ fn drive_random_input(
 /// Server-side: update `CatchUpServerReadiness` based on whether every
 /// player has real remote input through the server's current tick.
 fn update_server_readiness(
+    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
-    players: Query<(Entity, &DetPlayerActivationTick), With<DetPlayerId>>,
+    players: Query<(Entity, &DetPlayerId, &DetPlayerActivationTick), With<DetPlayerId>>,
     actions: Query<(&ActionOf<Player>, &DetBuffer)>,
+    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     mut readiness: ResMut<CatchUpServerReadiness>,
 ) {
     use bevy::ecs::relationship::Relationship;
     let current_tick = timeline.tick();
     let mut any = false;
-    let ready = players.iter().all(|(player_entity, activation_tick)| {
-        any = true;
-        if activation_tick.is_pending() {
-            return false;
-        }
-        actions.iter().any(|(action_of, buffer)| {
-            action_of.get() == player_entity
-                && matches!(buffer.last_remote_tick, Some(t) if t >= current_tick)
-        })
-    });
+    let ready = players
+        .iter()
+        .all(|(player_entity, player_id, activation_tick)| {
+            any = true;
+            if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
+                return true;
+            }
+            if activation_tick.is_pending() || current_tick < activation_tick.0 {
+                return true;
+            }
+            actions.iter().any(|(action_of, buffer)| {
+                action_of.get() == player_entity
+                    && matches!(buffer.last_remote_tick, Some(t) if t >= current_tick)
+            })
+        });
     readiness.all_clients_ready = any && ready;
 }
 
@@ -229,8 +245,12 @@ fn mark_awaiting_on_hidden_replicated_players(
             Without<DeterministicPredicted>,
         ),
     >,
+    completed: Option<Res<InitialCatchUpComplete>>,
     mut commands: Commands,
 ) {
+    if completed.is_some() {
+        return;
+    }
     for entity in &players {
         commands.entity(entity).insert(AwaitingCatchUpSnapshot);
     }
@@ -238,6 +258,8 @@ fn mark_awaiting_on_hidden_replicated_players(
 
 fn activate_physics_when_bundle_lands(
     mut commands: Commands,
+    mut snapshot_ready_events: MessageReader<CatchUpSnapshotReady>,
+    mut pending_snapshot: ResMut<PendingCatchUpSnapshot>,
     pending: Query<
         (
             Entity,
@@ -245,7 +267,11 @@ fn activate_physics_when_bundle_lands(
             &Position,
             Has<AwaitingCatchUpSnapshot>,
         ),
-        (With<DetPlayerId>, Without<DeterministicPredicted>),
+        (
+            With<DetPlayerId>,
+            With<DetPlayerActivationTick>,
+            Without<DeterministicPredicted>,
+        ),
     >,
     still_pending: Query<
         Entity,
@@ -255,8 +281,7 @@ fn activate_physics_when_bundle_lands(
             Without<Position>,
         ),
     >,
-    awaiting_snapshots: Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
-    checkpoints: Res<ReplicationCheckpointMap>,
+    awaiting_snapshots: Query<Entity, With<AwaitingCatchUpSnapshot>>,
     timeline: Res<LocalTimeline>,
     local_id: Option<Single<&LocalId, With<Client>>>,
     client_request: Option<Single<Entity, (With<Client>, With<CatchUpRequestSent>)>>,
@@ -272,25 +297,19 @@ fn activate_physics_when_bundle_lands(
     mut trace: ResMut<CatchUpTrace>,
 ) {
     use crate::client_server::deterministic::protocol::DetPhysicsBundle;
-    let reference = catchup_snapshot_reference(&awaiting_snapshots, &checkpoints);
+    for event in snapshot_ready_events.read() {
+        pending_snapshot.0 = Some(event.server_tick);
+    }
+    let reference_tick = pending_snapshot.0;
     let max_rollback_ticks = prediction_manager
         .as_ref()
         .map(|manager| manager.rollback_policy.max_rollback_ticks)
         .unwrap_or(100);
     let coverage = if still_pending.is_empty() {
-        reference.map_or(ReplayCoverage::Wait, |reference| {
+        reference_tick.map_or(ReplayCoverage::Wait, |reference_tick| {
             let Some(local_id) = local_id.as_ref() else {
                 return ReplayCoverage::Wait;
             };
-            let reference_tick = checkpoints
-                .get(
-                    awaiting_snapshots
-                        .get(reference)
-                        .ok()
-                        .and_then(|(_, confirm)| confirm.map(ConfirmHistory::last_tick))
-                        .expect("catch-up reference has a confirmation tick"),
-                )
-                .expect("catch-up reference has a replication checkpoint");
             input_buffers_cover_replay(
                 reference_tick,
                 timeline.tick(),
@@ -309,6 +328,7 @@ fn activate_physics_when_bundle_lands(
         commands
             .entity(**client_request)
             .remove::<CatchUpRequestSent>();
+        pending_snapshot.0 = None;
     }
     let catchup_ready = coverage == ReplayCoverage::Ready;
 
@@ -338,33 +358,27 @@ fn activate_physics_when_bundle_lands(
     if catchup_ready
         && !awaiting_snapshots.is_empty()
         && newly.is_empty()
-        && let Some(reference) = reference
+        && let Some(reference_tick) = reference_tick
     {
-        let Ok((_, Some(reference_confirm))) = awaiting_snapshots.get(reference) else {
-            return;
-        };
-        if let Some(reference_tick) = checkpoints.get(reference_confirm.last_tick()) {
-            record_catchup_activation_trace(
-                &mut trace,
-                timeline.tick(),
-                reference_tick,
-                &all_players,
-                &mut input_buffers,
-            );
-        }
-        let awaiting_entities = awaiting_snapshots
-            .iter()
-            .map(|(entity, _)| entity)
-            .collect::<Vec<_>>();
+        record_catchup_activation_trace(
+            &mut trace,
+            timeline.tick(),
+            reference_tick,
+            &all_players,
+            &mut input_buffers,
+        );
+        let awaiting_entities = awaiting_snapshots.iter().collect::<Vec<_>>();
         let catchup_clients = client_request.as_ref().map(|entity| **entity).into_iter();
-        request_forced_rollback_to_catch_up_tick_with_commands(
-            reference_confirm,
-            &checkpoints,
+        if request_forced_rollback_to_catch_up_server_tick_with_commands(
+            reference_tick,
             &mut state_metadata,
             awaiting_entities,
             catchup_clients,
             &mut commands,
-        );
+        ) {
+            pending_snapshot.0 = None;
+            commands.insert_resource(InitialCatchUpComplete);
+        }
     }
 }
 
@@ -424,28 +438,6 @@ fn record_catchup_activation_trace(
     });
 }
 
-fn catchup_snapshot_reference(
-    awaiting_snapshots: &Query<(Entity, Option<&ConfirmHistory>), With<AwaitingCatchUpSnapshot>>,
-    checkpoints: &ReplicationCheckpointMap,
-) -> Option<Entity> {
-    let mut reference = None;
-    let mut bundled_tick = None;
-    for (entity, confirm) in awaiting_snapshots.iter() {
-        let confirm = confirm?;
-        let tick = confirm.last_tick();
-        checkpoints.get(tick)?;
-        match bundled_tick {
-            Some(expected) if expected != tick => return None,
-            Some(_) => {}
-            None => {
-                bundled_tick = Some(tick);
-                reference = Some(entity);
-            }
-        }
-    }
-    reference
-}
-
 fn input_buffers_cover_replay(
     reference_tick: Tick,
     local_tick: Tick,
@@ -467,6 +459,11 @@ fn input_buffers_cover_replay(
     let mut any_player = false;
     for (player, player_id, activation_tick, _) in players.iter() {
         any_player = true;
+        if activation_tick.is_some_and(|activation_tick| {
+            activation_tick.is_pending() || activation_tick.0 > reference_tick
+        }) {
+            continue;
+        }
         let mut found = false;
         for (action_of, buffer) in input_buffers.iter_mut() {
             if action_of.get() != player {
@@ -477,9 +474,26 @@ fn input_buffers_cover_replay(
             };
             if player_id.0 == local_id {
                 let Some(end_tick) = buffer.end_tick() else {
+                    debug!(
+                        ?player,
+                        player_id = ?player_id.0,
+                        ?reference_tick,
+                        ?local_tick,
+                        "catch-up replay coverage waiting for local input buffer end tick"
+                    );
                     return ReplayCoverage::Wait;
                 };
                 if end_tick < reference_tick {
+                    debug!(
+                        ?player,
+                        player_id = ?player_id.0,
+                        ?reference_tick,
+                        ?local_tick,
+                        ?end_tick,
+                        start_tick = ?buffer.start_tick,
+                        last_remote_tick = ?buffer.last_remote_tick,
+                        "catch-up replay coverage waiting for local input buffer to reach reference tick"
+                    );
                     return ReplayCoverage::Wait;
                 }
                 if buffer.start_tick.is_none_or(|start| start > reference_tick) {
@@ -489,12 +503,37 @@ fn input_buffers_cover_replay(
             } else if buffer.start_tick.is_none_or(|start| start > reference_tick) {
                 let old_start = buffer.start_tick.unwrap_or(reference_tick);
                 let Some(end_tick) = buffer.end_tick() else {
+                    debug!(
+                        ?player,
+                        player_id = ?player_id.0,
+                        ?reference_tick,
+                        ?local_tick,
+                        "catch-up replay coverage waiting for remote input buffer end tick"
+                    );
                     return ReplayCoverage::Wait;
                 };
                 let Some(activation_tick) = activation_tick else {
+                    debug!(
+                        ?player,
+                        player_id = ?player_id.0,
+                        ?reference_tick,
+                        ?local_tick,
+                        "catch-up replay coverage stale: remote player has no activation tick"
+                    );
                     return ReplayCoverage::Stale;
                 };
                 if old_start > activation_tick.0 {
+                    debug!(
+                        ?player,
+                        player_id = ?player_id.0,
+                        ?reference_tick,
+                        ?local_tick,
+                        ?old_start,
+                        ?end_tick,
+                        activation_tick = ?activation_tick.0,
+                        last_remote_tick = ?buffer.last_remote_tick,
+                        "catch-up replay coverage stale: remote input starts after activation tick"
+                    );
                     return ReplayCoverage::Stale;
                 }
                 pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
@@ -502,12 +541,29 @@ fn input_buffers_cover_replay(
                 .last_remote_tick
                 .is_none_or(|last_remote_tick| last_remote_tick < reference_tick)
             {
+                debug!(
+                    ?player,
+                    player_id = ?player_id.0,
+                    ?reference_tick,
+                    ?local_tick,
+                    start_tick = ?buffer.start_tick,
+                    end_tick = ?buffer.end_tick(),
+                    last_remote_tick = ?buffer.last_remote_tick,
+                    "catch-up replay coverage waiting for remote input last_remote_tick"
+                );
                 return ReplayCoverage::Wait;
             }
             found = true;
             break;
         }
         if !found {
+            debug!(
+                ?player,
+                player_id = ?player_id.0,
+                ?reference_tick,
+                ?local_tick,
+                "catch-up replay coverage waiting for action buffer entity"
+            );
             return ReplayCoverage::Wait;
         }
     }
@@ -554,7 +610,11 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
 
 fn configure_client_app(client_app: &mut App, seed: u64, warmup_ticks: u32) {
     client_app.insert_resource(RandomDrive::new(seed, warmup_ticks));
+    client_app
+        .world_mut()
+        .remove_resource::<InitialCatchUpComplete>();
     client_app.init_resource::<CatchUpTrace>();
+    client_app.init_resource::<PendingCatchUpSnapshot>();
     add_position_samples(client_app);
     client_app.add_systems(
         PreUpdate,
@@ -865,6 +925,108 @@ fn despawn_server_player_and_action(stepper: &mut DetStepper, player: Entity) {
     }
     if stepper.server_app.world().get_entity(player).is_ok() {
         stepper.server_app.world_mut().despawn(player);
+    }
+}
+
+fn assert_clean_player_entities(world: &mut World, label: &str, expected_peers: &[PeerId]) {
+    let mut players = world.query::<(Entity, &DetPlayerId)>();
+    let rows = players
+        .iter(world)
+        .map(|(entity, player_id)| (entity, player_id.0))
+        .collect::<Vec<_>>();
+
+    for peer in expected_peers {
+        let matches = rows
+            .iter()
+            .filter(|(_, player_id)| player_id == peer)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            matches.len(),
+            1,
+            "expected exactly one player for {peer:?} in {label}; rows={rows:?}"
+        );
+    }
+
+    let unexpected = rows
+        .iter()
+        .filter(|(_, player_id)| !expected_peers.contains(player_id))
+        .collect::<Vec<_>>();
+    assert!(
+        unexpected.is_empty(),
+        "unexpected player entities in {label}; expected={expected_peers:?} rows={rows:?}"
+    );
+}
+
+fn assert_clean_stepper_player_entities(stepper: &mut DetStepper, expected_peers: &[PeerId]) {
+    assert_clean_player_entities(stepper.server_app.world_mut(), "server", expected_peers);
+    for client_id in 0..stepper.client_apps.len() {
+        let label = format!("client {client_id}");
+        assert_clean_player_entities(
+            stepper.client_app(client_id).world_mut(),
+            &label,
+            expected_peers,
+        );
+    }
+}
+
+fn assert_server_entity_unmapped(stepper: &mut DetStepper, server_entity: Entity) {
+    for client_id in 0..stepper.client_apps.len() {
+        assert!(
+            stepper
+                .client(client_id)
+                .get::<MessageManager>()
+                .unwrap()
+                .entity_mapper
+                .get_local(server_entity)
+                .is_none(),
+            "client {client_id} still maps disconnected server entity {server_entity:?}"
+        );
+    }
+}
+
+fn assert_single_ball_entity(world: &mut World, label: &str) -> Entity {
+    let mut balls = world.query_filtered::<(
+        Entity,
+        Has<Position>,
+        Has<LinearVelocity>,
+        Has<DeterministicPredicted>,
+        Has<AwaitingCatchUpSnapshot>,
+    ), With<DetBallMarker>>();
+    let rows = balls
+        .iter(world)
+        .map(|(entity, position, velocity, deterministic, awaiting)| {
+            (entity, position, velocity, deterministic, awaiting)
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        rows.len(),
+        1,
+        "expected exactly one deterministic ball in {label}; rows={rows:?}"
+    );
+    let (entity, has_position, has_velocity, deterministic, awaiting) = rows[0];
+    assert!(
+        has_position && has_velocity && deterministic && !awaiting,
+        "ball in {label} should have live deterministic physics state; rows={rows:?}"
+    );
+    entity
+}
+
+fn assert_clean_stepper_ball_entities(stepper: &mut DetStepper) {
+    let server_ball = assert_single_ball_entity(stepper.server_app.world_mut(), "server");
+    for client_id in 0..stepper.client_apps.len() {
+        let label = format!("client {client_id}");
+        let client_ball =
+            assert_single_ball_entity(stepper.client_app(client_id).world_mut(), &label);
+        assert_eq!(
+            stepper
+                .client(client_id)
+                .get::<MessageManager>()
+                .unwrap()
+                .entity_mapper
+                .get_local(server_ball),
+            Some(client_ball),
+            "client {client_id} should map the server ball entity {server_ball:?}"
+        );
     }
 }
 
@@ -1446,6 +1608,9 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     despawn_server_player_and_action(&mut stepper, server_player_b);
     stepper.disconnect_last_client();
     stepper.frame_step(30);
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a]);
+    assert_server_entity_unmapped(&mut stepper, server_player_b);
+    assert_clean_stepper_ball_entities(&mut stepper);
 
     // Recreate client 1 with the same peer id and catch up again while
     // client 0 keeps simulating.
@@ -1458,6 +1623,9 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     spawn_local_action_after_mapping(&mut stepper, reconnected, server_player_b_reconnect, peer_b);
 
     stepper.frame_step(220);
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_server_entity_unmapped(&mut stepper, server_player_b);
+    assert_clean_stepper_ball_entities(&mut stepper);
 
     dump_catchup_trace(&mut stepper, &[peer_a, peer_b]);
     compare_players_to_server(

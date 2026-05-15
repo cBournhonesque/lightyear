@@ -6,6 +6,7 @@ use bevy::prelude::{
     ChildOf, Commands, Entity, FixedUpdate, IntoScheduleConfigs, Res, Resource, With,
 };
 use bevy::utils::default;
+use bevy_replicon::prelude::Signature;
 use lightyear::prelude::LocalTimeline;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
@@ -263,6 +264,14 @@ fn test_prespawn_success() {
             .get_local(server_prespawn)
             .unwrap(),
         client_prespawn
+    );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Signature>(client_prespawn)
+            .is_some(),
+        "matched prespawn signatures should stay attached until despawn so Replicon can clear SignatureMap"
     );
 }
 

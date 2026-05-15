@@ -11,14 +11,18 @@
 //! steady state. Then both clients start driving random Axis2D inputs
 //! every tick. We assert final positions match the server.
 
-use crate::client_server::deterministic::protocol::{DetMovement, DetPhysicsBundle, DetPlayerId};
+use crate::client_server::deterministic::protocol::{
+    DetBuffer, DetMovement, DetPhysicsBundle, DetPlayerActivationTick, DetPlayerId, Player,
+};
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
 };
 use approx::assert_relative_eq;
 use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::{Action, ActionMock, ActionValue, MockSpan, TriggerState};
+use bevy_enhanced_input::prelude::{
+    Action, ActionMock, ActionOf, ActionValue, MockSpan, TriggerState,
+};
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
@@ -28,8 +32,7 @@ use test_log::test;
 
 #[derive(Resource, Clone)]
 struct RandomDrive {
-    rng_state: u64,
-    ticks: u32,
+    seed: u64,
     warmup_ticks: u32,
 }
 
@@ -39,8 +42,7 @@ struct PositionSamples(HashMap<(u32, PeerId), Position>);
 impl RandomDrive {
     fn new(seed: u64, warmup_ticks: u32) -> Self {
         Self {
-            rng_state: seed.wrapping_add(0x9E3779B97F4A7C15),
-            ticks: 0,
+            seed: seed.wrapping_add(0x9E3779B97F4A7C15),
             warmup_ticks,
         }
     }
@@ -55,14 +57,18 @@ fn splitmix64(state: &mut u64) -> u64 {
 }
 
 fn drive_random_input(
-    mut random: ResMut<RandomDrive>,
+    random: Res<RandomDrive>,
+    timeline: Res<LocalTimeline>,
     mut actions: Query<&mut ActionMock, With<Action<DetMovement>>>,
 ) {
-    random.ticks += 1;
-    let dir = if random.ticks < random.warmup_ticks {
+    let tick = timeline.tick();
+    let dir = if tick.0 < random.warmup_ticks {
         Vec2::ZERO
     } else {
-        let r = splitmix64(&mut random.rng_state);
+        let mut state = random
+            .seed
+            .wrapping_add((tick.0 as u64).wrapping_mul(0xD1B5_4A32_D192_ED03));
+        let r = splitmix64(&mut state);
         match r & 0b11 {
             0 => Vec2::X,
             1 => -Vec2::X,
@@ -174,14 +180,57 @@ fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
         })
 }
 
+fn latest_real_input_covered_tick(world: &mut World, local_peer_id: PeerId) -> Tick {
+    use bevy::ecs::relationship::Relationship;
+
+    let local_tick = world.resource::<LocalTimeline>().tick();
+    let mut covered_tick = local_tick;
+    let mut players = world.query::<(Entity, &DetPlayerId)>();
+    let player_rows = players
+        .iter(world)
+        .map(|(entity, player_id)| (entity, player_id.0))
+        .collect::<Vec<_>>();
+    let mut actions = world.query::<(&ActionOf<Player>, &DetBuffer)>();
+    for (player, player_id) in player_rows {
+        let player_covered_tick = actions.iter(world).find_map(|(action_of, buffer)| {
+            (action_of.get() == player).then(|| {
+                if player_id == local_peer_id {
+                    buffer.end_tick()
+                } else {
+                    buffer.last_remote_tick
+                }
+            })
+        });
+        let Some(Some(player_covered_tick)) = player_covered_tick else {
+            return Tick(0);
+        };
+        if player_covered_tick.0 < covered_tick.0 {
+            covered_tick = player_covered_tick;
+        }
+    }
+    covered_tick
+}
+
 /// Insert the local physics bundle (Collider/RigidBody) +
 /// `DeterministicPredicted` once the replicated player exists locally.
 /// Movement is still gated by `DetPlayerActivationTick` in shared logic.
 fn activate_replicated_players_at_tick(
-    players: Query<Entity, (With<Position>, Without<DeterministicPredicted>)>,
+    players: Query<
+        (Entity, &DetPlayerId),
+        (
+            With<Position>,
+            With<DetPlayerActivationTick>,
+            Without<DeterministicPredicted>,
+        ),
+    >,
     mut commands: Commands,
 ) {
-    for entity in &players {
+    let mut ready = players
+        .iter()
+        .map(|(entity, player_id)| (entity, player_id.0))
+        .collect::<Vec<_>>();
+    ready.sort_by_key(|(_, player_id)| player_id.to_bits());
+    for (entity, _) in ready {
         commands.entity(entity).insert((
             DetPhysicsBundle::player(),
             DeterministicPredicted {
@@ -252,11 +301,10 @@ fn test_input_only_two_clients() {
         .tick();
     let compare_tick = (0..2)
         .map(|client_id| {
-            stepper
-                .client_app(client_id)
-                .world()
-                .resource::<LocalTimeline>()
-                .tick()
+            latest_real_input_covered_tick(
+                stepper.client_app(client_id).world_mut(),
+                PeerId::Netcode(client_id as u64),
+            )
         })
         .fold(server_tick, |min_tick, tick| {
             if tick.0 < min_tick.0 { tick } else { min_tick }
