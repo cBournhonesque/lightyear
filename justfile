@@ -51,7 +51,7 @@ build_examples_demos mode="both":
     mode="{{ mode }}"
     filter='{{ _example_demo_feature_pkgs_filter }}'
     features=""
-    target_dir=()
+    target_dir=(--target-dir target)
     case "$mode" in
         ""|both) features="client,gui,server,netcode,udp" ;;
         client) features="client,gui,netcode,udp" ;;
