@@ -517,7 +517,8 @@ mod tests {
 
     /// We cannot write the channel id of the next channel in the packet, so we need to finish the current
     /// packet and start a new one.
-    /// We have 1200 -11 (header) -1 (channel_id) - 1(num_message) = 1184 bytes per message
+    /// The message fills the packet after the current header and message encoding overhead,
+    /// leaving no space for another message or channel.
     ///
     /// Test both with different channels and same channels
     #[test]
@@ -529,7 +530,7 @@ mod tests {
         let channel_kind2 = ChannelKind::of::<Channel2>();
         let channel_id2 = channel_registry.get_net_from_kind(&channel_kind2).unwrap();
 
-        let small_bytes = Bytes::from(vec![7u8; 1184]);
+        let small_bytes = Bytes::from(vec![7u8; 1178]);
         let small_message = SingleData::new(None, small_bytes.clone());
 
         {
@@ -683,8 +684,8 @@ mod tests {
         assert_eq!(
             packet.messages,
             vec![MessageMetadata {
-                channel: *channel_id1,
-                message: MessageId(0),
+                channel: *channel_id2,
+                message: MessageId(3),
                 fragment_index: Some(FragmentIndex(1)),
                 num_fragments: Some(fragments.len() as u64),
                 #[cfg(feature = "metrics")]
