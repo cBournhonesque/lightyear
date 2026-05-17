@@ -522,8 +522,8 @@ fn check_rollback(
             RollbackMode::Check => {
                 // First check: maybe we already know we should rollback after there was a mismatch
                 // when receiving a confirmed update (in write_history).
-                // The mismatch flags persist across frames since check_rollback may run
-                // before receive_replication in the same frame.
+                // The mismatch flags persist across frames because rollback is deferred
+                // until the mismatch tick is in the local past and can be restored.
                 if let Some(mismatch_tick) = state_metadata.not_ready_mismatch_tick(tick) {
                     trace!(
                         target: "lightyear_debug::prediction",

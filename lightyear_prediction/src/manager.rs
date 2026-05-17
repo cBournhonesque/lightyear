@@ -192,8 +192,9 @@ impl StateRollbackMetadata {
     /// Reset the per-frame state tracking.
     /// Note: `should_rollback` and `earliest_mismatch_tick` are NOT reset here
     /// because they need to persist until consumed by `check_rollback`.
-    /// `check_rollback` may run before `receive_replication` in the same frame,
-    /// so mismatch flags from the previous frame must remain visible.
+    /// A mismatch can be detected for the current/future local tick; in that
+    /// case `check_rollback` defers rollback until the tick is in the local
+    /// past and predicted history can be restored.
     pub(crate) fn reset_frame_state(&mut self) {
         self.received_messages_this_frame = false;
     }
