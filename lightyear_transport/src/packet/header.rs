@@ -43,10 +43,10 @@ impl ToBytes for PacketHeader {
 
     fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
         buffer.write_u8(self.packet_type as u8)?;
-        buffer.write_u16(self.packet_id.0)?;
-        buffer.write_u16(self.last_ack_packet_id.0)?;
+        buffer.write_u32(self.packet_id.0)?;
+        buffer.write_u32(self.last_ack_packet_id.0)?;
         buffer.write_u32(self.ack_bitfield)?;
-        buffer.write_u16(self.tick.0)?;
+        buffer.write_u32(self.tick.0)?;
         Ok(())
     }
 
@@ -55,10 +55,10 @@ impl ToBytes for PacketHeader {
         Self: Sized,
     {
         let packet_type = buffer.read_u8()?;
-        let packet_id = buffer.read_u16()?;
-        let last_ack_packet_id = buffer.read_u16()?;
+        let packet_id = buffer.read_u32()?;
+        let last_ack_packet_id = buffer.read_u32()?;
         let ack_bitfield = buffer.read_u32()?;
-        let tick = buffer.read_u16()?;
+        let tick = buffer.read_u32()?;
         Ok(Self {
             packet_type: PacketType::try_from(packet_type)?,
             packet_id: PacketId(packet_id),
@@ -150,7 +150,7 @@ impl PacketHeaderManager {
         self.sent_packets_not_acked.retain(|packet_id, time_sent| {
             // protection against keep old packets for too long (which would cause bugs on wraparound)
             if real.saturating_sub(*time_sent) > nack_duration
-                || (self.next_packet_id - *packet_id > i16::MAX / 3)
+                || (self.next_packet_id - *packet_id > i32::MAX / 3)
             {
                 trace!(?packet_id, "sent packet got lost");
                 self.lost_packets.push(*packet_id);
@@ -176,7 +176,7 @@ impl PacketHeaderManager {
             self.newly_acked_packets.insert(packet);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
-            let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u16));
+            let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u32));
             if header.get_bitfield_bit(i - 1)
                 && let Some(packet) = self.update_sent_packets_not_acked(&packet_id)
             {
@@ -215,7 +215,7 @@ impl PacketHeaderManager {
         let last_ack_packet_id = self
             .recv_buffer
             .last_recv_packet_id
-            .unwrap_or(PacketId(u16::MAX));
+            .unwrap_or(PacketId(u32::MAX));
         let outgoing_header = PacketHeader {
             packet_type,
             packet_id: self.next_packet_id,
@@ -269,7 +269,7 @@ impl ReceiveBuffer {
             return;
         }
 
-        let bitfield_size = ACK_BITFIELD_SIZE as i16;
+        let bitfield_size = ACK_BITFIELD_SIZE as i32;
         let diff = self.last_recv_packet_id.unwrap() - id;
         if diff > bitfield_size {
             return;
@@ -335,7 +335,7 @@ mod tests {
         // add a most recent packet, and perform some assertions
         fn add_most_recent_packet(
             mut buffer: ReceiveBuffer,
-            id: u16,
+            id: u32,
             expected_bitfield: u32,
         ) -> ReceiveBuffer {
             buffer.recv_packet(PacketId(id));

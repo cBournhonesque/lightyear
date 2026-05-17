@@ -101,7 +101,9 @@ fn test_despawned_predicted_rollback() {
         .get_mut::<CompFull>(server_entity)
         .unwrap()
         .0 = 2.0;
-    stepper.frame_step(2);
+    // 3 frames: 1 for server to send, 1 for client to receive (mismatch detected),
+    // 1 for check_rollback to consume the mismatch and run rollback
+    stepper.frame_step(3);
 
     // Check that the entity was rolled back and the PredictionDisable marker was removed
     assert!(

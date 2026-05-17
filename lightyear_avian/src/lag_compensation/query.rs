@@ -128,9 +128,16 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     );
                     return false;
                 };
-                // TODO: handle this in host-server mode!
-                let (_, (target_position, target_rotation, _)) =
-                    history.into_iter().nth(source_idx + 1).unwrap();
+                let Some((_, (target_position, target_rotation, _))) =
+                    history.into_iter().nth(source_idx + 1)
+                else {
+                    debug!(
+                        ?interpolation_tick,
+                        ?source_idx,
+                        "Could not find history tick after interpolation_tick"
+                    );
+                    return false;
+                };
                 // we assume that the collider itself doesn't change so we don't need to interpolate it
                 let interpolated_position =
                     start_position.lerp(**target_position, interpolation_overstep);

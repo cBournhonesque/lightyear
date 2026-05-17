@@ -12,6 +12,7 @@ use crate::client::ExampleClientPlugin;
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;

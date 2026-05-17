@@ -11,8 +11,9 @@ repository = "https://github.com/cBournhonesque/lightyear"
 [features]
 default = ["std"]
 std = ["lightyear_transport/std"]
-client = []
+client = ["lightyear_sync/client"]
 server = ["lightyear_connection/server"]
+delta = ["dep:dashmap"]
 prediction = []
 interpolation = []
 deterministic = []
@@ -30,16 +31,17 @@ lightyear_core.workspace = true
 lightyear_connection.workspace = true
 lightyear_messages.workspace = true
 lightyear_transport.workspace = true
-lightyear_sync.workspace = true
+lightyear_sync = { workspace = true, optional = true }
 
 # utils
-dashmap.workspace = true
+dashmap = { workspace = true, optional = true }
 indexmap.workspace = true
 metrics = { workspace = true, optional = true }
 smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 seahash.workspace = true
+fixedbitset.workspace = true
 
 # serde
 serde.workspace = true
@@ -55,7 +57,11 @@ bevy_ptr.workspace = true
 bevy_reflect.workspace = true
 bevy_time = { workspace = true, features = ["bevy_reflect"] }
 bevy_transform = { workspace = true, features = ["libm"] }
+bevy_state.workspace = true
 bevy_utils.workspace = true
+
+# replication
+bevy_replicon.workspace = true
 
 # avian
 avian2d = { workspace = true, optional = true }

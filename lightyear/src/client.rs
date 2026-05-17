@@ -2,6 +2,8 @@ use bevy_app::{PluginGroup, PluginGroupBuilder};
 
 use crate::shared::SharedPlugins;
 use core::time::Duration;
+#[cfg(feature = "replication")]
+use lightyear_replication::LightyearRepliconClientBackend;
 
 /// A plugin group containing all the client plugins.
 ///
@@ -34,6 +36,9 @@ impl PluginGroup for ClientPlugins {
         let builder = builder.add(SharedPlugins {
             tick_duration: self.tick_duration,
         });
+
+        #[cfg(feature = "replication")]
+        let builder = builder.add(LightyearRepliconClientBackend);
 
         // if the server feature is enabled (e.g. for host-server mode), then we don't need
         // the client to send checksum messages

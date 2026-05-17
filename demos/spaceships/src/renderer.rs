@@ -16,6 +16,7 @@ use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
 use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
+use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -27,10 +28,6 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(Startup, init_camera);
         app.insert_resource(ClearColor::default());
         let draw_shadows = false;
-        // in an attempt to reduce flickering, draw walls before FixedUpdate runs
-        // so they exist for longer during this tick.
-        // retained gizmos may help us in bevy 0.15?
-        app.add_systems(PreUpdate, draw_walls);
 
         // draw after visual interpolation has propagated
         app.add_systems(
@@ -41,13 +38,19 @@ impl Plugin for ExampleRendererPlugin {
                 draw_predicted_entities,
                 draw_confirmed_entities.run_if(is_server),
                 draw_explosions,
+                emit_bullet_visual_state,
             )
                 .chain()
                 .after(TransformSystems::Propagate),
         );
         app.add_observer(add_player_label);
+        app.add_observer(add_wall_visual);
 
         app.add_systems(FixedPreUpdate, insert_bullet_mesh);
+        app.add_systems(
+            PostUpdate,
+            update_bullet_visual_offsets.before(TransformSystems::Propagate),
+        );
 
         app.add_plugins(EntityLabelPlugin);
 
@@ -94,7 +97,7 @@ fn init_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         Camera { ..default() },
-        Tonemapping::TonyMcMapface,
+        Tonemapping::None,
         Bloom::default(),
         Visibility::default(),
     ));
@@ -110,7 +113,6 @@ fn add_player_label(
         info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             Visibility::default(),
-            Transform::default(),
             EntityLabel {
                 text: format!("{} <{}>\n", player.nickname, score.0),
                 color: css::ANTIQUE_WHITE.with_alpha(0.8).into(),
@@ -159,9 +161,9 @@ pub(crate) fn draw_confirmed_shadows(
             &Position,
             &Collider,
             &ColorComponent,
-            &Confirmed<Position>,
-            &Confirmed<Rotation>,
-            &Confirmed<LinearVelocity>,
+            &ConfirmedHistory<Position>,
+            &ConfirmedHistory<Rotation>,
+            &ConfirmedHistory<LinearVelocity>,
         ),
         (
             With<Predicted>,
@@ -169,11 +171,28 @@ pub(crate) fn draw_confirmed_shadows(
         ),
     >,
 ) {
-    for (pred_pos, collider, color, position, rotation, velocity) in query.iter() {
-        let speed = velocity.length() / MAX_VELOCITY;
+    for (pred_pos, collider, color, pos_history, rot_history, vel_history) in query.iter() {
+        let Some((_, confirmed_pos)) = pos_history.end().or_else(|| pos_history.start()) else {
+            continue;
+        };
+        let Some((_, confirmed_rot)) = rot_history.end().or_else(|| rot_history.start()) else {
+            continue;
+        };
+        let confirmed_speed = vel_history
+            .end()
+            .or_else(|| vel_history.start())
+            .map(|(_, v)| v.length())
+            .unwrap_or(0.0);
+        let speed = confirmed_speed / MAX_VELOCITY;
         let ghost_col = color.0.with_alpha(0.2 + speed * 0.8);
-        render_shape(collider.shape(), position, rotation, &mut gizmos, ghost_col);
-        gizmos.line_2d(***position, **pred_pos, ghost_col);
+        render_shape(
+            collider.shape(),
+            confirmed_pos,
+            confirmed_rot,
+            &mut gizmos,
+            ghost_col,
+        );
+        gizmos.line_2d(confirmed_pos.0, pred_pos.0, ghost_col);
     }
 }
 
@@ -244,12 +263,6 @@ fn draw_predicted_entities(
                 (col.to_linear() * 2.5).into(), // bloom
             );
         }
-    }
-}
-
-fn draw_walls(walls: Query<&Wall, Without<Player>>, mut gizmos: Gizmos) {
-    for wall in &walls {
-        gizmos.line_2d(wall.start, wall.end, Color::WHITE);
     }
 }
 
@@ -352,25 +365,253 @@ pub fn render_shape(
     }
 }
 
-pub fn insert_bullet_mesh(
-    q: Query<(Entity, &Collider, &ColorComponent), (With<BulletMarker>, Added<Collider>)>,
+fn insert_bullet_mesh(
+    q: Query<
+        (
+            Entity,
+            &Collider,
+            &ColorComponent,
+            &BulletMarker,
+            Option<&Position>,
+            Has<Interpolated>,
+            Has<Predicted>,
+            Has<PreSpawned>,
+            Has<Replicate>,
+        ),
+        (
+            With<BulletMarker>,
+            With<Collider>,
+            Without<BulletVisualAttached>,
+        ),
+    >,
+    players: Query<(&Player, &Position, Option<&Rotation>), With<Predicted>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (entity, collider, col) in q.iter() {
+    for (
+        entity,
+        collider,
+        col,
+        bullet,
+        bullet_position,
+        is_interpolated,
+        is_predicted,
+        is_prespawned,
+        is_replicate,
+    ) in q.iter()
+    {
+        if !is_predicted && !is_prespawned && !is_interpolated && !is_replicate {
+            continue;
+        }
+
         let ball = collider
             .shape()
             .as_ball()
             .expect("Bullets expected to be balls.");
         let ball = Circle::new(ball.radius);
         let mesh = Mesh::from(ball);
-        commands.entity(entity).insert((
-            Mesh2d(meshes.add(mesh)),
-            Transform::from_translation(Vec3::Z),
-            MeshMaterial2d(materials.add(ColorMaterial::from(col.0))),
-        ));
+        let mut visual_transform = Transform::from_translation(Vec3::Z);
+        let mut catchup = None;
+
+        if is_interpolated
+            && let Some(bullet_position) = bullet_position
+            && let Some((_, player_position, player_rotation)) = players
+                .iter()
+                .find(|(player, _, _)| player.client_id == bullet.owner)
+        {
+            let player_rotation = player_rotation.copied().unwrap_or_default();
+            let bullet_spawn_offset = Vec2::Y * (2.0 + (SHIP_LENGTH + BULLET_SIZE) / 2.0);
+            let visual_start = player_position.0 + player_rotation * bullet_spawn_offset;
+            let offset = visual_start - bullet_position.0;
+            if offset.length_squared() > 1.0 {
+                visual_transform.translation = offset.extend(1.0);
+                catchup = Some(BulletVisualCatchup::new(offset));
+            }
+            lightyear_debug_event!(
+                DebugCategory::Component,
+                DebugSamplePoint::FixedPreUpdate,
+                "FixedPreUpdate",
+                "spaceships_bullet_visual_inserted",
+                bullet = ?entity,
+                owner = ?bullet.owner,
+                is_interpolated = is_interpolated,
+                bullet_position = ?bullet_position,
+                visual_start = ?visual_start,
+                visual_offset = ?offset,
+                "Inserted interpolated bullet visual"
+            );
+        }
+
+        commands
+            .entity(entity)
+            .try_insert((Visibility::default(), BulletVisualAttached));
+        commands.entity(entity).with_children(|parent| {
+            let mut child = parent.spawn((
+                BulletVisualMesh,
+                Mesh2d(meshes.add(mesh)),
+                visual_transform,
+                MeshMaterial2d(materials.add(ColorMaterial::from(col.0))),
+                Visibility::default(),
+            ));
+            if let Some(catchup) = catchup {
+                child.insert(catchup);
+            }
+        });
     }
+}
+
+#[derive(Component)]
+struct BulletVisualAttached;
+
+#[derive(Component)]
+struct BulletVisualMesh;
+
+#[derive(Component)]
+struct BulletVisualCatchup {
+    initial_offset: Vec2,
+    elapsed: f32,
+    duration: f32,
+}
+
+impl BulletVisualCatchup {
+    fn new(initial_offset: Vec2) -> Self {
+        Self {
+            initial_offset,
+            elapsed: 0.0,
+            duration: 0.18,
+        }
+    }
+}
+
+fn update_bullet_visual_offsets(
+    mut commands: Commands,
+    time: Res<Time>,
+    mut visuals: Query<(Entity, &mut Transform, &mut BulletVisualCatchup), With<BulletVisualMesh>>,
+) {
+    for (entity, mut transform, mut catchup) in &mut visuals {
+        catchup.elapsed += time.delta_secs();
+        let progress = (catchup.elapsed / catchup.duration).clamp(0.0, 1.0);
+        let offset = catchup.initial_offset * (1.0 - progress);
+        transform.translation = offset.extend(1.0);
+        if progress >= 1.0 {
+            transform.translation = Vec3::Z;
+            commands.entity(entity).remove::<BulletVisualCatchup>();
+        }
+    }
+}
+
+fn emit_bullet_visual_state(
+    timeline: Res<LocalTimeline>,
+    bullets: Query<
+        (
+            Entity,
+            &BulletMarker,
+            &BulletLifetime,
+            &Position,
+            &Transform,
+            &GlobalTransform,
+            Option<&Visibility>,
+            Has<Interpolated>,
+            Has<Predicted>,
+            Has<PreSpawned>,
+        ),
+        With<BulletMarker>,
+    >,
+    visual_children: Query<
+        (
+            Entity,
+            &ChildOf,
+            &Transform,
+            &GlobalTransform,
+            Has<BulletVisualCatchup>,
+        ),
+        With<BulletVisualMesh>,
+    >,
+) {
+    let tick = timeline.tick();
+    for (
+        entity,
+        marker,
+        lifetime,
+        position,
+        transform,
+        global_transform,
+        visibility,
+        is_interpolated,
+        is_predicted,
+        is_prespawned,
+    ) in &bullets
+    {
+        let visual = visual_children
+            .iter()
+            .find(|(_, child_of, _, _, _)| child_of.parent() == entity)
+            .map(
+                |(child, _, visual_transform, visual_global_transform, has_catchup)| {
+                    (
+                        child,
+                        visual_transform.translation.truncate(),
+                        visual_global_transform.translation().truncate(),
+                        has_catchup,
+                    )
+                },
+            );
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::PostUpdate,
+            "PostUpdate",
+            "spaceships_bullet_visual_state",
+            local_tick = tick.0 as i64,
+            entity = ?entity,
+            owner = ?marker.owner,
+            owner_bits = marker.owner.to_bits(),
+            origin_tick = lifetime.origin_tick.0 as i64,
+            position = ?position,
+            transform = ?transform.translation.truncate(),
+            global_transform = ?global_transform.translation().truncate(),
+            visibility = ?visibility,
+            visual = ?visual,
+            is_interpolated = is_interpolated,
+            is_predicted = is_predicted,
+            is_prespawned = is_prespawned,
+            "Spaceships bullet visual state after transform propagation"
+        );
+    }
+}
+
+#[derive(Component)]
+struct WallVisual;
+
+fn add_wall_visual(
+    trigger: On<Add, Wall>,
+    walls: Query<(&Wall, &ColorComponent)>,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let Ok((wall, color)) = walls.get(trigger.entity) else {
+        return;
+    };
+    let delta = wall.end - wall.start;
+    let length = delta.length();
+    if length == 0.0 {
+        return;
+    }
+    let midpoint = (wall.start + wall.end) * 0.5;
+    let angle = delta.y.atan2(delta.x);
+    commands
+        .entity(trigger.entity)
+        .insert(Visibility::default())
+        .with_children(|parent| {
+            parent.spawn((
+                WallVisual,
+                Mesh2d(meshes.add(Rectangle::new(length, 2.0))),
+                MeshMaterial2d(materials.add(ColorMaterial::from(color.0))),
+                Transform::from_xyz(midpoint.x, midpoint.y, 0.0)
+                    .with_rotation(Quat::from_rotation_z(angle)),
+                Visibility::default(),
+            ));
+        });
 }
 
 #[derive(Component)]

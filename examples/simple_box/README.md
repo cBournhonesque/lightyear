@@ -15,10 +15,15 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
 - Run the server without a gui: `cargo run --no-default-features --features=server -- server`
+- Run a headless client without a gui: `cargo run --no-default-features --features=client,netcode,udp -- client -c 1`
 - Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,udp,netcode`.
+
+For automated headless verification, you can set `LIGHTYEAR_SIMPLE_BOX_AUTOMOVE=right` on one client and
+`LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS=1` on another client to confirm from logs that the interpolated remote player
+keeps receiving `PlayerPosition` updates.
 
 ### Testing in wasm with webtransport
 

@@ -26,6 +26,8 @@ bevy = { workspace = true, features = [
   "bevy_core_pipeline",
   "bevy_winit",
   "bevy_window",
+  "x11",
+  "wayland",
 ] }
 serde.workspace = true
 

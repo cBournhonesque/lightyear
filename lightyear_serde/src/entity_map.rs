@@ -51,6 +51,14 @@ impl EntityMapper for SendEntityMap {
         match self.0.get(&entity) {
             Some(mapped) => {
                 trace!("Mapping entity {entity:?} to {mapped:?} in SendEntityMap!");
+                trace!(
+                    target: "lightyear_debug::entity",
+                    kind = "entity_map_send",
+                    direction = "send",
+                    source_entity = ?entity,
+                    remote_entity = ?mapped,
+                    "mapped entity while serializing"
+                );
                 RemoteEntityMap::mark_mapped(*mapped)
             }
             _ => {
@@ -61,6 +69,14 @@ impl EntityMapper for SendEntityMap {
     }
 
     fn set_mapped(&mut self, source: Entity, target: Entity) {
+        trace!(
+            target: "lightyear_debug::entity",
+            kind = "entity_map_insert",
+            direction = "send",
+            source_entity = ?source,
+            remote_entity = ?target,
+            "inserted send entity mapping"
+        );
         self.0.insert(source, target);
     }
 }
@@ -74,17 +90,54 @@ impl EntityMapper for ReceiveEntityMap {
         // if the entity was already mapped on the send side, we don't need to map it again
         // since it's the local world entity
         if RemoteEntityMap::is_mapped(entity) {
-            RemoteEntityMap::mark_unmapped(entity)
+            let mapped = RemoteEntityMap::mark_unmapped(entity);
+            trace!(
+                target: "lightyear_debug::entity",
+                kind = "entity_map_receive_preserialized",
+                direction = "receive",
+                remote_entity = ?entity,
+                entity = ?mapped,
+                "entity was already mapped before receive-side deserialization"
+            );
+            mapped
         } else {
             // if we don't find the entity, return Entity::PLACEHOLDER as an error
-            self.0.get(&entity).copied().unwrap_or_else(|| {
-                debug!("Receive: Failed to map entity {entity:?}");
-                Entity::PLACEHOLDER
-            })
+            match self.0.get(&entity).copied() {
+                Some(mapped) => {
+                    trace!(
+                        target: "lightyear_debug::entity",
+                        kind = "entity_map_receive",
+                        direction = "receive",
+                        remote_entity = ?entity,
+                        entity = ?mapped,
+                        "mapped entity while deserializing"
+                    );
+                    mapped
+                }
+                None => {
+                    debug!("Receive: Failed to map entity {entity:?}");
+                    trace!(
+                        target: "lightyear_debug::entity",
+                        kind = "entity_map_missing",
+                        direction = "receive",
+                        remote_entity = ?entity,
+                        "missing receive entity mapping"
+                    );
+                    Entity::PLACEHOLDER
+                }
+            }
         }
     }
 
     fn set_mapped(&mut self, source: Entity, target: Entity) {
+        trace!(
+            target: "lightyear_debug::entity",
+            kind = "entity_map_insert",
+            direction = "receive",
+            remote_entity = ?source,
+            entity = ?target,
+            "inserted receive entity mapping"
+        );
         self.0.insert(source, target);
     }
 }

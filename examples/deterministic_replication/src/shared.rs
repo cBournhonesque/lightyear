@@ -2,33 +2,40 @@ use crate::protocol::*;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
-use core::hash::{Hash, Hasher};
-use leafwing_input_manager::input_map::InputMap;
 use leafwing_input_manager::prelude::ActionState;
-use lightyear::connection::client_of::ClientOf;
-use lightyear::connection::host::HostClient;
-use lightyear::input::input_buffer::InputBuffer;
-use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
-use lightyear::prediction::predicted_history::PredictionHistory;
-use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
+use lightyear::input::leafwing::prelude::LeafwingBuffer;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
-use lightyear_frame_interpolation::FrameInterpolate;
+use lightyear_deterministic_replication::prelude::{
+    AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode,
+};
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
-pub(crate) const MAX_VELOCITY: f32 = 200.0;
+const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
+const BALL_PRESPAWN_HASH: u64 = 0xD37E_12B4_0000_0001;
 
 /// SharedPlugin between the client and server.
-///
-/// We can choose to make the server a pure relay server (with 0 simulation), or to make it simulate some elements.
 #[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
+        app.insert_resource(catch_up_mode_from_env());
         // bundles
         app.add_systems(Startup, init);
+
+        // Frame interpolation on Position/Rotation. Even without a GUI, we
+        // need this for its `FrameInterpolationSystems::Restore` system to
+        // run in `RunFixedMainLoop` BEFORE Avian's `transform_to_position`
+        // sync — otherwise the post-rollback Position gets overwritten by
+        // the (stale) Transform at the start of each FixedUpdate. See the
+        // TODO in `lightyear_avian/src/plugin.rs::AvianReplicationMode::Position`.
+        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
+        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_observer(add_frame_interpolation_components);
 
         // physics
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
@@ -52,31 +59,99 @@ impl Plugin for SharedPlugin {
         // Game logic
         app.add_systems(FixedUpdate, player_movement);
 
-        // DEBUG
-        // app.add_systems(
-        //     RunFixedMainLoop,
-        //     debug.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
-        // );
-        // app.add_systems(
-        //     FixedPreUpdate,
-        //     fixed_pre_log.after(InputSet::BufferClientInputs),
-        // );
-        // app.add_systems(FixedPostUpdate, fixed_pre_prepare
-        //     .after(PhysicsSet::First)
-        //     .before(PhysicsSet::Prepare));
+        // Structured debug events for offline investigation via LIGHTYEAR_DEBUG_FILE.
         app.add_systems(
             FixedPostUpdate,
-            fixed_pre_physics
+            emit_before_physics
                 .after(PhysicsSystems::Prepare)
                 .before(PhysicsSystems::StepSimulation),
         );
-        app.add_systems(FixedLast, fixed_last_log);
-        // app.add_systems(Last, last_log);
+        app.add_systems(FixedLast, emit_fixed_last_players);
     }
 }
 
-pub(crate) fn init(mut commands: Commands) {
-    commands.spawn((
+fn catch_up_mode_from_env() -> CatchUpMode {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        match std::env::var("LIGHTYEAR_CATCHUP_MODE") {
+            Ok(value)
+                if matches!(
+                    value.trim().to_ascii_lowercase().as_str(),
+                    "input-only" | "input_only" | "inputonly" | "input"
+                ) =>
+            {
+                CatchUpMode::InputOnly
+            }
+            _ => CatchUpMode::StateBasedCatchUp,
+        }
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        CatchUpMode::StateBasedCatchUp
+    }
+}
+
+/// Insert `FrameInterpolate<Position>` / `FrameInterpolate<Rotation>` on any
+/// `DeterministicPredicted` entity with `Position`. Required so that
+/// `FrameInterpolationSystems::Restore` runs BEFORE Avian's transform→position
+/// sync at each FixedUpdate iteration, preserving post-rollback Position.
+///
+/// Triggered on `DeterministicPredicted` add (not `Position` add) because on
+/// the client, catch-up gated entities already have `Position` when
+/// `DeterministicPredicted` is inserted — so an `On<Add, Position>` observer
+/// would miss them.
+fn add_frame_interpolation_components(
+    trigger: On<Add, DeterministicPredicted>,
+    query: Query<(), (With<Position>, Without<FrameInterpolate<Position>>)>,
+    mut commands: Commands,
+) {
+    if query.get(trigger.entity).is_ok() {
+        commands.entity(trigger.entity).insert((
+            FrameInterpolate::<Position>::default(),
+            FrameInterpolate::<Rotation>::default(),
+        ));
+    }
+}
+
+pub(crate) fn init(
+    mut commands: Commands,
+    mode: Res<CatchUpMode>,
+    server: Option<Single<(), With<Server>>>,
+    client: Option<Single<(), With<Client>>>,
+) {
+    let is_server = server.is_some();
+    let is_client = client.is_some();
+
+    spawn_ball(&mut commands, &mode, is_server, is_client);
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(-WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, WALL_SIZE),
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+    commands.spawn(WallBundle::new(
+        Vec2::new(WALL_SIZE, -WALL_SIZE),
+        Vec2::new(-WALL_SIZE, -WALL_SIZE),
+        Color::WHITE,
+    ));
+}
+
+pub(crate) fn spawn_ball(
+    commands: &mut Commands,
+    mode: &CatchUpMode,
+    is_server: bool,
+    is_client: bool,
+) -> Entity {
+    let mut ball = commands.spawn((
         Position::default(),
         ColorComponent(css::AZURE.into()),
         PhysicsBundle::ball(),
@@ -87,26 +162,15 @@ pub(crate) fn init(mut commands: Commands) {
         },
         Name::from("Ball"),
     ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
+    if *mode == CatchUpMode::StateBasedCatchUp {
+        ball.insert(PreSpawned::new(BALL_PRESPAWN_HASH));
+        if is_server {
+            ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
+        } else if is_client {
+            ball.insert(AwaitingCatchUpSnapshot);
+        }
+    }
+    ball.id()
 }
 
 pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {
@@ -128,12 +192,10 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     Color::hsl(h, s, l)
 }
 
-// This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(
+fn shared_movement_behaviour(
     mut velocity: Mut<LinearVelocity>,
     action: &ActionState<PlayerActions>,
 ) {
-    trace!(pressed = ?action.get_pressed(), "shared movement");
     const MOVE_SPEED: f32 = 10.0;
     if action.pressed(&PlayerActions::Up) {
         velocity.y += MOVE_SPEED;
@@ -150,187 +212,143 @@ pub(crate) fn shared_movement_behaviour(
     *velocity = LinearVelocity(velocity.clamp_length_max(MAX_VELOCITY));
 }
 
-/// In deterministic replication, the client and server simulates all players.
+/// In deterministic replication, every peer simulates every player.
 fn player_movement(
     timeline: Res<LocalTimeline>,
-    mut velocity_query: Query<(
-        Entity,
-        &PlayerId,
-        &Position,
-        &mut LinearVelocity,
-        &ActionState<PlayerActions>,
-    )>,
+    mut players: Query<
+        (
+            &mut LinearVelocity,
+            &ActionState<PlayerActions>,
+            Option<&PlayerActivationTick>,
+        ),
+        With<PlayerId>,
+    >,
 ) {
     let tick = timeline.tick();
-    for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
+    for (velocity, action_state, activation_tick) in players.iter_mut() {
+        if activation_tick.is_some_and(|activation_tick| tick < activation_tick.0) {
+            continue;
+        }
         if !action_state.get_pressed().is_empty() {
-            trace!(?entity, ?tick, ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
-            // note that we also apply the input to the other predicted clients! even though
-            //  their inputs are only replicated with a delay!
-            // TODO: add input decay?
             shared_movement_behaviour(velocity, action_state);
         }
     }
 }
 
-fn debug() {
-    trace!("Fixed Start");
-}
-
-pub(crate) fn fixed_pre_log(
-    timeline: Res<LocalTimeline>,
-    remote_client_inputs: Query<
-        (
-            Entity,
-            &ActionState<PlayerActions>,
-            &LeafwingBuffer<PlayerActions>,
-        ),
-        (Without<InputMap<PlayerActions>>, With<Predicted>),
-    >,
-) {
-    let tick = timeline.tick();
-    for (entity, action_state, buffer) in remote_client_inputs.iter() {
-        let pressed = action_state.get_pressed();
-        info!(
-            ?tick,
-            ?entity,
-            ?pressed,
-            %buffer,
-            "Remote client input before FixedUpdate");
-    }
-}
-
-pub(crate) fn fixed_pre_prepare(
-    timeline: Res<LocalTimeline>,
-    remote_client_inputs: Query<
-        (
-            Entity,
-            &Position,
-            &LinearVelocity,
-            &ActionState<PlayerActions>,
-        ),
-        With<Predicted>,
-    >,
-) {
-    let tick = timeline.tick();
-    for (entity, position, velocity, action_state) in remote_client_inputs.iter() {
-        let pressed = action_state.get_pressed();
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?velocity,
-            ?pressed,
-            "Client in FixedPostUpdate right before prepare"
-        );
-    }
-}
-
-pub(crate) fn fixed_pre_physics(
+pub(crate) fn emit_before_physics(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
             &Position,
+            &Rotation,
+            &LinearVelocity,
+            &AngularVelocity,
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerId>,
+            Has<BallMarker>,
         ),
-        (Without<BallMarker>, With<PlayerId>),
+        Or<(With<PlayerId>, With<BallMarker>)>,
     >,
 ) {
     let tick = timeline.tick();
-    for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
+    for (
+        entity,
+        position,
+        rotation,
+        linear_velocity,
+        angular_velocity,
+        interpolate,
+        correction,
+        action_state,
+        input_buffer,
+        player_id,
+        is_ball,
+    ) in players.iter()
+    {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?interpolate,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedUpdateBeforePhysics,
+            "FixedPostUpdate",
+            "player_before_physics",
+            tick = ?tick,
+            entity = ?entity,
+            player_id = ?player_id,
+            is_ball,
+            position = ?position,
+            rotation = ?rotation,
+            linear_velocity = ?linear_velocity,
+            angular_velocity = ?angular_velocity,
+            interpolate = ?interpolate,
+            correction = ?correction,
+            pressed = ?pressed,
+            last_buffer_tick = ?last_buffer_tick,
             "Player right before Physics::StepSimulation"
         );
     }
 }
 
-pub(crate) fn fixed_last_log(
+pub(crate) fn emit_fixed_last_players(
     timeline: Res<LocalTimeline>,
     players: Query<
         (
             Entity,
             &Position,
+            &Rotation,
+            &LinearVelocity,
+            &AngularVelocity,
             Option<&FrameInterpolate<Position>>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&LeafwingBuffer<PlayerActions>>,
+            Option<&PlayerId>,
+            Has<BallMarker>,
         ),
-        (Without<BallMarker>, With<PlayerId>),
+        Or<(With<PlayerId>, With<BallMarker>)>,
     >,
-    ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
 ) {
     let tick = timeline.tick();
-    for (entity, position, interpolate, correction, action_state, input_buffer) in players.iter() {
-        let pressed = action_state.map(|a| a.get_pressed());
-        let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?interpolate,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
-            "Player in FixedLast"
-        );
-    }
-    // for (position, correction) in ball.iter() {
-    //     info!(?tick, ?position, ?correction, "Ball after physics update");
-    // }
-}
-
-pub(crate) fn last_log(
-    timeline: Res<LocalTimeline>,
-    players: Query<
-        (
-            Entity,
-            &Position,
-            &Transform,
-            Option<&FrameInterpolate<Position>>,
-            Option<&VisualCorrection<Position>>,
-            Option<&ActionState<PlayerActions>>,
-            Option<&LeafwingBuffer<PlayerActions>>,
-        ),
-        (Without<BallMarker>, With<PlayerId>),
-    >,
-    ball: Query<(&Position, Option<&VisualCorrection<Position>>), With<BallMarker>>,
-) {
-    let tick = timeline.tick();
-
-    for (entity, position, transform, interpolate, correction, action_state, input_buffer) in
-        players.iter()
+    for (
+        entity,
+        position,
+        rotation,
+        linear_velocity,
+        angular_velocity,
+        interpolate,
+        correction,
+        action_state,
+        input_buffer,
+        player_id,
+        is_ball,
+    ) in players.iter()
     {
         let pressed = action_state.map(|a| a.get_pressed());
         let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        let translation = transform.translation.truncate();
-        info!(
-            ?tick,
-            ?entity,
-            ?position,
-            ?translation,
-            ?interpolate,
-            ?correction,
-            ?pressed,
-            ?last_buffer_tick,
-            "Player in Last"
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::FixedLast,
+            "FixedLast",
+            "player_fixed_last",
+            tick = ?tick,
+            entity = ?entity,
+            player_id = ?player_id,
+            is_ball,
+            position = ?position,
+            rotation = ?rotation,
+            linear_velocity = ?linear_velocity,
+            angular_velocity = ?angular_velocity,
+            interpolate = ?interpolate,
+            correction = ?correction,
+            pressed = ?pressed,
+            last_buffer_tick = ?last_buffer_tick,
+            "Player in FixedLast"
         );
     }
-    // for (position, correction) in ball.iter() {
-    //     info!(?tick, ?position, ?correction, "Ball after physics update");
-    // }
 }
 
 // Wall

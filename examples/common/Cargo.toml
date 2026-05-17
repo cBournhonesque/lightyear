@@ -18,7 +18,8 @@ server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
 udp = ["lightyear/udp"]
 steam = ["lightyear/steam"]
-debug = ["gui2d", "lightyear/debug"]
+structured-debug = ["lightyear/debug"]
+debug = ["gui2d", "structured-debug"]
 gui2d = [
   "dep:bevy-inspector-egui",
   "bevy/2d",

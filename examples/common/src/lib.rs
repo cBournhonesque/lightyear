@@ -88,6 +88,7 @@ pub mod client_renderer;
 pub mod server_renderer;
 pub mod shared;
 
+pub mod automation;
 pub mod cli;
 #[cfg(feature = "client")]
 pub mod client;

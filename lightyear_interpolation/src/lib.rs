@@ -7,7 +7,8 @@ extern crate std;
 
 use bevy_ecs::component::{Component, Mutable};
 
-mod despawn;
+/// Handles delayed despawns for interpolated entities.
+pub mod despawn;
 /// Contains interpolation logic.
 pub mod interpolate;
 /// Defines `ConfirmedHistory` for storing historical states of confirmed entities.

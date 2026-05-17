@@ -20,13 +20,14 @@ default = ["std"]
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_core.workspace = true
-lightyear_inputs = { workspace = true, features = ["client"] }
+lightyear_inputs = { workspace = true, features = ["client", "server"] }
 lightyear_link.workspace = true
 lightyear_messages.workspace = true
 lightyear_connection = { workspace = true, features = ["server"] }
 lightyear_sync.workspace = true
 lightyear_prediction = { workspace = true, features = ["deterministic"] }
 lightyear_replication = { workspace = true, features = ["deterministic"] }
+lightyear_transport.workspace = true
 
 # utils
 seahash.workspace = true
@@ -35,9 +36,13 @@ tracing.workspace = true
 # bevy
 bevy_app = { workspace = true, features = ["bevy_reflect"] }
 bevy_ecs.workspace = true
+bevy_replicon.workspace = true
 
 # serde
 serde.workspace = true
+
+[dev-dependencies]
+test-log.workspace = true
 
 [lints]
 workspace = true

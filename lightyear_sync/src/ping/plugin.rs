@@ -75,6 +75,7 @@ impl PingPlugin {
         tick_duration: Res<TickDuration>,
         mut query: Query<
             (
+                Entity,
                 &mut PingManager,
                 &mut MessageSender<Ping>,
                 &mut MessageSender<Pong>,
@@ -91,9 +92,18 @@ impl PingPlugin {
         // let frame_time = now - frame_start;
         query
             .par_iter_mut()
-            .for_each(|(mut m, mut ping_sender, mut pong_sender)| {
+            .for_each(|(entity, mut m, mut ping_sender, mut pong_sender)| {
                 // send the pings
                 if let Some(ping) = m.maybe_prepare_ping(now) {
+                    trace!(
+                        target: "lightyear_debug::sync",
+                        kind = "ping_message_send",
+                        schedule = "PostUpdate",
+                        sample_point = "PostUpdate",
+                        entity = ?entity,
+                        ping_id = ping.id.0,
+                        "queued ping message"
+                    );
                     ping_sender.send::<PingChannel>(ping);
                 }
                 // prepare the pong messages with the correct send time
@@ -104,6 +114,16 @@ impl PingPlugin {
                             TickDelta::from_duration(now - ping_receive_time, tick_duration.0)
                                 .into();
                         trace!(?now, ?ping_receive_time, ?pong, "Sending pong");
+                        trace!(
+                            target: "lightyear_debug::sync",
+                            kind = "pong_send",
+                            schedule = "PostUpdate",
+                            sample_point = "PostUpdate",
+                            entity = ?entity,
+                            ping_id = pong.ping_id.0,
+                            frame_time_ticks = ?pong.frame_time,
+                            "queued pong message"
+                        );
 
                         // TODO: maybe include the tick + overstep in every packet?
                         // TODO: how to use the overstep?

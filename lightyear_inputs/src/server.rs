@@ -1,11 +1,13 @@
 //! Handle input messages received from the clients
 
+use crate::HISTORY_DEPTH;
+#[cfg(feature = "prediction")]
+use crate::InputChannel;
 use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
 };
 use crate::plugin::InputPlugin;
-use crate::{HISTORY_DEPTH, InputChannel};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
@@ -21,6 +23,7 @@ use bevy_ecs::{
 };
 use bevy_utils::prelude::DebugName;
 use core::fmt::{Debug, Formatter};
+use core::time::Duration;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostServer;
 use lightyear_connection::prelude::NetworkTarget;
@@ -32,9 +35,14 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
-use lightyear_replication::prelude::{PreSpawned, Room};
+use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
+/// Server-side plugin that receives input messages from clients and applies
+/// them to [`InputBuffer`](crate::input_buffer::InputBuffer) components.
+///
+/// If `rebroadcast_inputs` is enabled, the server also forwards input messages
+/// to other clients so they can use them for remote-player prediction.
 pub struct ServerInputPlugin<S> {
     pub rebroadcast_inputs: bool,
     pub marker: core::marker::PhantomData<S>,
@@ -49,6 +57,8 @@ impl<S> Default for ServerInputPlugin<S> {
     }
 }
 
+/// Runtime configuration for server-side input handling, inserted as a resource
+/// by [`ServerInputPlugin`].
 #[derive(Resource)]
 pub struct ServerInputConfig<S> {
     pub rebroadcast_inputs: bool,
@@ -72,7 +82,7 @@ pub enum InputSystems {
 #[derive(Component)]
 pub enum InputRebroadcaster<S> {
     // Rebroadcast to all users in the room
-    Room(Entity),
+    Room(RoomId),
     Target(NetworkTarget),
     Marker(core::marker::PhantomData<S>),
 }
@@ -80,7 +90,7 @@ pub enum InputRebroadcaster<S> {
 impl<S> Debug for InputRebroadcaster<S> {
     fn fmt(&self, f: &mut Formatter<'_>) -> core::fmt::Result {
         match self {
-            InputRebroadcaster::Room(entity) => f.debug_tuple("Room").field(entity).finish(),
+            InputRebroadcaster::Room(id) => f.debug_tuple("Room").field(id).finish(),
             InputRebroadcaster::Target(target) => f.debug_tuple("Target").field(target).finish(),
             InputRebroadcaster::Marker(_) => f
                 .debug_tuple("Marker")
@@ -144,9 +154,10 @@ fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S::Action>>,
     server: Query<&Server>,
     // make sure to only rebroadcast inputs to connected clients
+    #[cfg_attr(not(feature = "prediction"), allow(unused_mut))]
     mut sender: ServerMultiMessageSender<With<Connected>>,
     tick_duration: Res<TickDuration>,
-    rooms: Query<&Room>,
+    rooms_query: Query<(Entity, &Rooms), With<Connected>>,
     timeline: Res<LocalTimeline>,
     mut receivers: Query<
         (
@@ -161,7 +172,13 @@ fn receive_input_message<S: ActionStateSequence>(
         With<Connected>,
     >,
     mut query: Query<Option<&mut InputBuffer<S::Snapshot, S::Action>>>,
-    prespawned: Query<(Entity, &PreSpawned), With<<S::State as ActionStateQueryData>::Main>>,
+    prespawned: Query<
+        (Entity, &PreSpawned),
+        (
+            With<<S::State as ActionStateQueryData>::Main>,
+            With<InputBuffer<S::Snapshot, S::Action>>,
+        ),
+    >,
     mut commands: Commands,
 ) -> Result {
     // TODO: use par_iter_mut
@@ -170,7 +187,9 @@ fn receive_input_message<S: ActionStateSequence>(
         //  should we just read instead?
         let server_entity = link_of.server;
         let tick = timeline.tick();
-        receiver.receive().try_for_each(|mut message| {
+        receiver.receive().try_for_each(|message| {
+            #[cfg(feature = "prediction")]
+            let mut message = message;
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
@@ -183,6 +202,22 @@ fn receive_input_message<S: ActionStateSequence>(
             //     return Ok(())
             // }
             trace!(?tick, ?client_id, action = ?DebugName::type_name::<S::Action>().shortname(), ?message.end_tick, ?message.inputs, "received input message");
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_input_message_recv",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?client_entity,
+                server_entity = ?server_entity,
+                client_id = ?client_id.0,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                end_tick = message.end_tick.0,
+                num_targets = message.inputs.len(),
+                rebroadcast = message.rebroadcast,
+                message = ?message,
+                "server received input message"
+            );
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
@@ -196,8 +231,33 @@ fn receive_input_message<S: ActionStateSequence>(
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
                 // only rebroadcast if the message is not already a rebroadcast
                 if !message.rebroadcast {
+                    // Resolve PreSpawned targets to server entities before rebroadcasting,
+                    // so that other clients can resolve them via normal entity mapping.
+                    for input in message.inputs.iter_mut() {
+                        if let InputTarget::PreSpawned(hash) = input.target
+                            && let Some(server_e) = prespawned.iter()
+                                .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                        {
+                            input.target = InputTarget::Entity(server_e);
+                        }
+                    }
                     debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
                     message.rebroadcast = true;
+                    trace!(
+                        target: "lightyear_debug::input",
+                        kind = "server_input_rebroadcast",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?client_entity,
+                        server_entity = ?server_entity,
+                        client_id = ?client_id.0,
+                        action = ?DebugName::type_name::<S::Action>(),
+                        local_tick = tick.0,
+                        end_tick = message.end_tick.0,
+                        rebroadcaster = ?rebroadcaster,
+                        num_targets = message.inputs.len(),
+                        "server rebroadcasting input message"
+                    );
                     match rebroadcaster {
                         None => {
                             sender.send::<_, InputChannel>(
@@ -207,12 +267,14 @@ fn receive_input_message<S: ActionStateSequence>(
                             )?;
                         }
                         Some(InputRebroadcaster::Room(room)) => {
-                            if let Ok(room) = rooms.get(*room) {
-                                sender.send_to_entities::<_, InputChannel>(
-                                    &message,
-                                    room.clients.iter().filter(|e| **e != client_entity).copied()
-                                )?;
-                            }
+                            let targets: bevy_ecs::entity::EntityHashSet = rooms_query.iter()
+                                .filter(|(e, rooms)| *e != client_entity && rooms.contains_room(*room))
+                                .map(|(e, _)| e)
+                                .collect();
+                            sender.send_to_entities::<_, InputChannel>(
+                                &message,
+                                &targets
+                            )?;
                         },
                         Some(InputRebroadcaster::Target(target)) => {
                             sender.send::<_, InputChannel>(
@@ -248,16 +310,145 @@ fn receive_input_message<S: ActionStateSequence>(
                 };
                 if let Ok(buffer) = query.get_mut(entity) {
                     if let Some(mut buffer) = buffer {
-                       trace!(
+                        trace!(
                             "Updating InputBuffer: {} using: {:?}",
                             buffer.as_ref(),
                             data.states
                         );
-                        data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        let previous_last_remote_tick = buffer.last_remote_tick;
+                        if let Some((rewrite_tick, previous, incoming)) =
+                            detect_input_history_rewrite::<S>(
+                                data.states.clone(),
+                                &buffer,
+                                message.end_tick,
+                                tick_duration.0,
+                            )
+                        {
+                            if rewrite_tick < tick {
+                                error!(
+                                    target: "lightyear_debug::input",
+                                    kind = "server_input_history_rewrite",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity,
+                                    client_entity = ?client_entity,
+                                    client_id = ?client_id.0,
+                                    action = ?DebugName::type_name::<S::Action>(),
+                                    local_tick = tick.0,
+                                    rewrite_tick = rewrite_tick.0,
+                                    end_tick = message.end_tick.0,
+                                    previous_last_remote_tick = ?previous_last_remote_tick,
+                                    already_simulated = true,
+                                    previous = ?previous,
+                                    incoming = ?incoming,
+                                    buffer_len = buffer.len(),
+                                    input_buffer = %*buffer,
+                                    "server received a different input for an already-simulated tick"
+                                );
+                            } else {
+                                trace!(
+                                    target: "lightyear_debug::input",
+                                    kind = "server_input_history_rewrite",
+                                    schedule = "PreUpdate",
+                                    sample_point = "PreUpdate",
+                                    entity = ?entity,
+                                    client_entity = ?client_entity,
+                                    client_id = ?client_id.0,
+                                    action = ?DebugName::type_name::<S::Action>(),
+                                    local_tick = tick.0,
+                                    rewrite_tick = rewrite_tick.0,
+                                    end_tick = message.end_tick.0,
+                                    previous_last_remote_tick = ?previous_last_remote_tick,
+                                    already_simulated = false,
+                                    previous = ?previous,
+                                    incoming = ?incoming,
+                                    buffer_len = buffer.len(),
+                                    input_buffer = %*buffer,
+                                    "server received a different input for a future tick already covered by an earlier client input packet"
+                                );
+                            }
+                        }
+                        let mismatch =
+                            data.states
+                                .update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        if let Some(mismatch_tick) = mismatch
+                            && mismatch_tick < tick
+                        {
+                            error!(
+                                target: "lightyear_debug::input",
+                                kind = "server_late_input_mismatch",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                client_entity = ?client_entity,
+                                client_id = ?client_id.0,
+                                action = ?DebugName::type_name::<S::Action>(),
+                                local_tick = tick.0,
+                                mismatch_tick = mismatch_tick.0,
+                                end_tick = message.end_tick.0,
+                                previous_last_remote_tick = ?previous_last_remote_tick,
+                                last_remote_tick = ?buffer.last_remote_tick,
+                                buffer_len = buffer.len(),
+                                input_buffer = %*buffer,
+                                "server received an input correction for an already-simulated tick"
+                            );
+                        }
+                        trace!(
+                            target: "lightyear_debug::input",
+                            kind = "server_input_buffer_update",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            client_id = ?client_id.0,
+                            action = ?DebugName::type_name::<S::Action>(),
+                            local_tick = tick.0,
+                            end_tick = message.end_tick.0,
+                            buffer_len = buffer.len(),
+                            input_buffer = %*buffer,
+                            "server updated input buffer"
+                        );
                     } else {
                         debug!("Adding InputBuffer and ActionState which are missing on the entity");
                         let mut buffer = InputBuffer::<S::Snapshot, S::Action>::default();
-                        data.states.update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        let mismatch =
+                            data.states
+                                .update_buffer(&mut buffer, message.end_tick, tick_duration.0);
+                        if let Some(mismatch_tick) = mismatch
+                            && mismatch_tick < tick
+                        {
+                            error!(
+                                target: "lightyear_debug::input",
+                                kind = "server_late_input_mismatch",
+                                schedule = "PreUpdate",
+                                sample_point = "PreUpdate",
+                                entity = ?entity,
+                                client_entity = ?client_entity,
+                                client_id = ?client_id.0,
+                                action = ?DebugName::type_name::<S::Action>(),
+                                local_tick = tick.0,
+                                mismatch_tick = mismatch_tick.0,
+                                end_tick = message.end_tick.0,
+                                previous_last_remote_tick = ?None::<lightyear_core::tick::Tick>,
+                                last_remote_tick = ?buffer.last_remote_tick,
+                                buffer_len = buffer.len(),
+                                input_buffer = %buffer,
+                                "server received initial input for an already-simulated tick"
+                            );
+                        }
+                        trace!(
+                            target: "lightyear_debug::input",
+                            kind = "server_input_buffer_insert",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            client_id = ?client_id.0,
+                            action = ?DebugName::type_name::<S::Action>(),
+                            local_tick = tick.0,
+                            end_tick = message.end_tick.0,
+                            buffer_len = buffer.len(),
+                            input_buffer = %buffer,
+                            "server inserted input buffer"
+                        );
                         commands.entity(entity).insert((
                             buffer,
                             S::State::base_value()
@@ -276,6 +467,45 @@ fn receive_input_message<S: ActionStateSequence>(
             Ok(())
         })
     })
+}
+
+fn detect_input_history_rewrite<S: ActionStateSequence>(
+    states: S,
+    input_buffer: &InputBuffer<S::Snapshot, S::Action>,
+    end_tick: lightyear_core::tick::Tick,
+    tick_duration: Duration,
+) -> Option<(
+    lightyear_core::tick::Tick,
+    Option<S::Snapshot>,
+    Option<S::Snapshot>,
+)> {
+    let last_remote_tick = input_buffer.last_remote_tick?;
+    let buffer_start_tick = input_buffer.start_tick?;
+    let buffer_end_tick = input_buffer.end_tick()?;
+    let start_tick = end_tick + 1 - states.len() as u32;
+    let mut incoming = None;
+    for (delta, input) in states.get_snapshots_from_message(tick_duration).enumerate() {
+        let tick = start_tick + lightyear_core::tick::Tick(delta as u32);
+        match input {
+            crate::input_buffer::Compressed::Absent => incoming = None,
+            crate::input_buffer::Compressed::Input(value) => incoming = Some(value),
+            crate::input_buffer::Compressed::SameAsPrecedent => {}
+        }
+        if tick <= last_remote_tick {
+            // The server keeps very little input history after simulating a
+            // tick, so ordinary redundant input packets can mention older
+            // ticks that have already been popped from the buffer. Those
+            // cannot be compared reliably here.
+            if tick < buffer_start_tick || tick > buffer_end_tick {
+                continue;
+            }
+            let previous = input_buffer.get(tick).cloned();
+            if previous != incoming {
+                return Some((tick, previous, incoming));
+            }
+        }
+    }
+    None
 }
 
 /// Read the InputState for the current tick from the buffer, and use them to update the ActionState
@@ -309,6 +539,22 @@ fn update_action_state<S: ActionStateSequence>(
                 ?entity,
                 "action state after update. Input Buffer: {}",
                 input_buffer.as_ref()
+            );
+            trace!(
+                target: "lightyear_debug::input",
+                kind = "server_update_action_state",
+                schedule = "FixedPreUpdate",
+                sample_point = "FixedPreUpdate",
+                entity = ?entity,
+                server_entity = ?server,
+                action = ?DebugName::type_name::<S::Action>(),
+                local_tick = tick.0,
+                input_tick = tick.0,
+                host_client,
+                snapshot = ?snapshot,
+                buffer_len = input_buffer.len(),
+                input_buffer = %input_buffer.as_ref(),
+                "server applied input buffer to action state"
             );
 
             #[cfg(feature = "metrics")]

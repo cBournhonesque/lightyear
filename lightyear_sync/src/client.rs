@@ -70,25 +70,31 @@ mod tests {
     use super::*;
     use bevy_time::{TimePlugin, TimeUpdateStrategy};
     use core::time::Duration;
-    use lightyear_core::tick::TickDuration;
-    use lightyear_core::time::{Instant, TickInstant};
+    use lightyear_core::plugin::CorePlugins;
+    use lightyear_core::time::TickInstant;
+    use lightyear_link::prelude::Linked;
     use test_log::test;
 
     #[test]
-    #[ignore = "Broken on main"]
     fn test_advance_remote() {
         let mut app = App::new();
-        let now = Instant::now();
         app.world_mut()
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 10,
             )));
-        app.world_mut()
-            .insert_resource(TickDuration(Duration::from_millis(10)));
-        app.add_plugins((TimePlugin, ClientPlugin));
+        app.add_plugins((
+            TimePlugin,
+            CorePlugins {
+                tick_duration: Duration::from_millis(10),
+            },
+            ClientPlugin,
+        ));
         app.update();
 
-        let e = app.world_mut().spawn(RemoteTimeline::default()).id();
+        let e = app
+            .world_mut()
+            .spawn((RemoteTimeline::default(), Linked))
+            .id();
         assert_eq!(
             app.world().get::<RemoteTimeline>(e).unwrap().now,
             TickInstant::zero()

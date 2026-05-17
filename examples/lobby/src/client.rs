@@ -1,7 +1,7 @@
 use core::net::{Ipv4Addr, SocketAddr};
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
-use crate::HOST_SERVER_PORT;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts, EguiPrimaryContextPass};
 use lightyear::input::client::InputSystems;
@@ -20,6 +20,9 @@ pub enum AppState {
     Game,
 }
 
+#[derive(Component)]
+struct SwitchingGameConnection;
+
 impl Default for AppState {
     fn default() -> Self {
         AppState::Lobby { joined_lobby: None }
@@ -28,6 +31,7 @@ impl Default for AppState {
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.init_resource::<lobby::LobbyTable>();
         app.init_state::<AppState>();
         app.add_systems(
@@ -44,10 +48,12 @@ impl Plugin for ExampleClientPlugin {
             Update,
             (
                 game::handle_predicted_spawn,
+                game::handle_controlled_spawn,
                 game::handle_interpolated_spawn,
             )
                 .run_if(in_state(AppState::Game)),
         );
+        #[cfg(feature = "gui")]
         app.add_systems(EguiPrimaryContextPass, lobby::lobby_ui);
         app.add_systems(
             PreUpdate,
@@ -62,19 +68,25 @@ impl Plugin for ExampleClientPlugin {
 fn on_disconnect(
     trigger: On<Add, Disconnected>,
     local_id: Single<&LocalId>,
-    lobbies: Query<Entity, With<Lobbies>>,
+    server: Single<Entity, With<Server>>,
     mut commands: Commands,
-    entities: Query<Entity, (With<Lobbies>, With<PlayerId>)>,
+    entities: Query<Entity, Or<(With<Lobbies>, With<PlayerId>)>>,
+    switching_game_connection: Query<(), With<SwitchingGameConnection>>,
 ) -> Result {
+    if switching_game_connection.get(trigger.entity).is_ok() {
+        commands
+            .entity(trigger.entity)
+            .remove::<SwitchingGameConnection>();
+        return Ok(());
+    }
+
     // despawn every entity
     for entity in entities.iter() {
         commands.entity(entity).despawn();
     }
 
     // stop the server if it was started (if the player was host)
-    commands.trigger(Stop {
-        entity: trigger.entity,
-    });
+    commands.trigger(Stop { entity: *server });
 
     // reset the netcode config to connect to the lobby server
     let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), SERVER_PORT);
@@ -147,10 +159,8 @@ mod game {
 
     /// When the predicted copy of the client-owned entity is spawned, do stuff
     /// - assign it a different saturation
-    /// - add an InputMarker so that we can control the entity
     pub(crate) fn handle_predicted_spawn(
         mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
-        mut commands: Commands,
     ) {
         for (entity, mut color) in predicted.iter_mut() {
             let hsva = Hsva {
@@ -158,6 +168,31 @@ mod game {
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
+        }
+    }
+
+    /// Add the local input marker once ownership is known.
+    pub(crate) fn handle_controlled_spawn(
+        controlled: Query<
+            (Entity, Option<&ControlledBy>),
+            (
+                With<Controlled>,
+                With<PlayerId>,
+                Without<InputMarker<Inputs>>,
+            ),
+        >,
+        local_clients: Query<(), With<Client>>,
+        mut commands: Commands,
+    ) {
+        for (entity, controlled_by) in controlled.iter() {
+            // In host-client mode, server-owned entities also carry `Controlled`
+            // because `ControlledBy` requires it on the sender side. Only the
+            // entity owned by the local host-client should receive local input.
+            if controlled_by
+                .is_some_and(|controlled_by| local_clients.get(controlled_by.owner).is_err())
+            {
+                continue;
+            }
             commands
                 .entity(entity)
                 .insert(InputMarker::<Inputs>::default());
@@ -185,7 +220,7 @@ mod lobby {
 
     use super::*;
     use crate::client::{lobby, AppState};
-    use crate::HOST_SERVER_PORT;
+    use crate::host_server_port;
     use bevy::platform::collections::HashMap;
     use bevy_egui::egui::Separator;
     use bevy_egui::{egui, EguiContexts};
@@ -425,14 +460,23 @@ mod lobby {
                     info!(
                         "We are the host of the game! Unlinking existing client {local_client:?}"
                     );
+                    commands
+                        .entity(local_client)
+                        .insert(SwitchingGameConnection);
+                    commands.trigger(Start { entity: server });
                     // First remove the previous link
                     commands.trigger(Unlink {
                         entity: local_client,
                         reason: "Client becoming Host".to_string(),
                     });
 
-                    // Remove any previous networking components
-                    commands.entity(local_client).remove::<NetcodeClient>();
+                    // Convert the existing remote client into an in-process host-client by
+                    // removing the external transport pieces before linking it to the local server.
+                    commands.entity(local_client).remove::<(
+                        NetcodeClient,
+                        PeerAddr,
+                        lightyear::webtransport::client::WebTransportClientIo,
+                    )>();
 
                     // Any entity that is both a Client and a LinkOf will be a host-client.
                     // The corresponding server will be a HostServer.
@@ -442,13 +486,17 @@ mod lobby {
                     info!(
                         "The game is hosted by another client ({host:?}). Connecting to the host..."
                     );
+                    commands
+                        .entity(local_client)
+                        .insert(SwitchingGameConnection);
                     // First unlink from the dedicated server
                     commands.trigger(Unlink {
                         entity: local_client,
                         reason: "Connecting to host-client".to_string(),
                     });
 
-                    let host_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), HOST_SERVER_PORT);
+                    let host_addr =
+                        SocketAddr::new(Ipv4Addr::LOCALHOST.into(), host_server_port(host));
                     let auth = Authentication::Manual {
                         server_addr: host_addr,
                         client_id: local_id.0.to_bits(),

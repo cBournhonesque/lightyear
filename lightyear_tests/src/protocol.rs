@@ -4,6 +4,7 @@ use avian2d::prelude::*;
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::InputAction;
+use bevy_replicon::prelude::AppRuleExt;
 use leafwing_input_manager::Actionlike;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::frame_interpolation::FrameInterpolationPlugin;
@@ -67,6 +68,9 @@ impl Ease for CompFull {
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompSimple(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompCustomInterp(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompOnce(pub f32);
@@ -174,31 +178,22 @@ impl Plugin for ProtocolPlugin {
         // components
         app.register_component::<CompA>();
         app.register_component::<CompS>();
+        app.replicate_once::<CompReplicateOnce>();
         app.register_component::<CompFull>()
             .add_prediction()
             .add_linear_interpolation();
         app.register_component::<CompSimple>();
+        app.register_component::<CompCustomInterp>()
+            .add_custom_interpolation();
         app.register_component::<CompOnce>();
         app.register_component::<CompCorr>()
             .add_prediction()
             .add_linear_correction_fn()
             .add_linear_interpolation();
-        app.register_component::<CompMap>()
-            .add_prediction()
-            .add_map_entities();
-        app.register_component::<CompDisabled>()
-            .with_replication_config(ComponentReplicationConfig {
-                disable: true,
-                ..default()
-            });
-        app.register_component::<CompReplicateOnce>()
-            .with_replication_config(ComponentReplicationConfig {
-                replicate_once: true,
-                ..default()
-            });
+        app.register_component::<CompMap>().add_prediction();
         app.add_rollback::<CompNotNetworked>();
-        app.register_component::<CompDelta>()
-            .add_delta_compression();
+        app.register_component::<CompDelta>();
+        // .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {

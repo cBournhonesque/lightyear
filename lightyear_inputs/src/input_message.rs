@@ -162,12 +162,12 @@ pub trait ActionStateSequence:
         let mut previous_predicted_input =
             last_remote_tick.and_then(|t| input_buffer.get(t)).cloned();
         let mut earliest_mismatch: Option<Tick> = None;
-        let start_tick = end_tick + 1 - self.len() as u16;
+        let start_tick = end_tick + 1 - self.len() as u32;
         let mut latest_received_input = None;
 
         // the first value is guaranteed to not be SameAsPrecedent
         for (delta, input) in self.get_snapshots_from_message(tick_duration).enumerate() {
-            let tick = start_tick + Tick(delta as u16);
+            let tick = start_tick + Tick(delta as u32);
 
             // if the tick is within the buffer, just fetch from it
             // TODO: ideally we just clone the last element from the buffer
@@ -223,7 +223,7 @@ pub trait ActionStateSequence:
     /// Build the state sequence (which will be sent over the network) from the input buffer
     fn build_from_input_buffer(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u16,
+        num_ticks: u32,
         end_tick: Tick,
     ) -> Option<Self>
     where

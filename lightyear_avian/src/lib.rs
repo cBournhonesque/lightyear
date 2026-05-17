@@ -6,6 +6,8 @@
 #![allow(unexpected_cfgs)]
 #![no_std]
 
+extern crate alloc;
+
 #[cfg(feature = "std")]
 extern crate std;
 

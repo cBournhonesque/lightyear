@@ -2,6 +2,7 @@
 use std::net::{Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared;
@@ -18,12 +19,14 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             buffer_input.in_set(InputSystems::WriteClientInputs),
         );
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_ball);
     }
 }
@@ -32,17 +35,9 @@ impl Plugin for ExampleClientPlugin {
 /// on the client so that we can replicate updates to the server if we get authority
 /// over the ball
 pub(crate) fn handle_ball(trigger: On<Add, BallMarker>, mut commands: Commands) {
-    let mut color_override = ComponentReplicationOverrides::<PlayerColor>::default();
-    color_override.global_override(ComponentReplicationOverride {
-        disable: true,
-        ..default()
-    });
-    commands.entity(trigger.entity).insert((
-        Replicate::to_server(),
-        Name::new("Ball"),
-        // Disable PlayerColor replication from client to server
-        color_override,
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((Replicate::to_server(), Name::new("Ball")));
 }
 
 /// System that reads from peripherals and adds inputs to the buffer
@@ -87,7 +82,6 @@ fn player_movement(mut position_query: Query<(&mut Position, &ActionState<Inputs
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, PlayerId>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
-    mut commands: Commands,
 ) {
     let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
@@ -96,9 +90,26 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
-        commands
-            .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
     }
+}
+
+/// Add the local input marker once ownership is known.
+pub(crate) fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    players: Query<Option<&ControlledBy>, (With<PlayerId>, Without<InputMarker<Inputs>>)>,
+    clients: Query<(), With<Client>>,
+) {
+    let entity = trigger.entity;
+    let Ok(controlled_by) = players.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
+    }
+    commands
+        .entity(entity)
+        .insert(InputMarker::<Inputs>::default());
 }

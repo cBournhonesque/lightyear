@@ -12,6 +12,8 @@ use bevy_app::{PluginGroup, PluginGroupBuilder};
 
 use crate::shared::SharedPlugins;
 use core::time::Duration;
+#[cfg(feature = "replication")]
+use lightyear_replication::LightyearRepliconServerBackend;
 
 /// A plugin group containing all the server plugins.
 ///
@@ -55,14 +57,14 @@ impl PluginGroup for ServerPlugins {
             tick_duration: self.tick_duration,
         });
 
+        #[cfg(feature = "replication")]
+        let builder = builder.add(LightyearRepliconServerBackend);
+
         #[cfg(feature = "deterministic")]
         let builder =
             builder.add(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
 
         let builder = builder.add(lightyear_connection::host::HostPlugin);
-
-        #[cfg(feature = "replication")]
-        let builder = builder.add(lightyear_replication::host::HostServerPlugin);
 
         // IO
         #[cfg(all(feature = "udp", not(target_family = "wasm")))]

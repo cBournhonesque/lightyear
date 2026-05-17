@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::shared::color_from_id;
 
+const ROLLBACK_ROTATION_EPSILON: f32 = 0.0001;
+
 pub const BULLET_SIZE: f32 = 3.0;
 pub const PLAYER_SIZE: f32 = 40.0;
 
@@ -32,8 +34,24 @@ pub struct Score(pub usize);
 #[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq, Reflect)]
 pub struct ColorComponent(pub(crate) Color);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct BulletMarker;
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+pub struct BulletMarker {
+    pub shooter: PeerId,
+    pub fire_tick: Tick,
+    pub salt: u64,
+    pub prespawn_hash: u64,
+}
+
+impl BulletMarker {
+    pub fn new(shooter: PeerId, fire_tick: Tick, salt: u64, prespawn_hash: u64) -> Self {
+        Self {
+            shooter,
+            fire_tick,
+            salt,
+            prespawn_hash,
+        }
+    }
+}
 
 // Inputs
 
@@ -87,7 +105,13 @@ impl Plugin for ProtocolPlugin {
         app.register_component::<Rotation>()
             .add_prediction()
             .add_linear_interpolation()
-            .enable_correction();
+            .enable_correction()
+            .add_should_rollback(rotation_should_rollback);
+
+        // Bullet motion is simulated by Avian from LinearVelocity. Predicted bullets need the same
+        // velocity in rollback history as the server entity, otherwise replay re-simulates from stale
+        // or missing physics state and repeatedly corrects bullet positions.
+        app.register_component::<LinearVelocity>().add_prediction();
 
         app.register_component::<ColorComponent>();
 
@@ -101,4 +125,9 @@ impl Plugin for ProtocolPlugin {
 
         app.register_component::<InterpolatedBot>();
     }
+}
+
+fn rotation_should_rollback(confirmed: &Rotation, predicted: &Rotation) -> bool {
+    (confirmed.cos - predicted.cos).abs() > ROLLBACK_ROTATION_EPSILON
+        || (confirmed.sin - predicted.sin).abs() > ROLLBACK_ROTATION_EPSILON
 }

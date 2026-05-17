@@ -23,6 +23,7 @@ use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;

@@ -6,6 +6,7 @@ use bevy::prelude::*;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
+use lightyear_replication::visibility::immediate::VisibilityExt;
 use test_log::test;
 #[allow(unused_imports)]
 use tracing::info;
@@ -14,99 +15,109 @@ use tracing::info;
 fn test_spawn_gain_visibility() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
+    let server_entity = stepper
+        .server_app
         .world_mut()
-        .spawn((Replicate::to_server(), NetworkVisibility::default()))
+        .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
-    // entity is not visible because NetworkVisibility doesn't include it
-    stepper.frame_step(1);
-    assert!(
-        stepper
-            .client_of(0)
-            .get::<MessageManager>()
-            .unwrap()
-            .entity_mapper
-            .get_local(client_entity)
-            .is_none()
-    );
-
-    // gain visibility
-    stepper.client_apps[0]
-        .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .gain_visibility(stepper.client_entities[0]);
-    stepper.frame_step(1);
+    stepper.frame_step(2);
     stepper
-        .client_of(0)
+        .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_entity)
-        .expect("entity is not present in entity map");
+        .get_local(server_entity)
+        .expect("entity should be auto-visible after spawn");
 
-    // TODO: gain visibility again: a spawn message should not be sent
+    // lose visibility
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .lose_visibility(server_entity, stepper.client_of_entities[0]);
+    stepper.frame_step(2);
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "entity should not be visible after lose_visibility"
+    );
+
+    // gain visibility again
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .gain_visibility(server_entity, stepper.client_of_entities[0]);
+    stepper.frame_step(2);
+    stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be visible again after gain_visibility");
 }
 
 #[test]
 fn test_despawn_lose_visibility() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
-        .world_mut()
-        .spawn((Replicate::to_server(), NetworkVisibility::default()))
-        .id();
-    let sender = stepper.client_entities[0];
-    stepper
-        .client_app()
-        .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .gain_visibility(sender);
-    // entity is visible because of NetworkVisibility
-    stepper.frame_step(1);
     let server_entity = stepper
-        .client_of(0)
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    let sender = stepper.client_of_entities[0];
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
         .get::<MessageManager>()
         .unwrap()
         .entity_mapper
-        .get_local(client_entity)
+        .get_local(server_entity)
         .unwrap();
 
     // lose visibility: a Despawn message should be sent
-    stepper.client_apps[0]
+    stepper
+        .server_app
         .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .lose_visibility(sender);
-    stepper.frame_step(1);
+        .lose_visibility(server_entity, sender);
+    stepper.frame_step(2);
     assert!(
         stepper
-            .client_of(0)
+            .client(0)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
-            .get_local(client_entity)
+            .get_local(server_entity)
             .is_none()
     );
-    stepper.frame_step(2);
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_err()
+    );
 
     // gain visibility: a spawn message should be sent again
-    stepper.client_apps[0]
+    stepper
+        .server_app
         .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .gain_visibility(sender);
-    stepper.frame_step(1);
+        .commands()
+        .gain_visibility(server_entity, sender);
+    stepper.frame_step(2);
     assert!(
         stepper
-            .client_of(0)
+            .client(0)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
-            .get_local(client_entity)
+            .get_local(server_entity)
             .is_some()
     );
 }
@@ -122,36 +133,24 @@ fn test_despawn_with_visibility() {
     let server_entity_0 = stepper
         .server_app
         .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-            NetworkVisibility::default(),
-            ReplicationGroup::new_id(1),
-        ))
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper
         .server_app
         .world_mut()
-        .entity_mut(server_entity_0)
-        .get_mut::<ReplicationState>()
-        .unwrap()
-        .gain_visibility(stepper.client_of_entities[0]);
+        .commands()
+        .gain_visibility(server_entity_0, stepper.client_of_entities[0]);
 
     let server_entity_1 = stepper
         .server_app
         .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-            NetworkVisibility::default(),
-            ReplicationGroup::new_id(1),
-        ))
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
         .id();
     stepper
         .server_app
         .world_mut()
-        .entity_mut(server_entity_1)
-        .get_mut::<ReplicationState>()
-        .unwrap()
-        .gain_visibility(stepper.client_of_entities[1]);
+        .commands()
+        .gain_visibility(server_entity_1, stepper.client_of_entities[1]);
 
     stepper.frame_step(2);
     let client_entity_0 = stepper
@@ -216,20 +215,13 @@ fn test_despawn_non_visible_logspam() {
     let server_parent = stepper
         .server_app
         .world_mut()
-        .spawn((
-            Replicate::to_clients(NetworkTarget::All),
-            CompFull(1.0),
-            NetworkVisibility::default(),
-            ReplicationGroup::new_id(1),
-        ))
+        .spawn((Replicate::to_clients(NetworkTarget::All), CompFull(1.0)))
         .id();
     let server_child = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
-            NetworkVisibility::default(),
-            ReplicationGroup::new_id(1),
             ChildOf(server_parent),
         ))
         .id();
@@ -238,18 +230,6 @@ fn test_despawn_non_visible_logspam() {
     info!("Server despawning parent that is not visible to the client");
     stepper.server_app.world_mut().despawn(server_parent);
     stepper.frame_step(10);
-
-    // check that we didn't send any replication messages
-    // because the entity was not visible to the client
-    assert!(
-        stepper
-            .client_of(0)
-            .get::<ReplicationSender>()
-            .unwrap()
-            .group_channels
-            .get(&ReplicationGroupId(1))
-            .is_none()
-    );
 }
 
 /// https://github.com/cBournhonesque/lightyear/issues/1347
@@ -259,53 +239,151 @@ fn test_despawn_non_visible_logspam() {
 fn test_spawn_multiple_lose_visibility() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
-    let client_entity = stepper
-        .client_app()
+    let server_entity = stepper
+        .server_app
         .world_mut()
-        .spawn((Replicate::to_server(), NetworkVisibility::default()))
+        .spawn(Replicate::to_clients(NetworkTarget::All))
         .id();
-    // entity is not visible because NetworkVisibility doesn't include it
-    stepper.frame_step(1);
+    stepper.frame_step(2);
+    stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be auto-visible after spawn");
+
+    // lose visibility
+    stepper
+        .server_app
+        .world_mut()
+        .commands()
+        .lose_visibility(server_entity, stepper.client_of_entities[0]);
+    stepper.frame_step(2);
     assert!(
         stepper
-            .client_of(0)
+            .client(0)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
-            .get_local(client_entity)
-            .is_none()
+            .get_local(server_entity)
+            .is_none(),
+        "entity should not be visible after lose_visibility"
     );
 
-    // lose visibility: sender should be removed from ReplicationState
-    stepper.client_apps[0]
+    // lose visibility again (idempotent): should not cause issues
+    stepper
+        .server_app
         .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .lose_visibility(stepper.client_entities[0]);
-    stepper.frame_step(1);
-
-    // lose visibility: metadata should be added to ReplicationState (and hopefully with authority!)
-    stepper.client_apps[0]
-        .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .lose_visibility(stepper.client_entities[0]);
-    stepper.frame_step(1);
+        .commands()
+        .lose_visibility(server_entity, stepper.client_of_entities[0]);
+    stepper.frame_step(2);
 
     // gain visibility: we should be able to replicate
-    stepper.client_apps[0]
+    stepper
+        .server_app
         .world_mut()
-        .get_mut::<ReplicationState>(client_entity)
-        .unwrap()
-        .gain_visibility(stepper.client_entities[0]);
-    stepper.frame_step(1);
+        .commands()
+        .gain_visibility(server_entity, stepper.client_of_entities[0]);
+    stepper.frame_step(2);
     assert!(
         stepper
-            .client_of(0)
+            .client(0)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
-            .get_local(client_entity)
-            .is_some()
+            .get_local(server_entity)
+            .is_some(),
+        "entity should be visible again after gain_visibility"
+    );
+}
+
+/// Test that visibility overrides are NOT reset when ReplicationTarget is replaced.
+///
+/// Scenario: server spawns entity visible to clients 1 and 2, then lose_visibility for client 2,
+/// then re-insert Replicate targeting all clients. Client 2 should still not see the entity.
+#[test]
+fn test_visibility_persists_on_replication_target_change() {
+    let mut stepper: ClientServerStepper =
+        ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .id();
+    stepper.frame_step(2);
+
+    // both clients should see the entity
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "client 0 should see the entity"
+    );
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "client 1 should see the entity"
+    );
+
+    // lose visibility for client 1 (second client, index 1)
+    let sender_1 = stepper.client_of_entities[1];
+    stepper
+        .server_app
+        .world_mut()
+        .lose_visibility(server_entity, sender_1);
+    stepper.frame_step(2);
+
+    // client 1 should no longer see the entity
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "client 1 should not see the entity after lose_visibility"
+    );
+
+    // re-insert Replicate targeting all clients (triggers on_replace + on_insert)
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .insert(Replicate::to_clients(NetworkTarget::All));
+    stepper.frame_step(2);
+
+    // client 0 should still see the entity
+    assert!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_some(),
+        "client 0 should still see the entity after ReplicationTarget change"
+    );
+    // client 1 should still NOT see the entity (visibility override persists)
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "client 1 should still not see the entity after ReplicationTarget change"
     );
 }

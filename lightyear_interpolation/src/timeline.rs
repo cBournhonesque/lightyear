@@ -14,7 +14,7 @@ use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
 use lightyear_messages::prelude::RemoteEvent;
-use lightyear_replication::message::SenderMetadata;
+use lightyear_replication::metadata::SenderMetadata;
 use lightyear_sync::prelude::PingManager;
 use lightyear_sync::prelude::client::RemoteTimeline;
 use lightyear_sync::timeline::sync::{
@@ -96,7 +96,9 @@ impl SyncedTimeline for InterpolationTimeline {
             TickDelta::from_duration(config.to_duration(self.remote_send_interval), tick_duration);
         // take extra margin if there is jitter
         let jitter_margin = TickDelta::from_duration(
-            ping_manager.jitter() * config.sync.jitter_multiple as u32 + config.sync.jitter_margin,
+            config
+                .sync
+                .jitter_margin(ping_manager.jitter(), tick_duration),
             tick_duration,
         );
         let target = remote.current_estimate();
@@ -111,10 +113,10 @@ impl SyncedTimeline for InterpolationTimeline {
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> i16 {
+    fn resync(&mut self, sync_objective: TickInstant) -> i32 {
         let now = self.now();
         let target = sync_objective;
-        let tick_delta = (target - now).to_i16();
+        let tick_delta = (target - now).to_i32();
         trace!(?tick_delta, "Resync Interpolation timeline!");
         self.now = target;
         tick_delta
@@ -131,7 +133,7 @@ impl SyncedTimeline for InterpolationTimeline {
         config: &InterpolationConfig,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<i16> {
+    ) -> Option<i32> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
             return None;

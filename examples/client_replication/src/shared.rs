@@ -5,6 +5,7 @@ use bevy_enhanced_input::bindings;
 use bevy_enhanced_input::prelude::{ActionOf, Bindings, Cardinal};
 use lightyear::connection::client::PeerMetadata;
 use lightyear::input::bei::prelude::{Complete, Fire};
+use lightyear::prelude::input::bei::InputMarker;
 use lightyear::prelude::*;
 
 #[derive(Clone)]
@@ -78,6 +79,8 @@ fn spawn_player(
                     lifetime: Lifetime::SessionBased,
                 },
             ));
+        } else {
+            entity_commands.insert((Replicate::to_server(), InputMarker::<Player>::default()));
         }
 
         let entity = entity_commands.id();
@@ -91,11 +94,9 @@ fn spawn_player(
         // and replicated from server to client
         if is_server {
             #[cfg(feature = "server")]
-            action.insert((
-                Replicate::to_clients(NetworkTarget::Single(client_id)),
-                // make sure that the context and action are replicated together
-                PREDICTION_GROUP,
-            ));
+            action.insert(Replicate::to_clients(NetworkTarget::Single(client_id)));
+        } else {
+            action.insert(InputMarker::<Player>::default());
         }
         let mut action = commands.spawn((
             ActionOf::<Player>::new(entity),
@@ -105,10 +106,9 @@ fn spawn_player(
         ));
         if is_server {
             #[cfg(feature = "server")]
-            action.insert((
-                Replicate::to_clients(NetworkTarget::Single(client_id)),
-                PREDICTION_GROUP,
-            ));
+            action.insert(Replicate::to_clients(NetworkTarget::Single(client_id)));
+        } else {
+            action.insert(InputMarker::<Player>::default());
         }
     }
 }

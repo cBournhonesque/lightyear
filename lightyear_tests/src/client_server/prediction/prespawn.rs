@@ -1,21 +1,24 @@
+use crate::client_server::prediction::trigger_state_rollback;
 use crate::protocol::{CompFull, CompMap, CompSimple};
 use crate::stepper::*;
 use bevy::app::PreUpdate;
-use bevy::prelude::{Entity, IntoScheduleConfigs, With};
+use bevy::prelude::{
+    ChildOf, Commands, Entity, FixedUpdate, IntoScheduleConfigs, Res, Resource, With,
+};
 use bevy::utils::default;
+use bevy_replicon::prelude::Signature;
+use lightyear::prelude::LocalTimeline;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
-use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::prelude::Tick;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_prediction::predicted_history::PredictionHistory;
+use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
 use lightyear_prediction::prelude::RollbackSystems;
-use lightyear_replication::prelude::{
-    PreSpawned, PredictionTarget, Replicate, Replicated, ReplicationGroup,
-};
+use lightyear_replication::prelude::{PreSpawned, PredictionTarget, Replicate, Replicated};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::*;
 use test_log::test;
@@ -26,37 +29,42 @@ fn test_compute_hash() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // check default compute hash, with multiple entities sharing the same tick
+    // but using distinct salts to produce unique active prespawn hashes
     let entity_1 = stepper
         .client_app()
         .world_mut()
-        .spawn((CompFull(1.0), PreSpawned::default()))
+        .spawn((CompFull(1.0), PreSpawned::default_with_salt(0)))
         .id();
     let entity_2 = stepper
         .client_app()
         .world_mut()
-        .spawn((CompFull(1.0), PreSpawned::default()))
+        .spawn((CompFull(1.0), PreSpawned::default_with_salt(1)))
         .id();
     stepper.frame_step(1);
 
     let current_tick = stepper.client_tick(0);
     let prediction_manager = stepper.client(0).get::<PreSpawnedReceiver>().unwrap();
-    let expected_hash: u64 = 6945170416458392155;
     tracing::info!(?prediction_manager
-            .prespawn_hash_to_entities, "hi");
+            .prespawn_hash_to_entity, "hi");
+    assert_eq!(prediction_manager.prespawn_hash_to_entity.len(), 2);
+    let expected_hash = prediction_manager
+        .prespawn_tick_to_hash
+        .last()
+        .expect("prespawn hash should be registered")
+        .1;
     assert_eq!(
         prediction_manager
-            .prespawn_hash_to_entities
+            .prespawn_hash_to_entity
             .get(&expected_hash)
-            .unwrap()
-            .len(),
-        2
+            .copied(),
+        Some(entity_2)
     );
     assert_eq!(
         prediction_manager.prespawn_tick_to_hash.last(),
-        // NOTE: in this test we have to add + 1 here because the `register_prespawn_hashes` observer
+        // NOTE: in this test we have to add + 1 here because the `register_prespawn` observer
         //  runs outside of the FixedUpdate schedule so the entity is registered with the previous tick
         //  in a real situation the entity would be spawned inside FixedUpdate so the hash would be correct
-        Some(&(current_tick - 1, expected_hash))
+        Some(&(current_tick - 1, expected_hash, entity_2))
     );
 
     // check that a PredictionHistory got added to the entity
@@ -67,17 +75,16 @@ fn test_compute_hash() {
             .entity(entity_1)
             .get::<PredictionHistory<CompFull>>()
             .unwrap()
-            .peek(),
-        Some(&(current_tick, HistoryState::Updated(CompFull(1.0)),))
+            .most_recent(),
+        Some(&(current_tick, PredictionState::Predicted(CompFull(1.0)),))
     );
 }
 
-/// Prespawning multiple entities with the same hash
-/// https://github.com/cBournhonesque/lightyear/issues/906
-///
-/// This errors only if the server entities were part of the same replication group
+/// Duplicate active prespawn hashes are a serious user error. Keep the first
+/// matching candidate so Replicon never sees two local entities with the same
+/// Signature.
 #[test]
-fn test_multiple_prespawn() {
+fn test_duplicate_prespawn_hash_keeps_first_candidate() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let client_tick = stepper.client_tick(0).0 as usize;
@@ -96,61 +103,125 @@ fn test_multiple_prespawn() {
     // tick as the client prespawned
     // (i.e. entity is spawned on tick client_tick = X on client, and spawned on tick server_tick = X on server, so that
     // the Histories match)
-    for tick in server_tick + 1..client_tick {
+    for _ in server_tick + 1..client_tick {
         stepper.frame_step(1);
     }
-    let server_prespawn_a = stepper
+    let server_prespawn = stepper
         .server_app
         .world_mut()
         .spawn((
             PreSpawned::new(1),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(1),
         ))
         .id();
-    let server_prespawn_b = stepper
+    stepper.frame_step(1);
+    stepper.frame_step(1);
+
+    let matched = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_prespawn)
+        .expect("entity is not present in entity map");
+
+    assert_eq!(matched, client_prespawn_a);
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(client_prespawn_a)
+            .is_some(),
+        "the first prespawn candidate should be matched"
+    );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(client_prespawn_b)
+            .is_none(),
+        "the duplicate prespawn candidate should be ignored"
+    );
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<PreSpawnedReceiver>()
+            .unwrap()
+            .prespawn_hash_to_entity
+            .get(&1)
+            .copied(),
+        None,
+        "the active prespawn hash should be removed after the match"
+    );
+}
+
+/// If rollback or local cleanup despawns an unmatched prespawned entity, a later
+/// replayed entity with the same explicit hash must be able to use that hash
+/// again. Otherwise the server entity would be unable to match the replacement
+/// local entity and Replicon would spawn a duplicate predicted entity.
+#[test]
+fn test_prespawn_reuses_hash_after_unmatched_local_despawn() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let first_local = stepper
+        .client_app()
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+    stepper.frame_step(1);
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(first_local)
+        .despawn();
+    stepper.frame_step(1);
+
+    let replacement_local = stepper
+        .client_app()
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+    let server_prespawn = stepper
         .server_app
         .world_mut()
         .spawn((
             PreSpawned::new(1),
+            CompFull(1.0),
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(1),
         ))
         .id();
-    stepper.frame_step(1);
-    stepper.frame_step(1);
 
-    // check that both prespawn entities have Predicted added, and were matched to the remote entity
-    // TODO: check that they were matched!
-    let predicted_a = stepper
-        .client_app()
-        .world()
-        .get::<Predicted>(client_prespawn_a)
-        .unwrap();
-    let matched_a = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_prespawn_a)
-        .expect("entity is not present in entity map");
+    stepper.frame_step(2);
 
-    assert!(matched_a == client_prespawn_a || matched_a == client_prespawn_b);
-    let predicted_b = stepper
-        .client_app()
-        .world()
-        .get::<Predicted>(client_prespawn_b)
-        .unwrap();
-    let matched_b = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_prespawn_b)
-        .expect("entity is not present in entity map");
-    assert!(matched_b == client_prespawn_a || matched_b == client_prespawn_b,);
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get_entity(first_local)
+            .is_err(),
+        "the first unmatched local prespawn should stay despawned"
+    );
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_prespawn)
+            .unwrap(),
+        replacement_local
+    );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(replacement_local)
+            .is_some(),
+        "the replacement local prespawn should match the server entity"
+    );
 }
 
 /// Client and server run the same system to prespawn an entity
@@ -194,6 +265,263 @@ fn test_prespawn_success() {
             .unwrap(),
         client_prespawn
     );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Signature>(client_prespawn)
+            .is_some(),
+        "matched prespawn signatures should stay attached until despawn so Replicon can clear SignatureMap"
+    );
+}
+
+#[derive(Resource)]
+struct ReplayPrespawnTick(Tick);
+
+fn replay_spawn_prespawn(
+    tick: Res<ReplayPrespawnTick>,
+    timeline: Res<LocalTimeline>,
+    mut commands: Commands,
+) {
+    if timeline.tick() == tick.0 {
+        commands.spawn((PreSpawned::new(1), CompFull(2.0), CompSimple(2.0)));
+    }
+}
+
+/// A matched PreSpawned entity spawned after the rollback tick should be
+/// despawned before replay. The replayed fixed systems can then spawn a fresh
+/// matching entity instead of leaving a duplicate live entity behind.
+#[test]
+fn test_matched_prespawn_despawned_on_rollback_before_spawn_tick() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    stepper.frame_step(1);
+    let spawn_tick = stepper.client_tick(0);
+    let client_prespawn = stepper
+        .client_app()
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+    let server_prespawn = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            PreSpawned::new(1),
+            CompFull(1.0),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_prespawn)
+            .unwrap(),
+        client_prespawn
+    );
+    assert!(
+        stepper
+            .client(0)
+            .get::<PreSpawnedReceiver>()
+            .unwrap()
+            .matched_prespawn_spawn_tick_to_entities
+            .iter()
+            .any(|(tick, entity)| *tick == spawn_tick && *entity == client_prespawn),
+        "matched prespawn should retain its spawn tick for rollback"
+    );
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_prespawn)
+        .remove::<PreSpawned>();
+
+    stepper
+        .client_app()
+        .world_mut()
+        .insert_resource(ReplayPrespawnTick(spawn_tick));
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, replay_spawn_prespawn);
+
+    trigger_state_rollback(&mut stepper, spawn_tick - 1);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get_entity(client_prespawn)
+            .is_err(),
+        "matched PreSpawned entity should be despawned on rollback to before its spawn tick"
+    );
+
+    let replayed_entities = stepper
+        .client_app()
+        .world_mut()
+        .query_filtered::<Entity, (With<PreSpawned>, With<CompSimple>)>()
+        .iter(stepper.client_app().world())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        replayed_entities.len(),
+        1,
+        "rollback replay should spawn exactly one replacement prespawn"
+    );
+    assert_ne!(
+        replayed_entities[0], client_prespawn,
+        "rollback replay should create a fresh prespawned entity"
+    );
+}
+
+/// A matched PreSpawned entity that already existed at the rollback tick should
+/// stay alive. The rollback should only restore its component state; replay must
+/// not despawn it and expect a spawn system from an earlier tick to run again.
+#[test]
+fn test_matched_prespawn_kept_on_rollback_at_or_after_spawn_tick() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    stepper.frame_step(1);
+    let spawn_tick = stepper.client_tick(0);
+    let client_prespawn = stepper
+        .client_app()
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+    let server_prespawn = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            PreSpawned::new(1),
+            CompFull(1.0),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_prespawn)
+            .unwrap(),
+        client_prespawn
+    );
+
+    stepper
+        .client_app()
+        .world_mut()
+        .insert_resource(ReplayPrespawnTick(spawn_tick));
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, replay_spawn_prespawn);
+
+    trigger_state_rollback(&mut stepper, spawn_tick);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get_entity(client_prespawn)
+            .is_ok(),
+        "matched PreSpawned entity should stay alive when rollback starts at its spawn tick"
+    );
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<Predicted>(client_prespawn)
+            .is_some(),
+        "matched PreSpawned entity should remain predicted"
+    );
+
+    let replayed_entities = stepper
+        .client_app()
+        .world_mut()
+        .query_filtered::<Entity, (With<PreSpawned>, With<CompSimple>)>()
+        .iter(stepper.client_app().world())
+        .collect::<Vec<_>>();
+    assert!(
+        replayed_entities.is_empty(),
+        "rollback from the spawn tick should not rerun the spawn tick or create a replacement"
+    );
+}
+
+/// A matched prespawn should not overwrite the live predicted component with
+/// the server init value. The server value is authoritative for its confirmed
+/// tick, but the client may already have simulated ahead locally.
+#[test]
+fn test_prespawn_confirmed_init_goes_to_history_without_overwriting_live_value() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let client_prespawn = stepper
+        .client_app()
+        .world_mut()
+        .spawn((PreSpawned::new(1), CompFull(1.0)))
+        .id();
+
+    stepper.frame_step(1);
+
+    stepper
+        .client_app()
+        .world_mut()
+        .get_mut::<CompFull>(client_prespawn)
+        .unwrap()
+        .0 = 2.0;
+
+    let server_prespawn = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            PreSpawned::new(1),
+            CompFull(1.0),
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step(2);
+
+    assert_eq!(
+        stepper
+            .client(0)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_prespawn)
+            .unwrap(),
+        client_prespawn
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(client_prespawn)
+            .unwrap(),
+        &CompFull(2.0)
+    );
+
+    let history = stepper
+        .client_app()
+        .world()
+        .get::<PredictionHistory<CompFull>>(client_prespawn)
+        .unwrap();
+    assert!(
+        history.buffer().iter().any(
+            |(_, state)| matches!(state, PredictionState::Confirmed(value) if value == &CompFull(1.0))
+        ),
+        "server init value should be recorded as confirmed history: {:?}",
+        history
+    );
 }
 
 /// Client and server run the same system to prespawn an entity
@@ -212,7 +540,6 @@ fn test_prespawn_client_missing() {
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(0),
         ))
         .id();
     stepper.frame_step(2);
@@ -231,7 +558,7 @@ fn test_prespawn_client_missing() {
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
-            ReplicationGroup::new_id(0),
+            ChildOf(server_entity),
             PreSpawned::default(),
             CompMap(server_entity),
         ))

@@ -123,6 +123,20 @@ pub(crate) fn update_frame_interpolation_post_rollback<
                 "Updating VisualCorrection post rollback for {:?}",
                 DebugName::type_name::<C>()
             );
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "visual_correction_created",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?entity,
+                component = ?DebugName::type_name::<C>(),
+                local_tick = tick.0,
+                overstep,
+                current_visual = ?current_visual,
+                previous_visual = ?previous_visual,
+                error = ?error,
+                "created visual correction after rollback"
+            );
             commands
                 .entity(entity)
                 .insert(VisualCorrection::<D> { error })
@@ -159,6 +173,16 @@ pub(crate) fn add_visual_correction<
                     "Removing visual correction error {:?} since it is already small enough",
                     DebugName::type_name::<C>()
                 );
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "visual_correction_removed",
+                    schedule = "PostUpdate",
+                    sample_point = "PostUpdate",
+                    entity = ?entity,
+                    component = ?DebugName::type_name::<C>(),
+                    error = ?visual_correction.error,
+                    "removed visual correction because error is small"
+                );
                 commands.entity(entity).remove::<VisualCorrection<D>>();
                 return;
             }
@@ -175,6 +199,18 @@ pub(crate) fn add_visual_correction<
                 ?r,
                 "Applied visual correction and decaying error for {:?}",
                 DebugName::type_name::<C>()
+            );
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "visual_correction_apply",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                entity = ?entity,
+                component = ?DebugName::type_name::<C>(),
+                previous_error = ?previous_error,
+                new_error = ?new_error,
+                ratio = r,
+                "applied visual correction"
             );
             visual_correction.error = new_error;
         });
