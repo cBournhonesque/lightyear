@@ -126,14 +126,6 @@ build_examples_headless mode="both":
     pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '{{ _example_demo_feature_pkgs_filter }}' | sort | sed 's/^/-p /' | tr "\n" " ")
     cargo build -j 1 --no-default-features --features="$features" --target-dir "$target_dir" $pkgs
 
-# Build all examples/demos with only client features (no server)
-build_examples_client_only:
-    just build_examples_demos client
-
-# Build all examples/demos with only server features (no client, no GUI)
-build_examples_server_only:
-    just build_examples_demos server
-
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.

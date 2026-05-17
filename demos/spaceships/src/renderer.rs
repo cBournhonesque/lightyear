@@ -113,7 +113,6 @@ fn add_player_label(
         info!("Adding visual bits to {e:?}");
         commands.entity(e).insert((
             Visibility::default(),
-            Transform::default(),
             EntityLabel {
                 text: format!("{} <{}>\n", player.nickname, score.0),
                 color: css::ANTIQUE_WHITE.with_alpha(0.8).into(),

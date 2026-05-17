@@ -9,10 +9,7 @@ use bevy_enhanced_input::action::{Action, mock::ActionMock};
 use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
-use lightyear::prelude::{
-    Client, Controlled, DebugCategory, DebugSamplePoint, DeterministicPredicted, PreSpawned,
-    Predicted, Replicate, Replicated, lightyear_debug_event,
-};
+use lightyear::prelude::*;
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 

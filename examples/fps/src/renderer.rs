@@ -6,12 +6,7 @@ use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
-use lightyear::interpolation::Interpolated;
-use lightyear::prelude::{
-    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline,
-    InterpolationTimeline, IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated,
-    Server,
-};
+use lightyear::prelude::{lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline, Interpolated, IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -22,17 +17,11 @@ impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
 
-        app.add_systems(
-            PostUpdate,
-            (
-                add_player_visuals,
-                add_interpolated_bot_visuals,
-                add_predicted_bot_visuals,
-                add_bullet_visuals,
-                emit_bullet_visual_state,
-            )
-                .after(TransformSystems::Propagate),
-        );
+        app.add_observer(add_interpolated_bot_visuals);
+        app.add_observer(add_predicted_bot_visuals);
+        app.add_observer(add_bullet_visuals);
+        app.add_observer(add_player_visuals);
+
         #[cfg(feature = "client")]
         app.add_systems(
             FixedPostUpdate,
@@ -93,42 +82,16 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
     })
 }
 
-fn client_visuals_ready(
-    client: &Query<(), With<Client>>,
-    host_server: &Query<(), With<HostServer>>,
-    input_synced: &Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    interpolation_synced: &Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
-) -> bool {
-    client.is_empty()
-        || !host_server.is_empty()
-        || (!input_synced.is_empty() && !interpolation_synced.is_empty())
-}
-
-/// Add visuals to newly spawned players after their replicated transform is ready.
+/// Add visuals to newly spawned players
 fn add_player_visuals(
-    query: Query<
-        (Entity, Has<Predicted>, &ColorComponent, &Transform),
-        (
-            With<PlayerId>,
-            With<PlayerMarker>,
-            With<GlobalTransform>,
-            Without<BulletMarker>,
-            Without<Mesh2d>,
-        ),
-    >,
-    client: Query<(), With<Client>>,
-    host_server: Query<(), With<HostServer>>,
-    input_synced: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    interpolation_synced: Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
+    trigger: On<Add, PlayerId>,
+    query: Query<(Has<Predicted>, &ColorComponent), Without<BulletMarker>>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if !client_visuals_ready(&client, &host_server, &input_synced, &interpolation_synced) {
-        return;
-    }
-    for (entity, is_predicted, color, transform) in &query {
-        commands.entity(entity).insert((
+    if let Ok((is_predicted, color)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -138,61 +101,22 @@ fn add_player_visuals(
         ));
         if is_predicted {
             commands
-                .entity(entity)
+                .entity(trigger.entity)
                 .insert(FrameInterpolate::<Transform>::default());
         }
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::PostUpdate,
-            "PostUpdate",
-            "player_visual_added",
-            entity = ?entity,
-            transform = ?transform.translation.truncate(),
-            is_predicted = is_predicted,
-            "Player visual added after transform propagation"
-        );
     }
 }
 
+/// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
-    query: Query<
-        (
-            Entity,
-            &BulletMarker,
-            &ColorComponent,
-            &Position,
-            &Rotation,
-            &Transform,
-            Has<Interpolated>,
-            Has<Predicted>,
-            Has<PreSpawned>,
-            Has<Replicate>,
-        ),
-        (With<BulletMarker>, With<GlobalTransform>, Without<Mesh2d>),
-    >,
+    trigger: On<Add, BulletMarker>,
+    query: Query<(&ColorComponent, Has<Interpolated>)>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (
-        entity,
-        marker,
-        color,
-        position,
-        rotation,
-        transform,
-        is_interpolated,
-        is_predicted,
-        is_prespawned,
-        is_replicate,
-    ) in &query
-    {
-        if !is_predicted && !is_prespawned && !is_interpolated && !is_replicate {
-            continue;
-        }
-
-        let mut entity_commands = commands.entity(entity);
-        entity_commands.insert((
+    if let Ok((color, interpolated)) = query.get(trigger.entity) {
+        commands.entity(trigger.entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -202,87 +126,11 @@ fn add_bullet_visuals(
                 ..Default::default()
             })),
         ));
-        if is_predicted || is_prespawned {
-            entity_commands.insert(FrameInterpolate::<Transform>::default());
+        if interpolated {
+            commands
+                .entity(trigger.entity)
+                .insert(FrameInterpolate::<Transform>::default());
         }
-
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::PostUpdate,
-            "PostUpdate",
-            "bullet_visual_added",
-            entity = ?entity,
-            shooter = ?marker.shooter,
-            shooter_bits = marker.shooter.to_bits(),
-            fire_tick = marker.fire_tick.0 as i64,
-            salt = marker.salt as i64,
-            prespawn_hash = marker.prespawn_hash,
-            position = ?position,
-            rotation = ?rotation,
-            transform = ?transform.translation.truncate(),
-            is_interpolated = is_interpolated,
-            is_predicted = is_predicted,
-            is_prespawned = is_prespawned,
-            "Bullet visual added after transform propagation"
-        );
-    }
-}
-
-fn emit_bullet_visual_state(
-    timeline: Res<LocalTimeline>,
-    query: Query<
-        (
-            Entity,
-            &BulletMarker,
-            &Position,
-            &Transform,
-            &GlobalTransform,
-            Option<&Visibility>,
-            Option<&FrameInterpolate<Transform>>,
-            Has<Interpolated>,
-            Has<Predicted>,
-            Has<PreSpawned>,
-        ),
-        With<BulletMarker>,
-    >,
-) {
-    let tick = timeline.tick();
-    for (
-        entity,
-        marker,
-        position,
-        transform,
-        global_transform,
-        visibility,
-        frame_interpolate,
-        is_interpolated,
-        is_predicted,
-        is_prespawned,
-    ) in &query
-    {
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::PostUpdate,
-            "PostUpdate",
-            "fps_bullet_visual_state",
-            local_tick = tick.0 as i64,
-            entity = ?entity,
-            shooter = ?marker.shooter,
-            shooter_bits = marker.shooter.to_bits(),
-            fire_tick = marker.fire_tick.0 as i64,
-            salt = marker.salt as i64,
-            prespawn_hash = marker.prespawn_hash,
-            position = ?position,
-            transform = ?transform.translation.truncate(),
-            global_transform = ?global_transform.translation().truncate(),
-            visibility = ?visibility,
-            has_frame_interpolate = frame_interpolate.is_some(),
-            frame_interpolate = ?frame_interpolate,
-            is_interpolated = is_interpolated,
-            is_predicted = is_predicted,
-            is_prespawned = is_prespawned,
-            "FPS bullet visual state after transform propagation"
-        );
     }
 }
 
@@ -370,81 +218,39 @@ fn point_segment_distance_sq(point: Vec2, start: Vec2, end: Vec2) -> f32 {
 
 /// Add visuals to newly spawned bots
 fn add_interpolated_bot_visuals(
-    query: Query<
-        (Entity, &Transform),
-        (
-            With<InterpolatedBot>,
-            With<GlobalTransform>,
-            Without<Mesh2d>,
-        ),
-    >,
-    client: Query<(), With<Client>>,
-    host_server: Query<(), With<HostServer>>,
-    input_synced: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    interpolation_synced: Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
+    trigger: On<Add, InterpolatedBot>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if !client_visuals_ready(&client, &host_server, &input_synced, &interpolation_synced) {
-        return;
-    }
-    for (entity, transform) in &query {
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: GREEN.into(),
-                ..Default::default()
-            })),
-        ));
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::PostUpdate,
-            "PostUpdate",
-            "interpolated_bot_visual_added",
-            entity = ?entity,
-            transform = ?transform.translation.truncate(),
-            "Interpolated bot visual added after transform propagation"
-        );
-    }
+    let entity = trigger.entity;
+    // add visibility
+    commands.entity(entity).insert((
+        Visibility::default(),
+        Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
+        MeshMaterial2d(materials.add(ColorMaterial {
+            color: GREEN.into(),
+            ..Default::default()
+        })),
+    ));
 }
 
 fn add_predicted_bot_visuals(
-    query: Query<
-        (Entity, &Transform),
-        (With<PredictedBot>, With<GlobalTransform>, Without<Mesh2d>),
-    >,
-    client: Query<(), With<Client>>,
-    host_server: Query<(), With<HostServer>>,
-    input_synced: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    interpolation_synced: Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
+    trigger: On<Add, PredictedBot>,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if !client_visuals_ready(&client, &host_server, &input_synced, &interpolation_synced) {
-        return;
-    }
-    for (entity, transform) in &query {
-        commands.entity(entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: BLUE.into(),
-                ..Default::default()
-            })),
-            // predicted entities are updated in FixedUpdate so they need to be visually interpolated
-            FrameInterpolate::<Transform>::default(),
-        ));
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::PostUpdate,
-            "PostUpdate",
-            "predicted_bot_visual_added",
-            entity = ?entity,
-            transform = ?transform.translation.truncate(),
-            "Predicted bot visual added after transform propagation"
-        );
-    }
+    let entity = trigger.entity;
+    // add visibility
+    commands.entity(entity).insert((
+        Visibility::default(),
+        Mesh2d(meshes.add(Mesh::from(Circle { radius: BOT_RADIUS }))),
+        MeshMaterial2d(materials.add(ColorMaterial {
+            color: BLUE.into(),
+            ..Default::default()
+        })),
+        // predicted entities are updated in FixedUpdate so they need to be visually interpolated
+        FrameInterpolate::<Transform>::default(),
+    ));
 }
