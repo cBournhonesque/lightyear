@@ -92,6 +92,7 @@ impl Plugin for PreSpawnedPlugin {
         app.add_observer(Self::cleanup_removed_prespawn_signature);
         app.add_observer(Self::cleanup_matched_prespawn);
         app.add_observer(PreSpawnedReceiver::cleanup_removed_prespawn);
+        app.add_observer(PreSpawnedReceiver::cleanup_despawned_prespawn);
         #[cfg(feature = "client")]
         app.add_observer(PreSpawnedReceiver::handle_tick_sync);
         app.add_systems(
@@ -472,15 +473,28 @@ impl PreSpawnedReceiver {
         let Ok(mut manager) = manager_query.single_mut() else {
             return;
         };
-        manager
-            .prespawn_hash_to_entity
-            .retain(|_, candidate| *candidate != entity);
-        manager
-            .prespawn_tick_to_hash
-            .retain(|(_, _, candidate)| *candidate != entity);
+        manager.cleanup_unmatched_entity(entity);
+    }
+
+    fn cleanup_despawned_prespawn(
+        trigger: On<Despawn, (Signature, PreSpawned)>,
+        mut manager_query: Query<&mut PreSpawnedReceiver, (With<Connected>, Without<HostClient>)>,
+    ) {
+        let entity = trigger.entity;
+        let Ok(mut manager) = manager_query.single_mut() else {
+            return;
+        };
+        manager.cleanup_unmatched_entity(entity);
         manager
             .matched_prespawn_spawn_tick_to_entities
             .retain(|(_, candidate)| *candidate != entity);
+    }
+
+    fn cleanup_unmatched_entity(&mut self, entity: Entity) {
+        self.prespawn_hash_to_entity
+            .retain(|_, candidate| *candidate != entity);
+        self.prespawn_tick_to_hash
+            .retain(|(_, _, candidate)| *candidate != entity);
     }
 }
 

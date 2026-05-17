@@ -79,6 +79,7 @@ use lightyear_replication::prelude::{ControlledBy, PreSpawned};
 use lightyear_sync::plugin::SyncSystems;
 use lightyear_sync::prelude::client::IsSynced;
 use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
+use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -616,7 +617,7 @@ fn prepare_input_message<S: ActionStateSequence>(
             Without<Rollback>,
         ),
     >,
-    channel_registry: Res<ChannelRegistry>,
+    _channel_registry: Res<ChannelRegistry>,
     clients: Query<(), With<Client>>,
     input_buffer_query: Query<
         (
@@ -676,9 +677,10 @@ fn prepare_input_message<S: ActionStateSequence>(
 
     // Send redundant inputs so that if a packet is lost, we can still recover.
     // The size of the input bundle scales with `send_interval`.
-    let mut num_ticks: u32 = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos()) + 1)
-        .try_into()
-        .unwrap();
+    let mut num_ticks: u32 = ((input_config.send_interval.as_nanos() / tick_duration.as_nanos())
+        + 1)
+    .try_into()
+    .unwrap();
     num_ticks *= input_config.packet_redundancy as u32;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
@@ -712,7 +714,7 @@ fn prepare_input_message<S: ActionStateSequence>(
                 action = ?DebugName::type_name::<S::Action>(),
                 local_tick = current_tick.0,
                 input_tick = tick.0,
-                num_ticks = num_tick,
+                num_ticks = num_ticks,
                 buffer_len = input_buffer.len(),
                 target = ?target,
                 states = ?state_sequence,
@@ -744,7 +746,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         local_tick = current_tick.0,
         input_tick = tick.0,
         end_tick = tick.0,
-        num_ticks = num_tick,
+        num_ticks = num_ticks,
         num_targets = message.inputs.len(),
         is_host_client,
         message = ?message,

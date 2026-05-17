@@ -1,3 +1,5 @@
+extern crate alloc;
+
 use crate::automation::AutomationServerPlugin;
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
@@ -373,12 +375,10 @@ fn handle_hits(trigger: On<RemoteEvent<HitDetected>>, mut scores: Query<&mut Sco
 #[cfg(feature = "client")]
 mod bot {
     use super::*;
+    use alloc::sync::Arc;
     use bevy::app::{AppExit, PluginsState};
+    use core::sync::atomic::{AtomicU32, Ordering};
     use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
-    use std::sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    };
     use std::time::Instant;
 
     pub struct BotPlugin;

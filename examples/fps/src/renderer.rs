@@ -6,7 +6,10 @@ use bevy::color::palettes::css::BLUE;
 use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
-use lightyear::prelude::{lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline, Interpolated, IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server};
+use lightyear::prelude::{
+    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline, Interpolated,
+    IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server,
+};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
