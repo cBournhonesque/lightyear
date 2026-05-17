@@ -67,182 +67,40 @@ pub(crate) fn update_resource_history<R: Resource + Clone>(
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use super::*;
-//     use crate::prelude::AppComponentExt;
-//     use crate::prelude::Tick;
-//     use crate::prelude::client::RollbackState;
-//     use crate::tests::stepper::BevyStepper;
-//     use bevy::ecs::system::RunSystemOnce;
-//     use tracing::info;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rollback::prepare_rollback_resource;
+    use bevy_ecs::system::RunSystemOnce;
+    use lightyear_core::prelude::{Rollback, Tick};
 
-//     #[derive(Resource, Clone, PartialEq, Debug)]
-//     struct TestResource(f32);
+    #[derive(Resource, Clone, PartialEq, Debug)]
+    struct TestResource(f32);
 
-//     /// Test that the history gets updated correctly
-//     /// 1. Updating the TestResource resource
-//     /// 2. Removing the TestResource resource
-//     /// 3. Updating the TestResource resource during rollback
-//     /// 4. Removing the TestResource resource during rollback
-//     #[test]
-//     fn test_update_history() {
-//         let mut stepper = BevyStepper::default();
-//         stepper.client_app().add_resource_rollback::<TestResource>();
+    /// Test that initial resource rollback does not remove a resource when
+    /// the rollback tick predates the first history entry.
+    #[test]
+    fn test_initial_rollback() {
+        let rollback_tick = Tick(10);
+        let mut world = World::new();
+        world.insert_resource(ResourceHistory::<TestResource>::default());
+        world.insert_resource(TestResource(1.0));
 
-//         // 1. Updating TestResource resource
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .insert_resource(TestResource(1.0));
-//         stepper.frame_step();
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .resource_mut::<TestResource>()
-//             .0 = 2.0;
-//         stepper.frame_step();
-//         let tick = stepper.client_tick();
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world_mut()
-//                 .get_resource_mut::<ResourceHistory<TestResource>>()
-//                 .expect("Expected resource history to be added")
-//                 .pop_until_tick(tick),
-//             Some(HistoryState::Updated(TestResource(2.0))),
-//             "Expected resource value to be updated in resource history"
-//         );
+        let manager = world
+            .spawn((PredictionManager::default(), Rollback::FromState))
+            .id();
+        world
+            .get_mut::<PredictionManager>(manager)
+            .unwrap()
+            .set_rollback_tick(rollback_tick);
 
-//         // 2. Removing TestResource
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .remove_resource::<TestResource>();
-//         stepper.frame_step();
-//         let tick = stepper.client_tick();
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world_mut()
-//                 .get_resource_mut::<ResourceHistory<TestResource>>()
-//                 .expect("Expected resource history to be added")
-//                 .pop_until_tick(tick),
-//             Some(HistoryState::Removed),
-//             "Expected resource value to be removed in resource history"
-//         );
+        world
+            .run_system_once(prepare_rollback_resource::<TestResource>)
+            .unwrap();
 
-//         // 3. Updating TestResource during rollback
-//         let rollback_tick = Tick(10);
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .insert_resource(Rollback::new(RollbackState::ShouldRollback {
-//                 current_tick: rollback_tick,
-//             }));
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .insert_resource(TestResource(3.0));
-//         let _ = stepper
-//             .client_app
-//             .world_mut()
-//             .run_system_once(update_resource_history::<TestResource>);
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world_mut()
-//                 .get_resource_mut::<ResourceHistory<TestResource>>()
-//                 .expect("Expected resource history to be added")
-//                 .pop_until_tick(rollback_tick),
-//             Some(HistoryState::Updated(TestResource(3.0))),
-//             "Expected resource value to be updated in resource history"
-//         );
-
-//         // 4. Removing TestResource during rollback
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .remove_resource::<TestResource>();
-//         let _ = stepper
-//             .client_app
-//             .world_mut()
-//             .run_system_once(update_resource_history::<TestResource>);
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world_mut()
-//                 .get_resource_mut::<ResourceHistory<TestResource>>()
-//                 .expect("Expected resource history to be added")
-//                 .pop_until_tick(rollback_tick),
-//             Some(HistoryState::Removed),
-//             "Expected resource value to be removed from resource history"
-//         );
-//     }
-
-//     /// Test that the initial resource rollback works correctly even with client sync.
-//     /// Case:
-//     /// - spawn R on the client
-//     /// - client sync
-//     /// - rollback is triggered
-//     ///
-//     /// Check that the resource is NOT removed, because it existed before the sync.
-//     ///
-//     /// This is a regression test for a bug where the resource was removed during rollback.
-//     /// Since prediction plugins only run after `is_sync`, the resource wasn't inserted in the history buffer
-//     /// and was removed during rollback.
-//     #[test]
-//     fn test_initial_rollback() {
-//         // tracing_subscriber::FmtSubscriber::builder()
-//         //     .with_max_level(tracing::Level::DEBUG)
-//         //     .init();
-//         let mut stepper = BevyStepper::default_no_init();
-//         stepper.client_app().add_resource_rollback::<TestResource>();
-//         stepper.build();
-//         stepper.wait_for_connection();
-
-//         // insert resource before sync
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .insert_resource(TestResource(1.0));
-//         stepper.frame_step();
-//         info!(
-//             "Just added: {:?}",
-//             stepper
-//                 .client_app
-//                 .world()
-//                 .resource::<ResourceHistory<TestResource>>()
-//         );
-//         let client_tick = stepper.client_tick();
-
-//         // sync
-//         stepper.wait_for_sync();
-//         info!(
-//             "{:?}",
-//             stepper
-//                 .client_app
-//                 .world()
-//                 .resource::<ResourceHistory<TestResource>>()
-//         );
-
-//         // Initiate rollback
-//         let rollback_tick = stepper.server_tick() + 1;
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .insert_resource(Rollback::new(RollbackState::ShouldRollback {
-//                 current_tick: rollback_tick,
-//             }));
-//         stepper.frame_step();
-
-//         // Check that the resource still exists
-//         assert!(
-//             stepper
-//                 .client_app
-//                 .world_mut()
-//                 .get_resource::<TestResource>()
-//                 .is_some()
-//         );
-//     }
-// }
+        assert_eq!(
+            world.get_resource::<TestResource>(),
+            Some(&TestResource(1.0))
+        );
+    }
+}
