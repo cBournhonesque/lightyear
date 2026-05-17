@@ -10,7 +10,8 @@ use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
 use lightyear::prelude::{
-    Client, Controlled, DeterministicPredicted, PreSpawned, Predicted, Replicate, Replicated,
+    Client, Controlled, DebugCategory, DebugSamplePoint, DeterministicPredicted, PreSpawned,
+    Predicted, Replicate, Replicated, lightyear_debug_event,
 };
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -39,7 +40,7 @@ impl Plugin for ExampleRendererPlugin {
                     raycast_color: Some(GREEN.into()),
                     raycast_point_color: Some(RED.into()),
                     raycast_normal_color: Some(RED.into()),
-                    hide_meshes: true,
+                    hide_meshes: false,
                     ..default()
                 },
                 GizmoConfig::default(),
@@ -185,6 +186,7 @@ fn add_player_visuals(
             Has<DeterministicPredicted>,
             Has<PreSpawned>,
             Has<Interpolated>,
+            Has<Bot>,
             &mut ColorComponent,
         ),
         // Same thing, for interpolation, make sure that both Position and Rotation
@@ -201,7 +203,8 @@ fn add_player_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (entity, is_predicted, is_det_predicted, prespawned, interpolated, mut color) in &mut query
+    for (entity, is_predicted, is_det_predicted, prespawned, interpolated, is_bot, mut color) in
+        &mut query
     {
         if interpolated {
             let hsva = Hsva {
@@ -229,6 +232,20 @@ fn add_player_visuals(
                 ..Default::default()
             })),
         ));
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::Update,
+            "Update",
+            "projectiles_player_visual_added",
+            entity = ?entity,
+            is_predicted = is_predicted,
+            is_deterministic_predicted = is_det_predicted,
+            is_prespawned = prespawned,
+            is_interpolated = interpolated,
+            is_bot = is_bot,
+            color = ?color.0,
+            "Projectiles player visual added"
+        );
     }
 }
 

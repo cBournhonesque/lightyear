@@ -97,7 +97,7 @@ fn init_camera(mut commands: Commands) {
     commands.spawn((
         Camera2d,
         Camera { ..default() },
-        Tonemapping::TonyMcMapface,
+        Tonemapping::None,
         Bloom::default(),
         Visibility::default(),
     ));
@@ -600,16 +600,19 @@ fn add_wall_visual(
     }
     let midpoint = (wall.start + wall.end) * 0.5;
     let angle = delta.y.atan2(delta.x);
-    commands.entity(trigger.entity).with_children(|parent| {
-        parent.spawn((
-            WallVisual,
-            Mesh2d(meshes.add(Rectangle::new(length, 2.0))),
-            MeshMaterial2d(materials.add(ColorMaterial::from(color.0))),
-            Transform::from_xyz(midpoint.x, midpoint.y, 0.0)
-                .with_rotation(Quat::from_rotation_z(angle)),
-            Visibility::default(),
-        ));
-    });
+    commands
+        .entity(trigger.entity)
+        .insert(Visibility::default())
+        .with_children(|parent| {
+            parent.spawn((
+                WallVisual,
+                Mesh2d(meshes.add(Rectangle::new(length, 2.0))),
+                MeshMaterial2d(materials.add(ColorMaterial::from(color.0))),
+                Transform::from_xyz(midpoint.x, midpoint.y, 0.0)
+                    .with_rotation(Quat::from_rotation_z(angle)),
+                Visibility::default(),
+            ));
+        });
 }
 
 #[derive(Component)]
