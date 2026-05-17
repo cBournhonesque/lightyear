@@ -263,16 +263,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
 // equivalent to &ActionState<S::Action>
 
-fn is_owned_by_client_link(
-    controlled_by: Option<&ControlledBy>,
-    clients: &Query<(), With<Client>>,
-) -> bool {
-    match controlled_by {
-        Some(controlled_by) => clients.get(controlled_by.owner).is_ok(),
-        None => true,
-    }
-}
-
 /// Write the value of the ActionState in the InputBuffer.
 /// (so that we can pull it for rollback or for delayed inputs)
 ///
@@ -285,8 +275,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    input_timeline: Single<&InputTimeline, (With<Client>, Without<Rollback>)>,
-    clients: Query<(), With<Client>>,
+    input_timeline: Single<(Entity, &InputTimeline), (With<Client>, Without<Rollback>)>,
     mut action_state_query: Query<
         (
             Entity,
@@ -297,10 +286,11 @@ fn buffer_action_state<S: ActionStateSequence>(
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
+    let (client_entity, input_timeline) = input_timeline.into_inner();
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i32;
     for (entity, action_state, mut input_buffer, controlled_by) in action_state_query.iter_mut() {
-        if !is_owned_by_client_link(controlled_by, &clients) {
+        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
             continue;
         }
         input_buffer.set(tick, S::to_snapshot(action_state));
@@ -467,8 +457,10 @@ fn get_action_state<S: ActionStateSequence>(
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    sender: Query<(&InputTimeline, Has<Rollback>), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    clients: Query<(), With<Client>>,
+    sender: Query<
+        (Entity, &InputTimeline, Has<Rollback>),
+        (With<Client>, With<IsSynced<InputTimeline>>),
+    >,
     mut action_state_query: Query<
         (
             Entity,
@@ -480,7 +472,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let Ok((input_timeline, is_rollback)) = sender.single() else {
+    let Ok((client_entity, input_timeline, is_rollback)) = sender.single() else {
         return;
     };
     let input_delay_ticks = input_timeline.input_delay() as i32;
@@ -490,7 +482,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     let tick = timeline.tick();
     let delayed_tick = tick + input_delay_ticks;
     for (entity, action_state, input_buffer, controlled_by) in action_state_query.iter_mut() {
-        if !is_owned_by_client_link(controlled_by, &clients) {
+        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
             continue;
         }
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
@@ -607,7 +599,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     input_config: Res<InputConfig<S::Action>>,
     sender: Single<
-        (&InputTimeline, Has<HostClient>),
+        (Entity, &InputTimeline, Has<HostClient>),
         // the host-client doesn't need to send input messages since the ActionState is already on the entity
         // unless we want to rebroadcast the HostClient inputs to other clients (in which
         // case we prepare the input-message, which will be send_local to the server)
@@ -618,7 +610,6 @@ fn prepare_input_message<S: ActionStateSequence>(
         ),
     >,
     _channel_registry: Res<ChannelRegistry>,
-    clients: Query<(), With<Client>>,
     input_buffer_query: Query<
         (
             Entity,
@@ -641,7 +632,7 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    let (input_timeline, is_host_client) = sender.into_inner();
+    let (client_entity, input_timeline, is_host_client) = sender.into_inner();
     #[cfg(not(feature = "prediction"))]
     if is_host_client {
         // if there is not prediction, no need to rebroadcast inputs
@@ -684,7 +675,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     num_ticks *= input_config.packet_redundancy as u32;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
-        if !is_owned_by_client_link(controlled_by, &clients) {
+        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
             continue;
         }
         trace!(
@@ -1168,7 +1159,7 @@ fn receive_tick_events<S: ActionStateSequence>(
     }
     let delta = trigger.tick_delta;
     for (mut input_buffer, controlled_by) in input_buffer_query.iter_mut() {
-        if !is_owned_by_client_link(controlled_by, &clients) {
+        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != trigger.entity) {
             continue;
         }
         if let Some(start_tick) = input_buffer.start_tick {
