@@ -59,7 +59,7 @@ use core::fmt::Debug;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::prelude::InterpolationRegistry;
-use lightyear_replication::prelude::ReplicationBufferSystems;
+use lightyear_replication::ReplicationSystems;
 use serde::{Deserialize, Serialize};
 use tracing::trace;
 
@@ -124,7 +124,7 @@ impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpo
             FrameInterpolationSystems::Interpolate
                 .before(bevy_transform::TransformSystems::Propagate)
                 // we don't want the visual interpolation value to be the one replicated!
-                .after(ReplicationBufferSystems::Buffer),
+                .after(ReplicationSystems::Send),
         );
 
         // SYSTEMS
@@ -207,6 +207,16 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
         if skip_interpolation.is_some() && interpolate_status.current_value.is_some() {
             *component = interpolate_status.current_value.clone().unwrap();
             interpolate_status.previous_value = interpolate_status.current_value.clone();
+            trace!(
+                target: "lightyear_debug::frame_interpolation",
+                kind = "frame_interpolation_skipped",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                component = ?kind,
+                local_tick = tick.0,
+                current_value = ?interpolate_status.current_value,
+                "skipped frame interpolation"
+            );
             continue;
         }
 
@@ -229,6 +239,20 @@ pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + 
             ?overstep,
             ?interpolated,
             "Visual interpolation applied"
+        );
+        trace!(
+            target: "lightyear_debug::frame_interpolation",
+            kind = "frame_interpolation_apply",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            component = ?kind,
+            local_tick = tick.0,
+            overstep,
+            previous_value = ?previous_value,
+            current_value = ?current_value,
+            interpolated = ?interpolated,
+            trigger_change_detection = interpolate_status.trigger_change_detection,
+            "applied frame interpolation"
         );
         if !interpolate_status.trigger_change_detection {
             *component.bypass_change_detection() = interpolated;
@@ -267,6 +291,16 @@ pub(crate) fn update_visual_interpolation_status<
             ?interpolate_status,
             "updating interpolate status current_value"
         );
+        trace!(
+            target: "lightyear_debug::frame_interpolation",
+            kind = "frame_interpolation_update_history",
+            schedule = "FixedPostUpdate",
+            sample_point = "FixedPostUpdate",
+            component = ?DebugName::type_name::<C>(),
+            previous_value = ?interpolate_status.previous_value,
+            current_value = ?interpolate_status.current_value,
+            "updated frame interpolation history"
+        );
     }
 }
 
@@ -284,6 +318,16 @@ pub(crate) fn restore_from_visual_interpolation<
                 visual = ?component,
                 correct = ?current_value,
                 "Restoring correct tick value before FixedMainLoop"
+            );
+            trace!(
+                target: "lightyear_debug::frame_interpolation",
+                kind = "frame_interpolation_restore",
+                schedule = "RunFixedMainLoop",
+                sample_point = "RunFixedMainLoop",
+                component = ?kind,
+                visual = ?component,
+                correct = ?current_value,
+                "restored non-interpolated component value"
             );
             *component.bypass_change_detection() = current_value.clone();
         }

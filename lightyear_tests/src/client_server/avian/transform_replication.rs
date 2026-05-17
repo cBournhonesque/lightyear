@@ -39,7 +39,6 @@ fn test_replicate_transform_rigid_body() {
             Replicate::to_clients(NetworkTarget::All),
             RigidBody::Kinematic,
             Transform::from_xyz(1.0, 0.0, 0.0),
-            ReplicationGroup::new_id(3),
         ))
         .id();
     let server_child = stepper
@@ -49,7 +48,6 @@ fn test_replicate_transform_rigid_body() {
             ChildOf(server_parent),
             RigidBody::Kinematic,
             Transform::from_xyz(2.0, 0.0, 0.0),
-            ReplicationGroup::new_id(3),
         ))
         .id();
     info!(?server_parent, ?server_child, "Spawning entities on server");

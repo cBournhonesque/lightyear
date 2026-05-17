@@ -7,6 +7,7 @@ use lightyear::connection::host::HostClient;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin};
@@ -15,11 +16,13 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         // all actions related-system that can be rolled back should be in FixedUpdate schedule
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(add_ball_physics);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
 
         // DEBUG
         app.add_systems(PostUpdate, print_overstep);
@@ -83,25 +86,40 @@ fn player_movement(
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut commands: Commands,
-    mut player_query: Query<(&mut ColorComponent, Has<Controlled>), With<Predicted>>,
+    mut player_query: Query<&mut ColorComponent, With<Predicted>>,
 ) {
-    if let Ok((mut color, controlled)) = player_query.get_mut(trigger.entity) {
+    if let Ok(mut color) = player_query.get_mut(trigger.entity) {
         let hsva = Hsva {
             saturation: 0.4,
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        let mut entity_mut = commands.entity(trigger.entity);
-        entity_mut.insert(PhysicsBundle::player());
-        if controlled {
-            entity_mut.insert(InputMap::new([
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-            ]));
+        commands
+            .entity(trigger.entity)
+            .insert(PhysicsBundle::player());
+    }
+}
+
+fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    player_query: Query<(&PlayerId, Option<&ControlledBy>), Without<InputMap<PlayerActions>>>,
+    clients: Query<(), With<Client>>,
+) {
+    let Ok((_player_id, controlled_by)) = player_query.get(trigger.entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
         }
     }
+    commands.entity(trigger.entity).insert(InputMap::new([
+        (PlayerActions::Up, KeyCode::KeyW),
+        (PlayerActions::Down, KeyCode::KeyS),
+        (PlayerActions::Left, KeyCode::KeyA),
+        (PlayerActions::Right, KeyCode::KeyD),
+    ]));
 }
 
 // When the interpolated copy of the client-owned entity is spawned, do stuff

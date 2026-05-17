@@ -9,10 +9,7 @@ use bevy_enhanced_input::action::{Action, mock::ActionMock};
 use bevy_enhanced_input::prelude::{ActionValue, Actions};
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::interpolation::Interpolated;
-use lightyear::prelude::{
-    Client, Confirmed, Controlled, DeterministicPredicted, PreSpawned, Predicted, Replicate,
-    Replicated,
-};
+use lightyear::prelude::*;
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -24,7 +21,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_systems(Startup, init);
 
         app.add_observer(add_bullet_visuals);
-        app.add_observer(add_player_visuals);
+        app.add_systems(Update, add_player_visuals);
         app.add_observer(add_hitscan_visual);
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
@@ -40,7 +37,7 @@ impl Plugin for ExampleRendererPlugin {
                     raycast_color: Some(GREEN.into()),
                     raycast_point_color: Some(RED.into()),
                     raycast_normal_color: Some(RED.into()),
-                    hide_meshes: true,
+                    hide_meshes: false,
                     ..default()
                 },
                 GizmoConfig::default(),
@@ -88,7 +85,6 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
     #[cfg(feature = "client")]
     {
-        #[cfg(not(feature = "server"))]
         commands.spawn((
             Text::new("Score: 0"),
             TextFont::from_font_size(30.0),
@@ -125,10 +121,14 @@ struct ModeText;
 #[cfg(feature = "client")]
 fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
-    score: Single<&Score, (With<Replicated>, With<Controlled>)>,
+    active_mode: Single<&GameReplicationMode, With<ClientContext>>,
+    scores: Query<(&Score, &GameReplicationMode), (With<PlayerMarker>, With<Controlled>)>,
 ) {
     if let Ok(mut text) = score_text.single_mut() {
-        text.0 = format!("Score: {}", score.0);
+        let active_mode = active_mode.into_inner();
+        if let Some((score, _)) = scores.iter().find(|(_, mode)| *mode == active_mode) {
+            text.0 = format!("Score: {}", score.0);
+        }
     }
 }
 
@@ -146,7 +146,7 @@ fn display_info(
 ) {
     let (projectile_mode, replication_mode, weapon_type) = mode_query.into_inner();
     mode_text.0 = format!(
-        "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle replication\nPress R to cycle rooms\nPress Space to shoot",
+        "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle projectiles\nPress R to cycle replication\nPress Space to shoot",
         weapon_type.name(),
         projectile_mode.name(),
         replication_mode.name(),
@@ -176,25 +176,32 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
 
 /// Add visuals to newly spawned players
 fn add_player_visuals(
-    trigger: On<Insert, (PlayerId, Rotation)>,
     mut query: Query<
         (
+            Entity,
             Has<Predicted>,
             Has<DeterministicPredicted>,
             Has<PreSpawned>,
             Has<Interpolated>,
+            Has<Bot>,
             &mut ColorComponent,
         ),
         // Same thing, for interpolation, make sure that both Position and Rotation
         // are present! Otherwise the Mesh will insert Transform::default()
-        (With<PlayerMarker>, With<Rotation>),
+        (
+            With<PlayerMarker>,
+            With<PlayerId>,
+            With<Position>,
+            With<Rotation>,
+            Without<Mesh2d>,
+        ),
     >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((is_predicted, is_det_predicted, prespawned, interpolated, mut color)) =
-        query.get_mut(trigger.entity)
+    for (entity, is_predicted, is_det_predicted, prespawned, interpolated, is_bot, mut color) in
+        &mut query
     {
         if interpolated {
             let hsva = Hsva {
@@ -209,12 +216,12 @@ fn add_player_visuals(
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
-            commands.entity(trigger.entity).insert((
+            commands.entity(entity).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));
         }
-        commands.entity(trigger.entity).insert((
+        commands.entity(entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
             MeshMaterial2d(materials.add(ColorMaterial {
@@ -222,6 +229,20 @@ fn add_player_visuals(
                 ..Default::default()
             })),
         ));
+        lightyear_debug_event!(
+            DebugCategory::Component,
+            DebugSamplePoint::Update,
+            "Update",
+            "projectiles_player_visual_added",
+            entity = ?entity,
+            is_predicted = is_predicted,
+            is_deterministic_predicted = is_det_predicted,
+            is_prespawned = prespawned,
+            is_interpolated = interpolated,
+            is_bot = is_bot,
+            color = ?color.0,
+            "Projectiles player visual added"
+        );
     }
 }
 

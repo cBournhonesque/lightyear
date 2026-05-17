@@ -9,6 +9,7 @@ use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::*;
 
@@ -16,12 +17,19 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_observer(add_ball_physics);
-        app.add_observer(add_bullet_physics);
         app.add_observer(handle_new_player);
-
+        app.add_observer(handle_controlled_player);
         app.add_systems(
-            FixedUpdate,
+            PreUpdate,
+            strip_interpolated_bullet_rigid_body.after(ReplicationSystems::Receive),
+        );
+        app.add_systems(FixedPreUpdate, add_bullet_physics);
+
+        #[cfg(feature = "gui")]
+        app.add_systems(
+            FixedPostUpdate,
             handle_hit_event
                 .run_if(on_message::<BulletHitMessage>)
                 .after(process_collisions),
@@ -51,49 +59,91 @@ fn add_ball_physics(
 /// replication, which means they will already have the physics components.
 /// So, we filter the query using `Without<Collider>`.
 fn add_bullet_physics(
-    trigger: On<Add, BulletMarker>,
     mut commands: Commands,
-    bullet_query: Query<(), (With<Predicted>, Without<Collider>)>,
+    bullet_query: Query<
+        (Entity, Has<Predicted>, Has<Interpolated>),
+        (With<BulletMarker>, Without<Collider>),
+    >,
 ) {
-    let entity = trigger.entity;
-    if let Ok(()) = bullet_query.get(entity) {
-        info!("Adding physics to a replicated bullet: {entity:?}");
-        commands.entity(entity).insert(PhysicsBundle::bullet());
+    for (entity, is_predicted, is_interpolated) in &bullet_query {
+        if is_predicted {
+            info!("Adding physics to a predicted replicated bullet: {entity:?}");
+            commands
+                .entity(entity)
+                .insert((PhysicsBundle::bullet(), bullet_mass_properties()));
+        } else if is_interpolated {
+            info!("Adding visual sensor collider to an interpolated replicated bullet: {entity:?}");
+            commands
+                .entity(entity)
+                .insert((Collider::circle(BULLET_SIZE), Sensor));
+        }
+    }
+}
+
+fn strip_interpolated_bullet_rigid_body(
+    mut commands: Commands,
+    bullets: Query<Entity, (With<BulletMarker>, With<Interpolated>, With<RigidBody>)>,
+) {
+    for entity in &bullets {
+        commands.entity(entity).remove::<RigidBody>();
     }
 }
 
 /// Decorate newly connecting players with physics components
-/// ..and if it's our own player, set up input stuff
+/// The local input wiring is handled by `handle_controlled_player`, not here.
+///
+/// In host-server mode, the local player does not come through the same deferred
+/// replicated receive path as a remote client, so checking `Has<Controlled>`
+/// inside `Add<Predicted>` is brittle. We instead wait for `Controlled`
+/// explicitly and then add the `InputMap` once ownership is definitely known.
 fn handle_new_player(
     trigger: On<Add, (Player, Predicted)>,
     mut commands: Commands,
-    player_query: Query<(&Player, Has<Controlled>), With<Predicted>>,
+    player_query: Query<&Player, With<Predicted>>,
 ) {
     let entity = trigger.entity;
-    if let Ok((player, is_controlled)) = player_query.get(entity) {
-        info!("handle_new_player, entity = {entity:?} is_controlled = {is_controlled}");
-        // is this our own entity?
-        if is_controlled {
-            info!("Own player replicated to us, adding inputmap {entity:?} {player:?}");
-            commands.entity(entity).insert(InputMap::new([
-                (PlayerActions::Up, KeyCode::ArrowUp),
-                (PlayerActions::Down, KeyCode::ArrowDown),
-                (PlayerActions::Left, KeyCode::ArrowLeft),
-                (PlayerActions::Right, KeyCode::ArrowRight),
-                (PlayerActions::Up, KeyCode::KeyW),
-                (PlayerActions::Down, KeyCode::KeyS),
-                (PlayerActions::Left, KeyCode::KeyA),
-                (PlayerActions::Right, KeyCode::KeyD),
-                (PlayerActions::Fire, KeyCode::Space),
-            ]));
-        } else {
-            info!("Remote player replicated to us: {entity:?} {player:?}");
-        }
-        commands.entity(entity).insert(PhysicsBundle::player_ship());
+    if let Ok(player) = player_query.get(entity) {
+        info!("Predicted player replicated to us: {entity:?} {player:?}");
+        commands.entity(entity).insert((
+            PhysicsBundle::player_ship(),
+            Weapon::new((FIXED_TIMESTEP_HZ / 5.0) as u16),
+        ));
     }
 }
 
-// Generate an explosion effect for bullet collisions
+/// Add the local InputMap once ownership is definitely known.
+fn handle_controlled_player(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    player_query: Query<
+        (&Player, Option<&ControlledBy>),
+        (With<Player>, Without<InputMap<PlayerActions>>),
+    >,
+    clients: Query<(), With<Client>>,
+) {
+    let entity = trigger.entity;
+    if let Ok((player, controlled_by)) = player_query.get(entity) {
+        if let Some(controlled_by) = controlled_by
+            && clients.get(controlled_by.owner).is_err()
+        {
+            return;
+        }
+        info!("Own player is now controlled, adding inputmap {entity:?} {player:?}");
+        commands.entity(entity).insert(InputMap::new([
+            (PlayerActions::Up, KeyCode::ArrowUp),
+            (PlayerActions::Down, KeyCode::ArrowDown),
+            (PlayerActions::Left, KeyCode::ArrowLeft),
+            (PlayerActions::Right, KeyCode::ArrowRight),
+            (PlayerActions::Up, KeyCode::KeyW),
+            (PlayerActions::Down, KeyCode::KeyS),
+            (PlayerActions::Left, KeyCode::KeyA),
+            (PlayerActions::Right, KeyCode::KeyD),
+            (PlayerActions::Fire, KeyCode::Space),
+        ]));
+    }
+}
+
+#[cfg(feature = "gui")]
 fn handle_hit_event(
     time: Res<Time>,
     mut events: MessageReader<BulletHitMessage>,

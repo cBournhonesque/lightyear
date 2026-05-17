@@ -50,7 +50,7 @@ pub type Priority = f32;
 #[component(on_add = MessageSender::<M>::on_add_hook)]
 #[require(MessageManager)]
 pub struct MessageSender<M: Message> {
-    send: Vec<(M, ChannelKind, Priority)>,
+    send: Vec<(M, ChannelKind, &'static str, Priority)>,
     #[reflect(ignore)]
     writer: Writer,
 }
@@ -93,7 +93,12 @@ impl<M: Message> MessageSender<M> {
         //     channel => core::any::type_name::<C>(),
         //     message => core::any::type_name::<M>()
         // );
-        self.send.push((message, ChannelKind::of::<C>(), priority));
+        self.send.push((
+            message,
+            ChannelKind::of::<C>(),
+            core::any::type_name::<C>(),
+            priority,
+        ));
     }
 
     /// Buffers a message to be sent over the channel
@@ -116,7 +121,7 @@ impl<M: Message> MessageSender<M> {
         let mut sender = unsafe { message_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
-        sender.send.drain(..).try_for_each(|(message, channel_kind, priority)| {
+        sender.send.drain(..).try_for_each(|(message, channel_kind, channel_name, priority)| {
             // we write the message NetId, and then serialize the message
             net_id.to_bytes(&mut sender.writer)?;
             // SAFETY: the message has been checked to be of type `M`
@@ -128,6 +133,18 @@ impl<M: Message> MessageSender<M> {
                 metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()).increment(bytes.len() as f64);
             }
             trace!("Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {channel_kind:?}", DebugName::type_name::<M>(), MessageKind::of::<M>());
+            trace!(
+                target: "lightyear_debug::message",
+                kind = "message_send",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                message_name = core::any::type_name::<M>(),
+                message_net_id = net_id,
+                channel = channel_name,
+                bytes = bytes.len(),
+                priority,
+                "serialized message for transport"
+            );
             transport.send_erased(channel_kind, bytes, priority)?;
             Ok(())
         })
@@ -152,10 +169,20 @@ impl<M: Message> MessageSender<M> {
         sender
             .send
             .drain(..)
-            .for_each(|(message, channel_kind, _)| {
+            .for_each(|(message, channel_kind, channel_name, _)| {
                 trace!(
                     "Send local message of type {:?} on channel {channel_kind:?}",
                     DebugName::type_name::<M>()
+                );
+                trace!(
+                    target: "lightyear_debug::message",
+                    kind = "message_send_local",
+                    schedule = "Last",
+                    sample_point = "Last",
+                    message_name = core::any::type_name::<M>(),
+                    channel = channel_name,
+                    remote_tick = tick.0,
+                    "queued local message"
                 );
                 receiver.recv.push(ReceivedMessage::<M> {
                     data: message,

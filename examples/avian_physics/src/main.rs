@@ -12,6 +12,7 @@ use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;
@@ -52,9 +53,7 @@ fn main() {
 
     #[cfg(feature = "gui")]
     {
-        app.add_plugins(renderer::ExampleRendererPlugin {
-            show_confirmed: false,
-        });
+        app.add_plugins(renderer::ExampleRendererPlugin);
     }
 
     // run the app

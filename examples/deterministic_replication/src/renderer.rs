@@ -2,12 +2,8 @@ use crate::protocol::*;
 use crate::shared::Wall;
 use avian2d::prelude::{Position, Rotation};
 use bevy::prelude::*;
-use lightyear::prediction::Predicted;
-use lightyear::prediction::rollback::DeterministicPredicted;
-#[cfg(feature = "client")]
-use lightyear::prelude::client::*;
-use lightyear::prelude::{EventSender, InterpolationSystems, RollbackSystems};
-use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
+use lightyear::prelude::{InterpolationSystems, RollbackSystems};
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -15,6 +11,7 @@ pub struct ExampleRendererPlugin;
 impl Plugin for ExampleRendererPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, init);
+        app.add_systems(Update, update_mode_text);
         // draw after interpolation is done
         app.add_systems(
             PostUpdate,
@@ -22,31 +19,37 @@ impl Plugin for ExampleRendererPlugin {
                 .after(InterpolationSystems::Interpolate)
                 .after(RollbackSystems::VisualCorrection),
         );
-
-        // add visual interpolation for Position and Rotation
-        // (normally we would interpolate on Transform but here this is fine
-        // since rendering is done via Gizmos that only depend on Position/Rotation)
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
-        app.add_observer(add_visual_interpolation_components);
-    }
-}
-
-fn add_visual_interpolation_components(
-    trigger: On<Add, Position>,
-    predicted: Query<(), With<DeterministicPredicted>>,
-    mut commands: Commands,
-) {
-    if let Ok(()) = predicted.get(trigger.entity) {
-        commands.entity(trigger.entity).insert((
-            FrameInterpolate::<Position>::default(),
-            FrameInterpolate::<Rotation>::default(),
-        ));
+        // FrameInterpolation<Position/Rotation> is now registered in SharedPlugin
+        // so both headless and GUI runs get the Restore system (required for
+        // correct post-rollback Position under AvianReplicationMode::Position).
     }
 }
 
 fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
+    commands.spawn((
+        Text::new("Catch-up: StateBasedCatchUp"),
+        TextFont::from_font_size(20.0),
+        TextColor(Color::WHITE.with_alpha(0.8)),
+        Node {
+            position_type: PositionType::Absolute,
+            top: Val::Px(10.0),
+            left: Val::Px(10.0),
+            ..default()
+        },
+        ModeText,
+    ));
+}
+
+#[derive(Component)]
+struct ModeText;
+
+fn update_mode_text(mode: Res<CatchUpMode>, mut text: Single<&mut Text, With<ModeText>>) {
+    let label = match *mode {
+        CatchUpMode::InputOnly => "InputOnly",
+        CatchUpMode::StateBasedCatchUp => "StateBasedCatchUp",
+    };
+    text.0 = format!("Catch-up: {label}");
 }
 
 /// System that draws the player's boxes and cursors

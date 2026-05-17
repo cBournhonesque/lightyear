@@ -17,6 +17,7 @@ server = ["lightyear_inputs/server"]
 [dependencies]
 lightyear_inputs.workspace = true
 lightyear_core.workspace = true
+lightyear_sync.workspace = true
 
 leafwing-input-manager.workspace = true
 

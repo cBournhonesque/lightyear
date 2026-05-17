@@ -55,6 +55,7 @@ impl InputTimelineConfig {
         mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
     ) {
         if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
+            let before = timeline.input_delay_ticks;
             timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
                 link.stats,
                 &config.sync,
@@ -63,6 +64,18 @@ impl InputTimelineConfig {
             trace!(
                 "Recomputing input delay on sync event! Input delay ticks: {}",
                 timeline.input_delay_ticks
+            );
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "input_delay_recomputed_on_sync",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                entity = ?trigger.entity,
+                tick_delta = trigger.tick_delta,
+                input_delay_ticks_before = before,
+                input_delay_ticks_after = timeline.input_delay_ticks,
+                rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
+                "sync event: recomputed input delay"
             );
         }
     }
@@ -213,7 +226,7 @@ impl InputDelayConfig {
         sync_config: &SyncConfig,
         tick_interval: Duration,
     ) -> u16 {
-        let jitter_margin = sync_config.jitter_margin(link_stats.jitter);
+        let jitter_margin = sync_config.jitter_margin(link_stats.jitter, tick_interval);
         let effective_rtt = link_stats.rtt + jitter_margin;
         assert!(
             self.minimum_input_delay_ticks <= self.maximum_input_delay_before_prediction,
@@ -279,20 +292,30 @@ impl SyncedTimeline for InputTimeline {
         let remote = remote.current_estimate();
         let network_delay = TickDelta::from_duration(ping_manager.rtt() / 2, tick_duration);
         let jitter_margin = TickDelta::from_duration(
-            config.sync.jitter_margin(ping_manager.jitter()),
+            config
+                .sync
+                .jitter_margin(ping_manager.jitter(), tick_duration),
             tick_duration,
         );
-        let input_delay: TickDelta = Tick(self.context.input_delay_ticks).into();
-        // NOTE: because of input delay, this could be in the past, which causes issues with Prediction
-        // let's make sure that we're always ahead of the server
-        let mut obj = remote + network_delay + jitter_margin - input_delay;
-        if obj < remote {
-            obj = remote + TickDelta::from_i16(1)
-        }
+        let input_delay: TickDelta = Tick(self.context.input_delay_ticks as u32).into();
+        let sync_error_margin = TickDelta::from_duration(
+            tick_duration.mul_f32(config.sync.error_margin),
+            tick_duration,
+        );
+        // Keep the objective as-computed — including when input_delay pushes it
+        // behind the server — rather than nudging it to `remote + 1`. Deterministic
+        // replication requires the client timeline to stay close to the real
+        // objective so input packets for tick T arrive before the server
+        // simulates T. The sync controller is allowed to drift within
+        // `error_margin` without correcting, so include that tolerance in the
+        // objective; otherwise the controller can consume the entire delivery
+        // margin in steady state.
+        let obj = remote + network_delay + jitter_margin + sync_error_margin - input_delay;
         trace!(
             ?remote,
             ?network_delay,
             ?jitter_margin,
+            ?sync_error_margin,
             ?input_delay,
             "InputTimeline objective: {:?}",
             obj
@@ -300,10 +323,10 @@ impl SyncedTimeline for InputTimeline {
         obj
     }
 
-    fn resync(&mut self, sync_objective: TickInstant) -> i16 {
+    fn resync(&mut self, sync_objective: TickInstant) -> i32 {
         let now = self.now();
         self.now = sync_objective;
-        (sync_objective - now).to_i16()
+        (sync_objective - now).to_i32()
     }
 
     /// Adjust the current timeline to stay in sync with the [`RemoteTimeline`].
@@ -318,7 +341,7 @@ impl SyncedTimeline for InputTimeline {
         config: &Self::Config,
         ping_manager: &PingManager,
         tick_duration: Duration,
-    ) -> Option<i16> {
+    ) -> Option<i32> {
         // skip syncing if we haven't received enough information
         if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
             return None;
@@ -385,7 +408,71 @@ impl SyncedTimeline for InputTimeline {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::timeline::remote::RemoteTimeline;
     use bevy_utils::default;
+    use lightyear_core::timeline::NetworkTimeline;
+
+    fn assert_tick_instant_close(actual: TickInstant, expected: TickInstant) {
+        let error = (actual - expected).to_f32().abs();
+        assert!(
+            error < 0.001,
+            "expected {expected:?}, got {actual:?}, error {error}"
+        );
+    }
+
+    #[test]
+    fn input_timeline_objective_preserves_margin_after_sync_deadband() {
+        let tick_duration = Duration::from_millis(10);
+        let mut remote = RemoteTimeline::default();
+        remote.set_now(TickInstant::from(Tick(100)));
+
+        let mut ping_manager = PingManager::default();
+        ping_manager.rtt_estimator_ewma.final_stats.rtt = Duration::from_millis(40);
+        ping_manager.rtt_estimator_ewma.final_stats.jitter = Duration::from_millis(5);
+
+        let mut config = InputTimelineConfig::default();
+        config.sync.jitter_multiple = 2;
+        config.sync.jitter_margin = 1.0;
+        config.sync.error_margin = 0.75;
+
+        let objective =
+            InputTimeline::default().sync_objective(&remote, &config, &ping_manager, tick_duration);
+
+        // remote 100 + RTT/2 2 ticks + jitter margin 2 ticks
+        // + controller deadband 0.75 ticks.
+        assert_tick_instant_close(objective, TickInstant::lit("104.75"));
+
+        let earliest_uncorrected_timeline = objective - TickDelta::lit("0.75");
+        // Even if the sync controller chooses not to correct a -0.75 tick error,
+        // the client is still at the delivery objective that includes RTT/2 and
+        // jitter margin.
+        assert_tick_instant_close(earliest_uncorrected_timeline, TickInstant::lit("104"));
+    }
+
+    #[test]
+    fn input_delay_still_offsets_input_timeline_objective() {
+        let tick_duration = Duration::from_millis(10);
+        let mut remote = RemoteTimeline::default();
+        remote.set_now(TickInstant::from(Tick(100)));
+
+        let mut ping_manager = PingManager::default();
+        ping_manager.rtt_estimator_ewma.final_stats.rtt = Duration::from_millis(40);
+        ping_manager.rtt_estimator_ewma.final_stats.jitter = Duration::from_millis(5);
+
+        let mut config =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(2));
+        config.sync.jitter_multiple = 2;
+        config.sync.jitter_margin = 1.0;
+        config.sync.error_margin = 0.75;
+
+        let mut timeline = InputTimeline::default();
+        timeline.context.input_delay_ticks = 2;
+
+        let objective = timeline.sync_objective(&remote, &config, &ping_manager, tick_duration);
+
+        assert_tick_instant_close(objective, TickInstant::lit("102.75"));
+    }
+
     #[test]
     fn test_input_delay_config() {
         let sync_config = SyncConfig::default();
@@ -430,7 +517,7 @@ mod tests {
                 &sync_config,
                 Duration::from_millis(16)
             ),
-            6
+            7
         );
         assert_eq!(
             config_1.input_delay_ticks(
@@ -441,7 +528,7 @@ mod tests {
                 &sync_config,
                 Duration::from_millis(16)
             ),
-            12
+            13
         );
     }
 }

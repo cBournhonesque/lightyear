@@ -6,253 +6,140 @@ The **network visibility** is used to determine which entities are replicated to
 relevant, the server will despawn that entity for that client. This lets you save bandwidth by only sending the necessary data to each client.
 
 
-You can add the [`NetworkVisibility`] component on an entity to indicate that this entity is using the visibility system.
-
-The visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
+Visibility is cached, so after you set an entity as `visible` for a client, it will remain relevant
 until you change the setting again.
-To control the visibility, you can set it on the [`ReplicationState`] componet.
 
-```rust
+```rust,no_run
 # use bevy_ecs::entity::Entity;
-# use lightyear_replication::prelude::ReplicationState;
+# use bevy_ecs::prelude::World;
+# use lightyear_replication::prelude::VisibilityExt;
 
 # let mut client = Entity::from_bits(1);
-let mut state = ReplicationState::default();
-state.gain_visibility(client);
-state.lose_visibility(client);
+# let entity = Entity::from_bits(2);
+# let mut world = World::new();
+world.gain_visibility(entity, client);
+world.lose_visibility(entity, client);
 ```
 */
 
-use crate::prelude::ReplicationState;
-use crate::send::plugin::ReplicationBufferSystems;
-use crate::send::sender::ReplicationSender;
-use bevy_app::{App, Plugin, PostUpdate};
+use bevy_app::prelude::*;
+use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
-use bevy_reflect::Reflect;
+use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
+use bevy_replicon::server::visibility::filters_mask::FilterBit;
+use bevy_replicon::server::visibility::registry::FilterRegistry;
+use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
-/// Event related to [`Entities`](Entity) which are relevant to a client
-///
-/// The visibility switches to gained/lost/maintained if a visibility function is usedk
-#[derive(Debug, PartialEq, Clone, Copy, Default, Reflect)]
-pub(crate) enum VisibilityState {
-    /// the entity just gained visibility, we should send a spawn
-    Gained,
-    /// the entity just lost visibility, we should send a despawn
-    Lost,
-    /// the entity was already replicated to the client, and still is
-    Visible,
-    #[default]
-    /// the entity is always visible (the visibility system is not used)
-    Default,
-}
+use crate::hierarchy::ReplicateLikeChildren;
 
-impl VisibilityState {
-    /// Returns true if the entity is currently replicated to the client
-    pub fn is_visible(&self, has_network_visibility: bool) -> bool {
-        !has_network_visibility
-            || matches!(self, VisibilityState::Visible | VisibilityState::Gained)
+#[doc(hidden)]
+#[derive(Resource, Deref)]
+pub struct VisibilityBit(FilterBit);
+
+impl FromWorld for VisibilityBit {
+    fn from_world(world: &mut World) -> Self {
+        let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
+            world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
+                filter_registry.register_scope::<Entity>(world, &mut registry)
+            })
+        });
+        Self(bit)
     }
 }
 
-// TODO: should we store this on the sender entity instead?
-//  it would make it faster to 'reset' the visibility every send_interval for each sender
-/// Marker component to indicate that interest management is active for this entity.
+/// Extension trait for dynamically showing or hiding replicated entities.
 ///
-/// We will replicate this entity to the clients specified in the `Replicate` component.
-/// On top of that, we will apply interest management logic to determine which peers should receive the entity
+/// Implemented for both [`World`] (immediate) and [`Commands`] (deferred).
 ///
-/// You can use [`gain_visibility`](ReplicationState::gain_visibility) and [`lose_visibility`](ReplicationState::lose_visibility)
-/// to control the network visibility of entities.
+/// Visibility changes automatically propagate to descendant entities in the
+/// same replication hierarchy (those with [`ReplicateLikeChildren`]).
 ///
-/// You can also use [`Room`](super::room::Room)s for a more stateful approach to network visibility
+/// # Parameters
 ///
-/// (the client still needs to be included in the [`Replicate`](crate::prelude::Replicate), the room is simply an additional constraint)
-#[derive(Component, Clone, Default, PartialEq, Debug, Reflect)]
-#[require(ReplicationState)]
-#[reflect(Component)]
-pub struct NetworkVisibility;
+/// - `entity`: the replicated entity to show or hide.
+/// - `sender`: the link entity (connection) for which visibility changes.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// // Hide an entity from a specific client
+/// commands.lose_visibility(server_entity, client_link_entity);
+///
+/// // Make it visible again
+/// commands.gain_visibility(server_entity, client_link_entity);
+/// ```
+///
+/// [`ReplicateLikeChildren`]: crate::hierarchy::ReplicateLikeChildren
+pub trait VisibilityExt {
+    /// Make `entity` (and its replication-hierarchy descendants) visible to `sender`.
+    fn gain_visibility(&mut self, entity: Entity, sender: Entity);
+
+    /// Hide `entity` (and its replication-hierarchy descendants) from `sender`.
+    fn lose_visibility(&mut self, entity: Entity, sender: Entity);
+}
+
+impl VisibilityExt for Commands<'_, '_> {
+    fn gain_visibility(&mut self, entity: Entity, sender: Entity) {
+        self.queue(move |world: &mut World| {
+            world.gain_visibility(entity, sender);
+        });
+    }
+
+    fn lose_visibility(&mut self, entity: Entity, sender: Entity) {
+        self.queue(move |world: &mut World| {
+            world.lose_visibility(entity, sender);
+        });
+    }
+}
+
+impl VisibilityExt for World {
+    fn gain_visibility(&mut self, entity: Entity, sender: Entity) {
+        let bit = self.resource::<VisibilityBit>().0;
+        if let Some(mut vis) = self.get_mut::<ClientVisibility>(sender) {
+            vis.set(entity, bit, true);
+        }
+        set_replicate_like_children_visibility(self, entity, sender, bit, true);
+    }
+
+    fn lose_visibility(&mut self, entity: Entity, sender: Entity) {
+        let bit = self.resource::<VisibilityBit>().0;
+        if let Some(mut vis) = self.get_mut::<ClientVisibility>(sender) {
+            vis.set(entity, bit, false);
+        }
+        set_replicate_like_children_visibility(self, entity, sender, bit, false);
+    }
+}
+
+/// Recursively walk [`ReplicateLikeChildren`] and set the visibility bit for each descendant.
+fn set_replicate_like_children_visibility(
+    world: &mut World,
+    entity: Entity,
+    sender: Entity,
+    bit: FilterBit,
+    visible: bool,
+) {
+    let Some(children) = world.get::<ReplicateLikeChildren>(entity) else {
+        return;
+    };
+    // Copy the entity list to avoid borrowing world while we recurse.
+    // ReplicateLikeChildren is typically very small (1-3 entities).
+    let child_entities: smallvec::SmallVec<[Entity; 8]> = children.iter().collect();
+    for child in child_entities {
+        if let Some(mut vis) = world.get_mut::<ClientVisibility>(sender) {
+            vis.set(child, bit, visible);
+        }
+        set_replicate_like_children_visibility(world, child, sender, bit, visible);
+    }
+}
 
 /// Plugin that handles the visibility system
 #[derive(Default)]
 pub struct NetworkVisibilityPlugin;
 
-impl NetworkVisibilityPlugin {
-    // TODO: ideally we would run this in the main 'buffer' system (for performance), but bevy currently has limitations where
-    //  we cannot get one mutable component from FilteredEntityMut
-    //  See: https://discord.com/channels/691052431525675048/1368398098002345984/1368398098002345984
-    //
-    /// Update the visibility for each replicated entity.
-    /// Gained becomes Maintained, Lost becomes cleared.
-    ///
-    /// We run this only if the ReplicationSender systems run, otherwise `Gained` would to go `Maintained` and
-    /// senders would only see entities as `Maintained`.
-    // TODO: this is buggy since the visibility should depend on the sender! Maybe we should store a tick
-    //  for when the visibility last changed. Then if the maintained tick is more recent than the previous sender's tick
-    //  it means that the entity became visible for the sender, so it should be treated as `Gained`.
-    //  Maybe we don't even need `Gained` and `Maintained`. just `Visible(Tick)` and `NotVisible`
-    fn update_network_visibility(
-        mut query: Query<&mut ReplicationState, With<NetworkVisibility>>,
-        manager_query: Query<&ReplicationSender>,
-    ) {
-        query.iter_mut().for_each(|mut state| {
-            state.per_sender_state.retain(|sender_entity, state| {
-                if !manager_query
-                    .get(*sender_entity)
-                    .unwrap()
-                    .send_timer
-                    .is_finished()
-                {
-                    return true;
-                }
-                if state.visibility == VisibilityState::Gained {
-                    state.visibility = VisibilityState::Visible;
-                }
-
-                // When visibility is Lost, the despawn has already been sent by
-                // replicate_entity. Instead of deleting the entry (which destroys
-                // the predicted/interpolated flags set by InterpolationTarget/
-                // PredictionTarget on_insert hooks), reset to Default so that
-                // gain_visibility can reuse the entry with correct flags on
-                // interest re-entry. The memory cost is minimal (~8 bytes per
-                // sender-entity pair that has ever been visible).
-                if state.visibility == VisibilityState::Lost {
-                    state.visibility = VisibilityState::default();
-                    state.spawned = false;
-                    return true;
-                }
-                true
-            })
-        });
-    }
-}
-
-#[deprecated(note = "Use VisibilitySystems instead")]
-pub type VisibilitySet = VisibilitySystems;
-
-#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum VisibilitySystems {
-    /// Update the [`NetworkVisibility`] components
-    UpdateVisibility,
-}
-
 impl Plugin for NetworkVisibilityPlugin {
     fn build(&self, app: &mut App) {
-        // SYSTEMS
-        app.configure_sets(
-            PostUpdate,
-            VisibilitySystems::UpdateVisibility.in_set(ReplicationBufferSystems::AfterBuffer),
-        );
-        app.add_systems(
-            PostUpdate,
-            (Self::update_network_visibility.in_set(VisibilitySystems::UpdateVisibility),),
-        );
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    // #[ignore = "Broken on main"]
-    fn test_network_visibility() {
-        let mut app = App::new();
-        app.add_plugins(NetworkVisibilityPlugin);
-        let entity = app.world_mut().spawn(NetworkVisibility::default()).id();
-
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .gain_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Gained
-        );
-
-        // after an update: Gained -> Visible
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // if an entity is already visible, we do not make it Gained
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .gain_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // entity now loses Visibility
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .lose_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Lost
-        );
-
-        // after an update: Lost -> Default (entry preserved, spawned reset)
-        app.update();
-        {
-            let state = app.world_mut().get_mut::<ReplicationState>(entity).unwrap();
-            let per_sender = state.per_sender_state.get(&sender).expect(
-                "entry should be preserved after Lost to retain predicted/interpolated flags",
-            );
-            assert_eq!(per_sender.visibility, VisibilityState::Default);
-            assert!(!per_sender.spawned);
-        }
-
-        // if we Gain/Lose visibility in the same tick, do nothing
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .gain_visibility(sender);
-        app.world_mut()
-            .get_mut::<ReplicationState>(entity)
-            .unwrap()
-            .lose_visibility(sender);
-        assert_eq!(
-            app.world_mut()
-                .get_mut::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Default
-        );
+        app.init_resource::<VisibilityBit>();
     }
 }

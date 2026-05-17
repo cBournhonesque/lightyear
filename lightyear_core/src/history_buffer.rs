@@ -182,8 +182,19 @@ impl<R> HistoryBuffer<R> {
         self.buffer.back()
     }
 
+    /// Update the tick of the most recent value in the history buffer.
+    ///
+    /// This is useful when a caller learns that the latest value is still valid at a newer tick
+    /// and wants to advance that anchor without cloning the value again.
+    pub fn set_most_recent_tick(&mut self, tick: Tick) {
+        if let Some((most_recent_tick, _)) = self.buffer.back_mut() {
+            debug_assert!(tick >= *most_recent_tick);
+            *most_recent_tick = tick;
+        }
+    }
+
     /// In case of a TickEvent where the client tick is changed, we need to update the ticks in the buffer
-    pub fn update_ticks(&mut self, delta: i16) {
+    pub fn update_ticks(&mut self, delta: i32) {
         self.buffer.iter_mut().for_each(|(tick, _)| {
             *tick = *tick + delta;
         });

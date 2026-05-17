@@ -202,7 +202,7 @@ impl<C: Send + Sync + 'static> ActionStateSequence for BEIStateSequence<C> {
 
     fn build_from_input_buffer<'w, 's>(
         input_buffer: &InputBuffer<Self::Snapshot, Self::Action>,
-        num_ticks: u16,
+        num_ticks: u32,
         end_tick: Tick,
     ) -> Option<Self> {
         let mut diffs = Vec::new();

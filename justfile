@@ -39,6 +39,93 @@ clippy_examples:
     cargo clippy -p simple_box --all-features -- -D warnings --no-deps
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
+# jq filters shared by all example/demo build recipes.
+_example_demo_default_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression")) | .name'
+_example_demo_feature_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression") and (.name != "simple_setup")) | .name'
+# simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
+
+# Build all examples/demos. Modes: both (default), client, server, or default.
+build_examples_demos mode="both":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="{{ mode }}"
+    filter='{{ _example_demo_feature_pkgs_filter }}'
+    features=""
+    target_dir=(--target-dir target)
+    case "$mode" in
+        ""|both) features="client,gui,server,netcode,udp" ;;
+        client) features="client,gui,netcode,udp" ;;
+        server)
+            features="server,netcode,udp"
+            target_dir=(--target-dir target/server-only)
+            ;;
+        default) filter='{{ _example_demo_default_pkgs_filter }}' ;;
+        *)
+            echo "usage: just build_examples_demos [both|client|server|default]" >&2
+            exit 2
+            ;;
+    esac
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r "$filter" | sort | sed 's/^/-p /' | tr "\n" " ")
+    if [ -n "$features" ]; then
+        cargo build -j 1 --no-default-features --features="$features" "${target_dir[@]}" $pkgs
+    else
+        cargo build -j 1 $pkgs
+    fi
+
+build_examples_demos_release mode="both":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="{{ mode }}"
+    filter='{{ _example_demo_feature_pkgs_filter }}'
+    features=""
+    target_dir=()
+    case "$mode" in
+        ""|both) features="client,gui,server,netcode,udp" ;;
+        client) features="client,gui,netcode,udp" ;;
+        server)
+            features="server,netcode,udp"
+            target_dir=(--target-dir target/server-only-release)
+            ;;
+        default) filter='{{ _example_demo_default_pkgs_filter }}' ;;
+        *)
+            echo "usage: just build_examples_demos_release [both|client|server|default]" >&2
+            exit 2
+            ;;
+    esac
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r "$filter" | sort | sed 's/^/-p /' | tr "\n" " ")
+    if [ -n "$features" ]; then
+        cargo build --release -j 1 --no-default-features --features="$features" "${target_dir[@]}" $pkgs
+    else
+        cargo build --release -j 1 $pkgs
+    fi
+
+# Build all examples/demos headless (no GUI, no window). Uses a separate target dir
+# to avoid feature unification pulling in bevy_winit. Binaries in target/headless/debug/.
+build_examples_headless mode="both":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mode="{{ mode }}"
+    case "$mode" in
+        ""|both)
+            features="client,server,netcode,udp"
+            target_dir="target/headless"
+            ;;
+        client)
+            features="client,netcode,udp"
+            target_dir="target/headless-client"
+            ;;
+        server)
+            features="server,netcode,udp"
+            target_dir="target/headless-server"
+            ;;
+        *)
+            echo "usage: just build_examples_headless [both|client|server]" >&2
+            exit 2
+            ;;
+    esac
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '{{ _example_demo_feature_pkgs_filter }}' | sort | sed 's/^/-p /' | tr "\n" " ")
+    cargo build -j 1 --no-default-features --features="$features" --target-dir "$target_dir" $pkgs
+
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
@@ -199,7 +286,7 @@ lightyear_frame_interpolation:
     # cargo clippy -p lightyear_frame_interpolation --tests --no-default-features -- -D warnings --no-deps
     # cargo clippy -p lightyear_frame_interpolation --tests --no-default-features --features="std" -- -D warnings --no-deps
     # cargo clippy -p lightyear_frame_interpolation --tests --all-features -- -D warnings --no-deps
-    
+
 lightyear_inputs:
     # `lightyear_inputs` only works with `std`
     # cargo clippy -p lightyear_inputs --no-default-features -- -D warnings --no-deps

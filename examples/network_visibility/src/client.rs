@@ -3,6 +3,7 @@ use lightyear::input::client::InputSystems;
 use lightyear::input::native::prelude::{ActionState, InputMarker};
 use lightyear::prelude::*;
 
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::shared_movement_behaviour;
 
@@ -10,6 +11,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         app.add_systems(
             FixedPreUpdate,
             // Inputs have to be buffered in the WriteClientInputs set
@@ -18,6 +20,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_systems(FixedUpdate, movement);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
     }
 }
 
@@ -64,7 +67,6 @@ pub(crate) fn movement(
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
-    mut commands: Commands,
 ) {
     let entity = trigger.entity;
     if let Ok(mut color) = predicted.get_mut(entity) {
@@ -73,11 +75,28 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
-        commands
-            .entity(entity)
-            .insert(InputMarker::<Inputs>::default());
     }
+}
+
+fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    players: Query<(&PlayerId, Option<&ControlledBy>), Without<InputMarker<Inputs>>>,
+    clients: Query<(), With<Client>>,
+) {
+    let entity = trigger.entity;
+    let Ok((player_id, controlled_by)) = players.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
+    }
+    info!("Adding InputMarker to controlled player {entity:?} {player_id:?}");
+    commands
+        .entity(entity)
+        .insert(InputMarker::<Inputs>::default());
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

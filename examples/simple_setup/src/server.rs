@@ -6,6 +6,7 @@
 //! - read inputs from the clients and move the player entities accordingly
 //!
 //! Lightyear will handle the replication of entities automatically if you add a `Replicate` component to them.
+use crate::automation::ServerStartupConfig;
 use crate::shared::*;
 use bevy::prelude::*;
 use lightyear::prelude::client::*;
@@ -16,6 +17,7 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(ReplicationMetadata::new(SERVER_REPLICATION_INTERVAL));
         app.add_systems(Startup, startup);
         app.add_observer(handle_new_client);
     }
@@ -28,17 +30,14 @@ impl Plugin for ExampleServerPlugin {
 /// `ReplicationSender` (so that the server can send replication updates to that client)
 /// or a `MessageSender`.
 fn handle_new_client(trigger: On<Add, Connected>, mut commands: Commands) {
-    commands
-        .entity(trigger.entity)
-        .insert(ReplicationSender::new(
-            SERVER_REPLICATION_INTERVAL,
-            SendUpdatesMode::SinceLastAck,
-            false,
-        ));
+    commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
 /// Start the server
-fn startup(mut commands: Commands) -> Result {
+fn startup(mut commands: Commands, config: Res<ServerStartupConfig>) -> Result {
+    if !config.auto_spawn {
+        return Ok(());
+    }
     let server = commands
         .spawn((
             NetcodeServer::new(server::NetcodeConfig::default()),

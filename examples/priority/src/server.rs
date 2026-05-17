@@ -3,10 +3,12 @@ use bevy::prelude::*;
 use core::ops::Deref;
 use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client::Connected;
+use lightyear::connection::host::HostServer;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
+use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 
@@ -14,6 +16,8 @@ pub struct ExampleServerPlugin;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationServerPlugin);
+        app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.init_resource::<Global>();
         app.add_systems(Startup, setup);
         // the physics/FixedUpdates systems that consume inputs should be run in this set
@@ -43,9 +47,6 @@ pub(crate) fn setup(mut commands: Commands) {
                 Shape::Circle,
                 ShapeChangeTimer(Timer::from_seconds(2.0, TimerMode::Repeating)),
                 Replicate::to_clients(NetworkTarget::All),
-                // A group with priority 2.0 will be replicated twice as often as a group with priority 1.0
-                // in case the bandwidth is saturated.
-                ReplicationGroup::default().set_priority(1.0 + y.abs() as f32),
             ));
         }
     }
@@ -55,7 +56,7 @@ pub(crate) fn setup(mut commands: Commands) {
 pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
     info!("New client connected: {:?}", trigger.entity);
     commands.entity(trigger.entity).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+        ReplicationSender,
         // limit to 3KB/s
         Transport::new(PriorityConfig::new(3000)),
     ));
@@ -91,13 +92,14 @@ pub(crate) fn handle_connected(
 
 /// Read client inputs and move players
 fn movement(
-    mut query: Query<
-        (&mut Position, &ActionState<Inputs>),
-        // We don't want to apply inputs to the locally predicted entities
-        Without<Predicted>,
-    >,
+    host_server: Query<(), With<HostServer>>,
+    mut query: Query<(&mut Position, &ActionState<Inputs>, Has<Predicted>)>,
 ) {
-    for (position, action_state) in query.iter_mut() {
+    let is_host_server = !host_server.is_empty();
+    for (position, action_state, predicted) in query.iter_mut() {
+        if is_host_server && predicted {
+            continue;
+        }
         // Use the shared movement function, adapted for ActionState
         shared::shared_movement_behaviour(position, action_state);
     }

@@ -1,15 +1,20 @@
 //! This module is responsible for making sure that parent-children hierarchies are replicated correctly.
-
-use crate::prelude::{Replicate, ReplicationBufferSystems};
-use crate::registry::registry::AppComponentExt;
+use crate::ReplicationSystems;
+use crate::prelude::Replicate;
+#[cfg(feature = "interpolation")]
+use crate::send::InterpolationTarget;
+#[cfg(feature = "prediction")]
+use crate::send::PredictionTarget;
 use alloc::vec::Vec;
 use bevy_app::prelude::*;
 use bevy_ecs::component::Immutable;
 use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::reflect::ReflectMapEntities;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
+use bevy_replicon::prelude::SyncRelatedAppExt;
 use core::fmt::Debug;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -24,6 +29,66 @@ pub enum RelationshipSystems {
     Receive,
     // PostUpdate
     Send,
+}
+
+pub(crate) struct HierarchyPlugin;
+
+#[derive(QueryData)]
+struct PropagationQuery {
+    replicate: &'static Replicate,
+    #[cfg(feature = "prediction")]
+    prediction: Option<&'static PredictionTarget>,
+    #[cfg(feature = "interpolation")]
+    interpolation: Option<&'static InterpolationTarget>,
+}
+
+#[derive(QueryData)]
+struct ChildPropagationQuery {
+    replicate_like: &'static ReplicateLike,
+    replicate: Option<&'static Replicate>,
+    #[cfg(feature = "prediction")]
+    prediction: Option<&'static PredictionTarget>,
+    #[cfg(feature = "interpolation")]
+    interpolation: Option<&'static InterpolationTarget>,
+}
+
+impl HierarchyPlugin {
+    fn propagate_when_replicate_like_added(
+        trigger: On<Insert, ReplicateLike>,
+        child_query: Query<ChildPropagationQuery>,
+        root_query: Query<PropagationQuery>,
+        mut commands: Commands,
+    ) {
+        if let Ok(child) = child_query.get(trigger.entity)
+            && let Ok(root_propagation) = root_query.get(child.replicate_like.root)
+        {
+            if child.replicate.is_none() {
+                commands
+                    .entity(trigger.entity)
+                    .insert(root_propagation.replicate.clone());
+            }
+            #[cfg(feature = "prediction")]
+            if child.prediction.is_none()
+                && let Some(prediction) = root_propagation.prediction
+            {
+                commands.entity(trigger.entity).insert(prediction.clone());
+            }
+            #[cfg(feature = "interpolation")]
+            if child.interpolation.is_none()
+                && let Some(interpolation) = root_propagation.interpolation
+            {
+                commands
+                    .entity(trigger.entity)
+                    .insert(interpolation.clone());
+            }
+        }
+    }
+}
+
+impl Plugin for HierarchyPlugin {
+    fn build(&self, app: &mut App) {
+        app.add_observer(Self::propagate_when_replicate_like_added);
+    }
 }
 
 /// When the `DisableReplicateHierarchy` marker component is added to an entity, we will stop replicating their children.
@@ -87,17 +152,15 @@ impl<
 > Plugin for HierarchySendPlugin<R>
 {
     fn build(&self, app: &mut App) {
-        app.register_component::<R>()
-            // need to remember to use the MapEntities implementation that is provided by the Relationship
-            .add_component_map_entities();
+        // Note: app.replicate::<R>() is called in SharedComponentRegistrationPlugin
+        // so that FnsIds match between client and server.
+        app.sync_related_entities::<R>();
 
         // propagate ReplicateLike
         app.add_observer(Self::propagate_replicate_like_replication_marker_removed);
         app.add_systems(
             PostUpdate,
-            Self::propagate_through_hierarchy
-                // update replication components before we actually run the Buffer systems
-                .in_set(ReplicationBufferSystems::BeforeBuffer),
+            Self::propagate_through_hierarchy.before(ReplicationSystems::Send),
         );
     }
 }

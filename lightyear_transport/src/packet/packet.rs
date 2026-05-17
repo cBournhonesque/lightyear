@@ -10,8 +10,12 @@ use lightyear_utils::wrapping_id;
 wrapping_id!(PacketId);
 
 const MAX_PACKET_SIZE: usize = 1200;
-/// Number of bytes to write the header
-const HEADER_BYTES: usize = 11;
+/// Number of bytes written by [`PacketHeader::to_bytes`].
+///
+/// Keep this in sync with `PacketHeader` because [`FRAGMENT_SIZE`] depends on it.
+/// If this value is too small, fragment packets can overflow the 1200-byte MTU even when
+/// the fragment payload itself appears to fit.
+const HEADER_BYTES: usize = 17;
 
 /// The maximum number of bytes for a message before it is fragmented
 /// MAX_PACKET_SIZE - HEADER_BYTES - 1 (channel_net_id) - 6 (message_id/fragment_id/num_fragments) - 2 (num bytes in fragment)
@@ -75,7 +79,7 @@ impl Packet {
 
 #[cfg(test)]
 mod tests {
-    use crate::packet::header::PacketHeader;
+    use crate::packet::header::{PacketHeader, PacketHeaderManager};
     use crate::packet::message::{FragmentData, SingleData};
     use crate::packet::packet_type::PacketType;
     use bevy_app::App;
@@ -83,6 +87,7 @@ mod tests {
     use bevy_reflect::Reflect;
     use bevy_utils::default;
     use bytes::Bytes;
+    use lightyear_core::prelude::Tick;
 
     use super::*;
     use crate::channel::builder::{ChannelMode, ChannelSettings};
@@ -141,6 +146,21 @@ mod tests {
         app.world_mut()
             .remove_resource::<ChannelRegistry>()
             .unwrap()
+    }
+
+    #[test]
+    fn header_bytes_constant_matches_packet_header_encoding() {
+        let header = PacketHeaderManager::new(1.5).prepare_send_packet_header(
+            PacketType::Data,
+            core::time::Duration::default(),
+            Tick(3),
+        );
+
+        let mut writer = Vec::new();
+        header.to_bytes(&mut writer).unwrap();
+
+        assert_eq!(writer.len(), HEADER_BYTES);
+        assert_eq!(header.bytes_len(), HEADER_BYTES);
     }
 
     // #[test]

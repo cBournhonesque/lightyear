@@ -1,3 +1,4 @@
+use crate::automation::AutomationClientPlugin;
 use crate::protocol::Direction;
 use crate::protocol::*;
 use crate::shared::{shared_movement_behaviour, shared_tail_behaviour};
@@ -11,6 +12,7 @@ pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
+        app.add_plugins(AutomationClientPlugin);
         // app.add_systems(
         //     PostUpdate,
         //     debug_interpolate
@@ -27,6 +29,7 @@ impl Plugin for ExampleClientPlugin {
         );
         app.add_systems(FixedUpdate, (movement, shared_tail_behaviour).chain());
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
 
         // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
@@ -42,16 +45,30 @@ impl Plugin for ExampleClientPlugin {
 pub(crate) fn buffer_input(
     mut query: Query<&mut ActionState<Inputs>, With<InputMarker<Inputs>>>,
     keypress: Res<ButtonInput<KeyCode>>,
+    mut last_direction: Local<Option<Direction>>,
 ) {
     if let Ok(mut action_state) = query.single_mut() {
-        if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
-            action_state.0 = Inputs::Direction(Direction::Up);
-        } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
-            action_state.0 = Inputs::Direction(Direction::Down);
-        } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
-            action_state.0 = Inputs::Direction(Direction::Left);
-        } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
-            action_state.0 = Inputs::Direction(Direction::Right);
+        let requested_direction =
+            if keypress.pressed(KeyCode::KeyW) || keypress.pressed(KeyCode::ArrowUp) {
+                Some(Direction::Up)
+            } else if keypress.pressed(KeyCode::KeyS) || keypress.pressed(KeyCode::ArrowDown) {
+                Some(Direction::Down)
+            } else if keypress.pressed(KeyCode::KeyA) || keypress.pressed(KeyCode::ArrowLeft) {
+                Some(Direction::Left)
+            } else if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
+                Some(Direction::Right)
+            } else {
+                None
+            };
+
+        if let Some(direction) = requested_direction {
+            let current_direction = last_direction.unwrap_or(Direction::Up);
+            if current_direction.is_opposite(direction) {
+                action_state.0 = Inputs::Empty;
+            } else {
+                *last_direction = Some(direction);
+                action_state.0 = Inputs::Direction(direction);
+            }
         } else {
             // we always set the value, so that the server can distinguish between no inputs received
             // and no keys pressed
@@ -86,16 +103,38 @@ pub(crate) fn handle_predicted_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-        warn!("Add InputMarker to entity: {:?}", entity);
         // add visual interpolation for the head position of the predicted entity
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        commands.entity(entity).insert((
-            FrameInterpolate::<PlayerPosition>::default(),
-            InputMarker::<Inputs>::default(),
-        ));
+        commands
+            .entity(entity)
+            .insert(FrameInterpolate::<PlayerPosition>::default());
     }
+}
+
+/// Add the local input marker once ownership is known.
+///
+/// In host-client worlds `Predicted` and `Controlled` may be added in different orders, so local
+/// input setup should follow `Controlled` instead of the predicted-spawn visual setup.
+pub(crate) fn handle_controlled_spawn(
+    trigger: On<Add, Controlled>,
+    mut commands: Commands,
+    players: Query<Option<&ControlledBy>, (With<PlayerId>, Without<InputMarker<Inputs>>)>,
+    clients: Query<(), With<Client>>,
+) {
+    let entity = trigger.entity;
+    let Ok(controlled_by) = players.get(entity) else {
+        return;
+    };
+    if let Some(controlled_by) = controlled_by {
+        if clients.get(controlled_by.owner).is_err() {
+            return;
+        }
+    }
+    commands
+        .entity(entity)
+        .insert(InputMarker::<Inputs>::default());
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

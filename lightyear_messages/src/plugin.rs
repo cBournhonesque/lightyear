@@ -79,6 +79,7 @@ impl Plugin for MessagePlugin {
             }),
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(Self::recv)
@@ -172,7 +173,7 @@ mod tests {
     use lightyear_connection::client::Connected;
     use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_core::plugin::CorePlugins;
-    use lightyear_core::prelude::{LocalTimeline, Tick};
+    use lightyear_core::prelude::Tick;
     use lightyear_link::{Link, Linked};
     use lightyear_transport::channel::ChannelKind;
     use lightyear_transport::plugin::TestChannel;

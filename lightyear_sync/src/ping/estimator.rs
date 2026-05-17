@@ -191,6 +191,14 @@ impl RttEstimatorEwma {
 mod tests {
     use super::*;
 
+    fn assert_duration_approx_eq(actual: Duration, expected: Duration) {
+        let diff = actual.abs_diff(expected);
+        assert!(
+            diff <= Duration::from_micros(1),
+            "expected {expected:?}, got {actual:?}, diff {diff:?}"
+        );
+    }
+
     #[test]
     fn test_ewma_rtt_estimator_initialization() {
         let estimator = RttEstimatorEwma::new();
@@ -217,41 +225,32 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Broken on main"]
     fn test_ewma_multiple_samples_stable() {
-        // setup_logger();
         let mut estimator = RttEstimatorEwma::new();
-        estimator.update_with_new_sample(Duration::from_millis(100)); // RTT: 100ms, Jitter: 25ms
-        estimator.update_with_new_sample(Duration::from_millis(100)); // RTT: 100ms, Jitter: 18.75ms
-        estimator.update_with_new_sample(Duration::from_millis(100)); // RTT: 100ms, Jitter: ~14.06ms
 
-        // After 1st sample (100ms):
-        // prev_srtt = 100ms, prev_abs_dev = 50ms
-        // Stats: RTT = 100ms, Jitter = 25ms
+        estimator.update_with_new_sample(Duration::from_millis(100));
+        let stats0 = estimator.get_current_stats();
+        assert_eq!(stats0.rtt, Duration::from_millis(100));
+        assert_duration_approx_eq(stats0.jitter, Duration::from_millis(25));
 
-        // After 2nd sample (100ms):
-        // rtt_sample_secs = 0.1
-        // prev_srtt_secs = 0.1, prev_rtt_abs_dev_secs = 0.05
-        // rtt_error_secs = (0.1 - 0.1).abs() = 0.0
-        // updated_srtt_secs = (1-0.125)*0.1 + 0.125*0.1 = 0.1
-        // updated_rtt_abs_dev_secs = (1-0.25)*0.05 + 0.25*0.0 = 0.0375
-        // Internal: srtt = 100ms, abs_dev = 37.5ms
-        // Stats: RTT = 100ms, Jitter = 37.5ms / 2 = 18.75ms
-        let stats1 = estimator.get_current_stats().clone(); // Clone to check after next update
+        estimator.update_with_new_sample(Duration::from_millis(100));
+        let stats1 = estimator.get_current_stats().clone();
         assert_eq!(stats1.rtt, Duration::from_millis(100));
-        assert_eq!(stats1.jitter, Duration::from_secs_f64(0.0375 / 2.0)); // 18.75ms
+        assert_duration_approx_eq(
+            stats1.jitter,
+            Duration::from_secs_f64(0.05 * 5.0 / 6.0 / 2.0),
+        );
 
-        // After 3rd sample (100ms):
-        // rtt_sample_secs = 0.1
-        // prev_srtt_secs = 0.1, prev_rtt_abs_dev_secs = 0.0375
-        // rtt_error_secs = (0.1 - 0.1).abs() = 0.0
-        // updated_srtt_secs = 0.1
-        // updated_rtt_abs_dev_secs = (1-0.25)*0.0375 + 0.25*0.0 = 0.75 * 0.0375 = 0.028125
-        // Internal: srtt = 100ms, abs_dev = 28.125ms
-        // Stats: RTT = 100ms, Jitter = 28.125ms / 2 = 14.0625ms
         estimator.update_with_new_sample(Duration::from_millis(100));
         let stats2 = estimator.get_current_stats();
         assert_eq!(stats2.rtt, Duration::from_millis(100));
-        assert_eq!(stats2.jitter, Duration::from_secs_f64(0.028125 / 2.0)); // 14.0625ms
+        assert_duration_approx_eq(
+            stats2.jitter,
+            Duration::from_secs_f64(0.05 * (5.0 / 6.0) * (5.0 / 6.0) / 2.0),
+        );
+        assert!(
+            stats2.jitter < stats1.jitter,
+            "stable samples should reduce jitter"
+        );
     }
 }

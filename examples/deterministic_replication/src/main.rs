@@ -1,21 +1,24 @@
-#![allow(unused_imports)]
-#![allow(unused_variables)]
-#![allow(dead_code)]
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
-use avian2d::prelude::Position;
 use bevy::prelude::*;
 use core::time::Duration;
-use lightyear::prelude::*;
 use lightyear_examples_common::cli::{Cli, Mode};
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
-/// how many ticks to delay the input by
-pub const INPUT_DELAY_TICKS: u16 = 0;
+/// Default number of ticks to delay local input by.
+pub const DEFAULT_INPUT_DELAY_TICKS: u16 = 0;
+/// Default fixed input timeline safety margin, in ticks.
+///
+/// Deterministic replication requires the server to receive a client's input
+/// for tick `T` before the server simulates `T`. This margin covers normal
+/// fixed-frame batching, where the client may only send once after running
+/// several fixed ticks in one render frame.
+pub const DEFAULT_INPUT_SYNC_MARGIN_TICKS: f32 = 3.0;
 
+mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod protocol;
@@ -64,6 +67,7 @@ fn main() {
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
     use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
+    use lightyear::prelude::{Client, PredictionManager, RollbackMode, RollbackPolicy, SyncConfig};
     let client = app
         .world_mut()
         .query_filtered::<Entity, With<Client>>()
@@ -75,21 +79,48 @@ fn add_input_delay(app: &mut App) {
         .entity_mut(client)
         .insert(PredictionManager {
             rollback_policy: RollbackPolicy {
-                // we only replicate inputs, so state-based rollback is disabled
                 state: RollbackMode::Disabled,
-                // we rollback only when remote inputs don't match what we were predicting
                 input: RollbackMode::Check,
-                // do not limit the max number of rollback ticks
                 max_rollback_ticks: 100,
             },
             ..default()
         })
         .insert(
             InputTimelineConfig::default()
-                // Enable `no_prediction()` to do deterministic_lockstep! 100% of the latency will be covered
-                // by input delay so there won't be any rollbacks
-                // .with_input_delay(InputDelayConfig::no_prediction()),
-                // Otherwise control the input delay manually
-                .with_input_delay(InputDelayConfig::fixed_input_delay(INPUT_DELAY_TICKS)),
+                .with_sync_config(SyncConfig {
+                    jitter_margin: input_sync_margin_ticks(),
+                    ..default()
+                })
+                .with_input_delay(InputDelayConfig::fixed_input_delay(input_delay_ticks())),
         );
+}
+
+#[cfg(feature = "client")]
+fn input_delay_ticks() -> u16 {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        std::env::var("LIGHTYEAR_INPUT_DELAY_TICKS")
+            .ok()
+            .and_then(|value| value.parse::<u16>().ok())
+            .unwrap_or(DEFAULT_INPUT_DELAY_TICKS)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        DEFAULT_INPUT_DELAY_TICKS
+    }
+}
+
+#[cfg(feature = "client")]
+fn input_sync_margin_ticks() -> f32 {
+    #[cfg(not(target_family = "wasm"))]
+    {
+        std::env::var("LIGHTYEAR_INPUT_SYNC_MARGIN_TICKS")
+            .ok()
+            .and_then(|value| value.parse::<f32>().ok())
+            .unwrap_or(DEFAULT_INPUT_SYNC_MARGIN_TICKS)
+    }
+    #[cfg(target_family = "wasm")]
+    {
+        DEFAULT_INPUT_SYNC_MARGIN_TICKS
+    }
 }

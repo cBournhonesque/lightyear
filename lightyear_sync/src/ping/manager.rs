@@ -40,7 +40,7 @@ pub struct PingManager {
     /// ping store to track which pings we sent
     ping_store: PingStore,
     /// ping id corresponding to the most recent pong received
-    most_recent_received_ping: PingId,
+    most_recent_received_ping: Option<PingId>,
     /// We received time-sync pongs; we keep track that we will have to send pongs back when we can
     /// (when the connection's send_timer is ready)
     pongs_to_send: Vec<(Pong, Instant)>,
@@ -60,7 +60,7 @@ impl Default for PingManager {
             config: PingConfig::default(),
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),
-            most_recent_received_ping: PingId(u16::MAX - 1),
+            most_recent_received_ping: None,
             pongs_to_send: vec![],
             rtt_estimator_ewma: RttEstimatorEwma::default(),
             pings_sent: 0,
@@ -73,7 +73,7 @@ impl PingManager {
     pub(crate) fn reset(&mut self) {
         self.ping_timer.reset();
         self.ping_store.reset();
-        self.most_recent_received_ping = PingId(u16::MAX - 1);
+        self.most_recent_received_ping = None;
         self.pongs_to_send.clear();
         self.rtt_estimator_ewma.reset();
         self.pings_sent = 0;
@@ -88,7 +88,7 @@ impl PingManager {
             // pings
             ping_timer: Stopwatch::new(),
             ping_store: PingStore::new(),
-            most_recent_received_ping: PingId(u16::MAX - 1),
+            most_recent_received_ping: None,
             pongs_to_send: vec![],
             // sync
             rtt_estimator_ewma: RttEstimatorEwma::default(),
@@ -120,6 +120,15 @@ impl PingManager {
 
             let ping_id = self.ping_store.push_new(now);
             self.pings_sent += 1;
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "ping_send",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                ping_id = ping_id.0,
+                pings_sent = self.pings_sent,
+                "prepared ping"
+            );
             return Some(Ping { id: ping_id });
         }
         None
@@ -137,9 +146,12 @@ impl PingManager {
         };
 
         // only update values for the most recent pongs received
-        if pong.ping_id > self.most_recent_received_ping {
+        if self
+            .most_recent_received_ping
+            .is_none_or(|latest| pong.ping_id > latest)
+        {
             // compute round-trip delay via NTP algorithm: https://en.wikipedia.org/wiki/Network_Time_Protocol
-            self.most_recent_received_ping = pong.ping_id;
+            self.most_recent_received_ping = Some(pong.ping_id);
 
             // round-trip-delay
             let rtt = received_time.saturating_duration_since(ping_sent_time);
@@ -150,6 +162,20 @@ impl PingManager {
             // recompute stats whenever we get a new pong
             self.rtt_estimator_ewma
                 .update_with_new_sample(round_trip_delay);
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "pong_recv",
+                schedule = "PreUpdate",
+                sample_point = "PreUpdate",
+                ping_id = pong.ping_id.0,
+                pongs_recv = self.pongs_recv,
+                rtt_ms = rtt.as_secs_f64() * 1000.0,
+                server_process_ms = server_process_time.as_secs_f64() * 1000.0,
+                round_trip_delay_ms = round_trip_delay.as_secs_f64() * 1000.0,
+                estimated_rtt_ms = self.rtt().as_secs_f64() * 1000.0,
+                jitter_ms = self.jitter().as_secs_f64() * 1000.0,
+                "processed pong"
+            );
         }
     }
 
@@ -157,6 +183,15 @@ impl PingManager {
     /// However we cannot send it immediately because we send packets at a regular interval
     /// Keep track of the pongs we need to send
     pub(crate) fn buffer_pending_pong(&mut self, ping: &Ping, now: Instant) {
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "ping_recv",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            ping_id = ping.id.0,
+            pending_pongs = self.pongs_to_send.len() + 1,
+            "buffered pong response"
+        );
         self.pongs_to_send.push((
             Pong {
                 ping_id: ping.id,

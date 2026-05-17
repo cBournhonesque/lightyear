@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::prelude::Confirmed;
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;

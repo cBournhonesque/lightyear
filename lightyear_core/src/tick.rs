@@ -3,7 +3,7 @@ use lightyear_utils::wrapping_id;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::resource::Resource;
-use bevy_platform::sync::atomic::{AtomicU16, Ordering};
+use bevy_platform::sync::atomic::{AtomicU32, Ordering};
 use bevy_reflect::Reflect;
 
 // Internal id that tracks the Tick value for the server and the client
@@ -14,47 +14,46 @@ wrapping_id!(Tick);
 pub struct TickDuration(pub Duration);
 
 #[derive(Debug, Default, Reflect)]
-pub struct AtomicTick(pub AtomicU16);
+pub struct AtomicTick(pub AtomicU32);
 
-impl From<u16> for AtomicTick {
-    fn from(value: u16) -> Self {
-        AtomicTick(AtomicU16::new(value))
+impl From<u32> for AtomicTick {
+    fn from(value: u32) -> Self {
+        AtomicTick(AtomicU32::new(value))
     }
 }
 
 impl AtomicTick {
-    /// Gets the current value of the tick.
+    /// Initialize the tick to the maximum value.
     ///
-    /// Uses Relaxed because only the final value (usually the minimum) matters.
+    /// This is useful for trackers that compute the minimum tick across multiple
+    /// sources via [`set_if_lower`](Self::set_if_lower): starting from the max
+    /// ensures the first recorded value always wins.
+    pub fn new_max() -> Self {
+        AtomicTick(AtomicU32::new(u32::MAX))
+    }
+
+    /// Gets the current value of the tick.
     pub fn get(&self) -> Tick {
         Tick(self.0.load(Ordering::Relaxed))
     }
 
-    /// Replicate the value of the AtomicU16 with the new tick value
-    /// only if that value is lower than the current value.
+    /// Update the value only if the new tick is strictly lower than the current value.
+    ///
+    /// Uses plain (non-wrapping) comparison: with u32 ticks, wrapping never occurs
+    /// during a game session (~828 days at 60 Hz), so a simple `<` is correct.
     pub fn set_if_lower(&self, new_value: Tick) {
         let mut current = self.0.load(Ordering::Acquire);
-        // Loop until we successfully update the value.
         loop {
-            // If the new value isn't lower, there's nothing to do.
-            if wrapping_id::wrapping_diff(current, new_value.0) >= 0 {
+            if new_value.0 >= current {
                 break;
             }
-
-            // Attempt to swap the `current` value with `new_value`.
-            // This will only succeed if the atomic's value is still `current`.
-            // If another thread changed it, `compare_exchange` will fail and
-            // return the `Err` variant containing the now-current value.
             match self.0.compare_exchange(
                 current,
                 new_value.0,
                 Ordering::Release,
                 Ordering::Relaxed,
             ) {
-                // Successfully swapped, we are done.
                 Ok(_) => break,
-                // The value was changed by another thread.
-                // The loop will retry with the new current value.
                 Err(newly_read_value) => current = newly_read_value,
             }
         }
@@ -68,16 +67,15 @@ mod tests {
     use std::thread;
     use test_log::test;
 
-    // TODO: test with loom?
     #[test]
     fn test_shared_atomic_tick_minimum() {
-        // Initialize the counter with a high value.
-        let min_value_tracker = AtomicTick::from(10);
+        // Plain comparison: minimum is the numerically smallest value.
+        // With u32 ticks, wrapping never occurs in practice.
+        let min_value_tracker = AtomicTick::from(10u32);
 
-        let values_to_test = vec![u16::MAX - 5, 5, 100, u16::MAX];
-        let expected_minimum = Tick(u16::MAX - 5);
+        let values_to_test = vec![u32::MAX - 5, 5, 100, u32::MAX];
+        let expected_minimum = Tick(5);
 
-        // Spawn several threads, each trying to set a new minimum.
         let tracker_clone = &min_value_tracker;
         thread::scope(|s| {
             for val in values_to_test {
@@ -86,7 +84,24 @@ mod tests {
                 });
             }
         });
-        // The final value will be the lowest value from the `values_to_test` vector.
         assert_eq!(min_value_tracker.get(), expected_minimum);
+    }
+
+    #[test]
+    fn test_new_max_allows_any_tick_to_win() {
+        // An AtomicTick initialized to MAX must accept any subsequent value
+        // as "lower". This is the intended usage for minimum trackers.
+        let tracker = AtomicTick::new_max();
+        assert_eq!(tracker.get(), Tick(u32::MAX));
+
+        tracker.set_if_lower(Tick(483));
+        assert_eq!(tracker.get(), Tick(483));
+
+        tracker.set_if_lower(Tick(200));
+        assert_eq!(tracker.get(), Tick(200));
+
+        // Higher tick should NOT update
+        tracker.set_if_lower(Tick(300));
+        assert_eq!(tracker.get(), Tick(200));
     }
 }
