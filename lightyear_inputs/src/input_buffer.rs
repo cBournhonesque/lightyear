@@ -222,6 +222,20 @@ impl<T: Clone + PartialEq, M> InputBuffer<T, M> {
         *entry = value;
     }
 
+    /// Like [`pop`](Self::pop), but preserves the most recent entry so it
+    /// remains available as a [`get_predict`](Self::get_predict) fallback.
+    pub fn pop_keeping_last(&mut self, tick: Tick) -> Option<T> {
+        let Some((last_tick, _)) = self.get_last_with_tick() else {
+            return self.pop(tick);
+        };
+        let clamped = if tick >= last_tick {
+            last_tick - 1
+        } else {
+            tick
+        };
+        self.pop(clamped)
+    }
+
     /// Remove all the inputs that are older or equal than the given tick, then return the input
     /// for the given tick
     pub fn pop(&mut self, tick: Tick) -> Option<T> {
@@ -502,6 +516,24 @@ mod tests {
         assert_eq!(input_buffer.pop(Tick(20)), None);
         assert_eq!(input_buffer.buffer.len(), 0);
         assert_eq!(input_buffer.start_tick, Some(Tick(21)));
+    }
+
+    #[test]
+    fn test_server_pop_pattern_preserves_get_predict_fallback() {
+        let mut buf: InputBuffer<i32, i32> = InputBuffer::default();
+        buf.set(Tick(10), 42);
+
+        assert_eq!(buf.get_predict(Tick(13)), Some(&42));
+
+        // Mirror server.rs::update_action_state: advance the buffer floor
+        // past the last entry. Plain `pop` would wipe the fallback here.
+        buf.pop_keeping_last(Tick(11));
+
+        assert_eq!(
+            buf.get_predict(Tick(13)),
+            Some(&42),
+            "advancing the floor past the last entry must preserve the fallback",
+        );
     }
 
     #[test]
