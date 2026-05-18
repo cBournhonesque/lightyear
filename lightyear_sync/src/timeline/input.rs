@@ -310,7 +310,20 @@ impl SyncedTimeline for InputTimeline {
         // `error_margin` without correcting, so include that tolerance in the
         // objective; otherwise the controller can consume the entire delivery
         // margin in steady state.
-        let obj = remote + network_delay + jitter_margin + sync_error_margin - input_delay;
+        let mut obj = remote + network_delay + jitter_margin + sync_error_margin - input_delay;
+
+        // Floor at `remote + 1 + sync_error_margin` so even worst-case
+        // controller drift (`offset = -error_margin`) leaves the client's
+        // local tick at >= remote + 1. The server reads inputs in
+        // `FixedPreUpdate`, one tick after they arrive in `PreUpdate`, so
+        // local must be at least one tick ahead of the server at send
+        // time. Without this floor, low-latency / low-jitter setups (or
+        // any config with `jitter_margin < 1.0`) can let local drift to
+        // `remote`, causing the server to read an empty buffer entry.
+        let floor = remote + TickDelta::from_i32(1) + sync_error_margin;
+        if obj < floor {
+            obj = floor;
+        }
         trace!(
             ?remote,
             ?network_delay,
@@ -471,6 +484,64 @@ mod tests {
         let objective = timeline.sync_objective(&remote, &config, &ping_manager, tick_duration);
 
         assert_tick_instant_close(objective, TickInstant::lit("102.75"));
+    }
+
+    /// The server reads inputs in `FixedPreUpdate`, one tick after they
+    /// arrive in `PreUpdate`. The client's local tick must therefore be
+    /// at least `remote + 1` at the time the input is sent, even under
+    /// worst-case controller drift (`offset = -error_margin`).
+    ///
+    /// The post-replicon `+sync_error_margin` term in the objective
+    /// cancels with the symmetric controller drift, leaving the safety
+    /// margin riding on `network_delay + jitter_margin - input_delay`.
+    /// At localhost (zero RTT, zero jitter, zero input_delay) and a
+    /// user-tightened `jitter_margin = 0.5`, that remaining margin is
+    /// only 0.5 ticks — the worst-case local tick drifts to
+    /// `remote + 0.5`, which floors to `remote` (one tick short).
+    ///
+    /// A drift-aware floor at `remote + 1 + error_margin` keeps the
+    /// invariant explicit and robust under any `jitter_margin` config.
+    #[test]
+    fn sync_objective_keeps_local_at_least_one_tick_ahead_under_worst_case_drift() {
+        let tick_duration = Duration::from_millis(10);
+        let mut remote = RemoteTimeline::default();
+        remote.set_now(TickInstant::from(Tick(100)));
+
+        // Localhost — zero RTT, zero jitter.
+        let mut ping_manager = PingManager::default();
+        ping_manager.rtt_estimator_ewma.final_stats.rtt = Duration::ZERO;
+        ping_manager.rtt_estimator_ewma.final_stats.jitter = Duration::ZERO;
+
+        // User tightens `jitter_margin` below 1.0 for snappier sync.
+        // `error_margin` stays at the default 1.0.
+        let mut config = InputTimelineConfig::default();
+        config.sync.jitter_margin = 0.5;
+        assert!(
+            config.sync.error_margin >= 1.0,
+            "test premise: error_margin is at least 1 tick"
+        );
+
+        let objective =
+            InputTimeline::default().sync_objective(&remote, &config, &ping_manager, tick_duration);
+
+        // Controller may legitimately let `local - objective` reach
+        // `-error_margin` without correcting (see `SyncContext::speed_adjustment`).
+        let worst_case_drift = TickDelta::from_duration(
+            tick_duration.mul_f32(config.sync.error_margin),
+            tick_duration,
+        );
+        let worst_case_local = objective - worst_case_drift;
+
+        let floor = TickInstant::from(Tick(101));
+        assert!(
+            worst_case_local >= floor,
+            "worst-case local tick is {worst_case_local:?}, but the server \
+             reads inputs in FixedPreUpdate one tick after PreUpdate \
+             arrival, so local must be >= {floor:?} (= remote + 1). The \
+             current `+sync_error_margin` formula only guarantees this \
+             when `jitter_margin >= 1.0`; a drift-aware floor at \
+             `remote + 1 + error_margin` is needed.",
+        );
     }
 
     #[test]
