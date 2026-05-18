@@ -10,7 +10,7 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::prelude::PredictionManager;
-use lightyear_replication::prelude::{PredictionTarget, Replicate};
+use lightyear_replication::prelude::{ControlledBy, PredictionTarget, Replicate};
 use lightyear_replication::prelude::{RoomAllocator, Rooms};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
@@ -31,10 +31,17 @@ fn test_remote_client_replicated_input() {
 
     // SETUP
     // entity controlled by the remote client
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
-        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
+        ))
         .id();
 
     stepper.frame_step(2);
@@ -95,12 +102,17 @@ fn test_remote_client_predicted_input() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // SETUP
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
         ))
         .id();
 
@@ -185,6 +197,7 @@ fn test_input_broadcasting_prediction() {
     ));
 
     // SETUP - Create an entity controlled by client 0, predicted by all clients
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -192,6 +205,10 @@ fn test_input_broadcasting_prediction() {
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
             ActionState::<MyInput>::default(),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
         ))
         .id();
     stepper.frame_step_server_first(1);
@@ -343,6 +360,7 @@ fn test_input_custom_rebroadcast() {
     ));
 
     // SETUP - Create an entity controlled by client 0, predicted by all clients
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -350,6 +368,10 @@ fn test_input_custom_rebroadcast() {
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
             ActionState::<MyInput>::default(),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
         ))
         .id();
     stepper.frame_step_server_first(1);
