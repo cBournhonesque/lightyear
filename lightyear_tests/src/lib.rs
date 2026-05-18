@@ -16,6 +16,10 @@ pub mod protocol;
 pub mod stepper;
 
 #[cfg(test)]
+#[cfg(feature = "test_utils")]
+mod timeline;
+
+#[cfg(test)]
 mod host_server;
 
 #[cfg(test)]

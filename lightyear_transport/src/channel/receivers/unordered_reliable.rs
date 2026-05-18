@@ -127,20 +127,24 @@ mod tests {
     use super::*;
 
     #[test]
-    #[ignore = "Broken on main"]
     fn test_unordered_reliable_receiver_internals() -> Result<(), ChannelReceiveError> {
         let mut receiver = UnorderedReliableReceiver::new();
 
         let mut single1 = SingleData::new(None, Bytes::from("hello"));
         let mut single2 = SingleData::new(None, Bytes::from("world"));
+        let mut stale = SingleData::new(None, Bytes::from("stale"));
 
-        // receive an old message: it doesn't get added to the buffer because the next one we expect is 0
-        single2.id = Some(MessageId(60000));
+        // Receive an old message: it doesn't get added to the buffer because the next one we
+        // expect is newer.
+        receiver.pending_recv_message_id = MessageId(2);
+        stale.id = Some(MessageId(1));
         receiver.buffer_recv(ReceiveMessage {
-            data: single2.clone().into(),
+            data: stale.clone().into(),
             remote_sent_tick: Tick(1),
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
+
+        let mut receiver = UnorderedReliableReceiver::new();
 
         // receive message in the wrong order
         single2.id = Some(MessageId(1));
@@ -154,7 +158,7 @@ mod tests {
         assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(3), single2.bytes.clone(), None))
+            Some((Tick(3), single2.bytes.clone(), Some(MessageId(1))))
         );
 
         // we are still expecting message id 0
@@ -172,7 +176,7 @@ mod tests {
         assert!(receiver.recv_message_buffer.contains_key(&MessageId(0)));
         assert_eq!(
             receiver.read_message(),
-            Some((Tick(5), single1.bytes.clone(), None))
+            Some((Tick(5), single1.bytes.clone(), Some(MessageId(0))))
         );
         assert_eq!(receiver.pending_recv_message_id, MessageId(2));
         Ok(())

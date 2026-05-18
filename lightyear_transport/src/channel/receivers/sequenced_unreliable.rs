@@ -108,14 +108,18 @@ mod tests {
         let mut single1 = SingleData::new(None, Bytes::from("hello"));
         let mut single2 = SingleData::new(None, Bytes::from("world"));
         let mut single3 = SingleData::new(None, Bytes::from("!"));
+        let mut stale = SingleData::new(None, Bytes::from("stale"));
 
         // receive an old message: it doesn't get added to the buffer
-        single2.id = Some(MessageId(60000));
+        receiver.most_recent_message_id = MessageId(2);
+        stale.id = Some(MessageId(1));
         receiver.buffer_recv(ReceiveMessage {
-            data: single2.clone().into(),
+            data: stale.clone().into(),
             remote_sent_tick: Tick(1),
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
+
+        let mut receiver = SequencedUnreliableReceiver::new();
 
         // receive message in the wrong order
         single2.id = Some(MessageId(1));
