@@ -33,6 +33,7 @@ pub struct DetStepper {
     pub client_entities: Vec<Entity>,
     pub server_entity: Entity,
     pub client_of_entities: Vec<Entity>,
+    pub protocol: DetProtocolPlugin,
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
     pub frame_duration: Duration,
@@ -40,6 +41,10 @@ pub struct DetStepper {
 
 impl DetStepper {
     pub fn new_server() -> Self {
+        Self::new_server_with_protocol(DetProtocolPlugin::default())
+    }
+
+    pub fn new_server_with_protocol(protocol: DetProtocolPlugin) -> Self {
         let tick_duration = DET_TICK_DURATION;
         let mut server_app = App::new();
         server_app.add_plugins((
@@ -53,7 +58,7 @@ impl DetStepper {
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
         // `ChecksumReceivePlugin` is auto-registered by `server::ServerPlugins`
         // when the `deterministic` feature is enabled on `lightyear`.
-        server_app.add_plugins(DetProtocolPlugin);
+        server_app.add_plugins(protocol);
 
         let server_entity = server_app
             .world_mut()
@@ -69,6 +74,7 @@ impl DetStepper {
             client_entities: vec![],
             server_entity,
             client_of_entities: vec![],
+            protocol,
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
             frame_duration: tick_duration,
@@ -91,7 +97,7 @@ impl DetStepper {
         });
         // `ChecksumSendPlugin` is auto-registered by `client::ClientPlugins`
         // when the `deterministic` feature is enabled on `lightyear`.
-        client_app.add_plugins(DetProtocolPlugin);
+        client_app.add_plugins(self.protocol);
 
         client_app.finish();
         client_app.cleanup();

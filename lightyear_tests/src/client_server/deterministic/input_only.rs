@@ -12,7 +12,8 @@
 //! every tick. We assert final positions match the server.
 
 use crate::client_server::deterministic::protocol::{
-    DetBuffer, DetMovement, DetPhysicsBundle, DetPlayerActivationTick, DetPlayerId, Player,
+    BALL_SIZE, DetBallMarker, DetBuffer, DetMovement, DetPhysicsBundle, DetPlayerActivationTick,
+    DetPlayerId, DetProtocolPlugin, Player,
 };
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
@@ -241,6 +242,63 @@ fn activate_replicated_players_at_tick(
     }
 }
 
+const ISLAND_STRESS_BALL_COUNT: usize = 24;
+
+fn add_island_stress_balls(app: &mut App) {
+    app.add_systems(Startup, spawn_island_stress_balls);
+}
+
+fn install_island_stress_balls(stepper: &mut DetStepper) {
+    add_island_stress_balls(&mut stepper.server_app);
+    for client_app in &mut stepper.client_apps {
+        add_island_stress_balls(client_app);
+    }
+}
+
+fn spawn_island_stress_balls(mut commands: Commands) {
+    let spacing = BALL_SIZE * 1.65;
+    for row in 0..4 {
+        for col in 0..6 {
+            let idx = row * 6 + col;
+            let offset = Vec2::new(col as f32 - 2.5, row as f32 - 1.5);
+            let position = offset * spacing;
+            let inward = -position.normalize_or_zero();
+            let swirl = Vec2::new(-offset.y, offset.x).normalize_or_zero();
+            let velocity = inward * 45.0 + swirl * 18.0;
+            commands.spawn((
+                Position::from_xy(position.x, position.y),
+                Rotation::default(),
+                LinearVelocity(velocity),
+                AngularVelocity(0.0),
+                DetPhysicsBundle::ball(),
+                DetBallMarker,
+                DeterministicPredicted {
+                    skip_despawn: true,
+                    ..default()
+                },
+                Name::new(format!("IslandStressBall{idx}")),
+            ));
+        }
+    }
+}
+
+fn assert_island_stress_balls_are_finite(world: &mut World) {
+    let mut balls = world.query_filtered::<&Position, With<DetBallMarker>>();
+    let mut count = 0;
+    for position in balls.iter(world) {
+        assert!(
+            position.x.is_finite() && position.y.is_finite(),
+            "stress ball position should stay finite: {:?}",
+            position.0
+        );
+        count += 1;
+    }
+    assert!(
+        count >= ISLAND_STRESS_BALL_COUNT + 1,
+        "expected default ball plus {ISLAND_STRESS_BALL_COUNT} stress balls, found {count}"
+    );
+}
+
 /// Exercises random input-only deterministic replication with rollback
 /// replays. This catches both input-history issues and physics-side
 /// rollback state that is not represented by replicated components.
@@ -357,5 +415,62 @@ fn test_input_only_two_clients() {
         assert_relative_eq!(c_pos_a.y, server_pos_a.y, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.x, server_pos_b.x, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.y, server_pos_b.y, epsilon = 0.01);
+    }
+}
+
+/// Keeps Avian's island graph enabled while rollback replays an input-only
+/// physics scene with a dense set of local colliders. This used to panic when
+/// the intermediate rollback island state was not restored.
+#[test]
+fn test_input_only_islands_many_colliders_small_box() {
+    let mut stepper = DetStepper::new_server_with_protocol(DetProtocolPlugin {
+        enable_islands: true,
+    });
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper(&mut stepper, 50);
+    install_island_stress_balls(&mut stepper);
+
+    stepper.start();
+    stepper.connect_all();
+
+    let server_player_a = spawn_player_on_server(
+        &mut stepper.server_app,
+        PeerId::Netcode(0),
+        Vec2::new(-20.0, 0.0),
+        false,
+    );
+    let server_player_b = spawn_player_on_server(
+        &mut stepper.server_app,
+        PeerId::Netcode(1),
+        Vec2::new(20.0, 0.0),
+        false,
+    );
+
+    stepper.frame_step(15);
+
+    for client_id in 0..2 {
+        let peer = PeerId::Netcode(client_id as u64);
+        let server_player = match client_id {
+            0 => server_player_a,
+            1 => server_player_b,
+            _ => unreachable!(),
+        };
+        let local_player = stepper
+            .client(client_id)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_player)
+            .expect("client should have received its own player by now");
+        spawn_local_action_on_client(stepper.client_app(client_id), local_player, peer);
+    }
+
+    stepper.frame_step(200);
+
+    assert_island_stress_balls_are_finite(stepper.server_app.world_mut());
+    for client_app in &mut stepper.client_apps {
+        assert_island_stress_balls_are_finite(client_app.world_mut());
     }
 }

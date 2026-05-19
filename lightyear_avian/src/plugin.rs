@@ -24,10 +24,9 @@ PhysicsPlugins::default()
     .disable::<PhysicsTransformPlugin>()
     // FrameInterpolation handles interpolating Position and Rotation
     .disable::<PhysicsInterpolationPlugin>()
-    // disable island plugins as it can mess with rollbacks. Only if you're doing deterministic replication.
-    // For state replication it should be fine to keep them.
-    // .disable::<IslandPlugin>()
-    // .disable::<IslandSleepingPlugin>(),
+    // If you're doing deterministic replication and keep Avian's island plugins enabled,
+    // LightyearAvianPlugin detects them in `finish()` and automatically rolls back the
+    // island state when `rollback_resources` is true.
 ```
 !*/
 use alloc::vec::Vec;
@@ -126,11 +125,11 @@ pub struct LightyearAvianPlugin {
     /// Disable if you are an advanced user and want to handle the syncs manually.
     pub update_syncs_manually: bool,
     /// If True, the plugin will rollback resources that are not replicated, such as Collisions.
-    /// Enable this if you are using deterministic replication (i.e. are not replicating state)
+    /// Enable this if you are using deterministic replication (i.e. are not replicating state).
+    ///
+    /// If Avian's `IslandPlugin` is enabled, island rollback state is registered automatically
+    /// during `finish()`. If `IslandSleepingPlugin` is also enabled, sleeping state is rolled back too.
     pub rollback_resources: bool,
-    /// If True, the plugin will rollback island-related resources and components
-    /// Enable this if you have the Island plugin enabled.
-    pub rollback_islands: bool,
 }
 
 #[derive(Resource, Clone, Debug, Default)]
@@ -375,18 +374,27 @@ impl Plugin for LightyearAvianPlugin {
                     .before(RollbackSystems::Rollback)
                     .run_if(is_in_rollback),
             );
+        }
+    }
 
-            if self.rollback_islands {
-                app.init_resource::<PhysicsIslands>();
-                app.add_resource_rollback::<PhysicsIslands>();
-                app.add_rollback::<BodyIslandNode>();
-                app.add_rollback::<Sleeping>();
-            }
+    fn finish(&self, app: &mut App) {
+        if self.rollback_resources && app.is_plugin_added::<IslandPlugin>() {
+            let rollback_sleeping = app.is_plugin_added::<IslandSleepingPlugin>();
+            Self::add_island_rollback(app, rollback_sleeping);
         }
     }
 }
 
 impl LightyearAvianPlugin {
+    fn add_island_rollback(app: &mut App, rollback_sleeping: bool) {
+        app.add_resource_rollback::<PhysicsIslands>();
+        app.add_rollback::<BodyIslandNode>();
+        if rollback_sleeping {
+            app.add_rollback::<Sleeping>();
+            app.add_rollback::<SleepTimer>();
+        }
+    }
+
     fn record_moved_proxies_for_rollback(
         moved_proxies: Res<MovedProxies>,
         mut rollback_moved_proxies: ResMut<RollbackMovedProxies>,
