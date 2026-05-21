@@ -1,3 +1,10 @@
+//! Server-side link relationships.
+//!
+//! A server entity can own many per-client link entities. This module models that fan-out with
+//! Bevy's relationship API: [`Server`] is the relationship target, and [`LinkOf`] is inserted on
+//! each child link entity to point back to the server. Transport crates can use this to keep the
+//! server endpoint independent from the concrete links used for each connected peer.
+
 use crate::{LinkPlugin, Linked, Linking, Unlink, Unlinked};
 use alloc::{format, string::String, vec::Vec};
 use bevy_app::{App, Plugin};
@@ -13,8 +20,14 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 #[allow(unused_imports)]
 use tracing::{trace, warn};
-// TODO: should we also have a LinkId (remote addr/etc.) that uniquely identifies the link?
 
+/// Relationship target for a server endpoint that owns multiple link entities.
+///
+/// `Server` is inserted on the entity that represents the listening or hosting endpoint. Entities
+/// with [`LinkOf`] are collected under this component, allowing systems to find and tear down all
+/// child links when the server disconnects.
+/// The target collection uses `linked_spawn`, so spawning a link with [`LinkOf`] can establish
+/// the relationship at spawn time.
 #[derive(Component, Default, Debug, PartialEq, Eq, Reflect)]
 #[component(on_add = Server::on_add)]
 #[relationship_target(relationship = LinkOf, linked_spawn)]
@@ -48,8 +61,8 @@ impl Server {
                     reason: unlinked.reason.clone(),
                 });
                 if let Ok(mut c) = commands.get_entity(*link_of) {
-                    trace!("d");
                     // cannot simply insert Unlinked because then we wouldn't close aeronet sessions...
+                    trace!("Despawning link entity because its server became unlinked");
                     c.try_despawn();
                 }
             }
@@ -57,12 +70,17 @@ impl Server {
     }
 }
 
-// We add our own relationship hooks instead of deriving relationship
-// because we don't want to despawn Server if there are no more LinkOfs.
+/// Relationship source component for a link that belongs to a [`Server`].
+///
+/// Insert this on a per-client link entity and set [`server`](Self::server) to the server endpoint
+/// entity.
+/// The custom relationship hooks keep the [`Server`] collection up to date without
+/// despawning the server entity when the last link is removed.
 #[derive(Component, Clone, Copy, PartialEq, Eq, Debug, Reflect)]
 #[component(on_insert = LinkOf::on_insert_hook)]
 #[component(on_replace = LinkOf::on_replace)]
 pub struct LinkOf {
+    /// Server endpoint that owns this link entity.
     pub server: Entity,
 }
 
@@ -160,7 +178,13 @@ impl LinkOf {
     }
 }
 
+/// Plugin that installs server/link relationship support.
+///
+/// The plugin ensures [`LinkPlugin`] is present and adds the observer that reacts to [`Unlinked`]
+/// on server entities by unlinking/despawning their child links. Transport crates that expose a
+/// multi-client server endpoint should add this plugin before scheduling their server IO systems.
 pub struct ServerLinkPlugin;
+
 impl Plugin for ServerLinkPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<LinkPlugin>() {

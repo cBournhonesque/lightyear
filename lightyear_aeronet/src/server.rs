@@ -1,3 +1,12 @@
+//! Server-side Aeronet lifecycle bridge.
+//!
+//! [`ServerAeronetPlugin`](crate::server::ServerAeronetPlugin) mirrors Aeronet server endpoint
+//! state onto Lightyear server entities. Concrete Aeronet-backed server transports, such as
+//! WebSocket and WebTransport, spawn an Aeronet server entity with
+//! [`AeronetLinkOf`](crate::AeronetLinkOf) pointing at the Lightyear
+//! [`Server`](lightyear_link::server::Server). This module observes Aeronet open/close events and
+//! keeps the Lightyear lifecycle markers in sync.
+
 use alloc::format;
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
@@ -8,6 +17,11 @@ use lightyear_link::server::ServerLinkPlugin;
 use lightyear_link::{Linked, Linking, Unlinked};
 use tracing::trace;
 
+/// Plugin that mirrors Aeronet server endpoint state into Lightyear server link state.
+///
+/// The plugin ensures [`ServerLinkPlugin`] is installed, then observes Aeronet
+/// [`ServerEndpoint`], [`Server`], and [`Closed`] events to insert [`Linking`], [`Linked`], and
+/// [`Unlinked`] on the Lightyear server entity.
 pub struct ServerAeronetPlugin;
 
 impl ServerAeronetPlugin {

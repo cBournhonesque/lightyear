@@ -1,15 +1,13 @@
-//! # Lightyear UDP Transport
+//! UDP transport for Lightyear links.
 //!
-//! This crate provides a UDP transport layer for Lightyear.
-//! It defines `UdpIo` which uses `std::net::UdpSocket` for sending and receiving raw byte
-//! payloads over UDP. This is a common and often preferred transport for real-time games
-//! due to its low overhead.
+//! This crate provides [`UdpIo`], a `std::net::UdpSocket`-backed transport for Lightyear's
+//! transport-neutral [`Link`] buffers. UDP is connectionless and packet-oriented: Lightyear's
+//! higher-level connection, reliability, replication, and message layers are responsible for any
+//! semantics above raw datagram delivery.
 //!
-//! The `UdpPlugin` integrates this transport into a Bevy application, managing the
-//! lifecycle of UDP sockets and handling the IO operations in conjunction with Lightyear's
-//! `Link` component.
-//!
-//! It also includes server-specific UDP IO handling when the "server" feature is enabled.
+//! [`UdpPlugin`] handles single-peer UDP link entities. With the `server` feature enabled, the
+//! [`server`] module provides [`server::ServerUdpIo`] and `ServerUdpPlugin` for a listening server
+//! socket that creates one child [`Link`] per remote address.
 
 use std::{io::ErrorKind, net::UdpSocket};
 
@@ -23,31 +21,40 @@ use lightyear_link::{
 };
 use tracing::{error, info, trace};
 
-/// Provides server-specific UDP IO functionalities.
-/// This module is only available when the "server" feature is enabled.
+/// Server-side UDP socket support.
+///
+/// This module is available with the `server` feature. It exposes a server endpoint component that
+/// owns one UDP socket and maps remote socket addresses to child Lightyear link entities.
 #[cfg(feature = "server")]
 pub mod server;
 
-/// Commonly used items for UDP transport in Lightyear.
+/// Re-exports commonly needed by applications and transport setup code.
 pub mod prelude {
     pub use crate::UdpIo;
 
+    /// Server-side UDP prelude.
+    ///
+    /// Available with the `server` feature.
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server::ServerUdpIo;
     }
 }
 
-/// Maximum transmission units; maximum size in bytes of a UDP packet
-/// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
+/// Maximum UDP payload size used by this transport.
+///
+/// The value is chosen to avoid common IPv4 fragmentation limits. See
+/// <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>.
 pub(crate) const MTU: usize = 1472;
 
-/// Component that manages a UDP socket for network communication.
+/// Single-peer UDP socket transport component.
 ///
-/// This component is added to an entity with a `Link` component to enable
-/// sending and receiving data over UDP.
-/// The user must also add a `LocalAddr` component to specify the local socket address
-/// that will be bound.
+/// Insert this on the entity that owns the Lightyear [`Link`] for a UDP peer. A [`LocalAddr`] must
+/// be present before [`LinkStart`] is triggered so the plugin can bind the socket, and [`PeerAddr`]
+/// must be present while linked so outgoing packets know their destination.
+///
+/// For listening servers with many clients, use [`server::ServerUdpIo`] instead of one `UdpIo` per
+/// remote address.
 #[derive(Component)]
 #[require(Link)]
 // TODO: add LocalAddr using Construct
@@ -65,22 +72,26 @@ impl Default for UdpIo {
     }
 }
 
-/// Errors related to the client connection
+/// Errors produced while starting UDP transport entities.
 #[derive(thiserror::Error, Debug)]
 pub enum UdpError {
+    /// The entity did not have a [`LocalAddr`] when [`LinkStart`] was processed.
     #[error("LocalAddr is required to start the UdpIo link")]
     LocalAddrMissing,
 }
 
-/// Bevy plugin to integrate UDP-based IO with Lightyear.
+/// Bevy plugin that integrates single-peer UDP sockets with Lightyear links.
 ///
-/// This plugin adds systems to:
-/// - Bind UDP sockets when a `LinkStart` event occurs for an entity with `UdpIo` and `Unlinked`.
-/// - Close UDP sockets when an `Unlink` event occurs.
-/// - Send outgoing packets from the `Link`'s send buffer over UDP.
-/// - Receive incoming packets from UDP and push them to the `Link`'s receive buffer.
+/// The plugin installs:
+/// - a [`LinkStart`] observer that binds [`UdpIo`] to [`LocalAddr`] and marks the entity
+///   [`Linked`];
+/// - an [`Unlink`] observer that closes the socket;
+/// - a receive system in [`LinkReceiveSystems::BufferToLink`] that pushes datagrams into
+///   [`Link::recv`];
+/// - a send system in [`LinkSystems::Send`] that drains [`Link::send`] to [`PeerAddr`].
 ///
-/// It uses the `LinkSet` system sets to order these operations correctly within Bevy's schedule.
+/// This is a raw datagram transport. Use Lightyear connection plugins above it when you need
+/// connection state, authentication, or session management.
 pub struct UdpPlugin;
 
 impl UdpPlugin {
