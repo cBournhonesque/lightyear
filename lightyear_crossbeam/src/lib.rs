@@ -1,34 +1,28 @@
-//! # Lightyear Crossbeam
+//! In-process Crossbeam channel transport for Lightyear.
 //!
-//! This crate provides a transport layer for Lightyear that uses `crossbeam-channel`.
-//! It's primarily intended for local testing or scenarios where in-process message passing
-//! is desired, simulating a network connection without actual network I/O.
-//!
-//! It defines `CrossbeamIo` for channel-based communication and `CrossbeamPlugin`
-//! to integrate this transport into a Bevy application.
+//! This crate provides [`CrossbeamIo`], a transport implementation backed by
+//! `crossbeam-channel`. It is primarily intended for tests, local examples, and in-process
+//! simulations where deterministic setup and low overhead are more useful than real network IO.
+//! It still uses Lightyear's normal [`Link`] buffers and lifecycle markers, so code above the
+//! transport layer can be exercised without special cases.
 //!
 //! ## Connection layer
 //!
-//! `CrossbeamPlugin` is a pure transport: it inserts `Linked` once `LinkStart` is triggered
-//! but does not drive the `Connected` state. Pair it with a connection plugin to obtain a
-//! full peer connection. For handshake-less use (e.g. local testing), pair it with
+//! [`CrossbeamPlugin`] is a pure transport: it inserts [`Linked`] once [`LinkStart`] is triggered
+//! but does not drive the `Connected` state. Pair it with a connection plugin to obtain a full peer
+//! connection. For handshake-less use, pair it with
 //! `lightyear_raw_connection::client::RawConnectionPlugin` and/or
-//! `lightyear_raw_connection::server::RawConnectionPlugin` (with the corresponding `client`
-//! / `server` feature enabled) and mark the relevant entities with `RawClient` /
-//! `RawServer` so that `Linked` implies `Connected`. For authenticated use, pair it with
-//! `lightyear_netcode` instead.
+//! `lightyear_raw_connection::server::RawConnectionPlugin` and mark entities with `RawClient` /
+//! `RawServer` so that [`Linked`] implies `Connected`. For authenticated use, pair it with
+//! `lightyear_netcode`.
 //!
 //! ### Spawning crossbeam entities
 //!
-//! Always trigger `LinkStart` to bring a `CrossbeamIo` entity online, rather than
-//! inserting `Linked` directly. `CrossbeamPlugin::link` (the observer driving
-//! `LinkStart -> Linked`) gates on `With<CrossbeamIo>`, so by the time `Linked` lands the
-//! `CrossbeamIo` is in place — and so are its required `LocalAddr` / `PeerAddr` — which
-//! `RawConnectionPlugin`'s `Add<Linked>` observers read to construct
-//! `LocalId` / `RemoteId`. Inserting `Linked` directly in the spawn bundle exposes a
-//! window where those required components have not yet cascaded; the connection-layer
-//! observer fails its query silently and the entity ends up `Linked` but never
-//! `Connected`, so replication / message channels never wire up.
+//! Always trigger [`LinkStart`] to bring a [`CrossbeamIo`] entity online, rather than inserting
+//! [`Linked`] directly. [`CrossbeamPlugin`] gates its link observer on `With<CrossbeamIo>`, so by
+//! the time [`Linked`] is inserted the required Aeronet-compatible `LocalAddr` and `PeerAddr`
+//! components are also present. Connection-layer `Add<Linked>` observers can then construct their
+//! local and remote IDs reliably.
 //!
 //! ```ignore
 //! // Server-side mirror entity (one per connecting crossbeam client):
@@ -58,15 +52,18 @@ use lightyear_core::time::Instant;
 use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked};
 use tracing::{error, trace};
 
-/// Maximum transmission units; maximum size in bytes of a packet
+/// Maximum payload size used by Lightyear's packet transports.
 pub(crate) const MTU: usize = 1472;
 const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LOCALHOST), 0);
 
-/// A component that facilitates communication over `crossbeam-channel`.
+/// In-process transport component backed by `crossbeam-channel`.
 ///
-/// This acts as a transport layer, allowing messages to be sent and received
-/// via in-memory channels, simulating a network link. It holds the sender
-/// and receiver ends of the channels.
+/// `CrossbeamIo` is inserted on a Lightyear link entity and requires a [`Link`], `LocalAddr`, and
+/// `PeerAddr`. The addresses are dummy localhost values used by connection-layer code that expects
+/// address components even though no real socket exists.
+///
+/// Use [`new_pair`](Self::new_pair) for the normal bidirectional setup: one returned component goes
+/// on the client-side entity and the other on the server-side mirror entity.
 #[derive(Component, Clone)]
 #[require(Link::new(None))]
 #[require(LocalAddr(LOCALHOST))]
@@ -89,7 +86,11 @@ impl CrossbeamIo {
         Self { sender, receiver }
     }
 
-    /// Create a pair of CrossbeamIo instances for local testing
+    /// Creates two cross-connected [`CrossbeamIo`] instances.
+    ///
+    /// Payloads sent by the first instance are received by the second, and payloads sent by the
+    /// second are received by the first. Both directions use unbounded channels, matching the
+    /// assumptions documented by [`new`](Self::new).
     pub fn new_pair() -> (Self, Self) {
         let (sender1, receiver1) = crossbeam_channel::unbounded();
         let (sender2, receiver2) = crossbeam_channel::unbounded();
@@ -98,10 +99,16 @@ impl CrossbeamIo {
     }
 }
 
-/// Bevy plugin to integrate the `CrossbeamIo` transport.
+/// Bevy plugin that integrates [`CrossbeamIo`] with Lightyear links.
 ///
-/// This plugin sets up the necessary systems for sending and receiving data
-/// via `crossbeam-channel` when a `Link` component is present and active.
+/// The plugin installs:
+/// - a [`LinkStart`] observer that immediately marks [`CrossbeamIo`] entities as [`Linked`];
+/// - a receive system in [`LinkReceiveSystems::BufferToLink`] that drains channel payloads into
+///   [`Link::recv`];
+/// - a send system in [`LinkSystems::Send`] that flushes [`Link::send`] into the channel.
+///
+/// It does not implement authentication, handshake state, or `Connected`; pair it with a Lightyear
+/// connection plugin when higher-level connection state is needed.
 pub struct CrossbeamPlugin;
 
 #[derive(QueryData)]

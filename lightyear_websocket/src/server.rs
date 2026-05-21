@@ -1,3 +1,11 @@
+//! Server-side WebSocket transport integration.
+//!
+//! [`WebSocketServerIo`](crate::server::WebSocketServerIo) is inserted on a Lightyear server entity.
+//! When [`LinkStart`](lightyear_link::LinkStart) is triggered, the plugin spawns an Aeronet
+//! WebSocket server entity and relates it back to the Lightyear server. Each accepted Aeronet
+//! session receives its own child Lightyear [`Link`](lightyear_link::Link) through
+//! [`LinkOf`](lightyear_link::prelude::LinkOf).
+
 use crate::WebSocketError;
 use aeronet_io::Session;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
@@ -13,7 +21,11 @@ use lightyear_link::server::Server;
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::info;
 
-/// Allows using [`WebSocketServer`].
+/// Plugin that starts WebSocket servers and creates per-client Lightyear links.
+///
+/// The plugin installs [`AeronetPlugin`], [`ServerAeronetPlugin`], and Aeronet's WebSocket server
+/// plugin. It observes [`LinkStart`] for [`WebSocketServerIo`] entities and observes new Aeronet
+/// sessions to create the corresponding child [`Link`] entities.
 pub struct WebSocketServerPlugin;
 
 impl Plugin for WebSocketServerPlugin {
@@ -31,16 +43,17 @@ impl Plugin for WebSocketServerPlugin {
     }
 }
 
-/// WebSocket server implementation which listens for client connections,
-/// and coordinates messaging between multiple clients.
+/// Lightyear component for a WebSocket server endpoint.
 ///
-/// Use [`WebSocketServer::open`] to start opening a server.
+/// Insert this on a Lightyear server entity. A [`LocalAddr`] must be present when [`LinkStart`] is
+/// triggered; the plugin opens an Aeronet [`WebSocketServer`] using [`config`](Self::config).
 ///
-/// The [`LocalAddr`] component must be inserted to specify the server_addr.
-
+/// Accepted clients are represented as child Lightyear link entities related to the server through
+/// [`LinkOf`].
 #[derive(Component)]
 #[require(Server)]
 pub struct WebSocketServerIo {
+    /// Aeronet WebSocket server configuration used when opening the server.
     pub config: ServerConfig,
 }
 

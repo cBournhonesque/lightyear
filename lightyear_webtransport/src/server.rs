@@ -1,3 +1,11 @@
+//! Server-side WebTransport transport integration.
+//!
+//! [`WebTransportServerIo`](crate::server::WebTransportServerIo) is inserted on a Lightyear server
+//! entity. When [`LinkStart`](lightyear_link::LinkStart) is triggered, the plugin spawns an Aeronet
+//! WebTransport server entity and relates it back to the Lightyear server. Each accepted Aeronet
+//! session receives its own child Lightyear [`Link`](lightyear_link::Link) through
+//! [`LinkOf`](lightyear_link::prelude::LinkOf).
+
 use crate::WebTransportError;
 use aeronet_io::Session;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
@@ -15,7 +23,12 @@ use lightyear_link::server::Server;
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::info;
 
-/// Allows using [`WebTransportServer`].
+/// Plugin that starts WebTransport servers and creates per-client Lightyear links.
+///
+/// The plugin installs [`AeronetPlugin`], [`ServerAeronetPlugin`], and Aeronet's WebTransport
+/// server plugin. It observes [`LinkStart`] for [`WebTransportServerIo`] entities, accepts
+/// [`SessionRequest`] by default, and observes new Aeronet sessions to create the corresponding
+/// child [`Link`] entities.
 pub struct WebTransportServerPlugin;
 
 impl Plugin for WebTransportServerPlugin {
@@ -34,20 +47,18 @@ impl Plugin for WebTransportServerPlugin {
     }
 }
 
-/// WebTransport server implementation which listens for client connections,
-/// and coordinates messaging between multiple clients.
+/// Lightyear component for a WebTransport server endpoint.
 ///
-/// Use [`WebTransportServer::open`] to start opening a server.
+/// Insert this on a Lightyear server entity. A [`LocalAddr`] must be present when [`LinkStart`] is
+/// triggered; the plugin opens an Aeronet [`WebTransportServer`] with
+/// [`certificate`](Self::certificate) as its TLS identity.
 ///
-/// The [`LocalAddr`] component must be inserted to specify the server_addr.
-///
-/// When a client attempts to connect, the server will trigger a
-/// [`SessionRequest`]. Your app **must** observe this, and use
-/// [`SessionRequest::respond`] to set how the server should respond to this
-/// connection attempt.
+/// This wrapper currently accepts [`SessionRequest`] events automatically. Accepted clients are
+/// represented as child Lightyear link entities related to the server through [`LinkOf`].
 #[derive(Debug, Component)]
 #[require(Server)]
 pub struct WebTransportServerIo {
+    /// TLS identity used by the underlying WebTransport server.
     pub certificate: Identity,
 }
 

@@ -1,8 +1,12 @@
-/*! # Lightyear IO
-
-Low-level IO primitives for the lightyear networking library.
-This crate provides abstractions for sending and receiving raw bytes over the network.
-*/
+//! Multi-client UDP server transport.
+//!
+//! [`ServerUdpIo`](crate::server::ServerUdpIo) owns one non-blocking UDP socket bound to a
+//! [`LocalAddr`](aeronet_io::connection::LocalAddr). Incoming datagrams are grouped by remote
+//! [`SocketAddr`](core::net::SocketAddr), and each remote address is represented by a child
+//! Lightyear [`Link`](lightyear_link::Link) related to the server entity through
+//! [`LinkOf`](lightyear_link::prelude::LinkOf). This keeps server fan-out compatible with the
+//! generic [`Server`](lightyear_link::server::Server) relationship model while preserving UDP's
+//! connectionless socket model.
 
 extern crate alloc;
 
@@ -21,13 +25,20 @@ use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
 
-/// Maximum transmission units; maximum size in bytes of a UDP packet
-/// See: <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>
+/// Maximum UDP payload size used by this transport.
+///
+/// The value is chosen to avoid common IPv4 fragmentation limits. See
+/// <https://gafferongames.com/post/packet_fragmentation_and_reassembly/>.
 pub(crate) const MTU: usize = 1472;
 
-/// Component to start a UdpServer.
+/// UDP server endpoint component.
 ///
-/// The [`LocalAddr`] component is required to specify the local SocketAddr to bind.
+/// Insert this on a Lightyear server entity. A [`LocalAddr`] component is required before
+/// [`LinkStart`] is triggered; the plugin binds one socket to that address and creates child link
+/// entities for remote addresses as datagrams arrive.
+///
+/// Each child link receives [`PeerAddr`] for its remote socket address and [`UdpLinkOfIO`] to mark
+/// it as owned by this UDP server transport.
 #[derive(Component)]
 #[require(Server)]
 pub struct ServerUdpIo {
@@ -36,7 +47,10 @@ pub struct ServerUdpIo {
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
 }
 
-/// Marker component to identify this LinkOf as being the server-side Link of a ServerUdpIO
+/// Marker for child link entities owned by [`ServerUdpIo`].
+///
+/// Server send systems use this marker to distinguish UDP-owned [`LinkOf`] children from child
+/// links that may belong to another transport attached to the same server entity.
 #[derive(Component)]
 pub struct UdpLinkOfIO;
 
@@ -62,6 +76,14 @@ impl Default for ServerUdpIo {
     }
 }
 
+/// Bevy plugin that integrates multi-client UDP server IO with Lightyear links.
+///
+/// The plugin installs:
+/// - a [`LinkStart`] observer that binds the server socket and marks the server [`Linked`];
+/// - an [`Unlink`] observer that closes the socket;
+/// - a receive system that creates or finds a child link for each remote address and queues the
+///   datagram in that child [`Link::recv`];
+/// - a send system that drains each UDP child [`Link::send`] to its [`PeerAddr`].
 pub struct ServerUdpPlugin;
 
 impl ServerUdpPlugin {

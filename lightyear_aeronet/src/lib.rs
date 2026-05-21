@@ -1,9 +1,21 @@
+//! Shared adapter between Aeronet sessions and Lightyear [`Link`] entities.
+//!
+//! Aeronet owns concrete connection/session entities and packet queues. Lightyear owns
+//! transport-neutral [`Link`] buffers and lifecycle markers. This crate bridges the two by keeping
+//! an Aeronet session entity related to a Lightyear link entity through [`AeronetLink`] and
+//! [`AeronetLinkOf`], copying Aeronet endpoint addresses onto the link, mirroring Aeronet session
+//! state into [`Linked`], [`Linking`], and [`Unlinked`], and moving byte payloads between
+//! [`aeronet_io::Session`] queues and [`Link`] buffers.
+//!
+//! Concrete Aeronet-backed transports such as `lightyear_websocket` and `lightyear_webtransport`
+//! build on this crate. Server-specific lifecycle bridging lives in [`server`].
 #![no_std]
 
 extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
+/// Server-side Aeronet lifecycle bridge for Lightyear server link entities.
 pub mod server;
 
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
@@ -19,20 +31,38 @@ use lightyear_link::{
 };
 use tracing::trace;
 
-/// The lightyear Link entity
+/// Relationship target stored on a Lightyear [`Link`] entity for its Aeronet session entity.
+///
+/// The relationship points from an Aeronet session or server entity carrying [`AeronetLinkOf`] back
+/// to the Lightyear entity that owns the transport-neutral [`Link`]. The plugin uses this mapping
+/// to mirror lifecycle state and transfer queued payloads.
 #[derive(Component, Reflect)]
 #[relationship_target(relationship = AeronetLinkOf, linked_spawn)]
 pub struct AeronetLink(#[relationship] Entity);
 
-/// The Aeronet Session entity
+/// Relationship source stored on an Aeronet session or server entity.
+///
+/// The inner entity is the Lightyear entity that owns the corresponding [`Link`] or
+/// [`lightyear_link::server::Server`]. Concrete Aeronet transports insert this component on their
+/// Aeronet child entity after spawning it.
 #[derive(Component, Reflect)]
 #[relationship(relationship_target = AeronetLink)]
 pub struct AeronetLinkOf(pub Entity);
 
+/// Plugin that bridges Aeronet session state and queues into Lightyear links.
+///
+/// This plugin installs observers that:
+/// - copy Aeronet endpoint [`LocalAddr`] and [`PeerAddr`] components onto the Lightyear link entity;
+/// - mirror Aeronet connecting/connected/disconnected state into [`Linking`], [`Linked`], and
+///   [`Unlinked`];
+/// - translate [`Unlink`] into Aeronet [`Disconnect`] or server [`Close`] requests;
+/// - move payloads between [`Session::recv`]/[`Session::send`] and [`Link::recv`]/[`Link::send`].
+///
+/// Concrete transports should add this plugin before scheduling their Aeronet open/connect systems.
 pub struct AeronetPlugin;
 
 impl AeronetPlugin {
-    /// If LocalAddr is added on the AeronetLink entity, it will be copied to the AeronetLinkOf entity.
+    /// Copies [`LocalAddr`] from an Aeronet entity onto its Lightyear [`Link`] entity.
     fn on_local_addr_added(
         trigger: On<Add, (LocalAddr, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &LocalAddr)>,
@@ -42,14 +72,14 @@ impl AeronetPlugin {
             && let Ok(mut c) = commands.get_entity(aeronet_link.0)
         {
             trace!(
-                "LocalAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
+                "LocalAddr added on Aeronet entity {:?}. Adding on Link entity {:?}",
                 trigger.entity, aeronet_link.0
             );
             c.insert(LocalAddr(local_addr.0));
         }
     }
 
-    /// If PeerAddr is added on the AeronetLink entity, it will be copied to the AeronetLinkOf entity.
+    /// Copies [`PeerAddr`] from an Aeronet entity onto its Lightyear [`Link`] entity.
     fn on_peer_addr_added(
         trigger: On<Add, (PeerAddr, AeronetLinkOf)>,
         query: Query<(&AeronetLinkOf, &PeerAddr)>,
@@ -59,7 +89,7 @@ impl AeronetPlugin {
             && let Ok(mut c) = commands.get_entity(aeronet_link.0)
         {
             trace!(
-                "PeerAddr added on AeronetLink {:?}. Adding on Link entity {:?}",
+                "PeerAddr added on Aeronet entity {:?}. Adding on Link entity {:?}",
                 trigger.entity, aeronet_link.0
             );
             c.insert(PeerAddr(peer_addr.0));

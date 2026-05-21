@@ -1,3 +1,10 @@
+//! Client-side WebTransport transport integration.
+//!
+//! [`WebTransportClientIo`](crate::client::WebTransportClientIo) is a Lightyear link component that
+//! spawns an Aeronet WebTransport client entity when [`LinkStart`](lightyear_link::LinkStart) is
+//! triggered. `lightyear_aeronet` then mirrors Aeronet session state and moves payloads between the
+//! Aeronet session and the Lightyear [`Link`](lightyear_link::Link).
+
 use crate::WebTransportError;
 use aeronet_io::connection::PeerAddr;
 use aeronet_webtransport::client::{ClientConfig, WebTransportClient};
@@ -9,6 +16,10 @@ use lightyear_link::{Link, LinkStart, Linked, Linking};
 #[cfg(all(not(target_family = "wasm"), feature = "dangerous-configuration"))]
 use tracing::warn;
 
+/// Plugin that starts WebTransport client sessions for [`WebTransportClientIo`] link entities.
+///
+/// The plugin ensures [`AeronetPlugin`] and Aeronet's WebTransport client plugin are installed,
+/// then observes [`LinkStart`] to spawn and connect the underlying Aeronet client entity.
 pub struct WebTransportClientPlugin;
 
 impl Plugin for WebTransportClientPlugin {
@@ -21,15 +32,20 @@ impl Plugin for WebTransportClientPlugin {
     }
 }
 
-/// WebTransport session implementation which acts as a dedicated client,
-/// connecting to a target endpoint.
+/// Lightyear component for a WebTransport client transport.
 ///
-/// The [`PeerAddr`] component will be used to find the server_addr.
-///
-/// Use [`WebTransportClient::connect`] to start a connection.
+/// Insert this on the entity that owns the client-side [`Link`]. A [`PeerAddr`] must be present
+/// when [`LinkStart`] is triggered; the plugin builds an `https://<peer_addr>` WebTransport target
+/// and spawns an Aeronet [`WebTransportClient`] related back to this link.
 #[derive(Debug, Component)]
 #[require(Link)]
 pub struct WebTransportClientIo {
+    /// Hex-encoded SHA-256 certificate digest/hash expected from the server.
+    ///
+    /// On native targets this is converted to `wtransport::tls::Sha256Digest`. On WASM targets it
+    /// is converted to a browser WebTransport certificate hash. An empty string disables explicit
+    /// hashes; on native targets that only disables validation when the `dangerous-configuration`
+    /// feature is enabled.
     pub certificate_digest: String,
 }
 
