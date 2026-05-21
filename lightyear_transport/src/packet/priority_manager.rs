@@ -1,7 +1,7 @@
 use crate::channel::ChannelKind;
-use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
+use crate::transport::SenderMetadata;
 use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
 use bevy_platform::collections::HashMap;
@@ -18,6 +18,10 @@ use tracing::{debug, error, info, trace};
 
 const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 
+/// Message buffered for bandwidth-priority filtering.
+///
+/// This is internal state exposed publicly only for diagnostics/tests; normal applications should
+/// enqueue messages through [`Transport`](crate::transport::Transport).
 #[derive(Debug)]
 pub struct BufferedMessage {
     priority: f32,
@@ -25,6 +29,10 @@ pub struct BufferedMessage {
     data: MessageData,
 }
 
+/// Bandwidth quota configuration for a [`PriorityManager`].
+///
+/// By default priority filtering is disabled, so all queued messages are packetized immediately.
+/// Use [`new`](Self::new) to enable a per-transport byte-per-second quota.
 #[derive(Debug, Clone)]
 pub struct PriorityConfig {
     /// Number of bytes per second that can be sent to each client
@@ -45,6 +53,12 @@ impl Default for PriorityConfig {
 }
 
 impl PriorityConfig {
+    /// Creates an enabled bandwidth quota with the given byte-per-second cap.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `bytes_per_second_quota` is zero because `governor::Quota` requires a non-zero
+    /// rate. This API should be tightened in a future pass.
     pub fn new(bytes_per_second_quota: u32) -> Self {
         let cap = bytes_per_second_quota.try_into().unwrap();
         Self {
@@ -54,12 +68,17 @@ impl PriorityConfig {
     }
 }
 
-/// Responsible for restricting the bandwidth used by messages sent over the network.
+/// Bandwidth and priority filter shared by all senders in a
+/// [`Transport`](crate::transport::Transport).
 ///
-/// The messages will be filtered by priority until we reach the bandwidth quota.
+/// The manager receives candidate messages from channel senders, optionally applies a bandwidth
+/// quota, and returns the messages that should be packetized this frame. Message priority is the
+/// product of per-message priority and
+/// [`ChannelSettings::priority`](crate::channel::builder::ChannelSettings::priority).
 ///
-/// Messages that were not sent will have increased priority, which means that they have a higher chance of
-/// being sent in the future.
+/// Messages that do not pass the quota are dropped from this frame's transport buffer. Reliable
+/// channels can retry later through their sender state; unreliable channels intentionally lose the
+/// dropped message.
 #[derive(Debug)]
 pub struct PriorityManager {
     pub(crate) config: PriorityConfig,
@@ -79,6 +98,7 @@ impl Default for PriorityManager {
 }
 
 impl PriorityManager {
+    /// Creates an empty priority manager using `config`.
     pub fn new(config: PriorityConfig) -> Self {
         let quota = config.bandwidth_quota;
         Self {

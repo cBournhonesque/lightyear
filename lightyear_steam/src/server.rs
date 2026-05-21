@@ -1,3 +1,9 @@
+//! Steam server connection support.
+//!
+//! Insert [`SteamServerIo`] on a server entity and trigger
+//! [`Start`] to open an `aeronet_steam` server session. Each accepted Steam session is represented
+//! by a Lightyear [`LinkOf`] entity marked with [`SteamClientOf`], [`ClientOf`], and [`Connected`].
+
 use aeronet_io::Session;
 use aeronet_io::server::Close;
 use aeronet_steam::SessionConfig;
@@ -19,7 +25,7 @@ use lightyear_link::server::Server;
 use lightyear_link::{Link, LinkStart, Linked, Linking};
 use tracing::{info, trace};
 
-/// Enables starting a Steam server
+/// Plugin that starts Steam server sessions and maps accepted sessions to Lightyear client links.
 pub struct SteamServerPlugin;
 
 impl Plugin for SteamServerPlugin {
@@ -43,21 +49,24 @@ impl Plugin for SteamServerPlugin {
     }
 }
 
-/// WebTransport server implementation which listens for client connections,
-/// and coordinates messaging between multiple clients.
+/// Steam server implementation that listens for client connections.
 ///
-/// When a client attempts to connect, the server will trigger a
-/// [`SessionRequest`]. Your app **must** observe this, and use
-/// [`SessionRequest::respond`] to set how the server should respond to this
-/// connection attempt.
+/// When a client attempts to connect, `aeronet_steam` emits a [`SessionRequest`]. This plugin
+/// currently accepts those requests by default and creates a Lightyear child link when the Steam
+/// session is established.
 #[derive(Debug, Component)]
 #[require(Server)]
 pub struct SteamServerIo {
+    /// Steam listen target for the server session.
     pub target: ListenTarget,
+    /// Session configuration forwarded to `aeronet_steam`.
     pub config: SessionConfig,
 }
 
-/// Marker component to identify this link as connected to a Steam Server.
+/// Marker component for a server-side client link backed by a Steam session.
+///
+/// Steam links already carry a Steam-based [`RemoteId`], so this
+/// marker requires [`SkipNetcode`] to prevent the netcode server from processing the same link.
 #[derive(Component)]
 // Steam links don't need to go through Netcode, so we skip it
 #[require(SkipNetcode)]

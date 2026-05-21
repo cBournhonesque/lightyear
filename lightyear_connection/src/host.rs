@@ -1,9 +1,12 @@
-//! We call running an app in 'Host-Server' mode an app that has both the Client and Server plugins, and where one of the client acts as the 'Host'.
+//! Host-server connection support.
 //!
-//! A Client is considered a host-server if it is:
-//! - Connected
-//! - is a ClientOf of a Server
-//! - the Server is started
+//! A host-server app runs both client and server plugins in the same Bevy [`App`]. The local client
+//! is represented as a normal client entity, but it does not send bytes through external IO. Instead,
+//! server-to-client payloads are staged in [`crate::host::HostClient::buffer`] and consumed locally.
+//!
+//! A client is considered the host client when it is connected, is a
+//! [`ClientOf`](crate::client_of::ClientOf) a started server, and has
+//! [`crate::host::HostClient`].
 
 #[cfg(feature = "server")]
 use alloc::string::ToString;
@@ -27,20 +30,25 @@ use lightyear_link::prelude::{LinkOf, Server};
 use tracing::info;
 
 // we want the component to be available even if the server feature is not enabled
-/// Marker component inserted on a client that acts as a Host
+/// Marker component inserted on the local client in host-server mode.
 #[derive(Component, Debug)]
 pub struct HostClient {
     // TODO: put the buffer in a separate component?
     // buffer that will hold the (bytes, channel_kind) for messages serialized by the ServerMultiSender
+    /// Server-to-host-client payloads staged without going through external IO.
     pub buffer: Vec<(Bytes, core::any::TypeId)>,
 }
 
-/// Marker component inserted on a server that has a [`HostClient`]
+/// Marker component inserted on a server that has a local [`HostClient`].
 #[derive(Component, Debug, Reflect)]
 pub struct HostServer {
+    /// Entity of the local host client connected to this server.
     client: Entity,
 }
 
+/// Plugin that keeps host-client and host-server markers in sync.
+///
+/// The plugin only installs observers when the `server` feature is enabled.
 pub struct HostPlugin;
 
 impl HostPlugin {

@@ -1,13 +1,17 @@
-/*! # Lightyear Raw Connection
-Lightyear separates between the IO layer (Link) which handles transmitting bytes to a remote peer,
-and the Connection layer  which symbolizes a more long-term connection on top of a Link.
-
-In particular every Connection entity must be associated with a LocalId and RemoteId that identifies
-the peers independently of the underlying Link.
-
-This crates provide a connection implementation where the establishing the Link is equivalent to establishing the Connection.
-The LocalId and RemoteId come from the Link's SocketAddr.
-*/
+//! Raw connection adapters for Lightyear links.
+//!
+//! Lightyear separates byte IO from long-lived connection state. [`lightyear_link`] owns the
+//! byte-oriented [`Link`](lightyear_link::Link), while [`lightyear_connection`] owns client/server
+//! lifecycle markers and peer identities.
+//!
+//! `lightyear_raw_connection` is the simplest bridge between those layers: a link becoming
+//! [`Linked`](lightyear_link::Linked) is treated as the connection becoming connected or started, and
+//! unlinking is treated as disconnecting or stopping. There is no handshake, authentication,
+//! encryption, or protocol-level packet wrapping here.
+//!
+//! Use this crate when the underlying IO transport is already trusted or when tests/examples only
+//! need connection lifecycle semantics. Use `lightyear_netcode` or another protocol crate when a
+//! link needs authentication or session negotiation.
 #![no_std]
 
 extern crate alloc;
@@ -16,11 +20,14 @@ extern crate core;
 extern crate std;
 
 #[cfg(feature = "client")]
+/// Client-side raw connection bridge.
 pub mod client;
 
 #[cfg(feature = "server")]
+/// Server-side raw connection bridge.
 pub mod server;
 
+/// Re-exports for raw client/server connection setup.
 pub mod prelude {
     #[cfg(feature = "client")]
     pub mod client {

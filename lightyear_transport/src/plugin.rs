@@ -1,4 +1,3 @@
-use crate::channel::builder::Transport;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::channel::senders::ChannelSend;
@@ -8,6 +7,7 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
+use crate::transport::Transport;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::IntoScheduleConfigs;
@@ -30,26 +30,47 @@ use lightyear_utils::metrics::TimerGauge;
 use tracing::{debug, error, info, trace, warn};
 
 #[deprecated(note = "Use TransportSystems instead")]
+/// Deprecated alias for [`TransportSystems`].
 pub type TransportSet = TransportSystems;
 
+/// System sets for the transport layer.
+///
+/// [`Receive`](Self::Receive) runs after [`LinkSystems::Receive`] so transport packets already
+/// received by the IO layer can be decoded into channel receivers. [`Send`](Self::Send) runs before
+/// [`LinkSystems::Send`] so channel sender output is packetized before the IO layer flushes the
+/// link's send buffer.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSystems {
-    // PRE UPDATE
-    /// Receive messages from the Link and buffer them into the ChannelReceivers
+    // PreUpdate
+    /// Decode packets from [`Link::recv`] and buffer their messages into channel receivers.
     Receive,
 
     // PostUpdate
-    /// Flush the messages buffered in the ChannelSenders to the Link
+    /// Drain channel senders, build packets, and queue payloads in [`Link::send`].
     Send,
 }
 
-/// Event triggered on a [`Transport`] entity when it receives a new packet
+/// Entity event triggered when a [`Transport`] entity receives a packet.
+///
+/// The event carries the local entity that owns the transport and the sender's tick from the packet
+/// header. Higher-level crates can observe this for diagnostics, latency tracking, or packet-driven
+/// state updates without parsing transport bytes themselves.
 #[derive(EntityEvent)]
 pub struct PacketReceived {
+    /// Entity that owns the [`Transport`] which received the packet.
     pub entity: Entity,
+    /// Remote tick encoded in the received packet header.
     pub remote_tick: Tick,
 }
 
+/// Bevy plugin that installs packet/channel processing.
+///
+/// The plugin depends on [`LinkPlugin`] and schedules:
+/// - `buffer_receive` in [`TransportSystems::Receive`] after link receive systems;
+/// - `buffer_send` in [`TransportSystems::Send`] before link send systems;
+/// - transport reset on [`Disconnected`] when the `client` or `server` feature is enabled.
+///
+/// A [`ChannelRegistry`] resource is created in `finish()` if the app did not add one explicitly.
 pub struct TransportPlugin;
 
 impl TransportPlugin {

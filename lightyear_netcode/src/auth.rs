@@ -1,3 +1,9 @@
+//! Authentication sources for netcode clients.
+//!
+//! A netcode client always needs a [`ConnectToken`] before it can complete the protocol handshake.
+//! In production that token should normally come from a trusted backend. Tests and local examples can
+//! use [`crate::auth::Authentication::Manual`] to build the token in-process.
+
 use bevy_ecs::resource::Resource;
 
 use crate::{ConnectToken, Error, Key, generate_key};
@@ -6,7 +12,7 @@ use core::str::FromStr;
 
 #[derive(Resource, Default, Clone)]
 #[allow(clippy::large_enum_variant)]
-/// Struct used to authenticate with the server when using the Netcode connection.
+/// Token source used by [`NetcodeClient`](crate::client_plugin::NetcodeClient).
 ///
 /// Netcode is a standard to establish secure connections between clients and game servers on top of
 /// an unreliable unordered transport such as UDP.
@@ -33,9 +39,13 @@ pub enum Authentication {
     /// This is only useful for testing purposes. In production, the client should not have access
     /// to the `private_key`.
     Manual {
+        /// Public server address that the client should connect to.
         server_addr: SocketAddr,
+        /// Client ID embedded in the generated token.
         client_id: u64,
+        /// Private key shared with the game server.
         private_key: Key,
+        /// Application protocol ID shared with the game server.
         protocol_id: u64,
     },
     #[default]
@@ -53,6 +63,11 @@ impl Authentication {
         matches!(self, Authentication::Token(..))
     }
 
+    /// Resolves this authentication source into a concrete [`ConnectToken`].
+    ///
+    /// `Token` returns the embedded token, `Manual` generates a token using the supplied private
+    /// key and protocol ID, and `None` creates a placeholder token so a client component can be
+    /// constructed before real authentication data arrives.
     pub fn get_token(
         self,
         client_timeout_secs: i32,

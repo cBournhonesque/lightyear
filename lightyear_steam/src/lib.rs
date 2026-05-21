@@ -1,13 +1,18 @@
-//! # Lightyear Steam
+//! Steam networking integration for Lightyear.
 //!
-//! This crate provides an integration layer for using Steam's networking sockets
-//! (specifically `steamworks::networking_sockets`) as a transport for Lightyear.
+//! This crate connects `aeronet_steam` sessions to Lightyear's link and connection layers. Steam
+//! networking provides the underlying peer/session transport; Lightyear wraps those sessions in
+//! [`Link`](lightyear_link::Link) entities and maps Steam IDs into
+//! [`PeerId::Steam`](lightyear_core::id::PeerId::Steam).
 //!
-//! It handles the setup of Steam P2P connections and wraps them in a way that
-//! can be used by Lightyear's `Link` component. This allows Lightyear to send
-//! and receive messages over the Steam network infrastructure.
+//! Client and server support are feature-gated:
+//! - `client` exposes [`client::SteamClientPlugin`] and [`client::SteamClientIo`].
+//! - `server` exposes [`server::SteamServerPlugin`] and [`server::SteamServerIo`] on non-Wasm
+//!   targets.
 //!
-//! Note: This crate requires the `steamworks` crate and a running Steam client.
+//! Applications must initialize Steam resources with [`SteamAppExt::add_steam_resources`] before
+//! adding the Lightyear Steam plugins. A running Steam client is required by the underlying
+//! `steamworks` integration.
 #![cfg_attr(docsrs, feature(doc_cfg))]
 #![no_std]
 
@@ -23,9 +28,14 @@ pub mod client;
 #[cfg(all(feature = "server", not(target_family = "wasm")))]
 pub mod server;
 
+/// Errors produced by the Steam integration layer.
+///
+/// The enum is currently empty because setup and session errors are surfaced by `aeronet_steam` and
+/// Bevy observers.
 #[derive(thiserror::Error, Debug)]
 pub enum SteamError {}
 
+/// Re-exports for Steam client/server setup.
 pub mod prelude {
     pub use crate::SteamAppExt;
     pub use crate::SteamError;
@@ -48,10 +58,11 @@ pub mod prelude {
 }
 
 pub trait SteamAppExt {
-    /// Creates a steamworks::Client with the given app_id and adds it to the Bevy app.
-    /// Then insert it as a resource as expected by `aeronet_steam`.
+    /// Creates a `steamworks::Client` for `app_id` and inserts the resource expected by
+    /// `aeronet_steam`.
     ///
-    /// The steam resources need to be inserted before the lightyear plugins
+    /// The Steam resources must be inserted before adding Lightyear Steam client/server plugins.
+    /// This also registers a `PreUpdate` system that runs Steam callbacks.
     fn add_steam_resources(&mut self, app_id: u32) -> &mut Self;
 }
 

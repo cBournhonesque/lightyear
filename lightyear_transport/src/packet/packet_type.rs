@@ -1,5 +1,6 @@
 #[repr(u8)]
 #[derive(Copy, Debug, Clone, Eq, PartialEq)]
+/// Encoded packet payload layout.
 pub enum PacketType {
     /// A packet containing actual data
     ///
@@ -14,6 +15,9 @@ pub enum PacketType {
     /// - ...
     /// - channel_id = 0 = indication of end of packet
     Data = 0,
+    /// A packet containing one fragment of a larger message.
+    ///
+    /// The last fragment packet may also contain small single-message payloads if there is room.
     DataFragment = 1,
 }
 

@@ -1,3 +1,16 @@
+//! Server-side connection lifecycle state.
+//!
+//! This module defines the common lifecycle components used by concrete server connection crates.
+//! Protocol implementations such as `lightyear_raw_connection`, `lightyear_netcode`, and
+//! `lightyear_steam` react to [`crate::server::Start`] and [`crate::server::Stop`] triggers, then
+//! insert [`crate::server::Starting`], [`crate::server::Started`],
+//! [`crate::server::Stopping`], or [`crate::server::Stopped`] as the underlying link/protocol
+//! changes state.
+//!
+//! Server-side client links are represented by child entities marked with
+//! [`ClientOf`](crate::client_of::ClientOf) and the client lifecycle markers from
+//! [`crate::client`].
+
 use crate::client::{Client, Disconnected, Disconnecting, PeerMetadata};
 use crate::client_of::ClientOf;
 use bevy_app::{App, Last, Plugin};
@@ -11,29 +24,37 @@ use lightyear_link::prelude::Server;
 use lightyear_link::{LinkStart, Unlinked};
 use tracing::trace;
 
-/// Errors related to the server connection
+/// Errors related to server connection lifecycle operations.
 #[derive(thiserror::Error, Debug)]
 pub enum ConnectionError {
+    /// The concrete IO or link backend has not been initialized yet.
     #[error("io is not initialized")]
     IoNotInitialized,
+    /// The requested client or server connection could not be found.
     #[error("connection not found")]
     ConnectionNotFound,
+    /// A client entity is not using the connection type expected by this server protocol.
     #[error("the connection type for this client is invalid")]
     InvalidConnectionType,
 }
 
-/// Trigger to start the server
+/// Entity trigger requesting that a server starts listening or accepting connections.
 #[derive(EntityEvent)]
 pub struct Start {
+    /// Server entity to start.
     pub entity: Entity,
 }
 
-/// Trigger to stop the server
+/// Entity trigger requesting that a server stops and disconnects clients.
 #[derive(EntityEvent)]
 pub struct Stop {
+    /// Server entity to stop.
     pub entity: Entity,
 }
 
+/// Marker component for a server that is starting.
+///
+/// Adding this marker removes incompatible server lifecycle markers.
 #[derive(Component)]
 #[component(on_add = Starting::on_add)]
 pub struct Starting;
@@ -48,6 +69,10 @@ impl Starting {
     }
 }
 
+/// Marker component for a server whose connection layer is active.
+///
+/// Adding this marker inserts `PeerId::Server` into [`PeerMetadata`] and removes incompatible
+/// server lifecycle markers.
 #[derive(Component, Event, Reflect)]
 #[component(on_add = Started::on_add)]
 pub struct Started;
@@ -66,6 +91,10 @@ impl Started {
     }
 }
 
+/// Marker component for a server that is stopping.
+///
+/// Adding this marker removes incompatible server lifecycle markers while concrete protocols flush
+/// disconnect packets or close their underlying IO.
 #[derive(Component, Event, Reflect)]
 #[component(on_add = Stopping::on_add)]
 pub struct Stopping;
@@ -80,6 +109,10 @@ impl Stopping {
     }
 }
 
+/// Marker component for a server whose connection layer is stopped.
+///
+/// Adding this marker removes `PeerId::Server` from [`PeerMetadata`] and clears incompatible server
+/// lifecycle markers.
 #[derive(Component, Event, Reflect)]
 #[component(on_add = Stopped::on_add)]
 pub struct Stopped;
@@ -98,6 +131,11 @@ impl Stopped {
     }
 }
 
+/// Server lifecycle plugin.
+///
+/// The plugin installs observers that translate [`Start`] into
+/// [`LinkStart`], convert link failures into [`Stopped`], and despawn
+/// server-side client entities after they spend one frame in [`Disconnecting`].
 pub struct ConnectionPlugin;
 
 impl ConnectionPlugin {
@@ -146,14 +184,14 @@ impl ConnectionPlugin {
     }
 }
 
-/// RunCondition to check if the app is a server.
+/// Run condition that returns `true` when the app has exactly one server entity.
 ///
 /// Note that the app could also have a host-client
 pub fn is_server(server_query: Query<(), With<Server>>) -> bool {
     server_query.single().is_ok()
 }
 
-/// RunCondition to check if the app is a headless server:
+/// Run condition that returns `true` when the app is a headless server:
 /// - there is an entity with the `Server` component
 /// - there are no entities with the `Client` component
 pub fn is_headless_server(

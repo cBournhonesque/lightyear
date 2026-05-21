@@ -1,59 +1,30 @@
-/*! Netcode.io protocol to establish a connection on top of an unreliable transport
-
-# netcode
-
- The `netcode` crate implements the [netcode](https://github.com/networkprotocol/netcode)
- network protocol created by [Glenn Fiedler](https://gafferongames.com).
-
- `netcode` is a UDP-based protocol that provides secure, connection-based data transfer.
-
- Since the protocol is meant to be used to implement multiplayer games, its API is designed
- to be used in a game loop, where the server and client are updated at a fixed rate (e.g., 60Hz).
-
- ## Protocol
-
- The three main components of the netcode protocol are:
- * Dedicated [`Servers`](NetcodeServer).
- * [`Clients`](NetcodeClient).
- * The web backend - a service that authenticates clients and generates [`ConnectTokens`](ConnectToken).
-
- The protocol does not specify how the web backend should be implemented, but it should probably be a typical HTTPS server
- that provides a means for clients to authenticate and request connection tokens.
-
- The sequence of operations for a client to connect to a server is as follows:
-
- 1. The `Client` authenticates with the web backend service. (e.g., by OAuth or some other means)
- 2. The authenticated `Client` requests a connection token from the web backend.
- 3. The web backend generates a [`ConnectToken`] and sends it to the `Client`. (e.g., as a JSON response)
- 4. The `Client` uses the token to connect to a dedicated `Server`.
- 5. The `Server` makes sure the token is valid and allows the `Client` to connect.
- 6. The `Client` and `Server` can now exchange encrypted and signed UDP packets.
-
- To learn more about the netcode protocol, see the upstream [specification](https://github.com/networkprotocol/netcode/blob/master/STANDARD.md).
-
- ## Server
-
- The netcode server is responsible for managing the state of the clients and sending/receiving packets.
-
- The server should run as a part of the game loop, process incoming packets and send updates to the clients.
-
- To create a server:
-  * Provide the address you intend to bind to.
-  * Provide the protocol id - a `u64` that uniquely identifies your app.
-  * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
-  * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
-
- ## Client
-
-The netcode client connects to the server and communicates using the same protocol.
-
-Like the server, the game client should run in a loop to process incoming data,
-send updates to the server, and maintain a stable connection.
-
-To create a client:
- * Provide a **connect token** - a `u8` array of length 2048 serialized from a [`ConnectToken`].
- * Optionally provide a [`ClientConfig`](client::ClientConfig) - a struct that allows you to customize the client's behavior.
-*/
+//! Netcode.io connection protocol for Lightyear.
+//!
+//! `lightyear_netcode` implements the
+//! [netcode.io protocol](https://github.com/networkprotocol/netcode/blob/master/STANDARD.md) on top
+//! of an unreliable packet transport. It provides encrypted and authenticated client/server
+//! sessions, then exposes accepted payload bytes back to the normal Lightyear
+//! [`Link`](lightyear_link::Link) and `lightyear_transport` pipeline.
+//!
+//! There are two layers in this crate:
+//! - [`client::Client`] and [`server::Server`] implement the protocol state machines directly.
+//! - [`client_plugin::NetcodeClientPlugin`] and [`server_plugin::NetcodeServerPlugin`] adapt those
+//!   state machines to Bevy entities, [`ConnectionSystems`](lightyear_connection::ConnectionSystems),
+//!   and Lightyear connection markers.
+//!
+//! A typical production flow is:
+//! 1. The client authenticates with a backend service.
+//! 2. The backend creates a [`ConnectToken`] using the same `protocol_id` and private key as the
+//!    game servers.
+//! 3. The client constructs a [`NetcodeClient`] from [`auth::Authentication::Token`] and triggers
+//!    [`Connect`](lightyear_connection::client::Connect).
+//! 4. The server validates the token, creates a server-side client link, and marks it
+//!    [`Connected`](lightyear_connection::client::Connected).
+//! 5. Once connected, user payloads move through `lightyear_transport` while netcode wraps and
+//!    unwraps the underlying link bytes.
+//!
+//! For local tests, [`auth::Authentication::Manual`] can build a token in-process. Production
+//! clients should not have access to the private key.
 #![no_std]
 
 extern crate alloc;
@@ -76,6 +47,7 @@ pub(crate) type ClientId = u64;
 
 mod bytes;
 #[cfg(feature = "client")]
+/// Low-level netcode client state machine.
 pub mod client;
 mod crypto;
 pub(crate) mod error;
@@ -87,12 +59,16 @@ mod token;
 mod utils;
 
 #[cfg(feature = "client")]
+/// Bevy plugin wrapper for the netcode client state machine.
 pub mod client_plugin;
 
+/// Client authentication token sources.
 pub mod auth;
 #[cfg(feature = "server")]
+/// Bevy plugin wrapper for the netcode server state machine.
 pub mod server_plugin;
 
+/// Re-exports for Bevy application setup.
 pub mod prelude {
     pub use crate::auth::Authentication;
 

@@ -1,3 +1,11 @@
+//! Server-side raw connection bridge.
+//!
+//! A [`crate::server::RawServer`] treats the underlying [`Link`](lightyear_link::Link) lifecycle as
+//! the server connection lifecycle. When the server link becomes [`Linked`](lightyear_link::Linked),
+//! the server becomes [`Started`](lightyear_connection::server::Started). When child links become
+//! linked, they become server-side [`ClientOf`](lightyear_connection::client_of::ClientOf)
+//! connections.
+
 use aeronet_io::connection::PeerAddr;
 use alloc::string::ToString;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
@@ -16,13 +24,19 @@ use lightyear_transport::plugin::TransportSystems;
 #[allow(unused_imports)]
 use tracing::{error, trace};
 
+/// Plugin that maps raw server link lifecycle to connection lifecycle.
+///
+/// The plugin installs the base client and server connection plugins if needed and orders link,
+/// connection, and transport systems so received bytes flow `Link -> Transport` and outgoing bytes
+/// flow `Transport -> Link`.
 pub struct RawConnectionPlugin;
 
-/// Marker type to represent a server where the IO layer (UDP/Websocket/WebTransport/etc.) which also acts as a Connection layer
+/// Marker component for a server whose IO link is also its connection layer.
 ///
-/// In this case, Linked/Started are equivalent; same for Unlinked/Stopped.
+/// In this mode, [`Linked`] and [`Started`] are equivalent, and [`Unlinked`] and [`Stopped`] are
+/// equivalent.
 ///
-/// The PeerId associated with the connection is the entity itself.
+/// Child links use their [`PeerAddr`] to derive [`PeerId::Raw`] remote identities.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 #[require(Server)]
 pub struct RawServer;

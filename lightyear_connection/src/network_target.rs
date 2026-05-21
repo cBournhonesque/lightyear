@@ -1,3 +1,10 @@
+//! Target selection helpers for routing messages to peers or entities.
+//!
+//! [`crate::network_target::NetworkTarget`] is used when targeting remote peers by
+//! [`lightyear_core::id::PeerId`]. [`crate::network_target::EntityTarget`] uses the same targeting
+//! semantics for local Bevy entities. Higher-level crates can combine, invert, and serialize targets
+//! without knowing how a peer maps to a concrete connection entity.
+
 use alloc::{vec, vec::Vec};
 use bevy_ecs::entity::Entity;
 use bevy_platform::{
@@ -15,11 +22,16 @@ use smallvec::SmallVec;
 
 type HS<K> = HashSet<K, FixedHasher>;
 
+/// Target expression over remote [`PeerId`] values.
 pub type NetworkTarget = Target<PeerId>;
+/// Target expression over local Bevy [`Entity`] values.
 pub type EntityTarget = Target<Entity>;
 
 impl NetworkTarget {
-    /// Calls func on each client entity that matches the provided `target`
+    /// Calls `func` for each client entity selected by this target.
+    ///
+    /// `clients` should contain candidate client entities, and `mapping` should map peer IDs to the
+    /// local entity that represents each connection. Missing peer IDs are ignored.
     pub fn apply_targets(
         &self,
         clients: impl Iterator<Item = Entity>,
@@ -66,22 +78,25 @@ impl NetworkTarget {
     }
 }
 
+/// Describes which peers or entities should receive a routed item.
+///
+/// `Target` supports both inclusive and exclusive forms so callers can cheaply express common
+/// patterns such as "everyone", "everyone except this peer", or "only this small set".
 #[derive(Serialize, Deserialize, Debug, Default, Clone, PartialEq, Reflect)]
-/// Target indicated which clients should receive some message
 pub enum Target<T> {
     #[default]
-    /// Message sent to no client
+    /// No target is selected.
     None,
-    /// Message sent to all clients except one
+    /// All targets are selected except one.
     AllExceptSingle(T),
     // TODO: use small vec
-    /// Message sent to all clients except for these
+    /// All targets are selected except the listed values.
     AllExcept(Vec<T>),
-    /// Message sent to all clients
+    /// Every target is selected.
     All,
-    /// Message sent to only these
+    /// Only the listed targets are selected.
     Only(Vec<T>),
-    /// Message sent to only this one client
+    /// Exactly one target is selected.
     Single(T),
 }
 
@@ -165,7 +180,7 @@ impl<T> From<Vec<T>> for Target<T> {
 }
 
 impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
-    /// Returns true if the target is empty
+    /// Returns `true` if this target selects no peers or entities.
     pub fn is_empty(&self) -> bool {
         match self {
             Target::None => true,
@@ -174,6 +189,10 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
         }
     }
 
+    /// Creates an exclusive target.
+    ///
+    /// An empty iterator selects [`Target::All`], one excluded value selects
+    /// [`Target::AllExceptSingle`], and multiple excluded values select [`Target::AllExcept`].
     pub fn from_exclude(client_ids: impl IntoIterator<Item = T>) -> Self {
         let mut client_ids = client_ids.into_iter().collect::<Vec<_>>();
         match client_ids.len() {
@@ -183,7 +202,7 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
         }
     }
 
-    /// Return true if we should replicate to the specified client
+    /// Returns `true` if `client_id` is selected by this target.
     pub fn targets(&self, client_id: &T) -> bool {
         match self {
             Target::All => true,

@@ -1,22 +1,18 @@
-/*! # Lightyear Connection
-Connection handling for the lightyear networking library.
-This crate provides core types for managing long-term connections on top of a Link and Transport.
-
-It also introduces helpers to setup a Client-Server architecture.
-
-This crates provide concepts that are only useful for a client-server architecture (client/server).
-*/
+//! Connection lifecycle primitives for Lightyear.
+//!
+//! `lightyear_connection` sits above [`lightyear_link`] and below concrete connection protocols such
+//! as `lightyear_raw_connection`, `lightyear_netcode`, and `lightyear_steam`. It does not open
+//! sockets or authenticate peers by itself. Instead, it provides the shared ECS vocabulary used by
+//! those crates: client/server lifecycle markers, connection start/stop triggers, peer metadata, and
+//! target selection helpers.
+//!
+//! The crate intentionally keeps long-lived connection state separate from the byte-oriented
+//! [`Link`](lightyear_link::Link). A link can be established by UDP, WebSocket, WebTransport, Steam,
+//! an in-process transport, or another IO backend; the connection layer records whether that link is
+//! considered usable as a client, server, or server-side client connection.
+//!
+//! The most commonly used items are re-exported from [`prelude`].
 #![no_std]
-// TODO: maybe lightyear_connection only stores primitives for a long-running Connection (ConnectionError, etc.)
-//  on top of a Link
-//  And client-server logic is only in lightyear_client, lightyear_server, lightyear_shared
-//  OR:
-//   for example the direction stuff should be lightyear_client + lightyear_server + lightyear_shared?
-//  --
-//   Fundamentally is it easier to find direction logic in lightyear_client/direction + lightyear_server/direction
-//   or in lightyear_direction/client + lightyear_direction/server?
-//   Maybe each crate can have #[client] and #[server] features for client-server specific stuff
-//   And then lightyear_client just calls the relevant functions from all the other crates (inputs, etc.)
 
 extern crate alloc;
 extern crate core;
@@ -24,37 +20,49 @@ extern crate core;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::SystemSet;
 
+/// Client-side connection lifecycle components and observers.
 pub mod client;
 
+/// Server-side connection lifecycle components and observers.
 pub mod server;
 
+/// Direction markers for APIs that distinguish client-to-server and server-to-client traffic.
 pub mod direction;
+/// Peer and entity targeting helpers used by replication and message routing.
 pub mod network_target;
 
+/// Server-side client-link marker components.
 pub mod client_of;
 #[allow(unused)]
+/// Run conditions for identifying whether the local app is acting as a client, server, or host.
 pub mod identity;
+/// Shared connection request and denial types.
 pub mod shared;
 
+/// Host-server marker components and observers.
 pub mod host;
 
 #[deprecated(note = "Use ConnectionSystems instead")]
+/// Deprecated alias for [`ConnectionSystems`].
 pub type ConnectionSet = ConnectionSystems;
 
-/// System sets for connection-related logic.
-/// These are used to order systems that handle receiving and sending packets.
+/// System sets for protocol-level connection processing.
+///
+/// Concrete connection crates use these sets between [`LinkSystems`](lightyear_link::LinkSystems)
+/// and transport systems. For example, netcode decrypts and validates bytes after link receive but
+/// before transport receive, then wraps outgoing transport bytes before link send.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum ConnectionSystems {
-    // PRE UPDATE
-    /// Receive bytes from the Link, process them as Packets and buffer them into the Transport
+    // PreUpdate
+    /// Process received link bytes before transport systems consume them.
     Receive,
 
     // PostUpdate
-    /// Flush the messages that were buffered into the Transport, process them as Packets and
-    /// buffer them to the Link
+    /// Process outgoing transport bytes before link systems flush them to IO.
     Send,
 }
 
+/// Re-exports used by applications and protocol crates.
 pub mod prelude {
     pub use crate::ConnectionSystems;
     pub use crate::direction::NetworkDirection;
@@ -82,8 +90,11 @@ pub mod prelude {
     }
 }
 
-/// Plugin to handle the connection logic.
-/// Registers relevant types.
+/// Root plugin for connection primitives.
+///
+/// The specialized client and server lifecycle observers live in
+/// [`client::ConnectionPlugin`] and [`server::ConnectionPlugin`]. This root plugin currently exists
+/// as a stable extension point for shared connection setup.
 pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {

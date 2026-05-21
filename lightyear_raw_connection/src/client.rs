@@ -1,3 +1,10 @@
+//! Client-side raw connection bridge.
+//!
+//! A [`crate::client::RawClient`] treats the underlying [`Link`](lightyear_link::Link) lifecycle as
+//! the connection lifecycle. When the link becomes [`Linked`](lightyear_link::Linked), the client
+//! becomes [`Connected`](lightyear_connection::client::Connected); when the client disconnects, the
+//! plugin triggers [`Unlink`](lightyear_link::Unlink).
+
 use aeronet_io::connection::LocalAddr;
 use alloc::string::ToString;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
@@ -10,13 +17,21 @@ use lightyear_transport::plugin::TransportSystems;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
+/// Plugin that maps raw client link lifecycle to connection lifecycle.
+///
+/// The plugin installs the base [`ConnectionPlugin`] if needed and orders link, connection, and
+/// transport systems so received bytes flow `Link -> Transport` and outgoing bytes flow
+/// `Transport -> Link`.
 pub struct RawConnectionPlugin;
 
-/// Marker type to represent a client where the IO layer (UDP/Websocket/WebTransport/etc.) which also acts as a Connection layer
+/// Marker component for a client whose IO link is also its connection.
 ///
-/// In this case, Linked/Connected are equivalent; same for Unlinked/Disconnected.
+/// In this mode, [`Linked`] and [`Connected`] are equivalent, and
+/// [`Unlinked`](lightyear_link::Unlinked) and
+/// [`Disconnected`] are equivalent.
 ///
-/// The PeerId associated with the connection is the entity itself.
+/// When the link is established, the plugin inserts [`LocalId`] from the link's
+/// [`LocalAddr`] and uses [`PeerId::Server`] as the remote peer.
 #[derive(Component, Debug, Clone, Copy, PartialEq, Eq)]
 #[require(Link, lightyear_connection::client::Client)]
 #[require(Disconnected)]

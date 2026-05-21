@@ -1,3 +1,10 @@
+//! Steam client connection support.
+//!
+//! Insert [`SteamClientIo`] on a Lightyear client entity and trigger
+//! [`LinkStart`] to create the underlying `aeronet_steam` client
+//! session. Once that session is linked, the plugin inserts
+//! [`Connected`] because Steam acts as both the link and connection layer for this integration.
+
 use aeronet_io::connection::PeerAddr;
 use aeronet_steam::client::SteamNetClient;
 use aeronet_steam::{
@@ -15,6 +22,7 @@ use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkStart, Linked, Linking, Unlink};
 use tracing::trace;
 
+/// Plugin that starts Steam client sessions and maps them to Lightyear connection state.
 pub struct SteamClientPlugin;
 
 impl Plugin for SteamClientPlugin {
@@ -29,7 +37,7 @@ impl Plugin for SteamClientPlugin {
     }
 }
 
-/// Component to insert on an entity to start a Steam  socket client which
+/// Component to insert on an entity to start a Steam socket client which
 /// can connect to a dedicated server or another peer.
 ///
 /// The [`SteamworksClient`] resource must have been created beforehand.
@@ -37,7 +45,9 @@ impl Plugin for SteamClientPlugin {
 #[component(on_add = SteamClientIo::on_add)]
 #[require(Link)]
 pub struct SteamClientIo {
+    /// Steam server address or peer target to connect to.
     pub target: ConnectTarget,
+    /// Session configuration forwarded to `aeronet_steam`.
     pub config: SessionConfig,
 }
 

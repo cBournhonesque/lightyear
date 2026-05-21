@@ -15,8 +15,13 @@ use tracing::trace;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 
+/// Maximum encoded transport packet size in bytes.
+///
+/// This value is intentionally below the common UDP MTU so transport headers below Lightyear still
+/// have room without causing fragmentation at the IP layer.
 pub const MAX_PACKET_SIZE: usize = 1200;
 
+/// Owned encoded packet payload produced by the packet builder.
 pub type Payload = Vec<u8>;
 
 /// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
@@ -50,6 +55,10 @@ impl Default for PacketBuilder {
 }
 
 impl PacketBuilder {
+    /// Creates a packet builder with a custom packet-loss detection threshold.
+    ///
+    /// `nack_rtt_multiple` controls how many RTTs a sent packet can remain unacknowledged before it
+    /// is treated as lost by [`PacketHeaderManager`].
     pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
@@ -148,6 +157,12 @@ impl PacketBuilder {
         // }
     }
 
+    /// Finishes and returns the packet currently being built.
+    ///
+    /// # Panics
+    ///
+    /// Panics if no packet is currently being built. Callers should only use this after one of the
+    /// `build_new_*_packet` helpers has initialized `current_packet`.
     pub fn finish_packet(&mut self) -> Packet {
         let mut packet = self.current_packet.take().unwrap();
         packet.payload.shrink_to_fit();
@@ -155,7 +170,7 @@ impl PacketBuilder {
         packet
     }
 
-    /// Pack messages into packets
+    /// Packs channel messages into encoded transport packets.
     ///
     /// In general the strategy is:
     /// - sort the single data messages from smallest to largest
