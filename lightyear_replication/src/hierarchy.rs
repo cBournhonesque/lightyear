@@ -261,17 +261,29 @@ impl<R: Relationship> HierarchySendPlugin<R> {
 mod tests {
     use super::*;
 
-    use crate::send::components::Replicate;
-    use crate::send::plugin::ReplicableRootEntities;
+    use crate::prelude::Replicate;
     use alloc::vec;
+    use bevy_replicon::prelude::{AuthMethod, RepliconSharedPlugin};
+    use bevy_replicon::server::ServerPlugin;
+    use bevy_state::app::StatesPlugin;
+
+    fn app_with_hierarchy_plugin() -> App {
+        let mut app = App::default();
+        app.add_plugins(StatesPlugin);
+        app.init_resource::<bevy_time::Time>();
+        app.add_plugins(RepliconSharedPlugin {
+            auth_method: AuthMethod::None,
+        });
+        app.add_plugins(ServerPlugin::default());
+        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
+        app
+    }
 
     /// Check that ReplicateLike propagation works correctly when Children gets updated
     /// on an entity that has ReplicationMarker
     #[test]
     fn propagate_replicate_like_children_updated() {
-        let mut app = App::default();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
+        let mut app = app_with_hierarchy_plugin();
 
         let grandparent = app.world_mut().spawn(Replicate::manual(vec![])).id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated
@@ -371,9 +383,7 @@ mod tests {
     /// on an entity that already has children
     #[test]
     fn propagate_replicate_like_replication_marker_added() {
-        let mut app = App::default();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(HierarchySendPlugin::<ChildOf>::default());
+        let mut app = app_with_hierarchy_plugin();
 
         let grandparent = app.world_mut().spawn_empty().id();
         // parent with no ReplicationMarker: ReplicateLike should be propagated

@@ -268,7 +268,9 @@ fn test_server_just_pressed() {
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyA);
 
-    stepper.frame_step(3);
+    // The input timeline sends inputs one tick ahead of the server input pipeline.
+    // Step until the server applies the first pressed snapshot, not just until it receives it.
+    stepper.frame_step(4);
 
     let server_action = stepper
         .server_app
