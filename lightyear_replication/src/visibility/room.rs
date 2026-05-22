@@ -177,489 +177,131 @@ impl Plugin for RoomPlugin {
 mod tests {
     use super::*;
 
-    use crate::prelude::{Replicate, ReplicationSender};
-    use alloc::vec;
-    use bevy_ecs::system::RunSystemOnce;
     use test_log::test;
 
     #[test]
-    // entity is in a room
-    // we add a client to that room, then we remove it
-    fn test_add_remove_client_room() {
-        let mut app = App::new();
-        app.add_plugins(RoomPlugin);
+    fn room_allocator_returns_distinct_monotonic_ids() {
+        let mut allocator = RoomAllocator::default();
 
-        // Client joins room
-        let room = 0;
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            // VisibilityGained -> Replicate -> Maintained
-            VisibilityState::Visible
-        );
+        let first = allocator.allocate();
+        let second = allocator.allocate();
 
-        // Client leaves room
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveSender(sender),
-            room,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Lost
-        );
+        assert_eq!(first.as_usize(), 0);
+        assert_eq!(second.as_usize(), 1);
     }
 
     #[test]
-    // client is in a room
-    // we add an entity to that room, then we remove it
-    fn test_add_remove_entity_room() {
-        let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(RoomPlugin);
+    fn rooms_add_remove_and_iterate_memberships() {
+        let room_a = RoomId(0);
+        let room_b = RoomId(3);
+        let mut rooms = Rooms::single(room_a);
 
-        // Entity joins room
-        let room = app.world_mut().spawn(Room::default()).id();
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.update();
+        rooms.add_room(room_b);
+
+        assert!(rooms.contains_room(room_a));
+        assert!(rooms.contains_room(room_b));
         assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            // VisibilityGained -> Replicate -> Maintained
-            VisibilityState::Visible
+            rooms.rooms().collect::<alloc::vec::Vec<_>>(),
+            [room_a, room_b]
         );
 
-        // Entity leaves room
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveEntity(entity),
-            room,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Lost
-        );
+        rooms.remove_room(room_a);
+
+        assert!(!rooms.contains_room(room_a));
+        assert!(rooms.contains_room(room_b));
+        assert_eq!(rooms.rooms().collect::<alloc::vec::Vec<_>>(), [room_b]);
     }
 
-    /// The client is in a room with the entity
-    /// We move the client and the entity to a different room (client first, then entity)
-    /// There should be no change in relevance
     #[test]
-    fn test_move_client_entity_room() {
-        let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(RoomPlugin);
+    fn rooms_visibility_filter_requires_shared_room() {
+        let sender = Entity::from_bits(1);
+        let room_a = RoomId(0);
+        let room_b = RoomId(1);
+        let entity_rooms = Rooms::single(room_a);
+        let client_rooms = Rooms::single(room_a);
+        let other_client_rooms = Rooms::single(room_b);
 
-        let room = app.world_mut().spawn(Room::default()).id();
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.update();
-
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // Entity/client move to a different room
-        let room_2 = app.world_mut().spawn(Room::default()).id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveEntity(entity),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room: room_2,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room: room_2,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
+        assert!(!entity_rooms.is_visible(sender, Some(&other_client_rooms)));
+        assert!(!entity_rooms.is_visible(sender, None));
     }
 
-    /// The client is in room A and B
-    /// Entity is in room A and moves to room B
-    /// There should be no change in relevance
     #[test]
-    fn test_move_entity_room() {
-        let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(RoomPlugin);
+    fn rooms_visibility_tracks_client_and_entity_room_moves() {
+        let sender = Entity::from_bits(1);
+        let room_a = RoomId(0);
+        let room_b = RoomId(1);
+        let mut entity_rooms = Rooms::single(room_a);
+        let mut client_rooms = Rooms::single(room_a);
 
-        let room = app.world_mut().spawn(Room::default()).id();
-        let room_2 = app.world_mut().spawn(Room::default()).id();
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room: room_2,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
 
-        // Entity moves from room 1 to 2 (sender belongs in both)
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveEntity(entity),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room: room_2,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
+        client_rooms.remove_room(room_a);
+        client_rooms.add_room(room_b);
+        assert!(!entity_rooms.is_visible(sender, Some(&client_rooms)));
+
+        entity_rooms.remove_room(room_a);
+        entity_rooms.add_room(room_b);
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
     }
 
-    /// The entity is in room A and B
-    /// Client is in room A and moves to room B
-    /// There should be no change in relevance
     #[test]
-    fn test_move_client_room() {
-        let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(RoomPlugin);
+    fn rooms_visibility_survives_entity_move_when_client_is_in_both_rooms() {
+        let sender = Entity::from_bits(1);
+        let room_a = RoomId(0);
+        let room_b = RoomId(1);
+        let mut entity_rooms = Rooms::single(room_a);
+        let mut client_rooms = Rooms::single(room_a);
+        client_rooms.add_room(room_b);
 
-        let room = app.world_mut().spawn(Room::default()).id();
-        let room_2 = app.world_mut().spawn(Room::default()).id();
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room: room_2,
-        });
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
 
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room: room_2,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
+        entity_rooms.add_room(room_b);
+        entity_rooms.remove_room(room_a);
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
     }
 
-    /// The entity and client are in room A
-    /// Entity,client leave room at the same time
-    ///
-    /// Entity-Client should lose relevance (not in the same room anymore)
     #[test]
-    fn test_client_entity_both_leave_room() {
-        let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
-        app.add_plugins(RoomPlugin);
+    fn rooms_visibility_survives_client_move_when_entity_is_in_both_rooms() {
+        let sender = Entity::from_bits(1);
+        let room_a = RoomId(0);
+        let room_b = RoomId(1);
+        let mut entity_rooms = Rooms::single(room_a);
+        let mut client_rooms = Rooms::single(room_a);
+        entity_rooms.add_room(room_b);
 
-        let room = app.world_mut().spawn(Room::default()).id();
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.update();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
 
-        // Entity/client leaves room
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveEntity(entity),
-            room,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Lost
-        );
+        client_rooms.add_room(room_b);
+        client_rooms.remove_room(room_a);
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
     }
 
-    /// Client and entity are both in rooms A and B.
-    /// Entity leaves room A: they should still remain relevant since they are both in room B.
-    /// Entity leaves room B: now the visibility should be lost
     #[test]
-    fn test_client_entity_multiple_shared_rooms() {
+    fn rooms_visibility_is_lost_when_last_shared_room_is_removed() {
+        let sender = Entity::from_bits(1);
+        let room_a = RoomId(0);
+        let room_b = RoomId(1);
+        let mut entity_rooms = Rooms::single(room_a);
+        entity_rooms.add_room(room_b);
+        let mut client_rooms = Rooms::single(room_a);
+        client_rooms.add_room(room_b);
+
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
+
+        entity_rooms.remove_room(room_a);
+        assert!(entity_rooms.is_visible(sender, Some(&client_rooms)));
+
+        entity_rooms.remove_room(room_b);
+        assert!(!entity_rooms.is_visible(sender, Some(&client_rooms)));
+    }
+
+    #[test]
+    fn room_plugin_registers_allocator_resource() {
         let mut app = App::new();
-        app.init_resource::<ReplicableRootEntities>();
+
         app.add_plugins(RoomPlugin);
 
-        let room = app.world_mut().spawn(Room::default()).id();
-        let room_2 = app.world_mut().spawn(Room::default()).id();
-        let sender = app.world_mut().spawn(ReplicationSender::default()).id();
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetworkVisibility::default(),
-                Replicate::manual(vec![sender]),
-            ))
-            .id();
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddSender(sender),
-            room: room_2,
-        });
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::AddEntity(entity),
-            room: room_2,
-        });
-
-        app.update();
-
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // Entity leaves room 1
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveEntity(entity),
-            room,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Visible
-        );
-
-        // Entity leaves room 2
-        app.world_mut().trigger(RoomEvent {
-            target: RoomTarget::RemoveEntity(entity),
-            room: room_2,
-        });
-        app.world_mut().flush();
-        app.world_mut()
-            .run_system_once(RoomPlugin::apply_room_events)
-            .ok();
-        assert_eq!(
-            app.world_mut()
-                .get::<ReplicationState>(entity)
-                .unwrap()
-                .per_sender_state
-                .get(&sender)
-                .unwrap()
-                .visibility,
-            VisibilityState::Lost
-        );
+        assert!(app.world().contains_resource::<RoomAllocator>());
     }
 }

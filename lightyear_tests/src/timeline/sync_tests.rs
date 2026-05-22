@@ -48,8 +48,9 @@ fn input_timeline_objective_tracks_remote_latency_margin() {
     let objective =
         InputTimeline::default().sync_objective(&remote, &config, &ping_manager, TICK_DURATION);
 
-    // remote 100 + RTT/2 2 ticks + jitter margin 2 ticks + controller deadband 0.75 ticks.
-    assert_tick_instant_close(objective, TickInstant::lit("104.75"));
+    // remote 100 + RTT/2 2 ticks + jitter margin 2 ticks
+    // + server input pipeline 1 tick + controller deadband 0.75 ticks.
+    assert_tick_instant_close(objective, TickInstant::lit("105.75"));
     assert!(objective > remote.current_estimate());
 }
 
@@ -65,9 +66,9 @@ fn input_timeline_initial_sync_resyncs_to_objective() {
 
     let tick_delta = timeline.sync(&remote, &config, &ping_manager, TICK_DURATION);
 
-    assert_eq!(tick_delta, Some(102));
+    assert_eq!(tick_delta, Some(103));
     assert!(timeline.is_synced());
-    assert_tick_instant_close(timeline.now(), TickInstant::from(Tick(102)));
+    assert_tick_instant_close(timeline.now(), TickInstant::from(Tick(103)));
     assert_eq!(timeline.relative_speed(), 1.0);
 }
 
