@@ -44,7 +44,7 @@ pub mod prelude {
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
         Link, LinkStart, LinkStats, LinkSystems, Linked, Linking, RecvLinkConditioner, Unlink,
-        Unlinked,
+        UnlinkReason, Unlinked,
     };
 
     pub mod server {

@@ -14,7 +14,7 @@ use bevy_ecs::prelude::*;
 use crate::AeronetLinkOf;
 use aeronet_io::server::{CloseReason, Closed, Server, ServerEndpoint};
 use lightyear_link::server::ServerLinkPlugin;
-use lightyear_link::{Linked, Linking, Unlinked};
+use lightyear_link::{Linked, Linking, UnlinkReason, Unlinked};
 use tracing::trace;
 
 /// Plugin that mirrors Aeronet server endpoint state into Lightyear server link state.
@@ -62,12 +62,8 @@ impl ServerAeronetPlugin {
                 child_of.0
             );
             let reason = match &trigger.reason {
-                CloseReason::ByUser(reason) => {
-                    format!("Closed by user: {reason}")
-                }
-                CloseReason::ByError(err) => {
-                    format!("Closed due to error: {err:?}")
-                }
+                CloseReason::ByUser(reason) => UnlinkReason::ClientRequested,
+                CloseReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };
             c.insert(Unlinked { reason });
         }
