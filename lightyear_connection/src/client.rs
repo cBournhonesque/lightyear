@@ -101,17 +101,25 @@ impl Connecting {
     }
 }
 
+/// Why a [`Disconnected`] component was inserted on a client entity.
 #[derive(Debug, Reflect)]
 pub enum DisconnectedReason {
-    /// Transport link dropped
+    /// The underlying transport link failed or was closed, carrying the
+    /// transport-layer cause.
+    ///
+    /// This is the most common reason: the connection layer observes an
+    /// [`Unlinked`] component and propagates its [`UnlinkReason`] upward.
     LinkFailed(UnlinkReason),
-    /// Explicit disconnect requested by local code
+    /// The local side explicitly requested a disconnect.
     UserRequested,
     /// The remote peer closed the connection, with a provided reason.
     ///
-    /// On the peer's side, this is interpreted as a [`UnlinkReason::ClientRequested`].
+    /// On the peer's side, this is interpreted as a [`DisconnectedReason::UserRequested`].
     ByPeer(String),
-    /// Transport-specific error outside link layer
+    /// The transport encountered a fatal error outside the normal link
+    /// lifecycle.
+    ///
+    /// The inner string contains a transport-specific description of the error.
     TransportError(String),
 }
 
