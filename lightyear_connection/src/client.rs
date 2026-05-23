@@ -1,4 +1,4 @@
-use alloc::{format, string::String};
+use alloc::string::String;
 use bevy_app::{App, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -7,7 +7,7 @@ use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::LinkStart;
-use lightyear_link::prelude::{Server, Unlinked};
+use lightyear_link::prelude::{Server, UnlinkReason, Unlinked};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -101,10 +101,35 @@ impl Connecting {
     }
 }
 
+#[derive(Debug, Reflect)]
+pub enum DisconnectedReason {
+    /// Transport link dropped
+    LinkFailed(UnlinkReason),
+    /// Explicit disconnect requested by local code
+    UserRequested,
+    /// The remote peer closed the connection, with a provided reason.
+    ///
+    /// On the peer's side, this is interpreted as a [`UnlinkReason::ClientRequested`].
+    ByPeer(String),
+    /// Transport-specific error outside link layer
+    TransportError(String),
+}
+
+impl core::fmt::Display for DisconnectedReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DisconnectedReason::LinkFailed(ur) => write!(f, "Link failed: {ur}"),
+            DisconnectedReason::UserRequested => write!(f, "User requested"),
+            DisconnectedReason::ByPeer(s) => write!(f, "Disconnected by peer: {s}"),
+            DisconnectedReason::TransportError(s) => write!(f, "Transport error: {s}"),
+        }
+    }
+}
+
 #[derive(Component, Default, Debug, Reflect)]
 #[component(on_add = Disconnected::on_add)]
 pub struct Disconnected {
-    pub reason: Option<String>,
+    pub reason: Option<DisconnectedReason>,
 }
 
 impl Disconnected {
@@ -173,7 +198,7 @@ impl ConnectionPlugin {
                 unlinked.reason
             );
             commands.entity(trigger.entity).insert(Disconnected {
-                reason: Some(format!("Link failed: {:?}", unlinked.reason)),
+                reason: Some(DisconnectedReason::LinkFailed(unlinked.reason.clone())),
             });
         }
     }

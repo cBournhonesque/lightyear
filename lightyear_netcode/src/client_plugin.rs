@@ -1,5 +1,3 @@
-use alloc::{format, string::ToString};
-
 use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
@@ -12,7 +10,7 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSystems;
 use lightyear_connection::client::{
-    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
+    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected, DisconnectedReason,
 };
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
@@ -182,7 +180,7 @@ impl NetcodeClientPlugin {
                         info!("Client {} disconnected. State: {state:?}", client.id());
                         parallel_commands.command_scope(|mut commands| {
                             commands.entity(entity).insert(Disconnected {
-                                reason: Some(format!("Client disconnected: {state:?}")),
+                                reason: Some(DisconnectedReason::UserRequested),
                             });
                         });
                     }
@@ -210,7 +208,7 @@ impl NetcodeClientPlugin {
         if let Ok(mut client) = query.get_mut(trigger.entity) {
             client.inner.disconnect()?;
             commands.entity(trigger.entity).insert(Disconnected {
-                reason: Some("Client trigger".to_string()),
+                reason: Some(DisconnectedReason::UserRequested),
             });
         }
         Ok(())

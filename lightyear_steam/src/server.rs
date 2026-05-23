@@ -10,7 +10,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason};
 use lightyear_connection::client_of::{ClientOf, SkipNetcode};
 use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
@@ -210,12 +210,23 @@ impl SteamServerPlugin {
                 trigger,
                 link_of_entity.id()
             );
+            let reason = match &trigger.reason {
+                aeronet_io::connection::DisconnectReason::ByUser(_) => {
+                    DisconnectedReason::UserRequested
+                }
+                aeronet_io::connection::DisconnectReason::ByPeer(s) => {
+                    DisconnectedReason::ByPeer(s.clone())
+                }
+                aeronet_io::connection::DisconnectReason::ByError(e) => {
+                    DisconnectedReason::TransportError(format!("{e:?}"))
+                }
+            };
             link_of_entity
                 // to avoid warnings if we delete the Aeronet entity before the deletion trigger can run by aeronet
                 // Can remove if https://github.com/aecsocket/aeronet/pull/49 is merged
                 .remove::<AeronetLink>()
                 .insert(Disconnected {
-                    reason: Some(format!("Aeronet link disconnected: {trigger:?}")),
+                    reason: Some(reason),
                 })
                 .try_despawn();
         }

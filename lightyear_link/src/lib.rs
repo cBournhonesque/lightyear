@@ -35,6 +35,7 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
+use bevy_reflect::Reflect;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::time::Instant;
@@ -310,29 +311,35 @@ pub struct LinkStart {
     pub entity: Entity,
 }
 
-/// Reason enum for an [`Unlink`].
-///
-#[derive(Default, Debug, Clone, PartialEq, Eq)]
+/// Why a [`Link`] was unlinked via [`Unlink`] or [`Unlinked`].
+#[derive(Default, Debug, Clone, PartialEq, Eq, Reflect)]
 pub enum UnlinkReason {
-    /// steam client, raw_connection client
+    /// The local side explicitly requested a disconnect.
     ClientRequested,
-    /// raw_connection server
+    /// The server shut down cleanly.
     ServerStopped,
-    /// connection/client.rs wraps Unlinked reason
-    /// TODO: move to DisconnectReason
-    // LinkFailed,
-    /// aeronet uses free-form error strings from DisconnectReason::ByError
+    /// The transport encountered a fatal error and the link can no longer
+    /// communicate with the peer.
+    ///
+    /// The inner string contains a transport-specific description of the error.
     TransportError(String),
-    /// aeronet DisconnectReason::ByPeer
+    /// The remote peer closed the connection, with a provided reason.
+    ///
+    /// On the peer's side, this is interpreted as a [`UnlinkReason::ClientRequested`].
     ByPeer(String),
-    /// Any strings not accounted for in this enum yet
+    /// A reason not covered by other variants.
+    ///
+    /// Used as an escape hatch for transports or application code that need to
+    /// surface a custom disconnect cause.
     Other(String),
-    /// Initial reason string is empty
+    /// The link has not yet been established.
+    ///
+    /// This is the initial state of a [`Link`] before any connection attempt.
     #[default]
     Initial,
 }
 
-impl std::fmt::Display for UnlinkReason {
+impl core::fmt::Display for UnlinkReason {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             UnlinkReason::ServerStopped => f.write_str("Server stopped"),
@@ -344,6 +351,7 @@ impl std::fmt::Display for UnlinkReason {
         }
     }
 }
+
 /// Entity event requesting that a transport terminate a [`Link`].
 ///
 /// [`LinkPlugin`] observes this event and inserts [`Unlinked`] with the provided reason. Concrete
