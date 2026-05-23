@@ -310,6 +310,40 @@ pub struct LinkStart {
     pub entity: Entity,
 }
 
+/// Reason enum for an [`Unlink`].
+///
+#[derive(Default, Debug, Clone, PartialEq, Eq)]
+pub enum UnlinkReason {
+    /// steam client, raw_connection client
+    ClientRequested,
+    /// raw_connection server
+    ServerStopped,
+    /// connection/client.rs wraps Unlinked reason
+    /// TODO: move to DisconnectReason
+    // LinkFailed,
+    /// aeronet uses free-form error strings from DisconnectReason::ByError
+    TransportError(String),
+    /// aeronet DisconnectReason::ByPeer
+    ByPeer(String),
+    /// Any strings not accounted for in this enum yet
+    Other(String),
+    /// Initial reason string is empty
+    #[default]
+    Initial,
+}
+
+impl std::fmt::Display for UnlinkReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            UnlinkReason::ServerStopped => f.write_str("Server stopped"),
+            UnlinkReason::ClientRequested => f.write_str("Client requested"),
+            UnlinkReason::TransportError(s) => write!(f, "Transport error: {s}"),
+            UnlinkReason::ByPeer(s) => write!(f, "Disconnected by peer: {s}"),
+            UnlinkReason::Other(s) => f.write_str(s),
+            UnlinkReason::Initial => f.write_str("Not connected"),
+        }
+    }
+}
 /// Entity event requesting that a transport terminate a [`Link`].
 ///
 /// [`LinkPlugin`] observes this event and inserts [`Unlinked`] with the provided reason. Concrete
@@ -320,7 +354,7 @@ pub struct Unlink {
     #[event_target]
     pub entity: Entity,
     /// Human-readable reason propagated to [`Unlinked::reason`].
-    pub reason: String,
+    pub reason: UnlinkReason,
 }
 
 /// Marker component for a link whose transport connection is being established.
@@ -378,7 +412,7 @@ impl Linked {
 #[component(on_insert = Unlinked::on_insert)]
 pub struct Unlinked {
     /// Human-readable disconnect or initial-state reason.
-    pub reason: String,
+    pub reason: UnlinkReason,
 }
 
 impl Unlinked {
