@@ -102,7 +102,7 @@ impl Connecting {
 }
 
 /// Why a [`Disconnected`] component was inserted on a client entity.
-#[derive(Debug, Reflect)]
+#[derive(Debug, Clone, Reflect)]
 pub enum DisconnectedReason {
     /// The underlying transport link failed or was closed, carrying the
     /// transport-layer cause.

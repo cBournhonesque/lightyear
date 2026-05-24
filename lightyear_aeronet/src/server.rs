@@ -62,7 +62,7 @@ impl ServerAeronetPlugin {
                 child_of.0
             );
             let reason = match &trigger.reason {
-                CloseReason::ByUser(reason) => UnlinkReason::ClientRequested,
+                CloseReason::ByUser(_) => UnlinkReason::ClientRequested,
                 CloseReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };
             c.insert(Unlinked { reason });

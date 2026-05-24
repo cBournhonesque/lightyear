@@ -18,8 +18,7 @@ extern crate std;
 /// Server-side Aeronet lifecycle bridge for Lightyear server link entities.
 pub mod server;
 
-use std::string::ToString;
-
+use crate::alloc::string::ToString;
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSystems, Session, SessionEndpoint};
@@ -145,7 +144,7 @@ impl AeronetPlugin {
             && let Ok(mut c) = commands.get_entity(aeronet_io.0)
         {
             let reason = match &trigger.reason {
-                DisconnectReason::ByUser(reason) => UnlinkReason::ClientRequested,
+                DisconnectReason::ByUser(_) => UnlinkReason::ClientRequested,
                 DisconnectReason::ByPeer(reason) => UnlinkReason::ByPeer(reason.to_string()),
                 DisconnectReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };

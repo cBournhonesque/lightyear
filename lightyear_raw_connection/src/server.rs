@@ -70,7 +70,7 @@ impl RawConnectionPlugin {
             trace!("RawClient Stop! Disconnecting all LinkOfs and triggering Unlink");
             commands.trigger(Unlink {
                 entity: trigger.entity,
-                reason: UnlinkReason::ClientRequested,
+                reason: UnlinkReason::ServerStopped,
             });
             commands.entity(trigger.entity).insert(Stopping);
             // SAFETY: we know that the list of client entities are unique because it is a Relationship
