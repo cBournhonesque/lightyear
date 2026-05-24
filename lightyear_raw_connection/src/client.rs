@@ -48,7 +48,7 @@ impl RawConnectionPlugin {
             trace!("RawClient Disconnect! Triggering Unlink");
             commands.trigger(Unlink {
                 entity: trigger.entity,
-                reason: UnlinkReason::ClientRequested,
+                reason: UnlinkReason::UserRequested,
             });
         }
     }

@@ -315,7 +315,7 @@ pub struct LinkStart {
 #[derive(Default, Debug, Clone, PartialEq, Eq, Reflect)]
 pub enum UnlinkReason {
     /// The local side explicitly requested a disconnect.
-    ClientRequested,
+    UserRequested,
     /// The server shut down cleanly.
     ServerStopped,
     /// The transport encountered a fatal error and the link can no longer
@@ -325,13 +325,8 @@ pub enum UnlinkReason {
     TransportError(String),
     /// The remote peer closed the connection, with a provided reason.
     ///
-    /// On the peer's side, this is interpreted as a [`UnlinkReason::ClientRequested`].
+    /// On the peer's side, this is interpreted as a [`UnlinkReason::UserRequested`].
     ByPeer(String),
-    /// A reason not covered by other variants.
-    ///
-    /// Used as an escape hatch for transports or application code that need to
-    /// surface a custom disconnect cause.
-    Other(String),
     /// The link has not yet been established.
     ///
     /// This is the initial state of a [`Link`] before any connection attempt.
@@ -343,10 +338,9 @@ impl core::fmt::Display for UnlinkReason {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             UnlinkReason::ServerStopped => f.write_str("Server stopped"),
-            UnlinkReason::ClientRequested => f.write_str("Client requested"),
+            UnlinkReason::UserRequested => f.write_str("Client requested"),
             UnlinkReason::TransportError(s) => write!(f, "Transport error: {s}"),
             UnlinkReason::ByPeer(s) => write!(f, "Disconnected by peer: {s}"),
-            UnlinkReason::Other(s) => f.write_str(s),
             UnlinkReason::Initial => f.write_str("Not connected"),
         }
     }

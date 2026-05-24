@@ -144,7 +144,7 @@ impl AeronetPlugin {
             && let Ok(mut c) = commands.get_entity(aeronet_io.0)
         {
             let reason = match &trigger.reason {
-                DisconnectReason::ByUser(_) => UnlinkReason::ClientRequested,
+                DisconnectReason::ByUser(_) => UnlinkReason::UserRequested,
                 DisconnectReason::ByPeer(reason) => UnlinkReason::ByPeer(reason.to_string()),
                 DisconnectReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };

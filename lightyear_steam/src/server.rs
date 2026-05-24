@@ -212,7 +212,7 @@ impl SteamServerPlugin {
             );
             let unlink_reason = match &trigger.reason {
                 aeronet_io::connection::DisconnectReason::ByUser(_) => {
-                    UnlinkReason::ClientRequested
+                    UnlinkReason::UserRequested
                 }
                 aeronet_io::connection::DisconnectReason::ByPeer(s) => {
                     UnlinkReason::ByPeer(s.clone())

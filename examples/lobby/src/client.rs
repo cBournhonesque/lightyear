@@ -467,7 +467,7 @@ mod lobby {
                     // First remove the previous link
                     commands.trigger(Unlink {
                         entity: local_client,
-                        reason: UnlinkReason::ClientRequested,
+                        reason: UnlinkReason::UserRequested,
                     });
 
                     // Convert the existing remote client into an in-process host-client by
@@ -492,7 +492,7 @@ mod lobby {
                     // First unlink from the dedicated server
                     commands.trigger(Unlink {
                         entity: local_client,
-                        reason: UnlinkReason::ClientRequested,
+                        reason: UnlinkReason::UserRequested,
                     });
 
                     let host_addr =

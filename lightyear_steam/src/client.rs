@@ -117,7 +117,7 @@ impl SteamClientPlugin {
         if query.get(trigger.entity).is_ok() {
             commands.trigger(Unlink {
                 entity: trigger.entity,
-                reason: UnlinkReason::ClientRequested,
+                reason: UnlinkReason::UserRequested,
             });
         }
     }
