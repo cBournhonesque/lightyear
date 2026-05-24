@@ -179,7 +179,7 @@ pub(crate) fn handle_disconnection(
             .ok()
             .and_then(|(_, d)| d.reason.as_ref())
             .map(|r| r.to_string())
-            .unwrap_or_else(|| "unknown".to_string())
+            .unwrap_or_else(|| "Unknown".to_string())
     )));
     for entity in debug_text.iter() {
         commands.entity(entity).despawn();
