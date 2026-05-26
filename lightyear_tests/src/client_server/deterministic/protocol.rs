@@ -102,7 +102,10 @@ impl DetPhysicsBundle {
 /// deterministic replication: physics, BEI inputs, catch-up,
 /// frame-interpolation on Position/Rotation (required to preserve
 /// post-rollback state under `AvianReplicationMode::Position`).
-pub struct DetProtocolPlugin;
+#[derive(Clone, Copy, Debug, Default)]
+pub struct DetProtocolPlugin {
+    pub enable_islands: bool,
+}
 
 impl Plugin for DetProtocolPlugin {
     fn build(&self, app: &mut App) {
@@ -130,14 +133,16 @@ impl Plugin for DetProtocolPlugin {
             rollback_resources: true,
             ..default()
         });
-        app.add_plugins(
-            PhysicsPlugins::default()
-                .build()
-                .disable::<PhysicsTransformPlugin>()
-                .disable::<PhysicsInterpolationPlugin>()
+        let mut physics_plugins = PhysicsPlugins::default()
+            .build()
+            .disable::<PhysicsTransformPlugin>()
+            .disable::<PhysicsInterpolationPlugin>();
+        if !self.enable_islands {
+            physics_plugins = physics_plugins
                 .disable::<IslandPlugin>()
-                .disable::<IslandSleepingPlugin>(),
-        );
+                .disable::<IslandSleepingPlugin>();
+        }
+        app.add_plugins(physics_plugins);
         app.insert_resource(Gravity(Vec2::ZERO));
 
         // Frame-interpolation on Position/Rotation. MUST be registered in
