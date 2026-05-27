@@ -274,8 +274,8 @@ pub(crate) fn insert_confirmed_history_on_interpolated<C: Component + Clone>(
     history.push(tick, component.clone());
     commands
         .entity(trigger.entity)
-        .insert(history)
-        .remove::<C>();
+        .try_insert(history)
+        .try_remove::<C>();
 }
 #[cfg(test)]
 mod tests {

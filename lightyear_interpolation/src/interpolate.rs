@@ -73,10 +73,10 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             interpolation_registry.as_ref(),
         ) {
             ConfirmedHistorySample::Pending | ConfirmedHistorySample::Removed if present => {
-                commands.entity(entity).remove::<C>();
+                commands.entity(entity).try_remove::<C>();
             }
             ConfirmedHistorySample::Present(value) if !present => {
-                commands.entity(entity).insert(value);
+                commands.entity(entity).try_insert(value);
             }
             _ => {}
         }
@@ -113,7 +113,7 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
                 *component = interpolated;
             }
             ConfirmedHistorySample::Removed => {
-                commands.entity(entity).remove::<C>();
+                commands.entity(entity).try_remove::<C>();
             }
             ConfirmedHistorySample::Pending => {}
         }
@@ -456,6 +456,20 @@ mod tests {
         app.update();
 
         assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(5.0)));
+    }
+
+    #[test]
+    fn stale_entity_insert_command_after_despawn_does_not_panic() {
+        let mut app = App::new();
+        let entity = app.world_mut().spawn_empty().id();
+        app.add_systems(Update, move |mut commands: Commands| {
+            commands.entity(entity).despawn();
+            commands.entity(entity).try_insert(TestComp(1.0));
+        });
+
+        app.update();
+
+        assert!(app.world().get_entity(entity).is_err());
     }
 }
 //

@@ -88,7 +88,7 @@ pub(crate) fn despawn_interpolated_entities(
     let interpolation_tick = interpolation.now().tick();
     for (entity, despawn) in &query {
         if interpolation_tick >= despawn.tick {
-            commands.entity(entity).despawn();
+            commands.entity(entity).try_despawn();
         }
     }
 }
