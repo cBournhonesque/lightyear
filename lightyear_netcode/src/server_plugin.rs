@@ -11,6 +11,7 @@ use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
 use lightyear_connection::server::Stopping;
+use lightyear_connection::shared::ConnectionRequestHandler;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkSystems};
@@ -47,6 +48,7 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
+    pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
 impl Default for NetcodeConfig {
@@ -57,6 +59,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
+            connection_request_handler: None,
         }
     }
 }
@@ -75,6 +78,14 @@ impl NetcodeConfig {
         self.client_timeout_secs = client_timeout_secs;
         self
     }
+
+    pub fn with_connection_request_handler(
+        mut self,
+        handler: Arc<dyn ConnectionRequestHandler>,
+    ) -> Self {
+        self.connection_request_handler = Some(handler);
+        self
+    }
 }
 
 impl NetcodeServer {
@@ -90,10 +101,17 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
+        if let Some(handler) = config.connection_request_handler {
+            cfg = cfg.connection_request_handler(handler);
+        }
         let server =
             crate::server::Server::with_config(config.protocol_id, config.private_key, cfg)
                 .expect("Could not create server netcode");
         Self { inner: server }
+    }
+
+    pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
+        self.inner.set_connection_request_handler(handler);
     }
 }
 

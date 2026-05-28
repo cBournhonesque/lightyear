@@ -325,6 +325,16 @@ impl<Ctx> ServerConfig<Ctx> {
         self.server_addr = server_addr;
         self
     }
+
+    /// Set the handler used to accept or deny incoming connection requests.
+    pub fn connection_request_handler(
+        mut self,
+        handler: Arc<dyn ConnectionRequestHandler>,
+    ) -> Self {
+        self.connection_request_handler = handler;
+        self
+    }
+
     /// Provide a callback that will be called when a client is connected to the server. <br>
     /// The callback will be called with the client index, entity, user data from the connection token,
     /// and the context that was provided (provide a `None` context if you don't need one).
@@ -436,6 +446,10 @@ impl<Ctx> Server<Ctx> {
         };
         // info!("server started on {}", server.addr());
         Ok(server)
+    }
+
+    pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
+        self.cfg.connection_request_handler = handler;
     }
 }
 
