@@ -2,7 +2,7 @@ use crate::registry::ComponentRegistry;
 use bevy_app::App;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
-use bevy_replicon::prelude::{AppRuleExt, RuleFns};
+use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
 use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use bevy_replicon::shared::replication::registry::rule_fns::{DeserializeFn, SerializeFn};
 use serde::{Serialize, de::DeserializeOwned};
@@ -15,10 +15,28 @@ pub trait AppComponentExt {
         &mut self,
     ) -> ComponentRegistration<'_, C>;
 
+    /// Registers the component in the Registry with `ReplicationMode::Once`.
+    ///
+    /// This component can now be sent over the network, but only insertions and
+    /// removals are replicated. Component mutations are not sent.
+    fn register_component_once<
+        C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned,
+    >(
+        &mut self,
+    ) -> ComponentRegistration<'_, C>;
+
     /// Registers the component in the Registry: this component can now be sent over the network.
     ///
-    /// You need to provide your own [`SerializeFns`]
+    /// You need to provide your own serialization functions.
     fn register_component_with<C: Component<Mutability: MutWrite<C>>>(
+        &mut self,
+        serialize_fn: SerializeFn<C>,
+        deserialize_fn: DeserializeFn<C>,
+    ) -> ComponentRegistration<'_, C>;
+
+    /// Registers the component in the Registry with custom serialization and
+    /// `ReplicationMode::Once`.
+    fn register_component_once_with<C: Component<Mutability: MutWrite<C>>>(
         &mut self,
         serialize_fn: SerializeFn<C>,
         deserialize_fn: DeserializeFn<C>,
@@ -38,21 +56,18 @@ impl AppComponentExt for App {
     fn register_component<C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned>(
         &mut self,
     ) -> ComponentRegistration<'_, C> {
-        if self
-            .world_mut()
-            .get_resource_mut::<ComponentRegistry>()
-            .is_none()
-        {
-            self.world_mut().init_resource::<ComponentRegistry>();
-        }
-        self.world_mut()
-            .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
-                if !registry.is_registered::<C>() {
-                    registry.register_component::<C>(world);
-                }
-            });
-
+        register_component_metadata::<C>(self);
         self.replicate::<C>();
+        ComponentRegistration::new(self)
+    }
+
+    fn register_component_once<
+        C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned,
+    >(
+        &mut self,
+    ) -> ComponentRegistration<'_, C> {
+        register_component_metadata::<C>(self);
+        self.replicate_once::<C>();
         ComponentRegistration::new(self)
     }
 
@@ -61,7 +76,21 @@ impl AppComponentExt for App {
         serialize_fn: SerializeFn<C>,
         deserialize_fn: DeserializeFn<C>,
     ) -> ComponentRegistration<'_, C> {
+        register_component_metadata::<C>(self);
         self.replicate_with(RuleFns::new(serialize_fn, deserialize_fn));
+        ComponentRegistration::new(self)
+    }
+
+    fn register_component_once_with<C: Component<Mutability: MutWrite<C>>>(
+        &mut self,
+        serialize_fn: SerializeFn<C>,
+        deserialize_fn: DeserializeFn<C>,
+    ) -> ComponentRegistration<'_, C> {
+        register_component_metadata::<C>(self);
+        self.replicate_with((
+            RuleFns::new(serialize_fn, deserialize_fn),
+            ReplicationMode::Once,
+        ));
         ComponentRegistration::new(self)
     }
 
@@ -70,6 +99,22 @@ impl AppComponentExt for App {
     ) -> ComponentRegistration<'_, C> {
         ComponentRegistration::new(self)
     }
+}
+
+fn register_component_metadata<C: Component>(app: &mut App) {
+    if app
+        .world_mut()
+        .get_resource_mut::<ComponentRegistry>()
+        .is_none()
+    {
+        app.world_mut().init_resource::<ComponentRegistry>();
+    }
+    app.world_mut()
+        .resource_scope(|world, mut registry: Mut<ComponentRegistry>| {
+            if !registry.is_registered::<C>() {
+                registry.register_component::<C>(world);
+            }
+        });
 }
 
 pub struct ComponentRegistration<'a, C> {

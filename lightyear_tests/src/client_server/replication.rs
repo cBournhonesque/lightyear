@@ -1,6 +1,6 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::protocol::{CompA, CompCustomInterp, CompReplicateOnce};
+use crate::protocol::{CompA, CompCustomInterp, CompCustomReplicateOnce, CompReplicateOnce};
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
 use bevy_replicon::prelude::Replicated;
@@ -811,6 +811,91 @@ fn test_component_replicate_once() {
             updated_comp,
             Some(CompReplicateOnce(1.0)),
             "replicate_once component updates should not replicate for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .remove::<CompReplicateOnce>();
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let removed = with_target_world(&mut stepper, direction, |world| {
+            world
+                .entity(mirrored_entity)
+                .get::<CompReplicateOnce>()
+                .is_none()
+        });
+        assert!(
+            removed,
+            "replicate_once component remove should replicate for {direction:?}"
+        );
+    }
+}
+
+#[test]
+fn test_component_replicate_once_with_custom_serde() {
+    for direction in active_replication_directions() {
+        let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+        let source_entity = spawn_on_source(
+            &mut stepper,
+            direction,
+            (direction.replicate(), CompCustomReplicateOnce(1.0)),
+        );
+        stepper.frame_step(direction.propagation_frames());
+
+        let mirrored_entity = target_entity(&stepper, direction, source_entity)
+            .unwrap_or_else(|| panic!("entity is not present in entity map for {direction:?}"));
+        let initial_comp = with_target_world(&mut stepper, direction, |world| {
+            world
+                .entity(mirrored_entity)
+                .get::<CompCustomReplicateOnce>()
+                .cloned()
+        });
+        assert_eq!(
+            initial_comp,
+            Some(CompCustomReplicateOnce(1.0)),
+            "initial custom-serde replicate_once component should replicate for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .get_mut::<CompCustomReplicateOnce>()
+                .unwrap()
+                .0 = 2.0;
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let updated_comp = with_target_world(&mut stepper, direction, |world| {
+            world
+                .entity(mirrored_entity)
+                .get::<CompCustomReplicateOnce>()
+                .cloned()
+        });
+        assert_eq!(
+            updated_comp,
+            Some(CompCustomReplicateOnce(1.0)),
+            "custom-serde replicate_once component updates should not replicate for {direction:?}"
+        );
+
+        with_source_world(&mut stepper, direction, |world| {
+            world
+                .entity_mut(source_entity)
+                .remove::<CompCustomReplicateOnce>();
+        });
+        stepper.frame_step(direction.propagation_frames());
+
+        let removed = with_target_world(&mut stepper, direction, |world| {
+            world
+                .entity(mirrored_entity)
+                .get::<CompCustomReplicateOnce>()
+                .is_none()
+        });
+        assert!(
+            removed,
+            "custom-serde replicate_once component remove should replicate for {direction:?}"
         );
     }
 }

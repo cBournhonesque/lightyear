@@ -1,6 +1,5 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
-use bevy_replicon::prelude::AppRuleExt;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
@@ -117,24 +116,24 @@ impl Plugin for ProtocolPlugin {
         // add_confirmed_write ensures the replicated value goes to
         // PredictionHistory as confirmed state (instead of overwriting the
         // component), so input-triggered rollbacks snap to the correct value.
-        app.replicate_once::<Position>();
+        app.register_component_once::<Position>();
         app.add_rollback::<Position>()
             .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.replicate_once::<Rotation>();
+        app.register_component_once::<Rotation>();
         app.add_rollback::<Rotation>()
             .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.replicate_once::<LinearVelocity>();
+        app.register_component_once::<LinearVelocity>();
         app.add_rollback::<LinearVelocity>().add_confirmed_write();
 
-        app.replicate_once::<AngularVelocity>();
+        app.register_component_once::<AngularVelocity>();
         app.add_rollback::<AngularVelocity>().add_confirmed_write();
     }
 }
