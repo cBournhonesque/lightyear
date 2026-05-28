@@ -834,6 +834,15 @@ mod tests {
         assert_eq!(app.world().resource::<ServerTick>().get(), 2);
         assert_eq!(app.world().resource::<SendCount>().0, 2);
     }
+
+    #[test]
+    fn gain_authority_without_existing_entry() {
+        let mut state = ReplicationState::default();
+        let sender = Entity::from_raw_u32(0).unwrap();
+
+        state.gain_authority(sender);
+        assert!(state.has_authority(sender));
+    }
 }
 
 pub struct SendPlugin;
