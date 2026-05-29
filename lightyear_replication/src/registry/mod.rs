@@ -15,8 +15,6 @@ use core::any::TypeId;
 use lightyear_core::network::NetId;
 use lightyear_serde::SerializationError;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
-use serde::de::DeserializeOwned;
-use serde::ser::Serialize;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
@@ -68,7 +66,12 @@ impl From<TypeId> for ComponentKind {
 /// You register components by calling the [`register_component`](AppComponentExt::register_component) method directly on the App.
 ///
 /// By default, a component needs to implement `Serialize` and `Deserialize`, but you can also provide your own
-/// serialization functions by using the [`register_component_custom_serde`](AppComponentExt::register_component_custom_serde) method.
+/// serialization functions by using the [`register_component_with`](AppComponentExt::register_component_with) method.
+///
+/// Components that should only send insertions and removals can use
+/// [`register_component_once`](AppComponentExt::register_component_once). For
+/// once-replicated components with custom serialization, use
+/// [`register_component_once_with`](AppComponentExt::register_component_once_with).
 ///
 /// ```rust
 /// # use bevy_app::App;
@@ -180,10 +183,7 @@ impl ComponentRegistry {
         self.kind_map.net_id(&ComponentKind::of::<C>()).is_some()
     }
 
-    pub fn register_component<C: Component + Serialize + DeserializeOwned>(
-        &mut self,
-        world: &mut World,
-    ) {
+    pub fn register_component<C: Component>(&mut self, world: &mut World) {
         let component_kind = self.kind_map.add::<C>();
         let component_id = world.register_component::<C>();
         self.component_id_to_kind
@@ -226,37 +226,4 @@ impl TransformLinearInterpolation {
         );
         res
     }
-}
-
-#[cfg(test)]
-mod tests {
-    // use super::*;
-    // use crate::serialize::writer::Writer;
-    // use crate::shared::replication::entity_map::SendEntityMap;
-    // use crate::tests::protocol::*;
-    //
-    // #[test]
-    // fn test_custom_serde() {
-    //     let mut world = World::new();
-    //     let mut registry = ComponentRegistry::default();
-    //     registry.register_component_custom_serde::<ComponentSyncModeSimple>(
-    //         &mut world,
-    //         SerializeFns {
-    //             serialize: serialize_component2,
-    //             deserialize: deserialize_component2,
-    //         },
-    //     );
-    //     let mut component = ComponentSyncModeSimple(1.0);
-    //     let mut writer = Writer::default();
-    //     registry
-    //         .serialize(&mut component, &mut writer, &mut SendEntityMap::default())
-    //         .unwrap();
-    //     let data = writer.to_bytes();
-    //
-    //     let mut reader = Reader::from(data);
-    //     let read = registry
-    //         .deserialize(&mut reader, &mut ReceiveEntityMap::default())
-    //         .unwrap();
-    //     assert_eq!(component, read);
-    // }
 }

@@ -2,9 +2,12 @@
 use alloc::string::String;
 use avian2d::prelude::*;
 use bevy::ecs::entity::MapEntities;
+use bevy::ecs::error::Result;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::InputAction;
-use bevy_replicon::prelude::AppRuleExt;
+use bevy_replicon::bytes::Bytes;
+use bevy_replicon::postcard_utils;
+use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
 use leafwing_input_manager::Actionlike;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::frame_interpolation::FrameInterpolationPlugin;
@@ -51,6 +54,26 @@ pub struct CompDisabled(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompReplicateOnce(pub f32);
+
+#[derive(Component, Clone, Debug, PartialEq, Reflect)]
+pub struct CompCustomReplicateOnce(pub f32);
+
+fn serialize_custom_replicate_once(
+    _ctx: &SerializeCtx,
+    component: &CompCustomReplicateOnce,
+    message: &mut Vec<u8>,
+) -> Result<()> {
+    postcard_utils::to_extend_mut(&component.0, message)?;
+    Ok(())
+}
+
+fn deserialize_custom_replicate_once(
+    _ctx: &mut WriteCtx,
+    message: &mut Bytes,
+) -> Result<CompCustomReplicateOnce> {
+    let value = postcard_utils::from_buf(message)?;
+    Ok(CompCustomReplicateOnce(value))
+}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect, MapEntities)]
 pub struct CompMap(#[entities] pub Entity);
@@ -178,7 +201,11 @@ impl Plugin for ProtocolPlugin {
         // components
         app.register_component::<CompA>();
         app.register_component::<CompS>();
-        app.replicate_once::<CompReplicateOnce>();
+        app.register_component_once::<CompReplicateOnce>();
+        app.register_component_once_with::<CompCustomReplicateOnce>(
+            serialize_custom_replicate_once,
+            deserialize_custom_replicate_once,
+        );
         app.register_component::<CompFull>()
             .add_prediction()
             .add_linear_interpolation();

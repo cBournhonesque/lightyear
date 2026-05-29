@@ -10,7 +10,6 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
-use bevy_replicon::prelude::AppRuleExt;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use lightyear::frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 use lightyear::input::bei::prelude::BEIBuffer;
@@ -157,24 +156,24 @@ impl Plugin for DetProtocolPlugin {
         app.register_component::<DetPlayerId>();
         app.register_component::<DetPlayerActivationTick>();
 
-        app.replicate_once::<Position>();
+        app.register_component_once::<Position>();
         app.add_rollback::<Position>()
             .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.replicate_once::<Rotation>();
+        app.register_component_once::<Rotation>();
         app.add_rollback::<Rotation>()
             .add_confirmed_write()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.replicate_once::<LinearVelocity>();
+        app.register_component_once::<LinearVelocity>();
         app.add_rollback::<LinearVelocity>().add_confirmed_write();
 
-        app.replicate_once::<AngularVelocity>();
+        app.register_component_once::<AngularVelocity>();
         app.add_rollback::<AngularVelocity>().add_confirmed_write();
 
         // Apply movement via a Fire observer on the action.
