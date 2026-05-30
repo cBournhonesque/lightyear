@@ -50,7 +50,7 @@ use lightyear_core::tick::Tick;
 
 const CHECKPOINT_MAGIC: [u8; 2] = *b"LY";
 const CHECKPOINT_VERSION: u8 = 1;
-const HEADER_LEN: usize = 7;
+pub const SERVER_PAYLOAD_HEADER_LEN: usize = 7;
 const MAX_STORED_CHECKPOINTS: usize = 256;
 
 /// Lightyear-owned header prepended to wrapped Replicon server payloads.
@@ -161,7 +161,7 @@ pub enum CheckpointError {
 /// This is done in the Lightyear server bridge immediately before the payload is handed to the
 /// transport layer. Replicon's serialized bytes are preserved verbatim after the header.
 pub fn wrap_server_payload(authoritative_tick: Tick, payload: Bytes) -> Bytes {
-    let mut wrapped = BytesMut::with_capacity(HEADER_LEN + payload.len());
+    let mut wrapped = BytesMut::with_capacity(SERVER_PAYLOAD_HEADER_LEN + payload.len());
     wrapped.extend_from_slice(&CHECKPOINT_MAGIC);
     wrapped.extend_from_slice(&[CHECKPOINT_VERSION]);
     wrapped.extend_from_slice(&authoritative_tick.0.to_le_bytes());
@@ -176,7 +176,7 @@ pub fn wrap_server_payload(authoritative_tick: Tick, payload: Bytes) -> Bytes {
 pub fn unwrap_server_payload(
     payload: Bytes,
 ) -> Result<(ReplicationCheckpointHeader, Bytes), CheckpointError> {
-    if payload.len() < HEADER_LEN {
+    if payload.len() < SERVER_PAYLOAD_HEADER_LEN {
         return Err(CheckpointError::MissingHeader);
     }
     if payload[0..2] != CHECKPOINT_MAGIC {
@@ -194,7 +194,7 @@ pub fn unwrap_server_payload(
             version,
             authoritative_tick,
         },
-        payload.slice(HEADER_LEN..),
+        payload.slice(SERVER_PAYLOAD_HEADER_LEN..),
     ))
 }
 

@@ -17,7 +17,7 @@ use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
-use crate::checkpoint::wrap_server_payload;
+use crate::checkpoint::{SERVER_PAYLOAD_HEADER_LEN, wrap_server_payload};
 use lightyear_messages::plugin::MessageSystems;
 use tracing::trace;
 
@@ -80,7 +80,8 @@ fn on_client_connected(
     for (entity, remote_id) in remotes.iter() {
         commands.entity(entity).insert((
             ConnectedClient {
-                max_size: lightyear_transport::packet::packet_builder::MAX_PACKET_SIZE,
+                max_size: lightyear_transport::packet::packet_builder::MAX_UNFRAGMENTED_PAYLOAD_SIZE
+                    - SERVER_PAYLOAD_HEADER_LEN,
             },
             NetworkId::new(remote_id.to_bits()),
         ));

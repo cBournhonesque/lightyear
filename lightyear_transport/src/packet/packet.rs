@@ -3,7 +3,7 @@ use crate::channel::registry::ChannelId;
 use crate::packet::message::{FragmentIndex, MessageId};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
-use lightyear_serde::ToBytes;
+use lightyear_serde::{ToBytes, varint::varint_len};
 use lightyear_utils::wrapping_id;
 
 // Internal id that we assign to each packet sent over the network
@@ -17,11 +17,23 @@ const MAX_PACKET_SIZE: usize = 1200;
 /// the fragment payload itself appears to fit.
 const HEADER_BYTES: usize = 17;
 
-/// The maximum number of bytes for a message before it is fragmented
-/// MAX_PACKET_SIZE - HEADER_BYTES - 1 (channel_net_id) - 6 (message_id/fragment_id/num_fragments) - 2 (num bytes in fragment)
-// NOTE: this considers that we use 2 bytes for the fragment id and num_fragments, but in reality we are using
-//  varints so it could be more or less!
-pub(crate) const FRAGMENT_SIZE: usize = MAX_PACKET_SIZE - HEADER_BYTES - 9;
+const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
+const MAX_FRAGMENT_ID_BYTES: usize = 8;
+const MAX_FRAGMENT_COUNT_BYTES: usize = 8;
+const MAX_FRAGMENT_LENGTH_BYTES: usize = varint_len(MAX_PACKET_SIZE as u64);
+const MAX_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
+    + 4 // MessageId
+    + MAX_FRAGMENT_ID_BYTES
+    + MAX_FRAGMENT_COUNT_BYTES
+    + MAX_FRAGMENT_LENGTH_BYTES;
+
+/// The maximum number of payload bytes in a transport fragment.
+///
+/// This reserves enough room for the packet header plus the largest supported encoded fragment
+/// metadata. The receiver assumes every non-final fragment has this fixed size when
+/// reconstructing the original message.
+pub(crate) const FRAGMENT_SIZE: usize =
+    MAX_PACKET_SIZE - HEADER_BYTES - MAX_FRAGMENT_METADATA_BYTES;
 
 /// Metadata about the message included in the packet.
 /// Useful to maintain mappings from channel to message_ids, and packet to message_ids.
