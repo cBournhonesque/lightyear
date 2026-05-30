@@ -94,22 +94,27 @@ use lightyear_replication::prelude::{ReplicationSystems, TransformLinearInterpol
 /// Indicate which components you are replicating over the network
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum AvianReplicationMode {
-    /// Replicate the Position component.
-    /// PredictionHistory, Correction and FrameInterpolation also apply to Position.
-    /// Physics updates must be applied directly to Position, NOT to Transform.
+    /// Replicate Avian's `Position` and `Rotation` components.
+    ///
+    /// Use this mode when gameplay/user code applies authoritative changes directly to
+    /// `Position`/`Rotation` and `Transform` is derived for rendering. This keeps the
+    /// replicated payload and prediction history compact, but `Transform` should not be
+    /// treated as the authoritative physics input.
     #[default]
     Position,
-    /// Replicate the Position component.
-    /// Prediction is done on Position, but Correction and FrameInterpolation apply on Transform.
+    /// Replicate Avian's `Position` and `Rotation` components, but apply visual
+    /// correction and frame interpolation to `Transform`.
     ///
-    /// I believe that this currently does NOT handle TransformPropagation to children correctly.
-    ///
-    /// This is because:
-    /// - Position/Rotation are smaller to serialize and store
-    /// - Correction/FrameInterpolation are a visual component so should operate on Transform
+    /// This is a hybrid mode for compact network data with Bevy `Transform` visuals.
+    /// Gameplay/user code should still apply authoritative changes to `Position`/`Rotation`;
+    /// `Transform` is maintained by the integration for rendering.
     PositionButInterpolateTransform,
-    /// Replicate the Transform component.
-    /// PredictionHistory, Correction and FrameInterpolation also apply to Transform.
+    /// Replicate Bevy's `Transform` component.
+    ///
+    /// Use this mode when gameplay/user code applies authoritative changes directly to
+    /// `Transform`. This is usually easier to reason about because the user-facing Bevy
+    /// hierarchy component is authoritative; the downside is that `Transform` is less
+    /// compact than replicating only `Position`/`Rotation`.
     Transform,
 }
 
