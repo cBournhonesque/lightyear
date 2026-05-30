@@ -265,8 +265,8 @@ impl PredictionRegistry {
 
     /// Check for rollback on entities that didn't receive an explicit update.
     ///
-    /// This is called when `ServerMutateTicks.last_tick` advances and an entity didn't
-    /// receive a mutation. Since `ServerMutateTicks.last_tick = T` guarantees we have
+    /// This is called when the completed mutate tick advances and an entity didn't
+    /// receive a mutation. Since completed mutate tick T guarantees we have
     /// complete information for all entities at tick T, we know this entity's value at T
     /// equals its last confirmed value.
     ///
@@ -275,7 +275,7 @@ impl PredictionRegistry {
     /// 2. Marks the last confirmed value as confirmed at `confirmed_tick` in the history
     ///
     /// # Arguments
-    /// * `confirmed_tick` - Should be `ServerMutateTicks.last_tick()`
+    /// * `confirmed_tick` - Latest authoritative tick with complete mutate messages.
     fn check_rollback_empty_mutate<C: SyncComponent>(
         &self,
         confirmed_tick: Tick,

@@ -247,7 +247,8 @@ impl<C> PredictionHistory<C> {
 
     /// Add a confirmed value at the given tick
     ///
-    /// This is used in situations where we know the value is unchanged (e.g., ServerMutateTicks confirms no mutation).
+    /// This is used in situations where we know the value is unchanged (e.g., a completed
+    /// mutate tick confirms no mutation).
     /// Returns true if a new confirmed value was added, false otherwise.
     pub fn add_confirmed_unchanged(&mut self, tick: Tick) -> bool
     where
