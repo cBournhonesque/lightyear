@@ -725,36 +725,64 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
 
 pub type ReplicationSendSystems = ServerSystems;
 
-/// Replication is triggered in Replicon every time the `ServerTick` is incremented, which happens every
-/// time the `Timer` in `ReplicationMetadata` finishes.
+/// Replication is triggered in Replicon every time the `ServerTick` is incremented.
+///
+/// Run this once per app frame after the fixed loop has drained. Replicating
+/// from every app frame can produce multiple Replicon checkpoints for the same
+/// Lightyear fixed tick, while running once per fixed step can produce multiple
+/// sends in a catch-up frame. Replicon's tick is only a replication checkpoint;
+/// it is mapped back to Lightyear's fixed tick by `ReplicationCheckpointMap`.
 fn update_replication_tick(
     time: Res<Time>,
     timeline: Res<LocalTimeline>,
     mut replication_metadata: ResMut<ReplicationMetadata>,
     mut replication_tick: ResMut<ServerTick>,
+    mut last_observed_local_tick: Local<Option<u32>>,
+    mut pending_send: Local<bool>,
 ) {
-    replication_metadata.timer.tick(time.delta());
-    if replication_metadata.timer.just_finished() {
-        // Replicon requires a fresh tick for each replication send. Lightyear's
-        // fixed simulation tick can stay unchanged between render frames, but we
-        // still need a unique replication tick to flush spawns/updates that occur
-        // between fixed ticks without reusing the previous mutate-confirm tick.
-        let current_tick = replication_tick.get();
-        let new_tick = timeline.tick();
-        let delta = (new_tick - current_tick).0;
-        replication_tick.increment_by(delta.max(1));
+    let new_tick = timeline.tick();
+    let new_tick_raw = new_tick.0;
+    let fixed_ran_this_frame = last_observed_local_tick
+        .map(|previous_tick| new_tick_raw > previous_tick)
+        .unwrap_or(new_tick_raw > 0);
+    *last_observed_local_tick = Some(new_tick_raw);
+
+    if replication_metadata
+        .timer
+        .tick(time.delta())
+        .just_finished()
+    {
+        *pending_send = true;
+    }
+
+    if !*pending_send || !fixed_ran_this_frame {
         trace!(
             target: "lightyear_debug::timeline",
-            kind = "server_replication_tick",
-            schedule = "PostUpdate",
-            sample_point = "PostUpdate",
-            local_tick = new_tick.0,
+            kind = "server_replication_tick_skipped",
+            schedule = "RunFixedMainLoop",
+            sample_point = "AfterFixedMainLoop",
+            local_tick = new_tick_raw,
             server_tick = ?replication_tick.get(),
-            previous_server_tick = ?current_tick,
-            tick_delta = delta.max(1),
-            "replication server tick advanced"
+            pending_send = *pending_send,
+            fixed_ran_this_frame,
+            "replication server tick not advanced"
         );
+        return;
     }
+
+    let previous_server_tick = replication_tick.get();
+    replication_tick.increment();
+    *pending_send = false;
+    trace!(
+        target: "lightyear_debug::timeline",
+        kind = "server_replication_tick",
+        schedule = "RunFixedMainLoop",
+        sample_point = "AfterFixedMainLoop",
+        local_tick = new_tick_raw,
+        server_tick = ?replication_tick.get(),
+        previous_server_tick = ?previous_server_tick,
+        "replication server tick advanced"
+    );
 }
 
 #[cfg(test)]
@@ -771,68 +799,100 @@ mod tests {
         count.0 += 1;
     }
 
+    fn add_replication_tick_test_systems(app: &mut App) {
+        app.add_systems(
+            RunFixedMainLoop,
+            update_replication_tick.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
+        );
+        app.add_systems(
+            PostUpdate,
+            count_sends.run_if(resource_changed::<ServerTick>),
+        );
+    }
+
+    fn clear_send_state(app: &mut App) {
+        app.world_mut().run_schedule(PostUpdate);
+        app.world_mut().resource_mut::<SendCount>().0 = 0;
+        app.world_mut().clear_trackers();
+    }
+
     #[test]
-    fn zero_timeline_delta_triggers_send_without_advancing_tick() {
+    fn unchanged_timeline_does_not_trigger_send() {
         let mut app = App::new();
         app.init_resource::<Time>();
         app.insert_resource(LocalTimeline::default());
         app.insert_resource(ReplicationMetadata::default());
         app.init_resource::<ServerTick>();
         app.init_resource::<SendCount>();
-        app.add_systems(Update, update_replication_tick);
-        app.add_systems(
-            Update,
-            count_sends
-                .after(update_replication_tick)
-                .run_if(resource_changed::<ServerTick>),
-        );
-        app.world_mut().clear_trackers();
+        add_replication_tick_test_systems(&mut app);
+        clear_send_state(&mut app);
 
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(Duration::from_millis(1));
-        app.update();
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 0);
+        assert_eq!(app.world().resource::<SendCount>().0, 0);
+    }
+
+    #[test]
+    fn multiple_fixed_ticks_trigger_single_replication_tick_after_fixed_loop() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationMetadata::default());
+        app.init_resource::<ServerTick>();
+        app.init_resource::<SendCount>();
+        add_replication_tick_test_systems(&mut app);
+        clear_send_state(&mut app);
+
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(2);
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().resource::<ServerTick>().get(), 1);
         assert_eq!(app.world().resource::<SendCount>().0, 1);
     }
 
     #[test]
-    fn timeline_advance_triggers_single_send() {
+    fn elapsed_interval_on_no_fixed_frame_sends_on_next_fixed_frame() {
         let mut app = App::new();
         app.init_resource::<Time>();
         app.insert_resource(LocalTimeline::default());
-        app.insert_resource(ReplicationMetadata::default());
+        app.insert_resource(ReplicationMetadata::new(Duration::from_millis(10)));
         app.init_resource::<ServerTick>();
         app.init_resource::<SendCount>();
-        app.add_systems(Update, update_replication_tick);
-        app.add_systems(
-            Update,
-            count_sends
-                .after(update_replication_tick)
-                .run_if(resource_changed::<ServerTick>),
-        );
-        app.world_mut().clear_trackers();
+        add_replication_tick_test_systems(&mut app);
+        clear_send_state(&mut app);
 
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(10));
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 0);
+        assert_eq!(app.world().resource::<SendCount>().0, 0);
+
+        app.world_mut().clear_trackers();
         app.world_mut()
             .resource_mut::<LocalTimeline>()
             .apply_delta(1);
         app.world_mut()
             .resource_mut::<Time>()
             .advance_by(Duration::from_millis(1));
-        app.update();
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().resource::<ServerTick>().get(), 1);
         assert_eq!(app.world().resource::<SendCount>().0, 1);
-
-        app.world_mut().clear_trackers();
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(Duration::from_millis(1));
-        app.update();
-
-        assert_eq!(app.world().resource::<ServerTick>().get(), 2);
-        assert_eq!(app.world().resource::<SendCount>().0, 2);
     }
 
     #[test]
@@ -1022,8 +1082,11 @@ impl Plugin for SendPlugin {
         }
 
         app.add_systems(
-            PostUpdate,
-            update_replication_tick.in_set(ServerSystems::IncrementTick),
+            RunFixedMainLoop,
+            update_replication_tick
+                .in_set(ServerSystems::IncrementTick)
+                .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop)
+                .run_if(not(lightyear_core::timeline::is_in_rollback)),
         );
         #[cfg(feature = "server")]
         app.add_observer(emulate_replicate_on_host_client_added);
