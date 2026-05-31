@@ -236,40 +236,25 @@ fn test_replicate_transform_child_collider() {
         2.0
     );
 
-    let client_parent = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_parent)
-        .unwrap();
-    let client_child = stepper
-        .client(0)
-        .get::<MessageManager>()
-        .unwrap()
-        .entity_mapper
-        .get_local(server_child)
-        .unwrap();
-    info!(?client_parent, ?client_child, "Received entities on client");
-    assert_relative_eq!(
+    assert!(
         stepper
-            .client_app()
-            .world()
-            .get::<Transform>(client_parent)
+            .client(0)
+            .get::<MessageManager>()
             .unwrap()
-            .translation
-            .x,
-        1.0
+            .entity_mapper
+            .get_local(server_parent)
+            .is_none(),
+        "Render-only frames should not send a new replication checkpoint"
     );
-    assert_eq!(
+    assert!(
         stepper
-            .client_app()
-            .world()
-            .get::<Transform>(client_child)
+            .client(0)
+            .get::<MessageManager>()
             .unwrap()
-            .translation
-            .x,
-        2.0
+            .entity_mapper
+            .get_local(server_child)
+            .is_none(),
+        "Render-only frames should not send a new replication checkpoint"
     );
 
     stepper.frame_step_server_first(1);
@@ -327,6 +312,21 @@ fn test_replicate_transform_child_collider() {
         4.0
     );
 
+    let client_parent = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_parent)
+        .unwrap();
+    let client_child = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_child)
+        .unwrap();
+    info!(?client_parent, ?client_child, "Received entities on client");
     assert_relative_eq!(
         stepper
             .client_app()
