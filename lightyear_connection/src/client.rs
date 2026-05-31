@@ -1,4 +1,4 @@
-use alloc::{format, string::String};
+use alloc::string::String;
 use bevy_app::{App, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -7,7 +7,7 @@ use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::LinkStart;
-use lightyear_link::prelude::{Server, Unlinked};
+use lightyear_link::prelude::{Server, UnlinkReason, Unlinked};
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -101,10 +101,43 @@ impl Connecting {
     }
 }
 
+/// Why a [`Disconnected`] component was inserted on a client entity.
+#[derive(Debug, Clone, Reflect)]
+pub enum DisconnectedReason {
+    /// The underlying transport link failed or was closed, carrying the
+    /// transport-layer cause.
+    ///
+    /// This is the most common reason: the connection layer observes an
+    /// [`Unlinked`] component and propagates its [`UnlinkReason`] upward.
+    LinkFailed(UnlinkReason),
+    /// The local side explicitly requested a disconnect.
+    UserRequested,
+    /// The remote peer closed the connection, with a provided reason.
+    ///
+    /// On the peer's side, this is interpreted as a [`DisconnectedReason::UserRequested`].
+    ByPeer(String),
+    /// The transport encountered a fatal error outside the normal link
+    /// lifecycle.
+    ///
+    /// The inner string contains a transport-specific description of the error.
+    TransportError(String),
+}
+
+impl core::fmt::Display for DisconnectedReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            DisconnectedReason::LinkFailed(ur) => write!(f, "Link failed: {ur}"),
+            DisconnectedReason::UserRequested => write!(f, "User requested"),
+            DisconnectedReason::ByPeer(s) => write!(f, "Disconnected by peer: {s}"),
+            DisconnectedReason::TransportError(s) => write!(f, "Transport error: {s}"),
+        }
+    }
+}
+
 #[derive(Component, Default, Debug, Reflect)]
 #[component(on_add = Disconnected::on_add)]
 pub struct Disconnected {
-    pub reason: Option<String>,
+    pub reason: Option<DisconnectedReason>,
 }
 
 impl Disconnected {
@@ -173,7 +206,7 @@ impl ConnectionPlugin {
                 unlinked.reason
             );
             commands.entity(trigger.entity).insert(Disconnected {
-                reason: Some(format!("Link failed: {:?}", unlinked.reason)),
+                reason: Some(DisconnectedReason::LinkFailed(unlinked.reason.clone())),
             });
         }
     }

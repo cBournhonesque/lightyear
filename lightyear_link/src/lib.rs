@@ -35,6 +35,7 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
+use bevy_reflect::Reflect;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::time::Instant;
@@ -44,7 +45,7 @@ pub mod prelude {
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
         Link, LinkStart, LinkStats, LinkSystems, Linked, Linking, RecvLinkConditioner, Unlink,
-        Unlinked,
+        UnlinkReason, Unlinked,
     };
 
     pub mod server {
@@ -310,6 +311,41 @@ pub struct LinkStart {
     pub entity: Entity,
 }
 
+/// Why a [`Link`] was unlinked via [`Unlink`] or [`Unlinked`].
+#[derive(Default, Debug, Clone, PartialEq, Eq, Reflect)]
+pub enum UnlinkReason {
+    /// The local side explicitly requested a disconnect.
+    UserRequested,
+    /// The server shut down cleanly.
+    ServerStopped,
+    /// The transport encountered a fatal error and the link can no longer
+    /// communicate with the peer.
+    ///
+    /// The inner string contains a transport-specific description of the error.
+    TransportError(String),
+    /// The remote peer closed the connection, with a provided reason.
+    ///
+    /// On the peer's side, this is interpreted as a [`UnlinkReason::UserRequested`].
+    ByPeer(String),
+    /// The link has not yet been established.
+    ///
+    /// This is the initial state of a [`Link`] before any connection attempt.
+    #[default]
+    Initial,
+}
+
+impl core::fmt::Display for UnlinkReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            UnlinkReason::ServerStopped => f.write_str("Server stopped"),
+            UnlinkReason::UserRequested => f.write_str("Client requested"),
+            UnlinkReason::TransportError(s) => write!(f, "Transport error: {s}"),
+            UnlinkReason::ByPeer(s) => write!(f, "Disconnected by peer: {s}"),
+            UnlinkReason::Initial => f.write_str("Not connected"),
+        }
+    }
+}
+
 /// Entity event requesting that a transport terminate a [`Link`].
 ///
 /// [`LinkPlugin`] observes this event and inserts [`Unlinked`] with the provided reason. Concrete
@@ -320,7 +356,7 @@ pub struct Unlink {
     #[event_target]
     pub entity: Entity,
     /// Human-readable reason propagated to [`Unlinked::reason`].
-    pub reason: String,
+    pub reason: UnlinkReason,
 }
 
 /// Marker component for a link whose transport connection is being established.
@@ -378,7 +414,7 @@ impl Linked {
 #[component(on_insert = Unlinked::on_insert)]
 pub struct Unlinked {
     /// Human-readable disconnect or initial-state reason.
-    pub reason: String,
+    pub reason: UnlinkReason,
 }
 
 impl Unlinked {

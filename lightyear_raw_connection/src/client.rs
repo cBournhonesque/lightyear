@@ -1,11 +1,10 @@
 use aeronet_io::connection::LocalAddr;
-use alloc::string::ToString;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use lightyear_connection::client::ConnectionPlugin;
 use lightyear_connection::prelude::client::*;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
-use lightyear_link::{Link, LinkSystems, Linked, Unlink};
+use lightyear_link::{Link, LinkSystems, Linked, Unlink, UnlinkReason};
 use lightyear_transport::plugin::TransportSystems;
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -49,7 +48,7 @@ impl RawConnectionPlugin {
             trace!("RawClient Disconnect! Triggering Unlink");
             commands.trigger(Unlink {
                 entity: trigger.entity,
-                reason: "Client requested".to_string(),
+                reason: UnlinkReason::UserRequested,
             });
         }
     }
