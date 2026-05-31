@@ -14,10 +14,10 @@ use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
-use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode};
+use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode, StateRollbackMetadata};
 use lightyear_prediction::prelude::*;
 use lightyear_prediction::rollback::{DeterministicPredicted, reset_input_rollback_tracker};
 use lightyear_replication::prelude::*;
@@ -36,6 +36,28 @@ fn setup() -> (ClientServerStepper, Entity) {
     // run one frame to initialize prediction history for the entity
     stepper.frame_step(1);
     (stepper, predicted)
+}
+
+#[derive(Resource, Default)]
+struct ObservedRollbackStart(Option<Tick>);
+
+fn record_rollback_start(
+    manager: Single<&PredictionManager>,
+    mut observed: ResMut<ObservedRollbackStart>,
+) {
+    if observed.0.is_none() {
+        observed.0 = manager.get_rollback_start_tick();
+    }
+}
+
+fn observe_rollback_start(app: &mut App) {
+    app.insert_resource(ObservedRollbackStart::default());
+    app.add_systems(
+        PreUpdate,
+        record_rollback_start
+            .after(RollbackSystems::Check)
+            .before(RollbackSystems::Prepare),
+    );
 }
 
 // =============================================================================
@@ -385,6 +407,263 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .0,
         203.0,
         "Later confirmed value on another entity should be preserved and replayed across the remaining rollback ticks and the current frame tick"
+    );
+}
+
+/// A completed mutate tick is a global confirmation point. If one entity receives an
+/// explicit update at that tick and another entity does not, the unchanged entity should
+/// still be checked against its last confirmed value at the completed tick.
+#[test]
+fn test_completed_mutate_tick_checks_unchanged_entities() {
+    fn increment_component(mut query: Query<&mut CompFull, With<Predicted>>) {
+        for mut comp in query.iter_mut() {
+            comp.0 += 1.0;
+        }
+    }
+
+    let (mut stepper, updated) = setup();
+    let unchanged = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Predicted, CompFull(10.0)))
+        .id();
+
+    stepper.frame_step(1);
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_component);
+    observe_rollback_start(stepper.client_app());
+
+    // Build a few ticks of prediction history after initializing the second entity.
+    stepper.frame_step(4);
+    let completed_tick = stepper.client_tick(0) - 2;
+    let previous_confirmed_tick = completed_tick - 1;
+
+    let updated_replicon_tick = RepliconTick::new(700);
+    let previous_replicon_tick = RepliconTick::new(699);
+    let incomplete_replicon_tick = RepliconTick::new(701);
+
+    let world = stepper.client_app().world_mut();
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(updated_replicon_tick, completed_tick);
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(previous_replicon_tick, previous_confirmed_tick);
+    world
+        .resource_mut::<StateRollbackMetadata>()
+        .record_last_confirmed_tick(completed_tick);
+    {
+        let mut server_mutate_ticks = world.resource_mut::<ServerMutateTicks>();
+        assert!(server_mutate_ticks.confirm(updated_replicon_tick, 1));
+        assert!(!server_mutate_ticks.confirm(incomplete_replicon_tick, 2));
+        assert_eq!(server_mutate_ticks.last_tick(), incomplete_replicon_tick);
+    }
+
+    world
+        .entity_mut(updated)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(completed_tick, Some(CompFull(1.0)));
+    world
+        .entity_mut(updated)
+        .insert(ConfirmHistory::new(updated_replicon_tick));
+
+    world
+        .entity_mut(unchanged)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(previous_confirmed_tick, Some(CompFull(20.0)));
+    world
+        .entity_mut(unchanged)
+        .insert(ConfirmHistory::new(previous_replicon_tick));
+
+    stepper.frame_step(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        Some(completed_tick),
+        "Unchanged entity mismatch should roll back from the completed mutate tick"
+    );
+}
+
+#[test]
+fn test_future_completed_mutate_tick_is_not_marked_processed() {
+    let (mut stepper, _) = setup();
+
+    stepper.frame_step(3);
+    let future_tick = stepper.client_tick(0) + 1_000;
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<StateRollbackMetadata>()
+        .record_last_confirmed_tick(future_tick);
+
+    stepper.frame_step(1);
+
+    assert_ne!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<StateRollbackMetadata>()
+            .last_processed_tick(),
+        Some(future_tick),
+        "A future completed mutate tick must not be marked processed before it can be checked"
+    );
+}
+
+#[test]
+fn test_explicit_mismatch_newer_than_completed_tick_rolls_back_from_mismatch_tick() {
+    let (mut stepper, _) = setup();
+    observe_rollback_start(stepper.client_app());
+
+    stepper.frame_step(5);
+    let completed_tick = stepper.client_tick(0) - 4;
+    let mismatch_tick = stepper.client_tick(0) - 2;
+    stepper
+        .client_app()
+        .world_mut()
+        .resource_mut::<StateRollbackMetadata>()
+        .record_last_confirmed_tick(completed_tick);
+
+    trigger_rollback_check(&mut stepper, mismatch_tick);
+    stepper.frame_step(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        Some(mismatch_tick),
+        "Current policy consumes the earliest ready explicit mismatch even when the completed mutate tick is older"
+    );
+}
+
+/// When a completed mutate tick triggers rollback through an unchanged entity, later explicit
+/// confirmed values on other entities must be preserved for replay.
+#[test]
+fn test_completed_mutate_tick_rollback_preserves_later_confirmed_values() {
+    fn increment_component(mut query: Query<&mut CompFull, With<Predicted>>) {
+        for mut comp in query.iter_mut() {
+            comp.0 += 1.0;
+        }
+    }
+
+    let (mut stepper, predicted_a) = setup();
+    let predicted_b = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Predicted, CompFull(10.0)))
+        .id();
+    let predicted_c = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Predicted, CompFull(20.0)))
+        .id();
+
+    // Initialize prediction history for the second entity.
+    stepper.frame_step(1);
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_component);
+    observe_rollback_start(stepper.client_app());
+
+    stepper.frame_step(4);
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 3;
+    let previous_confirmed_tick = rollback_tick - 1;
+    let later_confirmed_tick = current_tick - 1;
+
+    let previous_replicon_tick = RepliconTick::new(800);
+    let later_replicon_tick = RepliconTick::new(801);
+    let same_replicon_tick = RepliconTick::new(802);
+
+    let world = stepper.client_app().world_mut();
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(previous_replicon_tick, previous_confirmed_tick);
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(later_replicon_tick, later_confirmed_tick);
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(same_replicon_tick, rollback_tick);
+    world
+        .resource_mut::<StateRollbackMetadata>()
+        .record_last_confirmed_tick(rollback_tick);
+
+    world
+        .entity_mut(predicted_a)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(previous_confirmed_tick, Some(CompFull(100.0)));
+    world
+        .entity_mut(predicted_a)
+        .insert(ConfirmHistory::new(previous_replicon_tick));
+
+    world
+        .entity_mut(predicted_b)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(later_confirmed_tick, Some(CompFull(200.0)));
+    world
+        .entity_mut(predicted_b)
+        .insert(ConfirmHistory::new(later_replicon_tick));
+
+    world
+        .entity_mut(predicted_c)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .unwrap()
+        .add_confirmed(rollback_tick, Some(CompFull(300.0)));
+    world
+        .entity_mut(predicted_c)
+        .insert(ConfirmHistory::new(same_replicon_tick));
+
+    stepper.frame_step(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        Some(rollback_tick),
+        "Unchanged entity mismatch should roll back from the completed mutate tick"
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_a)
+            .unwrap()
+            .0,
+        104.0,
+        "Unchanged entity should replay from the completed mutate tick"
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_b)
+            .unwrap()
+            .0,
+        203.0,
+        "Later confirmed value on another entity should be preserved across rollback"
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted_c)
+            .unwrap()
+            .0,
+        304.0,
+        "Entity already confirmed at the completed mutate tick should replay from that confirmed value"
     );
 }
 
