@@ -1,5 +1,6 @@
 /// Defines the [`Packet`] struct
 use crate::channel::registry::ChannelId;
+use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentIndex, MessageId};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
@@ -9,13 +10,13 @@ use lightyear_utils::wrapping_id;
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
-const MAX_PACKET_SIZE: usize = 1200;
+pub(crate) const MAX_PACKET_SIZE: usize = 1200;
 /// Number of bytes written by [`PacketHeader::to_bytes`].
 ///
 /// Keep this in sync with `PacketHeader` because [`FRAGMENT_SIZE`] depends on it.
 /// If this value is too small, fragment packets can overflow the 1200-byte MTU even when
 /// the fragment payload itself appears to fit.
-const HEADER_BYTES: usize = 17;
+pub(crate) const HEADER_BYTES: usize = PacketHeader::BYTES;
 
 const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
 const MAX_FRAGMENT_ID_BYTES: usize = 8;
@@ -105,8 +106,8 @@ mod tests {
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelRegistry};
     use crate::packet::error::PacketError;
-    use lightyear_serde::ToBytes;
-    use lightyear_serde::reader::ReadVarInt;
+    use lightyear_serde::reader::ReadInteger;
+    use lightyear_serde::{SerializationError, ToBytes};
 
     impl Packet {
         /// For tests, parse the packet so that we can inspect the contents
@@ -129,7 +130,7 @@ mod tests {
             // TODO: avoid infinite loop here!
             while cursor.has_remaining() {
                 let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                let num_messages = cursor.read_varint()?;
+                let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
                 for _ in 0..num_messages {
                     let single_data = SingleData::from_bytes(&mut cursor)?;
                     res.entry(channel_id).or_default().push(single_data.bytes);

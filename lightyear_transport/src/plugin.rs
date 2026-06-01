@@ -3,9 +3,13 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::channel::senders::ChannelSend;
 use crate::error::TransportError;
+use crate::packet::compression::{CompressionOutcome, decompress_payload, try_compress_packet};
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
+#[cfg(feature = "metrics")]
+use crate::packet::packet::MAX_PACKET_SIZE;
+use crate::packet::packet_type::PacketType;
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use bevy_app::prelude::*;
@@ -175,14 +179,19 @@ impl TransportPlugin {
                             .header_manager
                             .process_recv_packet_header(&header);
 
-
+                        let mut packet_type = header.get_packet_type();
+                        if packet_type.is_compressed() {
+                            let compressed_payload = cursor.split();
+                            let decompressed_payload =
+                                decompress_payload(compressed_payload.as_ref(), transport.compression)?;
+                            cursor = Reader::from(decompressed_payload);
+                            packet_type = packet_type.uncompressed_variant();
+                        }
 
                         // Parse the payload into messages, put them in the internal buffers for each channel
                         // we read directly from the packet and don't create intermediary datastructures to avoid allocations
                         // TODO: maybe do this in a helper function?
-                        if header.get_packet_type()
-                            == crate::packet::packet_type::PacketType::DataFragment
-                        {
+                        if packet_type == PacketType::DataFragment {
                             // read the fragment data
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
                             let fragment_data = FragmentData::from_bytes(&mut cursor)?;
@@ -385,6 +394,61 @@ impl TransportPlugin {
 
             let mut total_bytes_sent = 0;
             for mut packet in packets {
+                match try_compress_packet(&mut packet, transport.compression) {
+                    Ok(CompressionOutcome::Compressed {
+                        original_len,
+                        compressed_len,
+                    }) => {
+                        #[cfg(feature = "metrics")]
+                        {
+                            metrics::counter!("transport/compression_attempts").increment(1);
+                            metrics::counter!("transport/compression_saved_bytes")
+                                .increment((original_len - compressed_len) as u64);
+                        }
+                        trace!(
+                            original_len,
+                            compressed_len,
+                            "compressed transport packet payload"
+                        );
+                    }
+                    Ok(CompressionOutcome::Disabled) => {}
+                    Ok(CompressionOutcome::AlreadyCompressed)
+                    | Ok(CompressionOutcome::TooSmall { .. }) => {
+                        #[cfg(feature = "metrics")]
+                        if transport.compression.is_enabled() {
+                            metrics::counter!("transport/compression_attempts").increment(1);
+                            metrics::counter!("transport/compression_skipped").increment(1);
+                        }
+                    }
+                    Ok(CompressionOutcome::NotSmaller {
+                        original_len,
+                        compressed_len,
+                    }) => {
+                        #[cfg(feature = "metrics")]
+                        if transport.compression.is_enabled() {
+                            metrics::counter!("transport/compression_attempts").increment(1);
+                            metrics::counter!("transport/compression_skipped").increment(1);
+                            if compressed_len > original_len {
+                                metrics::counter!("transport/compression_expanded_packets")
+                                    .increment(1);
+                            }
+                            if compressed_len > MAX_PACKET_SIZE {
+                                metrics::counter!("transport/compression_above_mtu_packets")
+                                    .increment(1);
+                            }
+                        }
+                        trace!(
+                            original_len,
+                            compressed_len,
+                            "skipped transport packet compression because output was not smaller"
+                        );
+                    }
+                    Err(error) => {
+                        #[cfg(feature = "metrics")]
+                        metrics::counter!("transport/compression_errors").increment(1);
+                        error!("Failed to compress packet payload: {error:?}");
+                    }
+                }
                 trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
                 let packet_id = packet.packet_id;
                 let num_messages = packet.num_messages();

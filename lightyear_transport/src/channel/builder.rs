@@ -3,6 +3,7 @@ use crate::channel::receivers::ChannelReceiverEnum;
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
+use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
@@ -63,6 +64,7 @@ pub struct Transport {
     pub priority_manager: PriorityManager,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
+    pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
     // - when we receive a packet, go through all messages and check which ones match the packet? there shouldn't be too many
@@ -95,6 +97,7 @@ impl Transport {
             senders: Default::default(),
             priority_manager: PriorityManager::new(priority_config),
             packet_manager: PacketBuilder::default(),
+            compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
             fragment_acks: Default::default(),
             send_channel,
@@ -102,6 +105,15 @@ impl Transport {
             send: vec![],
             recv: vec![],
         }
+    }
+
+    pub fn with_compression(mut self, compression: CompressionConfig) -> Self {
+        self.compression = compression;
+        self
+    }
+
+    pub fn set_compression(&mut self, compression: CompressionConfig) {
+        self.compression = compression;
     }
 }
 

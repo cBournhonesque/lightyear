@@ -440,8 +440,14 @@ mod tests {
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelKind, ChannelRegistry};
     use crate::channel::senders::fragment_sender::FragmentSender;
+    #[cfg(feature = "compression_lz4")]
+    use crate::packet::compression::{CompressionConfig, decompress_payload, try_compress_packet};
     use crate::packet::error::PacketError;
+    #[cfg(feature = "compression_lz4")]
+    use crate::packet::header::PacketHeader;
     use crate::packet::message::{FragmentIndex, MessageId};
+    #[cfg(feature = "compression_lz4")]
+    use crate::packet::packet::HEADER_BYTES;
     use bytes::Bytes;
 
     use super::*;
@@ -469,6 +475,19 @@ mod tests {
         app.world_mut()
             .remove_resource::<ChannelRegistry>()
             .unwrap()
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    fn decompress_packet_for_test(mut packet: Packet) -> Result<Packet, PacketError> {
+        let packet_type = PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
+        let decompressed_payload =
+            decompress_payload(&packet.payload[HEADER_BYTES..], CompressionConfig::LZ4)?;
+
+        packet.payload[PacketHeader::PACKET_TYPE_OFFSET] =
+            packet_type.uncompressed_variant().into();
+        packet.payload.truncate(HEADER_BYTES);
+        packet.payload.extend_from_slice(&decompressed_payload);
+        Ok(packet)
     }
 
     /// A bunch of small messages that all fit in the same packet
@@ -793,6 +812,73 @@ mod tests {
                 MAX_PACKET_SIZE
             );
         }
+        Ok(())
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    #[test]
+    fn compressed_single_packet_decompresses_to_original_messages() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+
+        let bytes = Bytes::from(vec![4u8; 512]);
+        let single_data = vec![(
+            *channel_id,
+            VecDeque::from(vec![SingleData::new(None, bytes.clone())]),
+        )];
+        let mut packets =
+            manager.build_packets(Duration::default(), Tick(0), single_data, vec![])?;
+        assert_eq!(packets.len(), 1);
+
+        let mut packet = packets.pop().unwrap();
+        try_compress_packet(
+            &mut packet,
+            CompressionConfig {
+                min_payload_size: 0,
+                ..CompressionConfig::LZ4
+            },
+        )?;
+
+        let contents = decompress_packet_for_test(packet)?.parse_packet_payload()?;
+        assert_eq!(contents.get(channel_id).unwrap(), &vec![bytes]);
+        Ok(())
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    #[test]
+    fn compressed_fragment_packet_decompresses_to_original_fragment() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let mut manager = PacketBuilder::new(1.5);
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+
+        let fragment = FragmentData {
+            message_id: MessageId(7),
+            fragment_id: FragmentIndex(0),
+            num_fragments: FragmentIndex(1),
+            bytes: Bytes::from(vec![2u8; 512]),
+        };
+        let mut packets = manager.build_packets(
+            Duration::default(),
+            Tick(0),
+            vec![],
+            vec![(*channel_id, VecDeque::from(vec![fragment.clone()]))],
+        )?;
+        assert_eq!(packets.len(), 1);
+
+        let mut packet = packets.pop().unwrap();
+        try_compress_packet(
+            &mut packet,
+            CompressionConfig {
+                min_payload_size: 0,
+                ..CompressionConfig::LZ4
+            },
+        )?;
+
+        let contents = decompress_packet_for_test(packet)?.parse_packet_payload()?;
+        assert_eq!(contents.get(channel_id).unwrap(), &vec![fragment.bytes]);
         Ok(())
     }
 

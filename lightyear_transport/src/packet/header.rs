@@ -70,6 +70,11 @@ impl ToBytes for PacketHeader {
 }
 
 impl PacketHeader {
+    /// Number of bytes written by [`PacketHeader::to_bytes`].
+    pub(crate) const BYTES: usize = 17;
+    /// Offset of the packet type byte inside the serialized header.
+    pub(crate) const PACKET_TYPE_OFFSET: usize = 0;
+
     /// Get the value of the i-th bit in the bitfield (starting from the right-most bit, which is
     /// one PacketId below `last_ack_packet_id`
     ///
