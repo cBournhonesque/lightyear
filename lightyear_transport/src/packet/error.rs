@@ -18,4 +18,6 @@ pub enum PacketError {
     DecompressionFailed,
     #[error("decompressed packet payload size {actual} exceeds configured limit {limit}")]
     DecompressedPayloadTooLarge { actual: usize, limit: usize },
+    #[error("packet size {actual} exceeds MTU {mtu}")]
+    PacketTooLarge { actual: usize, mtu: usize },
 }

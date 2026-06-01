@@ -10,10 +10,11 @@ use alloc::vec::Vec;
 
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
-use crate::packet::packet::{HEADER_BYTES, MAX_PACKET_SIZE, Packet};
+use crate::packet::packet::{HEADER_BYTES, MAX_PACKET_SIZE, Packet, PacketCompressionInfo};
 use crate::packet::packet_type::PacketType;
 
 const DEFAULT_MIN_PAYLOAD_SIZE: usize = 128;
+const DEFAULT_MAX_DECOMPRESSED_PAYLOAD_SIZE: usize = 64 * 1024;
 
 /// Compression algorithm used for transport packet payloads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -37,14 +38,14 @@ impl CompressionConfig {
     pub const DISABLED: Self = Self {
         algorithm: None,
         min_payload_size: DEFAULT_MIN_PAYLOAD_SIZE,
-        max_decompressed_payload_size: MAX_PACKET_SIZE,
+        max_decompressed_payload_size: DEFAULT_MAX_DECOMPRESSED_PAYLOAD_SIZE,
     };
 
     #[cfg(feature = "compression_lz4")]
     pub const LZ4: Self = Self {
         algorithm: Some(CompressionAlgorithm::Lz4),
         min_payload_size: DEFAULT_MIN_PAYLOAD_SIZE,
-        max_decompressed_payload_size: MAX_PACKET_SIZE,
+        max_decompressed_payload_size: DEFAULT_MAX_DECOMPRESSED_PAYLOAD_SIZE,
     };
 
     pub const fn is_enabled(&self) -> bool {
@@ -65,11 +66,37 @@ pub(crate) enum CompressionOutcome {
     TooSmall {
         payload_len: usize,
     },
+    TooLargeForDecompressionLimit {
+        payload_len: usize,
+        limit: usize,
+    },
     NotSmaller {
         original_len: usize,
         compressed_len: usize,
     },
     Compressed {
+        original_len: usize,
+        compressed_len: usize,
+    },
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum CompressionCandidate {
+    Disabled,
+    AlreadyCompressed,
+    TooSmall {
+        payload_len: usize,
+    },
+    TooLargeForDecompressionLimit {
+        payload_len: usize,
+        limit: usize,
+    },
+    NotSmaller {
+        original_len: usize,
+        compressed_len: usize,
+    },
+    Compressed {
+        payload: Vec<u8>,
         original_len: usize,
         compressed_len: usize,
     },
@@ -83,40 +110,86 @@ pub(crate) fn try_compress_packet(
     packet: &mut Packet,
     config: CompressionConfig,
 ) -> Result<CompressionOutcome, PacketError> {
+    match try_build_compressed_packet_payload(&packet.payload, config)? {
+        CompressionCandidate::Disabled => Ok(CompressionOutcome::Disabled),
+        CompressionCandidate::AlreadyCompressed => Ok(CompressionOutcome::AlreadyCompressed),
+        CompressionCandidate::TooSmall { payload_len } => {
+            Ok(CompressionOutcome::TooSmall { payload_len })
+        }
+        CompressionCandidate::TooLargeForDecompressionLimit { payload_len, limit } => {
+            Ok(CompressionOutcome::TooLargeForDecompressionLimit { payload_len, limit })
+        }
+        CompressionCandidate::NotSmaller {
+            original_len,
+            compressed_len,
+        } => Ok(CompressionOutcome::NotSmaller {
+            original_len,
+            compressed_len,
+        }),
+        CompressionCandidate::Compressed {
+            payload,
+            original_len,
+            compressed_len,
+        } => {
+            packet.payload = payload;
+            packet.compression = Some(PacketCompressionInfo {
+                original_len,
+                compressed_len,
+            });
+            Ok(CompressionOutcome::Compressed {
+                original_len,
+                compressed_len,
+            })
+        }
+    }
+}
+
+pub(crate) fn try_build_compressed_packet_payload(
+    packet_payload: &[u8],
+    config: CompressionConfig,
+) -> Result<CompressionCandidate, PacketError> {
     let Some(algorithm) = config.algorithm else {
-        return Ok(CompressionOutcome::Disabled);
+        return Ok(CompressionCandidate::Disabled);
     };
 
-    if packet.payload.len() <= HEADER_BYTES {
-        return Ok(CompressionOutcome::TooSmall { payload_len: 0 });
+    if packet_payload.len() <= HEADER_BYTES {
+        return Ok(CompressionCandidate::TooSmall { payload_len: 0 });
     }
 
-    let packet_type = PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
+    let packet_type = PacketType::try_from(packet_payload[PacketHeader::PACKET_TYPE_OFFSET])?;
     let Some(compressed_packet_type) = packet_type.compressed_variant() else {
-        return Ok(CompressionOutcome::AlreadyCompressed);
+        return Ok(CompressionCandidate::AlreadyCompressed);
     };
 
-    let payload_len = packet.payload.len() - HEADER_BYTES;
+    let payload_len = packet_payload.len() - HEADER_BYTES;
     if payload_len < config.min_payload_size {
-        return Ok(CompressionOutcome::TooSmall { payload_len });
+        return Ok(CompressionCandidate::TooSmall { payload_len });
+    }
+    if payload_len > config.max_decompressed_payload_size {
+        return Ok(CompressionCandidate::TooLargeForDecompressionLimit {
+            payload_len,
+            limit: config.max_decompressed_payload_size,
+        });
     }
 
-    let compressed_payload = compress_payload(&packet.payload[HEADER_BYTES..], algorithm);
+    let compressed_payload = compress_payload(&packet_payload[HEADER_BYTES..], algorithm);
     let compressed_len = HEADER_BYTES + compressed_payload.len();
-    let original_len = packet.payload.len();
+    let original_len = packet_payload.len();
 
     if compressed_len >= original_len || compressed_len > MAX_PACKET_SIZE {
-        return Ok(CompressionOutcome::NotSmaller {
+        return Ok(CompressionCandidate::NotSmaller {
             original_len,
             compressed_len,
         });
     }
 
-    packet.payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
-    packet.payload.truncate(HEADER_BYTES);
-    packet.payload.extend_from_slice(&compressed_payload);
+    let mut payload = Vec::with_capacity(compressed_len);
+    payload.extend_from_slice(&packet_payload[..HEADER_BYTES]);
+    payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
+    payload.extend_from_slice(&compressed_payload);
 
-    Ok(CompressionOutcome::Compressed {
+    Ok(CompressionCandidate::Compressed {
+        payload,
         original_len,
         compressed_len,
     })
@@ -193,6 +266,7 @@ mod tests {
             messages: Vec::<MessageMetadata>::new(),
             packet_id: PacketId(0),
             prewritten_size: 0,
+            compression: None,
         }
     }
 

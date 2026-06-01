@@ -1,8 +1,13 @@
 //! Module to take a buffer of messages to send and build packets
 use crate::channel::registry::ChannelId;
+use crate::packet::compression::{
+    CompressionCandidate, CompressionConfig, try_build_compressed_packet_payload,
+    try_compress_packet,
+};
+use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, MessageMetadata, Packet};
+use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, MessageMetadata, Packet};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
@@ -19,6 +24,8 @@ pub const MAX_PACKET_SIZE: usize = 1200;
 pub const MAX_UNFRAGMENTED_PAYLOAD_SIZE: usize = FRAGMENT_SIZE;
 
 pub type Payload = Vec<u8>;
+
+const MAX_MESSAGES_PER_CHANNEL_BATCH: usize = u8::MAX as usize;
 
 /// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
 /// packet without allocating.
@@ -90,6 +97,7 @@ impl PacketBuilder {
             messages: vec![],
             packet_id: header.packet_id,
             prewritten_size: 0,
+            compression: None,
         });
         Ok(())
     }
@@ -124,6 +132,7 @@ impl PacketBuilder {
             }],
             packet_id: header.packet_id,
             prewritten_size: 0,
+            compression: None,
         });
         Ok(())
 
@@ -150,9 +159,11 @@ impl PacketBuilder {
     }
 
     pub fn finish_packet(&mut self) -> Packet {
-        let mut packet = self.current_packet.take().unwrap();
+        Self::finalize_packet(self.current_packet.take().unwrap())
+    }
+
+    fn finalize_packet(mut packet: Packet) -> Packet {
         packet.payload.shrink_to_fit();
-        // TODO: should we use bytes so this clone is cheap?
         packet
     }
 
@@ -167,9 +178,60 @@ impl PacketBuilder {
         &mut self,
         real: Duration,
         current_tick: Tick,
-        mut single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
+        single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
         fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)>,
     ) -> Result<Vec<Packet>, SerializationError> {
+        self.build_packets_uncompressed(real, current_tick, single_data, fragment_data)
+    }
+
+    #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
+    pub fn build_packets_with_compression(
+        &mut self,
+        real: Duration,
+        current_tick: Tick,
+        single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
+        fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)>,
+        compression: CompressionConfig,
+    ) -> Result<Vec<Packet>, PacketError> {
+        if !compression.is_enabled() {
+            return Ok(self.build_packets_uncompressed(
+                real,
+                current_tick,
+                single_data,
+                fragment_data,
+            )?);
+        }
+        self.build_packets_internal(real, current_tick, single_data, fragment_data, compression)
+    }
+
+    fn build_packets_uncompressed(
+        &mut self,
+        real: Duration,
+        current_tick: Tick,
+        single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
+        fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)>,
+    ) -> Result<Vec<Packet>, SerializationError> {
+        self.build_packets_internal(
+            real,
+            current_tick,
+            single_data,
+            fragment_data,
+            CompressionConfig::DISABLED,
+        )
+        .map_err(|error| match error {
+            PacketError::Serialization(error) => error,
+            other => panic!("unexpected packet builder error without compression: {other:?}"),
+        })
+    }
+
+    fn build_packets_internal(
+        &mut self,
+        real: Duration,
+        current_tick: Tick,
+        mut single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
+        fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)>,
+        compression: CompressionConfig,
+    ) -> Result<Vec<Packet>, PacketError> {
         let mut packets: Vec<Packet> = vec![];
 
         // indices in the main vec
@@ -243,6 +305,18 @@ impl PacketBuilder {
         debug_assert!(self.current_packet.is_none());
 
         // all fragment messages have been written, now write small messages
+        if compression.is_enabled() {
+            self.build_single_packets_compression_aware(
+                real,
+                current_tick,
+                &mut single_data,
+                single_data_idx,
+                &mut packets,
+                compression,
+            )?;
+            return Ok(packets);
+        }
+
         'out: while single_data_idx < single_data.len() {
             let (channel_id, single_messages) = &mut single_data[single_data_idx];
             // start a new packet if we aren't already writing one
@@ -344,6 +418,234 @@ impl PacketBuilder {
             *num_messages = 0;
         }
         Ok(())
+    }
+
+    fn build_single_packets_compression_aware(
+        &mut self,
+        real: Duration,
+        current_tick: Tick,
+        single_data: &mut [(ChannelId, VecDeque<SingleData>)],
+        mut single_data_idx: usize,
+        packets: &mut Vec<Packet>,
+        compression: CompressionConfig,
+    ) -> Result<(), PacketError> {
+        while single_data_idx < single_data.len() {
+            if single_data[single_data_idx].1.is_empty() {
+                single_data_idx += 1;
+                continue;
+            }
+
+            if self.current_packet.is_none() {
+                self.build_new_single_packet(real, current_tick)?;
+            }
+
+            let mut packet = self.current_packet.take().unwrap();
+            let (channel_id, single_messages) = &mut single_data[single_data_idx];
+            let max_count = single_messages.len().min(MAX_MESSAGES_PER_CHANNEL_BATCH);
+            let fit_count = Self::find_compression_aware_message_count(
+                &packet,
+                *channel_id,
+                single_messages,
+                max_count,
+                compression,
+            )?;
+
+            if fit_count == 0 {
+                if Self::packet_has_body(&packet) {
+                    packets.push(Self::finish_compression_aware_packet(packet, compression)?);
+                    continue;
+                }
+                let candidate_len =
+                    Self::candidate_packet_len(&packet, *channel_id, single_messages, 1)?;
+                return Err(PacketError::PacketTooLarge {
+                    actual: candidate_len,
+                    mtu: MAX_PACKET_SIZE,
+                });
+            }
+
+            Self::append_single_messages(&mut packet, *channel_id, single_messages, fit_count)?;
+            for _ in 0..fit_count {
+                single_messages.pop_front();
+            }
+
+            let channel_drained = single_messages.is_empty();
+            let hit_channel_batch_limit =
+                fit_count == MAX_MESSAGES_PER_CHANNEL_BATCH && !channel_drained;
+            let packet_full = fit_count < max_count || hit_channel_batch_limit;
+
+            if channel_drained {
+                single_data_idx += 1;
+            }
+
+            if packet_full {
+                packets.push(Self::finish_compression_aware_packet(packet, compression)?);
+            } else {
+                self.current_packet = Some(packet);
+            }
+        }
+
+        if let Some(packet) = self.current_packet.take()
+            && Self::packet_has_body(&packet)
+        {
+            packets.push(Self::finish_compression_aware_packet(packet, compression)?);
+        }
+        Ok(())
+    }
+
+    fn find_compression_aware_message_count(
+        packet: &Packet,
+        channel_id: ChannelId,
+        messages: &VecDeque<SingleData>,
+        max_count: usize,
+        compression: CompressionConfig,
+    ) -> Result<usize, PacketError> {
+        if max_count == 0 {
+            return Ok(0);
+        }
+
+        if !Self::candidate_packet_fits(packet, channel_id, messages, 1, compression)? {
+            return Ok(0);
+        }
+
+        let mut best = 1;
+        let mut next = 2;
+
+        while next <= max_count {
+            if Self::candidate_packet_fits(packet, channel_id, messages, next, compression)? {
+                best = next;
+                if next == max_count {
+                    return Ok(best);
+                }
+                next = next.saturating_mul(2).min(max_count);
+            } else {
+                break;
+            }
+        }
+
+        let mut low = best + 1;
+        let mut high = next.min(max_count);
+        while low <= high {
+            let mid = low + (high - low) / 2;
+            if Self::candidate_packet_fits(packet, channel_id, messages, mid, compression)? {
+                best = mid;
+                low = mid + 1;
+            } else if mid == 0 {
+                break;
+            } else {
+                high = mid - 1;
+            }
+        }
+
+        Ok(best)
+    }
+
+    fn candidate_packet_fits(
+        packet: &Packet,
+        channel_id: ChannelId,
+        messages: &VecDeque<SingleData>,
+        count: usize,
+        compression: CompressionConfig,
+    ) -> Result<bool, PacketError> {
+        let candidate = Self::candidate_packet(packet, channel_id, messages, count)?;
+        if candidate.payload.len() <= MAX_PACKET_SIZE {
+            return Ok(true);
+        }
+        let compression_candidate =
+            try_build_compressed_packet_payload(&candidate.payload, compression)?;
+        #[cfg(feature = "metrics")]
+        if matches!(
+            compression_candidate,
+            CompressionCandidate::Compressed { .. } | CompressionCandidate::NotSmaller { .. }
+        ) {
+            metrics::counter!("transport/compression_abandoned").increment(1);
+        }
+        Ok(matches!(
+            compression_candidate,
+            CompressionCandidate::Compressed { .. }
+        ))
+    }
+
+    fn candidate_packet_len(
+        packet: &Packet,
+        channel_id: ChannelId,
+        messages: &VecDeque<SingleData>,
+        count: usize,
+    ) -> Result<usize, SerializationError> {
+        Ok(Self::candidate_packet(packet, channel_id, messages, count)?
+            .payload
+            .len())
+    }
+
+    fn candidate_packet(
+        packet: &Packet,
+        channel_id: ChannelId,
+        messages: &VecDeque<SingleData>,
+        count: usize,
+    ) -> Result<Packet, SerializationError> {
+        let mut candidate = Packet {
+            payload: packet.payload.clone(),
+            messages: Vec::new(),
+            packet_id: packet.packet_id,
+            prewritten_size: 0,
+            compression: None,
+        };
+        Self::append_single_messages(&mut candidate, channel_id, messages, count)?;
+        Ok(candidate)
+    }
+
+    fn append_single_messages(
+        packet: &mut Packet,
+        channel_id: ChannelId,
+        messages: &VecDeque<SingleData>,
+        count: usize,
+    ) -> Result<(), SerializationError> {
+        debug_assert!(count <= MAX_MESSAGES_PER_CHANNEL_BATCH);
+        channel_id.to_bytes(&mut packet.payload)?;
+        packet.payload.write_u8(count as u8)?;
+        for message in messages.iter().take(count) {
+            message.to_bytes(&mut packet.payload)?;
+            if let Some(id) = message.id {
+                packet.messages.push(MessageMetadata {
+                    channel: channel_id,
+                    message: id,
+                    fragment_index: None,
+                    num_fragments: None,
+                    #[cfg(feature = "metrics")]
+                    num_bytes: message.bytes_len(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    fn finish_compression_aware_packet(
+        mut packet: Packet,
+        compression: CompressionConfig,
+    ) -> Result<Packet, PacketError> {
+        if packet.payload.len() > MAX_PACKET_SIZE {
+            match try_compress_packet(&mut packet, compression)? {
+                crate::packet::compression::CompressionOutcome::Compressed { .. } => {}
+                crate::packet::compression::CompressionOutcome::NotSmaller { .. } => {
+                    #[cfg(feature = "metrics")]
+                    metrics::counter!("transport/compression_abandoned").increment(1);
+                    return Err(PacketError::PacketTooLarge {
+                        actual: packet.payload.len(),
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+                _ => {
+                    return Err(PacketError::PacketTooLarge {
+                        actual: packet.payload.len(),
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+            }
+        }
+        Ok(Self::finalize_packet(packet))
+    }
+
+    fn packet_has_body(packet: &Packet) -> bool {
+        packet.payload.len() > HEADER_BYTES
     }
 
     // /// Uses multiple exponential searches to fill a packet. Has a good worst case runtime and doesn't
@@ -490,6 +792,19 @@ mod tests {
         Ok(packet)
     }
 
+    #[cfg(feature = "compression_lz4")]
+    fn random_payload(len: usize, message_index: usize) -> Vec<u8> {
+        let mut state = 0x9e37_79b9_7f4a_7c15u64 ^ message_index as u64;
+        let mut payload = Vec::with_capacity(len);
+        for _ in 0..len {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            payload.push((state & 0xff) as u8);
+        }
+        payload
+    }
+
     /// A bunch of small messages that all fit in the same packet
     #[test]
     fn test_pack_small_messages() -> Result<(), PacketError> {
@@ -609,6 +924,94 @@ mod tests {
         let packets =
             manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 7);
+        Ok(())
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    #[test]
+    fn compression_aware_packing_can_pack_beyond_uncompressed_mtu() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let small_bytes = Bytes::from(vec![7u8; 64]);
+        let small_message = SingleData::new(None, small_bytes.clone());
+
+        let uncompressed_packets = PacketBuilder::new(1.5).build_packets(
+            Duration::default(),
+            Tick(0),
+            vec![(
+                *channel_id,
+                VecDeque::from(vec![small_message.clone(); 128]),
+            )],
+            vec![],
+        )?;
+        assert!(uncompressed_packets.len() > 1);
+
+        let mut manager = PacketBuilder::new(1.5);
+        let mut packets = manager.build_packets_with_compression(
+            Duration::default(),
+            Tick(0),
+            vec![(
+                *channel_id,
+                VecDeque::from(vec![small_message.clone(); 128]),
+            )],
+            vec![],
+            CompressionConfig {
+                min_payload_size: 0,
+                ..CompressionConfig::LZ4
+            },
+        )?;
+
+        assert_eq!(packets.len(), 1);
+        assert!(packets[0].payload.len() <= MAX_PACKET_SIZE);
+        assert_eq!(
+            PacketType::try_from(packets[0].payload[PacketHeader::PACKET_TYPE_OFFSET])?,
+            PacketType::DataCompressed
+        );
+        let packet = decompress_packet_for_test(packets.pop().unwrap())?;
+        let contents = packet.parse_packet_payload()?;
+        assert_eq!(contents.get(channel_id).unwrap().len(), 128);
+        assert_eq!(contents.get(channel_id).unwrap()[0], small_bytes);
+        Ok(())
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    #[test]
+    fn compression_aware_packing_preserves_mtu_for_incompressible_data() -> Result<(), PacketError>
+    {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let messages = (0..128)
+            .map(|message_index| SingleData::new(None, random_payload(128, message_index).into()))
+            .collect();
+
+        let mut manager = PacketBuilder::new(1.5);
+        let packets = manager.build_packets_with_compression(
+            Duration::default(),
+            Tick(0),
+            vec![(*channel_id, messages)],
+            vec![],
+            CompressionConfig {
+                min_payload_size: 0,
+                ..CompressionConfig::LZ4
+            },
+        )?;
+
+        let mut total_messages = 0;
+        for packet in packets {
+            assert!(packet.payload.len() <= MAX_PACKET_SIZE);
+            let packet_type =
+                PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
+            let packet = if packet_type.is_compressed() {
+                decompress_packet_for_test(packet)?
+            } else {
+                packet
+            };
+            let contents = packet.parse_packet_payload()?;
+            total_messages += contents.get(channel_id).map_or(0, Vec::len);
+        }
+        assert_eq!(total_messages, 128);
         Ok(())
     }
 

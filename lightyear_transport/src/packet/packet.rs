@@ -50,6 +50,12 @@ pub(crate) struct MessageMetadata {
     pub(crate) num_bytes: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PacketCompressionInfo {
+    pub(crate) original_len: usize,
+    pub(crate) compressed_len: usize,
+}
+
 /// Data structure that will help us write the packet
 #[derive(Debug)]
 pub(crate) struct Packet {
@@ -59,6 +65,7 @@ pub(crate) struct Packet {
     pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     pub(crate) prewritten_size: usize,
+    pub(crate) compression: Option<PacketCompressionInfo>,
 }
 
 impl Packet {

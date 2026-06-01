@@ -387,13 +387,14 @@ impl TransportPlugin {
             // TODO: swap to try_for_each when available
             let Ok(packets) =
                 transport.packet_manager
-                    .build_packets(real_time.elapsed(), tick, single_data, fragment_data) else {
+                    .build_packets_with_compression(real_time.elapsed(), tick, single_data, fragment_data, transport.compression) else {
                 error!("Failed to build packets");
                 return
             };
 
             let mut total_bytes_sent = 0;
             for mut packet in packets {
+                let compression_info = packet.compression;
                 match try_compress_packet(&mut packet, transport.compression) {
                     Ok(CompressionOutcome::Compressed {
                         original_len,
@@ -401,7 +402,6 @@ impl TransportPlugin {
                     }) => {
                         #[cfg(feature = "metrics")]
                         {
-                            metrics::counter!("transport/compression_attempts").increment(1);
                             metrics::counter!("transport/compression_saved_bytes")
                                 .increment((original_len - compressed_len) as u64);
                         }
@@ -412,11 +412,24 @@ impl TransportPlugin {
                         );
                     }
                     Ok(CompressionOutcome::Disabled) => {}
-                    Ok(CompressionOutcome::AlreadyCompressed)
-                    | Ok(CompressionOutcome::TooSmall { .. }) => {
+                    Ok(CompressionOutcome::AlreadyCompressed) => {
+                        if let Some(compression_info) = compression_info {
+                            #[cfg(feature = "metrics")]
+                            {
+                                metrics::counter!("transport/compression_saved_bytes")
+                                    .increment((compression_info.original_len - compression_info.compressed_len) as u64);
+                            }
+                            trace!(
+                                original_len = compression_info.original_len,
+                                compressed_len = compression_info.compressed_len,
+                                "transport packet was already compressed by packet builder"
+                            );
+                        }
+                    }
+                    Ok(CompressionOutcome::TooSmall { .. })
+                    | Ok(CompressionOutcome::TooLargeForDecompressionLimit { .. }) => {
                         #[cfg(feature = "metrics")]
                         if transport.compression.is_enabled() {
-                            metrics::counter!("transport/compression_attempts").increment(1);
                             metrics::counter!("transport/compression_skipped").increment(1);
                         }
                     }
@@ -426,7 +439,7 @@ impl TransportPlugin {
                     }) => {
                         #[cfg(feature = "metrics")]
                         if transport.compression.is_enabled() {
-                            metrics::counter!("transport/compression_attempts").increment(1);
+                            metrics::counter!("transport/compression_abandoned").increment(1);
                             metrics::counter!("transport/compression_skipped").increment(1);
                             if compressed_len > original_len {
                                 metrics::counter!("transport/compression_expanded_packets")

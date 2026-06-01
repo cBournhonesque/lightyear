@@ -75,7 +75,7 @@ pub const TRANSPORT_COMPRESSION_CASES: &[TransportCompressionCase] = &[
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TransportCompressionRun {
     pub send_bytes: f64,
-    pub compression_attempts: f64,
+    pub compression_abandoned: f64,
     pub compression_saved_bytes: f64,
     pub compression_skipped: f64,
     pub compression_expanded_packets: f64,
@@ -131,11 +131,11 @@ pub fn print_transport_compression_stats_once(
 ) {
     let stats = run_transport_compression_case(case, mode);
     eprintln!(
-        "transport_compression_stats case={} mode={} send_bytes={} attempts={} saved_bytes={} skipped={} expanded={} above_mtu={}",
+        "transport_compression_stats case={} mode={} send_bytes={} abandoned={} saved_bytes={} skipped={} expanded={} above_mtu={}",
         case.name,
         mode.name(),
         stats.send_bytes,
-        stats.compression_attempts,
+        stats.compression_abandoned,
         stats.compression_saved_bytes,
         stats.compression_skipped,
         stats.compression_expanded_packets,
@@ -162,10 +162,10 @@ impl TransportCompressionRun {
     fn from_metrics(registry: &MetricsRegistry) -> Self {
         Self {
             send_bytes: metric_value(registry, MetricKind::Gauge, "transport/send_bytes"),
-            compression_attempts: metric_value(
+            compression_abandoned: metric_value(
                 registry,
                 MetricKind::Counter,
-                "transport/compression_attempts",
+                "transport/compression_abandoned",
             ),
             compression_saved_bytes: metric_value(
                 registry,
@@ -197,7 +197,7 @@ impl core::ops::Sub for TransportCompressionRun {
     fn sub(self, rhs: Self) -> Self::Output {
         Self {
             send_bytes: self.send_bytes - rhs.send_bytes,
-            compression_attempts: self.compression_attempts - rhs.compression_attempts,
+            compression_abandoned: self.compression_abandoned - rhs.compression_abandoned,
             compression_saved_bytes: self.compression_saved_bytes - rhs.compression_saved_bytes,
             compression_skipped: self.compression_skipped - rhs.compression_skipped,
             compression_expanded_packets: self.compression_expanded_packets
