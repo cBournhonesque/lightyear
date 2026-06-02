@@ -402,12 +402,12 @@ impl TransportPlugin {
                     break;
                 }
                 #[cfg(feature = "metrics")]
-                for stats in packet.message_stats.iter() {
-                    let channel_name = channel_registry.get_name_from_net_id(stats.channel);
+                for metadata in packet.messages.iter() {
+                    let channel_name = channel_registry.get_name_from_net_id(metadata.channel);
                     metrics::gauge!("channel/send_messages", "channel" => channel_name)
                         .increment(1);
                     metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                        .increment(stats.num_bytes as f64);
+                        .increment(metadata.num_bytes as f64);
                 }
                 if let Some(compression_info) = packet.compression {
                     #[cfg(feature = "metrics")]
@@ -447,10 +447,11 @@ impl TransportPlugin {
                         let sender_metadata = transport.senders
                             .get_mut(channel_kind)
                             .ok_or(PacketError::ChannelNotFound)?;
+                        let Some(message_id) = metadata.message else {
+                            return Ok(());
+                        };
 
-                        // note: cannot compute send metrics here because this is just for messages
-                        //   that have a message id
-                        sender_metadata.messages_sent.push(metadata.message);
+                        sender_metadata.messages_sent.push(message_id);
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
@@ -460,13 +461,13 @@ impl TransportPlugin {
                             );
 
                             if let Some(num_fragments) = metadata.num_fragments {
-                                transport.fragment_acks.insert(metadata.message, num_fragments);
+                                transport.fragment_acks.insert(message_id, num_fragments);
                             }
                             transport.packet_to_message_map
                                 .entry(packet.packet_id)
                                 .or_default()
                                 .push((*channel_kind, MessageAck {
-                                    message_id: metadata.message,
+                                    message_id,
                                     fragment_id: metadata.fragment_index,
                                 }));
                             trace!(?transport.packet_to_message_map, "packet to message");

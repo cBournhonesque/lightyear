@@ -264,8 +264,6 @@ mod tests {
         Packet {
             payload,
             messages: Vec::<MessageMetadata>::new(),
-            #[cfg(feature = "metrics")]
-            message_stats: Vec::new(),
             packet_id: PacketId(0),
             prewritten_size: 0,
             compression: None,

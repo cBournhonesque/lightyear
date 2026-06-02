@@ -36,24 +36,22 @@ const MAX_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
 pub(crate) const FRAGMENT_SIZE: usize =
     MAX_PACKET_SIZE - HEADER_BYTES - MAX_FRAGMENT_METADATA_BYTES;
 
-/// Metadata about the message included in the packet.
-/// Useful to maintain mappings from channel to message_ids, and packet to message_ids.
+/// Metadata about messages included in a packet.
+///
+/// With the `metrics` feature enabled, this contains every message written into the packet so
+/// channel metrics can be emitted after the final packet passes the bandwidth limiter.
+///
+/// Without `metrics`, this only contains messages with an id, because the send path only needs
+/// packet-local metadata for ack/retry bookkeeping.
 #[derive(Debug, PartialEq)]
 pub(crate) struct MessageMetadata {
     pub(crate) channel: ChannelId,
-    pub(crate) message: MessageId,
+    pub(crate) message: Option<MessageId>,
     // if the message is fragmented, we store the total number of fragments
     pub(crate) fragment_index: Option<FragmentIndex>,
     pub(crate) num_fragments: Option<u64>,
     // Size of the message in bytes (for fragments, it's only the size of the fragment)
     #[cfg(feature = "metrics")]
-    pub(crate) num_bytes: usize,
-}
-
-#[cfg(feature = "metrics")]
-#[derive(Debug, PartialEq)]
-pub(crate) struct PacketMessageStats {
-    pub(crate) channel: ChannelId,
     pub(crate) num_bytes: usize,
 }
 
@@ -67,10 +65,11 @@ pub(crate) struct PacketCompressionInfo {
 #[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) payload: Payload,
-    /// MessageIds contained in the packet so we can map from channel id to message ids
+    /// Packet-local message metadata.
+    ///
+    /// See [`MessageMetadata`] for the feature-dependent rule that decides whether id-less
+    /// messages are recorded.
     pub(crate) messages: Vec<MessageMetadata>,
-    #[cfg(feature = "metrics")]
-    pub(crate) message_stats: Vec<PacketMessageStats>,
     pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     pub(crate) prewritten_size: usize,
@@ -100,10 +99,27 @@ impl Packet {
         self.messages.len()
     }
 
-    #[cfg(feature = "metrics")]
-    pub(crate) fn record_message_stats(&mut self, channel: ChannelId, num_bytes: usize) {
-        self.message_stats
-            .push(PacketMessageStats { channel, num_bytes });
+    pub(crate) fn record_message_metadata(
+        &mut self,
+        channel: ChannelId,
+        message: Option<MessageId>,
+        fragment_index: Option<FragmentIndex>,
+        num_fragments: Option<u64>,
+        #[cfg(feature = "metrics")] num_bytes: usize,
+    ) {
+        // In metrics builds, every message needs metadata so channel/send_* can be emitted only
+        // after the final packet passes bandwidth quota. In non-metrics builds, id-less entries
+        // are skipped to keep packet metadata limited to ack/retry bookkeeping.
+        if cfg!(feature = "metrics") || message.is_some() {
+            self.messages.push(MessageMetadata {
+                channel,
+                message,
+                fragment_index,
+                num_fragments,
+                #[cfg(feature = "metrics")]
+                num_bytes,
+            });
+        }
     }
 
     #[allow(unused)]

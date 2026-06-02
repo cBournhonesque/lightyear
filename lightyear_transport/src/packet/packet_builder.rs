@@ -7,7 +7,7 @@ use crate::packet::compression::{
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, MessageMetadata, Packet};
+use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, Packet};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
@@ -95,8 +95,6 @@ impl PacketBuilder {
         self.current_packet = Some(Packet {
             payload: cursor,
             messages: vec![],
-            #[cfg(feature = "metrics")]
-            message_stats: vec![],
             packet_id: header.packet_id,
             prewritten_size: 0,
             compression: None,
@@ -121,26 +119,23 @@ impl PacketBuilder {
         header.to_bytes(&mut cursor)?;
         channel_id.to_bytes(&mut cursor)?;
         fragment_data.to_bytes(&mut cursor)?;
-        self.current_packet = Some(Packet {
+        let mut packet = Packet {
             payload: cursor,
             // TODO(perf): reuse this vec allocation instead of newly allocating!
-            messages: vec![MessageMetadata {
-                channel: ChannelId::from(channel_id),
-                message: fragment_data.message_id,
-                fragment_index: Some(fragment_data.fragment_id),
-                num_fragments: Some(fragment_data.num_fragments.0),
-                #[cfg(feature = "metrics")]
-                num_bytes: fragment_data.bytes.len(),
-            }],
-            #[cfg(feature = "metrics")]
-            message_stats: vec![crate::packet::packet::PacketMessageStats {
-                channel: ChannelId::from(channel_id),
-                num_bytes: fragment_data.bytes.len(),
-            }],
+            messages: vec![],
             packet_id: header.packet_id,
             prewritten_size: 0,
             compression: None,
-        });
+        };
+        packet.record_message_metadata(
+            ChannelId::from(channel_id),
+            Some(fragment_data.message_id),
+            Some(fragment_data.fragment_id),
+            Some(fragment_data.num_fragments.0),
+            #[cfg(feature = "metrics")]
+            fragment_data.bytes.len(),
+        );
+        self.current_packet = Some(packet);
         Ok(())
 
         //
@@ -412,19 +407,14 @@ impl PacketBuilder {
                     .prewritten_size
                     .checked_sub(message.bytes_len())
                     .ok_or(SerializationError::SubtractionOverflow)?;
-                // only send a MessageAck when the message has an id (otherwise we don't expect an ack)
-                if let Some(id) = message.id {
-                    packet.messages.push(MessageMetadata {
-                        channel: channel_id,
-                        message: id,
-                        fragment_index: None,
-                        num_fragments: None,
-                        #[cfg(feature = "metrics")]
-                        num_bytes: message_bytes,
-                    });
-                }
-                #[cfg(feature = "metrics")]
-                packet.record_message_stats(channel_id, message_bytes);
+                packet.record_message_metadata(
+                    channel_id,
+                    message.id,
+                    None,
+                    None,
+                    #[cfg(feature = "metrics")]
+                    message_bytes,
+                );
             }
             *num_messages = 0;
         }
@@ -602,8 +592,6 @@ impl PacketBuilder {
         let mut candidate = Packet {
             payload: packet.payload.clone(),
             messages: Vec::new(),
-            #[cfg(feature = "metrics")]
-            message_stats: Vec::new(),
             packet_id: packet.packet_id,
             prewritten_size: 0,
             compression: None,
@@ -617,7 +605,7 @@ impl PacketBuilder {
         channel_id: ChannelId,
         messages: &VecDeque<SingleData>,
         count: usize,
-        _record_stats: bool,
+        record_metadata: bool,
     ) -> Result<(), SerializationError> {
         debug_assert!(count <= MAX_MESSAGES_PER_CHANNEL_BATCH);
         channel_id.to_bytes(&mut packet.payload)?;
@@ -626,19 +614,15 @@ impl PacketBuilder {
             #[cfg(feature = "metrics")]
             let message_bytes = message.bytes_len();
             message.to_bytes(&mut packet.payload)?;
-            if let Some(id) = message.id {
-                packet.messages.push(MessageMetadata {
-                    channel: channel_id,
-                    message: id,
-                    fragment_index: None,
-                    num_fragments: None,
+            if record_metadata {
+                packet.record_message_metadata(
+                    channel_id,
+                    message.id,
+                    None,
+                    None,
                     #[cfg(feature = "metrics")]
-                    num_bytes: message_bytes,
-                });
-            }
-            #[cfg(feature = "metrics")]
-            if _record_stats {
-                packet.record_message_stats(channel_id, message_bytes);
+                    message_bytes,
+                );
             }
         }
         Ok(())
@@ -776,8 +760,7 @@ mod tests {
     use crate::packet::message::{FragmentIndex, MessageId};
     #[cfg(feature = "compression_lz4")]
     use crate::packet::packet::HEADER_BYTES;
-    #[cfg(feature = "metrics")]
-    use crate::packet::packet::PacketMessageStats;
+    use crate::packet::packet::MessageMetadata;
     use bytes::Bytes;
 
     use super::*;
@@ -861,25 +844,38 @@ mod tests {
             manager.build_packets(Duration::default(), Tick(0), single_data, fragment_data)?;
         assert_eq!(packets.len(), 1);
         let packet = packets.pop().unwrap();
+        #[cfg(not(feature = "metrics"))]
         assert_eq!(packet.messages, vec![]);
         #[cfg(feature = "metrics")]
         assert_eq!(
-            packet.message_stats,
+            packet.messages,
             vec![
-                PacketMessageStats {
+                MessageMetadata {
                     channel: *channel_id1,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
                     num_bytes: small_message.bytes_len(),
                 },
-                PacketMessageStats {
+                MessageMetadata {
                     channel: *channel_id2,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
                     num_bytes: small_message.bytes_len(),
                 },
-                PacketMessageStats {
+                MessageMetadata {
                     channel: *channel_id2,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
                     num_bytes: small_message.bytes_len(),
                 },
-                PacketMessageStats {
+                MessageMetadata {
                     channel: *channel_id3,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
                     num_bytes: small_message.bytes_len(),
                 },
             ]
@@ -977,14 +973,13 @@ mod tests {
         Ok(())
     }
 
-    #[cfg(feature = "metrics")]
     #[test]
-    fn compression_candidate_packets_do_not_record_message_stats() {
+    fn compression_candidate_packets_do_not_record_message_metadata() {
         let channel_registry = get_channel_registry();
         let channel_kind = ChannelKind::of::<Channel1>();
         let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
         let messages = VecDeque::from(vec![
-            SingleData::new(None, Bytes::from(vec![7u8; 32])),
+            SingleData::new(Some(MessageId(99)), Bytes::from(vec![7u8; 32])),
             SingleData::new(None, Bytes::from(vec![8u8; 32])),
         ]);
 
@@ -996,7 +991,7 @@ mod tests {
         let candidate = PacketBuilder::candidate_packet(&packet, *channel_id, &messages, 2)
             .expect("candidate packet should serialize");
 
-        assert!(candidate.message_stats.is_empty());
+        assert!(candidate.messages.is_empty());
     }
 
     #[cfg(feature = "compression_lz4")]
@@ -1038,9 +1033,13 @@ mod tests {
         assert!(packets[0].payload.len() <= MAX_PACKET_SIZE);
         #[cfg(feature = "metrics")]
         {
-            assert_eq!(packets[0].message_stats.len(), 128);
-            assert!(packets[0].message_stats.iter().all(|stats| {
-                stats.channel == *channel_id && stats.num_bytes == small_message.bytes_len()
+            assert_eq!(packets[0].messages.len(), 128);
+            assert!(packets[0].messages.iter().all(|metadata| {
+                metadata.channel == *channel_id
+                    && metadata.message.is_none()
+                    && metadata.fragment_index.is_none()
+                    && metadata.num_fragments.is_none()
+                    && metadata.num_bytes == small_message.bytes_len()
             }));
         }
         assert_eq!(
@@ -1168,7 +1167,7 @@ mod tests {
             packet.messages,
             vec![MessageMetadata {
                 channel: *channel_id2,
-                message: MessageId(3),
+                message: Some(MessageId(3)),
                 fragment_index: Some(FragmentIndex(0)),
                 num_fragments: Some(fragments.len() as u64),
                 #[cfg(feature = "metrics")]
@@ -1183,16 +1182,58 @@ mod tests {
 
         // 2nd packet
         let packet = packets_queue.pop_front().unwrap();
+        #[cfg(not(feature = "metrics"))]
         assert_eq!(
             packet.messages,
             vec![MessageMetadata {
                 channel: *channel_id2,
-                message: MessageId(3),
+                message: Some(MessageId(3)),
                 fragment_index: Some(FragmentIndex(1)),
                 num_fragments: Some(fragments.len() as u64),
                 #[cfg(feature = "metrics")]
                 num_bytes: fragments[1].bytes.len(),
             }]
+        );
+        #[cfg(feature = "metrics")]
+        assert_eq!(
+            packet.messages,
+            vec![
+                MessageMetadata {
+                    channel: *channel_id2,
+                    message: Some(MessageId(3)),
+                    fragment_index: Some(FragmentIndex(1)),
+                    num_fragments: Some(fragments.len() as u64),
+                    num_bytes: fragments[1].bytes.len(),
+                },
+                MessageMetadata {
+                    channel: *channel_id1,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
+                    num_bytes: small_message.bytes_len(),
+                },
+                MessageMetadata {
+                    channel: *channel_id2,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
+                    num_bytes: small_message.bytes_len(),
+                },
+                MessageMetadata {
+                    channel: *channel_id2,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
+                    num_bytes: small_message.bytes_len(),
+                },
+                MessageMetadata {
+                    channel: *channel_id3,
+                    message: None,
+                    fragment_index: None,
+                    num_fragments: None,
+                    num_bytes: small_message.bytes_len(),
+                },
+            ]
         );
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
