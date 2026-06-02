@@ -1,22 +1,15 @@
-use crate::channel::ChannelKind;
-use crate::channel::builder::SenderMetadata;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
 use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
-use bevy_platform::collections::HashMap;
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
-#[cfg(feature = "metrics")]
-use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
-
-const BYPASS_QUOTA_PRIORITY: f32 = 100000.0;
 
 #[derive(Debug)]
 pub struct BufferedMessage {
@@ -99,19 +92,17 @@ impl PriorityManager {
         self.data_to_send.push((net_id, (single, fragment)));
     }
 
-    // TODO: maybe accumulate the used_bytes in the priority_manager instead of returning here?
-    /// Filter the messages by priority and bandwidth quota
-    /// Returns the list of messages that we can send, along with the amount of bytes we used
-    /// in the rate limiter.
+    /// Sort queued messages by priority and return the data to packetize.
+    ///
+    /// Bandwidth quota is intentionally consumed after packet building, because packet building
+    /// can compress selected messages and the limiter should use final packet bytes.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn priority_filter(
+    pub(crate) fn prioritize(
         &mut self,
         channel_registry: &ChannelRegistry,
-        senders: &mut HashMap<ChannelKind, SenderMetadata>,
     ) -> (
         Vec<(ChannelId, VecDeque<SingleData>)>,
         Vec<(ChannelId, VecDeque<FragmentData>)>,
-        u32,
     ) {
         // if the bandwidth quota is disabled, just pass all messages through
         // As an optimization: no need to send the tick of the message, it is the same as the header tick
@@ -119,12 +110,6 @@ impl PriorityManager {
             let mut single_data = vec![];
             let mut fragment_data = vec![];
             for (net_id, (single, fragment)) in self.data_to_send.drain(..) {
-                #[cfg(feature = "metrics")]
-                let channel_name = channel_registry.get_name_from_net_id(net_id);
-                #[cfg(feature = "metrics")]
-                metrics::gauge!("channel/send_messages", "channel" => channel_name)
-                    .increment((single.len() + fragment.len()) as f64);
-
                 single_data.push((
                     net_id,
                     single
@@ -133,23 +118,6 @@ impl PriorityManager {
                             let MessageData::Single(single) = message.data else {
                                 unreachable!()
                             };
-                            #[cfg(feature = "metrics")]
-                            {
-                                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                                    .increment(single.bytes_len() as f64);
-                            }
-                            // we don't actually use the `messages_sent` field when the priority filter is disabled
-                            // but we still include it so that we can easily check in tests how many messages were sent
-                            #[cfg(feature = "test_utils")]
-                            if let Some(message_id) = single.id {
-                                let channel_kind =
-                                    channel_registry.get_kind_from_net_id(net_id).unwrap();
-                                senders
-                                    .get_mut(channel_kind)
-                                    .unwrap()
-                                    .messages_sent
-                                    .push(message_id);
-                            }
                             single
                         })
                         .collect(),
@@ -162,17 +130,12 @@ impl PriorityManager {
                             let MessageData::Fragment(fragment) = message.data else {
                                 unreachable!()
                             };
-                            #[cfg(feature = "metrics")]
-                            {
-                                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                                    .increment(fragment.bytes_len() as f64);
-                            }
                             fragment
                         })
                         .collect(),
                 ));
             }
-            return (single_data, fragment_data, 0);
+            return (single_data, fragment_data);
         }
 
         // compute the priority of each new message
@@ -211,90 +174,57 @@ impl PriorityManager {
             all_messages
         );
 
-        // select the top messages with the rate limiter
-        let mut single_data: HashMap<ChannelId, VecDeque<SingleData>> = HashMap::default();
-        let mut fragment_data: HashMap<ChannelId, VecDeque<FragmentData>> = HashMap::default();
-        let mut bytes_used = 0;
+        // Return messages in priority order. Keep each message as its own channel batch so the
+        // packet builder sees priority ordering instead of a grouping hash-map order.
+        let mut single_data: Vec<(ChannelId, VecDeque<SingleData>)> = vec![];
+        let mut fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)> = vec![];
         while let Some(buffered_message) = all_messages.pop() {
-            // we don't use the exact size of the message, but the size of the bytes
-            // we will adjust for this later
-            let message_bytes = buffered_message.data.bytes_len() as u32;
-            let nonzero_message_bytes = NonZeroU32::try_from(message_bytes).unwrap();
-            let Ok(result) = self.limiter.check_n(nonzero_message_bytes) else {
-                error!("the bandwidth does not have enough capacity for a message of this size!");
-                break;
-            };
-
-            // above BYPASS_QUOTA_PRIORITY, we still send the message
-            if buffered_message.priority < BYPASS_QUOTA_PRIORITY {
-                let Ok(()) = result else {
-                    debug!("Bandwidth quota reached, no more messages can be sent this tick");
-                    break;
-                };
-            }
-            trace!(channel=?buffered_message.channel_net_id, "Sending message with priority {:?}", buffered_message.priority);
-
-            // keep track of the bytes we added to the rate limiter
-            bytes_used += message_bytes;
-
-            // notify the replication sender that the message was actually sent
-            if let Some(message_id) = buffered_message.data.message_id() {
-                let channel_kind = channel_registry
-                    .get_kind_from_net_id(buffered_message.channel_net_id)
-                    .unwrap();
-                senders
-                    .get_mut(channel_kind)
-                    .unwrap()
-                    .messages_sent
-                    .push(message_id);
-            }
-
-            #[cfg(feature = "metrics")]
-            {
-                let channel_name =
-                    channel_registry.get_name_from_net_id(buffered_message.channel_net_id);
-                metrics::gauge!("channel/send_messages", "channel" => channel_name).increment(1);
-                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                    .increment(buffered_message.data.bytes_len() as f64);
-            }
+            trace!(channel=?buffered_message.channel_net_id, "Selected message with priority {:?}", buffered_message.priority);
 
             // the message is allowed, add it to the list of messages to send
             match buffered_message.data {
                 MessageData::Single(single) => {
-                    single_data
-                        .entry(buffered_message.channel_net_id)
-                        .or_default()
-                        .push_back(single);
+                    single_data.push((buffered_message.channel_net_id, VecDeque::from([single])));
                 }
                 MessageData::Fragment(fragment) => {
                     fragment_data
-                        .entry(buffered_message.channel_net_id)
-                        .or_default()
-                        .push_back(fragment);
+                        .push((buffered_message.channel_net_id, VecDeque::from([fragment])));
                 }
             }
         }
 
-        // all the other messages that don't make the cut, we just drop
-        // - unreliable messages: they are unreliable so it's ok
-        // - reliable messages: they will be retried later, maybe with higher priority?
-        // - unreliable entity updates: the replication sender keeps track for each entity of when we were able to send an update
-        //   - PROBLEM: we could have the entity action not get sent (bandwidth), and then the priority still drops because the entity update
-        //     was sent right after...
-        // - reliable entity actions:
-        let num_messages_sent = single_data.values().map(|data| data.len()).sum::<usize>()
-            + fragment_data.values().map(|data| data.len()).sum::<usize>();
-        debug!(
-            bytes_sent = ?bytes_used,
-            ?num_messages_sent,
-            num_messages_discarded = ?all_messages.len(),
-            "priority filter done.");
+        let num_messages_sent = single_data
+            .iter()
+            .map(|(_, data)| data.len())
+            .sum::<usize>()
+            + fragment_data
+                .iter()
+                .map(|(_, data)| data.len())
+                .sum::<usize>();
+        debug!(?num_messages_sent, "priority ordering complete.");
 
         self.data_to_send.clear();
-        (
-            single_data.into_iter().collect(),
-            fragment_data.into_iter().collect(),
-            bytes_used,
-        )
+        (single_data, fragment_data)
+    }
+
+    /// Consume bandwidth quota for a final packet payload.
+    ///
+    /// Returns false when this packet cannot currently fit. The caller should stop sending for
+    /// this tick, because subsequent packets are not higher priority than this one.
+    pub(crate) fn consume_packet_quota(&mut self, packet_bytes: u32) -> bool {
+        if !self.config.enabled {
+            return true;
+        }
+
+        let nonzero_packet_bytes = NonZeroU32::try_from(packet_bytes).unwrap();
+        let Ok(result) = self.limiter.check_n(nonzero_packet_bytes) else {
+            error!("the bandwidth quota cannot fit a packet of size {packet_bytes}");
+            return false;
+        };
+        if result.is_err() {
+            debug!("Bandwidth quota reached, no more packets can be sent this tick");
+            return false;
+        }
+        true
     }
 }

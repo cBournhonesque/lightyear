@@ -3,9 +3,11 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::channel::senders::ChannelSend;
 use crate::error::TransportError;
+use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
+use crate::packet::packet_type::PacketType;
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 use bevy_app::prelude::*;
@@ -175,14 +177,19 @@ impl TransportPlugin {
                             .header_manager
                             .process_recv_packet_header(&header);
 
-
+                        let mut packet_type = header.get_packet_type();
+                        if packet_type.is_compressed() {
+                            let compressed_payload = cursor.split();
+                            let decompressed_payload =
+                                decompress_payload(compressed_payload.as_ref(), transport.compression)?;
+                            cursor = Reader::from(decompressed_payload);
+                            packet_type = packet_type.uncompressed_variant();
+                        }
 
                         // Parse the payload into messages, put them in the internal buffers for each channel
                         // we read directly from the packet and don't create intermediary datastructures to avoid allocations
                         // TODO: maybe do this in a helper function?
-                        if header.get_packet_type()
-                            == crate::packet::packet_type::PacketType::DataFragment
-                        {
+                        if packet_type == PacketType::DataFragment {
                             // read the fragment data
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
                             let fragment_data = FragmentData::from_bytes(&mut cursor)?;
@@ -213,6 +220,7 @@ impl TransportPlugin {
                                 .buffer_recv(ReceiveMessage {
                                     data: fragment_data.into(),
                                     remote_sent_tick: tick,
+                                    compression: transport.compression,
                                 })?;
                         }
                         // read single message data
@@ -262,6 +270,7 @@ impl TransportPlugin {
                                     .buffer_recv(ReceiveMessage {
                                         data: single_data.into(),
                                         remote_sent_tick: tick,
+                                        compression: transport.compression,
                                     })?;
                             }
                         }
@@ -354,7 +363,9 @@ impl TransportPlugin {
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
                 let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
                 // TODO: do we need the message_id?
-                sender_metadata.sender.buffer_send(bytes, priority);
+                sender_metadata
+                    .sender
+                    .buffer_send(bytes, priority, transport.compression);
                 Ok::<(), TransportError>(())
             }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
 
@@ -369,16 +380,15 @@ impl TransportPlugin {
                 }
             });
 
-            // get the list of messages that we can send according to the bandwidth limiter
-            let (single_data, fragment_data, num_bytes_added_to_limiter) = transport
-                .priority_manager
-                .priority_filter(&channel_registry, &mut transport.senders);
+            // get the list of messages to pack, ordered by priority
+            let (single_data, fragment_data) =
+                transport.priority_manager.prioritize(&channel_registry);
 
             // build actual packets from these messages
             // TODO: swap to try_for_each when available
             let Ok(packets) =
                 transport.packet_manager
-                    .build_packets(real_time.elapsed(), tick, single_data, fragment_data) else {
+                    .build_packets_with_compression(real_time.elapsed(), tick, single_data, fragment_data, transport.compression) else {
                 error!("Failed to build packets");
                 return
             };
@@ -389,6 +399,41 @@ impl TransportPlugin {
                 let packet_id = packet.packet_id;
                 let num_messages = packet.num_messages();
                 let packet_len = packet.payload.len();
+                if !transport
+                    .priority_manager
+                    .consume_packet_quota(packet_len as u32)
+                {
+                    // Packets are built from messages ordered by priority. The limiter is checked
+                    // here, after packet building/compression, so quota is charged on final packet
+                    // bytes. Once this packet does not fit, later packets are not higher priority.
+                    //
+                    // Unsent unreliable messages are dropped for this tick. Reliable messages will
+                    // be retried by their channel sender because their ack bookkeeping is only
+                    // updated after a packet is accepted below.
+                    break;
+                }
+                #[cfg(feature = "metrics")]
+                for metadata in packet.messages.iter() {
+                    let channel_name = channel_registry.get_name_from_net_id(metadata.channel);
+                    metrics::gauge!("channel/send_messages", "channel" => channel_name)
+                        .increment(1);
+                    metrics::gauge!("channel/send_bytes", "channel" => channel_name)
+                        .increment(metadata.num_bytes as f64);
+                }
+                if let Some(compression_info) = packet.compression {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("transport/compression_saved_bytes").increment(
+                            (compression_info.original_len - compression_info.compressed_len)
+                                as u64,
+                        );
+                    }
+                    trace!(
+                        original_len = compression_info.original_len,
+                        compressed_len = compression_info.compressed_len,
+                        "transport packet was compressed by packet builder"
+                    );
+                }
                 trace!(
                     target: "lightyear_debug::transport",
                     kind = "packet_send",
@@ -413,9 +458,11 @@ impl TransportPlugin {
                         let sender_metadata = transport.senders
                             .get_mut(channel_kind)
                             .ok_or(PacketError::ChannelNotFound)?;
+                        let Some(message_id) = metadata.message else {
+                            return Ok(());
+                        };
 
-                        // note: cannot compute send metrics here because this is just for messages
-                        //   that have a message id
+                        sender_metadata.messages_sent.push(message_id);
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
@@ -425,13 +472,13 @@ impl TransportPlugin {
                             );
 
                             if let Some(num_fragments) = metadata.num_fragments {
-                                transport.fragment_acks.insert(metadata.message, num_fragments);
+                                transport.fragment_acks.insert(message_id, num_fragments);
                             }
                             transport.packet_to_message_map
                                 .entry(packet.packet_id)
                                 .or_default()
                                 .push((*channel_kind, MessageAck {
-                                    message_id: metadata.message,
+                                    message_id,
                                     fragment_id: metadata.fragment_index,
                                 }));
                             trace!(?transport.packet_to_message_map, "packet to message");
@@ -457,17 +504,6 @@ impl TransportPlugin {
 
             #[cfg(feature = "metrics")]
             metrics::gauge!("transport/send_bytes").increment(total_bytes_sent as f64);
-
-            // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
-            if transport.priority_manager.config.enabled
-                && let Ok(remaining_bytes_to_add) =
-                    (total_bytes_sent - num_bytes_added_to_limiter).try_into()
-                {
-                    let _ = transport
-                        .priority_manager
-                        .limiter
-                        .check_n(remaining_bytes_to_add);
-            }
         });
     }
 

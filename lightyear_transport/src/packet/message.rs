@@ -10,6 +10,8 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::wrapping_id;
 
+use crate::packet::compression::CompressionConfig;
+
 // Internal id that we assign to each message sent over the network
 wrapping_id!(MessageId);
 
@@ -52,6 +54,7 @@ pub struct ReceiveMessage {
     pub(crate) data: MessageData,
     // keep track on the receiver side of the sender tick when the message was actually sent
     pub(crate) remote_sent_tick: Tick,
+    pub(crate) compression: CompressionConfig,
 }
 
 #[derive(Debug, PartialEq)]
@@ -152,8 +155,26 @@ pub(crate) struct FragmentData {
     pub message_id: MessageId,
     pub fragment_id: FragmentIndex,
     pub num_fragments: FragmentIndex,
+    /// Compression mode for the reassembled message. Serialized only on fragment 0.
+    pub compression: Option<FragmentCompression>,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub(crate) enum FragmentCompression {
+    #[default]
+    None,
+    Lz4,
+}
+
+impl FragmentCompression {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Lz4 => "lz4",
+        }
+    }
 }
 
 impl ToBytes for FragmentIndex {
@@ -179,6 +200,11 @@ impl ToBytes for FragmentData {
         self.message_id.bytes_len()
             + self.fragment_id.bytes_len()
             + self.num_fragments.bytes_len()
+            + if self.is_initial_fragment() {
+                FragmentCompression::None.bytes_len()
+            } else {
+                0
+            }
             + self.bytes.bytes_len()
     }
 
@@ -186,6 +212,9 @@ impl ToBytes for FragmentData {
         self.message_id.to_bytes(buffer)?;
         self.fragment_id.to_bytes(buffer)?;
         self.num_fragments.to_bytes(buffer)?;
+        if self.is_initial_fragment() {
+            self.compression.unwrap_or_default().to_bytes(buffer)?;
+        }
         self.bytes.to_bytes(buffer)?;
         Ok(())
     }
@@ -198,17 +227,52 @@ impl ToBytes for FragmentData {
         let message_id = MessageId::from_bytes(buffer)?;
         let fragment_id = FragmentIndex::from_bytes(buffer)?;
         let num_fragments = FragmentIndex::from_bytes(buffer)?;
+        let compression = if fragment_id.0 == 0 {
+            Some(FragmentCompression::from_bytes(buffer)?)
+        } else {
+            None
+        };
         let bytes = Bytes::from_bytes(buffer)?;
         Ok(Self {
             message_id,
             fragment_id,
             num_fragments,
+            compression,
             bytes,
         })
     }
 }
 
+impl ToBytes for FragmentCompression {
+    fn bytes_len(&self) -> usize {
+        1
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        match self {
+            Self::None => 0u8.to_bytes(buffer)?,
+            Self::Lz4 => 1u8.to_bytes(buffer)?,
+        }
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError>
+    where
+        Self: Sized,
+    {
+        match u8::from_bytes(buffer)? {
+            0 => Ok(Self::None),
+            1 => Ok(Self::Lz4),
+            _ => Err(SerializationError::InvalidValue),
+        }
+    }
+}
+
 impl FragmentData {
+    pub(crate) fn is_initial_fragment(&self) -> bool {
+        self.fragment_id.0 == 0
+    }
+
     pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id.0 == self.num_fragments.0 - 1
     }
@@ -252,6 +316,7 @@ mod tests {
             message_id: MessageId(0),
             fragment_id: FragmentIndex(2),
             num_fragments: FragmentIndex(3),
+            compression: None,
             bytes: bytes.clone(),
         };
         let mut writer = vec![];
@@ -262,5 +327,22 @@ mod tests {
         let mut reader = writer.into();
         let decoded = FragmentData::from_bytes(&mut reader).unwrap();
         assert_eq!(decoded, data);
+
+        let initial_data = FragmentData {
+            message_id: MessageId(0),
+            fragment_id: FragmentIndex(0),
+            num_fragments: FragmentIndex(3),
+            compression: Some(FragmentCompression::Lz4),
+            bytes,
+        };
+        let mut writer = vec![];
+        initial_data.to_bytes(&mut writer).unwrap();
+
+        assert_eq!(writer.len(), initial_data.bytes_len());
+        assert_eq!(initial_data.bytes_len(), data.bytes_len() + 1);
+
+        let mut reader = writer.into();
+        let decoded = FragmentData::from_bytes(&mut reader).unwrap();
+        assert_eq!(decoded, initial_data);
     }
 }

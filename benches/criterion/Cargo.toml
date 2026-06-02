@@ -12,7 +12,12 @@ categories = ["game-development", "network-programming"]
 license.workspace = true
 
 [dependencies]
-lightyear = { workspace = true, features = ["interpolation", "metrics", "std"] }
+lightyear = { workspace = true, features = [
+  "compression_lz4",
+  "interpolation",
+  "metrics",
+  "std",
+] }
 lightyear_tests = { workspace = true }
 
 # enable all the bevy defaults:

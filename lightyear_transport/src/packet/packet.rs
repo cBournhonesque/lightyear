@@ -1,5 +1,6 @@
 /// Defines the [`Packet`] struct
 use crate::channel::registry::ChannelId;
+use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentIndex, MessageId};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
@@ -9,38 +10,45 @@ use lightyear_utils::wrapping_id;
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
-const MAX_PACKET_SIZE: usize = 1200;
+pub(crate) const MAX_PACKET_SIZE: usize = 1200;
 /// Number of bytes written by [`PacketHeader::to_bytes`].
 ///
 /// Keep this in sync with `PacketHeader` because [`FRAGMENT_SIZE`] depends on it.
 /// If this value is too small, fragment packets can overflow the 1200-byte MTU even when
 /// the fragment payload itself appears to fit.
-const HEADER_BYTES: usize = 17;
+pub(crate) const HEADER_BYTES: usize = PacketHeader::BYTES;
 
 const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
 const MAX_FRAGMENT_ID_BYTES: usize = 8;
 const MAX_FRAGMENT_COUNT_BYTES: usize = 8;
+const INITIAL_FRAGMENT_COMPRESSION_BYTES: usize = 1;
 const MAX_FRAGMENT_LENGTH_BYTES: usize = varint_len(MAX_PACKET_SIZE as u64);
 const MAX_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
     + 4 // MessageId
     + MAX_FRAGMENT_ID_BYTES
     + MAX_FRAGMENT_COUNT_BYTES
+    + INITIAL_FRAGMENT_COMPRESSION_BYTES
     + MAX_FRAGMENT_LENGTH_BYTES;
 
 /// The maximum number of payload bytes in a transport fragment.
 ///
 /// This reserves enough room for the packet header plus the largest supported encoded fragment
-/// metadata. The receiver assumes every non-final fragment has this fixed size when
-/// reconstructing the original message.
+/// metadata, including the compression marker on fragment 0. The receiver assumes every non-final
+/// fragment has this fixed size when reconstructing the original message.
 pub(crate) const FRAGMENT_SIZE: usize =
     MAX_PACKET_SIZE - HEADER_BYTES - MAX_FRAGMENT_METADATA_BYTES;
 
-/// Metadata about the message included in the packet.
-/// Useful to maintain mappings from channel to message_ids, and packet to message_ids.
+/// Metadata about messages included in a packet.
+///
+/// With the `metrics` feature enabled, this contains every message written into the packet so
+/// channel metrics can be emitted after the final packet passes the bandwidth limiter.
+///
+/// Without `metrics`, this only contains messages with an id, because the send path only needs
+/// packet-local metadata for ack/retry bookkeeping.
 #[derive(Debug, PartialEq)]
 pub(crate) struct MessageMetadata {
     pub(crate) channel: ChannelId,
-    pub(crate) message: MessageId,
+    pub(crate) message: Option<MessageId>,
     // if the message is fragmented, we store the total number of fragments
     pub(crate) fragment_index: Option<FragmentIndex>,
     pub(crate) num_fragments: Option<u64>,
@@ -49,15 +57,25 @@ pub(crate) struct MessageMetadata {
     pub(crate) num_bytes: usize,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct PacketCompressionInfo {
+    pub(crate) original_len: usize,
+    pub(crate) compressed_len: usize,
+}
+
 /// Data structure that will help us write the packet
 #[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) payload: Payload,
-    /// MessageIds contained in the packet so we can map from channel id to message ids
+    /// Packet-local message metadata.
+    ///
+    /// See [`MessageMetadata`] for the feature-dependent rule that decides whether id-less
+    /// messages are recorded.
     pub(crate) messages: Vec<MessageMetadata>,
     pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     pub(crate) prewritten_size: usize,
+    pub(crate) compression: Option<PacketCompressionInfo>,
 }
 
 impl Packet {
@@ -83,6 +101,29 @@ impl Packet {
         self.messages.len()
     }
 
+    pub(crate) fn record_message_metadata(
+        &mut self,
+        channel: ChannelId,
+        message: Option<MessageId>,
+        fragment_index: Option<FragmentIndex>,
+        num_fragments: Option<u64>,
+        #[cfg(feature = "metrics")] num_bytes: usize,
+    ) {
+        // In metrics builds, every message needs metadata so channel/send_* can be emitted only
+        // after the final packet passes bandwidth quota. In non-metrics builds, id-less entries
+        // are skipped to keep packet metadata limited to ack/retry bookkeeping.
+        if cfg!(feature = "metrics") || message.is_some() {
+            self.messages.push(MessageMetadata {
+                channel,
+                message,
+                fragment_index,
+                num_fragments,
+                #[cfg(feature = "metrics")]
+                num_bytes,
+            });
+        }
+    }
+
     #[allow(unused)]
     pub(crate) fn is_empty(&self) -> bool {
         self.messages.is_empty()
@@ -105,8 +146,8 @@ mod tests {
     use crate::channel::builder::{ChannelMode, ChannelSettings};
     use crate::channel::registry::{AppChannelExt, ChannelRegistry};
     use crate::packet::error::PacketError;
-    use lightyear_serde::ToBytes;
-    use lightyear_serde::reader::ReadVarInt;
+    use lightyear_serde::reader::ReadInteger;
+    use lightyear_serde::{SerializationError, ToBytes};
 
     impl Packet {
         /// For tests, parse the packet so that we can inspect the contents
@@ -129,7 +170,7 @@ mod tests {
             // TODO: avoid infinite loop here!
             while cursor.has_remaining() {
                 let channel_id = ChannelId::from_bytes(&mut cursor)?;
-                let num_messages = cursor.read_varint()?;
+                let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
                 for _ in 0..num_messages {
                     let single_data = SingleData::from_bytes(&mut cursor)?;
                     res.entry(channel_id).or_default().push(single_data.bytes);

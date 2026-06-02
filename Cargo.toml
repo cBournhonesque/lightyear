@@ -143,6 +143,11 @@ bincode = { version = "2.0.1", default-features = false, features = [
   "alloc",
 ] }
 bytes = { version = "1.8", default-features = false, features = ["serde"] }
+lz4_flex = { version = "0.13.1", default-features = false, features = [
+  "safe-encode",
+  "safe-decode",
+  "checked-decode",
+] }
 serde = { version = "1", default-features = false, features = [
   "alloc",
   "derive",

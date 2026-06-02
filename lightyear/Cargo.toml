@@ -129,6 +129,8 @@ metrics = [
   "lightyear_udp?/metrics",
 ]
 debug = ["dep:lightyear_tools", "metrics"]
+compression = ["lightyear_transport/compression"]
+compression_lz4 = ["compression", "lightyear_transport/compression_lz4"]
 
 ## INPUTS
 ## Add support for handling inputs where you can define your own input structs

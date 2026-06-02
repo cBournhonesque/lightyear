@@ -2,6 +2,7 @@ use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
+use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{MessageAck, MessageId, SendMessage};
 use crate::prelude::{ChannelMode, ChannelSettings};
 use alloc::collections::VecDeque;
@@ -31,7 +32,12 @@ pub trait ChannelSend {
     /// The priority of the message needs to be specified
     ///
     /// Returns the MessageId of the message that was queued, if there is one
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId>;
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+        compression: CompressionConfig,
+    ) -> Option<MessageId>;
 
     /// Reads from the buffer of messages to send to prepare a list of Packets
     /// that can be sent over the network for this channel

@@ -77,7 +77,8 @@ impl ChannelReceive for SequencedUnreliableReceiver {
                     fragment,
                     message.remote_sent_tick,
                     Some(self.current_time),
-                ) {
+                    message.compression,
+                )? {
                     self.recv_message_buffer
                         .push_back((tick, bytes, message_id));
                 }
@@ -96,6 +97,7 @@ impl ChannelReceive for SequencedUnreliableReceiver {
 mod tests {
     use crate::channel::receivers::ChannelReceive;
     use crate::channel::receivers::sequenced_unreliable::SequencedUnreliableReceiver;
+    use crate::packet::compression::CompressionConfig;
     use crate::packet::error::PacketError;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
     use bytes::Bytes;
@@ -116,6 +118,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: stale.clone().into(),
             remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
@@ -126,6 +129,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single2.clone().into(),
             remote_sent_tick: Tick(2),
+            compression: CompressionConfig::DISABLED,
         })?;
 
         // the message has been buffered, and we can read it instantly
@@ -143,6 +147,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single1.clone().into(),
             remote_sent_tick: Tick(3),
+            compression: CompressionConfig::DISABLED,
         })?;
         // we don't add it to the buffer since we have read a more recent message.
         assert_eq!(receiver.recv_message_buffer.len(), 0);
@@ -153,6 +158,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single3.clone().into(),
             remote_sent_tick: Tick(4),
+            compression: CompressionConfig::DISABLED,
         })?;
         // it's the most recent message so we receive it
         assert_eq!(receiver.recv_message_buffer.len(), 1);

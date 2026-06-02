@@ -50,7 +50,8 @@ impl ChannelReceive for UnorderedUnreliableReceiver {
                     fragment,
                     message.remote_sent_tick,
                     Some(self.current_time),
-                ) {
+                    message.compression,
+                )? {
                     self.recv_message_buffer.push_back(data);
                 }
             }
@@ -71,6 +72,7 @@ mod tests {
 
     use crate::channel::receivers::ChannelReceive;
     use crate::channel::receivers::error::ChannelReceiveError;
+    use crate::packet::compression::CompressionConfig;
     use crate::packet::message::{MessageId, SingleData};
 
     use super::*;
@@ -87,6 +89,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single2.clone().into(),
             remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
         })?;
 
         // it still gets read
@@ -101,6 +104,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single2.clone().into(),
             remote_sent_tick: Tick(2),
+            compression: CompressionConfig::DISABLED,
         })?;
 
         // we process the message
@@ -115,6 +119,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single1.clone().into(),
             remote_sent_tick: Tick(3),
+            compression: CompressionConfig::DISABLED,
         })?;
 
         // we process the message

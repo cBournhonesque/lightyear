@@ -6,3 +6,4 @@
 #![allow(dead_code)]
 pub mod measurements;
 pub mod profiler;
+pub mod transport_compression;

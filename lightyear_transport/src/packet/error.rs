@@ -12,4 +12,12 @@ pub enum PacketError {
     ChannelNotFound,
     #[error("receiver channel error: {0}")]
     ChannelReceiveError(#[from] ChannelReceiveError),
+    #[error("compression is not supported by this build or transport configuration")]
+    UnsupportedCompression,
+    #[error("compressed packet payload could not be decompressed")]
+    DecompressionFailed,
+    #[error("decompressed packet payload size {actual} exceeds configured limit {limit}")]
+    DecompressedPayloadTooLarge { actual: usize, limit: usize },
+    #[error("packet size {actual} exceeds MTU {mtu}")]
+    PacketTooLarge { actual: usize, mtu: usize },
 }

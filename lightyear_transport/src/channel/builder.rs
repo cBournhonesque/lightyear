@@ -3,6 +3,7 @@ use crate::channel::receivers::ChannelReceiverEnum;
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
+use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
@@ -63,6 +64,7 @@ pub struct Transport {
     pub priority_manager: PriorityManager,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
+    pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
     // - when we receive a packet, go through all messages and check which ones match the packet? there shouldn't be too many
@@ -95,6 +97,7 @@ impl Transport {
             senders: Default::default(),
             priority_manager: PriorityManager::new(priority_config),
             packet_manager: PacketBuilder::default(),
+            compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
             fragment_acks: Default::default(),
             send_channel,
@@ -102,6 +105,15 @@ impl Transport {
             send: vec![],
             recv: vec![],
         }
+    }
+
+    pub fn with_compression(mut self, compression: CompressionConfig) -> Self {
+        self.compression = compression;
+        self
+    }
+
+    pub fn set_compression(&mut self, compression: CompressionConfig) {
+        self.compression = compression;
     }
 }
 
@@ -233,7 +245,9 @@ impl Transport {
             .senders
             .get_mut(&kind)
             .ok_or(TransportError::ChannelNotFound(kind))?;
-        let message_id = sender_metadata.sender.buffer_send(bytes, priority);
+        let message_id = sender_metadata
+            .sender
+            .buffer_send(bytes, priority, self.compression);
         Ok(message_id)
     }
 
@@ -414,3 +428,211 @@ pub struct InputChannel;
 /// Channel to send messages related to Authority transfers
 /// This is an Ordered Reliable channel
 pub struct AuthorityChannel;
+
+#[cfg(all(test, feature = "compression_lz4"))]
+mod tests {
+    use super::*;
+    use crate::channel::receivers::ChannelReceive;
+    use crate::packet::compression::decompress_payload;
+    use crate::packet::error::PacketError;
+    use crate::packet::header::PacketHeader;
+    use crate::packet::message::{
+        FragmentCompression, FragmentData, MessageData, ReceiveMessage, SingleData,
+    };
+    use crate::packet::packet::{FRAGMENT_SIZE, Packet};
+    use crate::packet::packet_type::PacketType;
+    use alloc::collections::VecDeque;
+    use bytes::Bytes;
+    use lightyear_core::tick::Tick;
+    use lightyear_serde::reader::{ReadInteger, Reader};
+    use lightyear_serde::{SerializationError, ToBytes};
+
+    struct CompressionChannel;
+
+    #[test]
+    fn compressed_fragmented_message_round_trips_through_sender_packet_builder_and_receiver()
+    -> Result<(), PacketError> {
+        let compression = CompressionConfig {
+            min_payload_size: 0,
+            max_decompressed_payload_size: FRAGMENT_SIZE * 4,
+            ..CompressionConfig::LZ4
+        };
+        let settings = ChannelSettings {
+            mode: ChannelMode::SequencedUnreliable,
+            ..ChannelSettings::default()
+        };
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<CompressionChannel>(settings);
+
+        let mut sender_transport =
+            Transport::new(PriorityConfig::default()).with_compression(compression);
+        sender_transport.add_sender::<CompressionChannel>(
+            (&settings).into(),
+            settings.mode,
+            channel_id,
+        );
+
+        let mut receiver_transport =
+            Transport::new(PriorityConfig::default()).with_compression(compression);
+        receiver_transport.add_receiver::<CompressionChannel>((&settings).into(), channel_id);
+
+        let message = Bytes::from(vec![7u8; FRAGMENT_SIZE * 3]);
+        let message_id = sender_transport
+            .send_mut_erased(channel_kind, message.clone(), 1.0)
+            .unwrap()
+            .unwrap();
+
+        let sender = &mut sender_transport
+            .senders
+            .get_mut(&channel_kind)
+            .unwrap()
+            .sender;
+        let (single_messages, fragment_messages) = sender.send_packet();
+        assert!(single_messages.is_empty());
+        assert!(!fragment_messages.is_empty());
+
+        let fragments = fragment_messages
+            .into_iter()
+            .map(|message| match message.data {
+                MessageData::Fragment(fragment) => fragment,
+                MessageData::Single(_) => panic!("oversized message should be fragmented"),
+            })
+            .collect::<VecDeque<_>>();
+        assert!(fragments.len() < 3);
+        assert_eq!(fragments[0].compression, Some(FragmentCompression::Lz4));
+        assert!(
+            fragments
+                .iter()
+                .skip(1)
+                .all(|fragment| fragment.compression.is_none())
+        );
+
+        let packets = sender_transport
+            .packet_manager
+            .build_packets_with_compression(
+                Duration::default(),
+                Tick(0),
+                vec![],
+                vec![(channel_id, fragments)],
+                compression,
+            )?;
+        assert!(!packets.is_empty());
+
+        for packet in packets {
+            buffer_packet_into_receivers(&mut receiver_transport, packet, compression)?;
+        }
+
+        let receiver = &mut receiver_transport
+            .receivers
+            .get_mut(&channel_id)
+            .unwrap()
+            .receiver;
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(0), message, Some(message_id)))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn bandwidth_limiter_uses_compressed_packet_size_after_packing() -> Result<(), PacketError> {
+        let compression = CompressionConfig {
+            min_payload_size: 0,
+            ..CompressionConfig::LZ4
+        };
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            ..ChannelSettings::default()
+        };
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<CompressionChannel>(settings);
+        let mut transport = Transport::new(PriorityConfig::new(600)).with_compression(compression);
+        transport.add_sender::<CompressionChannel>((&settings).into(), settings.mode, channel_id);
+
+        for _ in 0..8 {
+            transport
+                .send_mut_erased(channel_kind, Bytes::from(vec![5u8; 200]), 1.0)
+                .unwrap();
+        }
+
+        let sender = &mut transport.senders.get_mut(&channel_kind).unwrap().sender;
+        let (single_messages, fragment_messages) = sender.send_packet();
+        assert_eq!(single_messages.len(), 8);
+        assert!(fragment_messages.is_empty());
+        transport
+            .priority_manager
+            .buffer_messages(channel_id, single_messages, fragment_messages);
+
+        let (single_data, fragment_data) = transport.priority_manager.prioritize(&registry);
+        let packets = transport.packet_manager.build_packets_with_compression(
+            Duration::default(),
+            Tick(0),
+            single_data,
+            fragment_data,
+            compression,
+        )?;
+
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].num_messages(), 8);
+        assert!(packets[0].compression.is_some());
+        assert!(packets[0].payload.len() <= 600);
+        assert!(
+            transport
+                .priority_manager
+                .consume_packet_quota(packets[0].payload.len() as u32)
+        );
+        Ok(())
+    }
+
+    fn buffer_packet_into_receivers(
+        transport: &mut Transport,
+        packet: Packet,
+        compression: CompressionConfig,
+    ) -> Result<(), PacketError> {
+        let mut cursor = Reader::from(packet.payload);
+        let header = PacketHeader::from_bytes(&mut cursor)?;
+        let tick = header.tick;
+        let mut packet_type = header.get_packet_type();
+        if packet_type.is_compressed() {
+            let compressed_payload = cursor.split();
+            let decompressed_payload =
+                decompress_payload(compressed_payload.as_ref(), compression)?;
+            cursor = Reader::from(decompressed_payload);
+            packet_type = packet_type.uncompressed_variant();
+        }
+
+        if packet_type == PacketType::DataFragment {
+            let channel_id = ChannelId::from_bytes(&mut cursor)?;
+            let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+            transport
+                .receivers
+                .get_mut(&channel_id)
+                .ok_or(PacketError::ChannelNotFound)?
+                .receiver
+                .buffer_recv(ReceiveMessage {
+                    data: fragment_data.into(),
+                    remote_sent_tick: tick,
+                    compression,
+                })?;
+        }
+
+        while cursor.has_remaining() {
+            let channel_id = ChannelId::from_bytes(&mut cursor)?;
+            let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
+            for _ in 0..num_messages {
+                let single_data = SingleData::from_bytes(&mut cursor)?;
+                transport
+                    .receivers
+                    .get_mut(&channel_id)
+                    .ok_or(PacketError::ChannelNotFound)?
+                    .receiver
+                    .buffer_recv(ReceiveMessage {
+                        data: single_data.into(),
+                        remote_sent_tick: tick,
+                        compression,
+                    })?;
+            }
+        }
+        Ok(())
+    }
+}

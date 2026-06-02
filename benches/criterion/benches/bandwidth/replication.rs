@@ -3,7 +3,7 @@
 
 use bevy::prelude::With;
 use core::time::Duration;
-use lightyear::prelude::{GLOBAL_RECORDER, MetricsRegistry, NetworkTarget, Replicate, Replicating};
+use lightyear::prelude::{GLOBAL_RECORDER, MetricsRegistry, NetworkTarget, Replicate};
 use std::ops::Deref;
 use std::time::Instant;
 
@@ -100,7 +100,7 @@ fn send_float_update_one_client(criterion: &mut Criterion<Bandwidth>) {
         for mut component in stepper
             .server_app
             .world_mut()
-            .query_filtered::<&mut CompFull, With<Replicating>>()
+            .query_filtered::<&mut CompFull, With<Replicate>>()
             .iter_mut(stepper.server_app.world_mut())
         {
             component.0 = 0.0;
