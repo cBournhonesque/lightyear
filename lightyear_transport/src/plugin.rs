@@ -399,6 +399,13 @@ impl TransportPlugin {
                     .priority_manager
                     .consume_packet_quota(packet_len as u32)
                 {
+                    // Packets are built from messages ordered by priority. The limiter is checked
+                    // here, after packet building/compression, so quota is charged on final packet
+                    // bytes. Once this packet does not fit, later packets are not higher priority.
+                    //
+                    // Unsent unreliable messages are dropped for this tick. Reliable messages will
+                    // be retried by their channel sender because their ack bookkeeping is only
+                    // updated after a packet is accepted below.
                     break;
                 }
                 #[cfg(feature = "metrics")]
