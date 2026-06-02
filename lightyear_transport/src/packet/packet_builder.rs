@@ -95,6 +95,8 @@ impl PacketBuilder {
         self.current_packet = Some(Packet {
             payload: cursor,
             messages: vec![],
+            #[cfg(feature = "metrics")]
+            message_stats: vec![],
             packet_id: header.packet_id,
             prewritten_size: 0,
             compression: None,
@@ -128,6 +130,11 @@ impl PacketBuilder {
                 fragment_index: Some(fragment_data.fragment_id),
                 num_fragments: Some(fragment_data.num_fragments.0),
                 #[cfg(feature = "metrics")]
+                num_bytes: fragment_data.bytes.len(),
+            }],
+            #[cfg(feature = "metrics")]
+            message_stats: vec![crate::packet::packet::PacketMessageStats {
+                channel: ChannelId::from(channel_id),
                 num_bytes: fragment_data.bytes.len(),
             }],
             packet_id: header.packet_id,
@@ -398,6 +405,8 @@ impl PacketBuilder {
             for _ in 0..*num_messages {
                 // TODO: deal with error
                 let message = messages.pop_front().unwrap();
+                #[cfg(feature = "metrics")]
+                let message_bytes = message.bytes_len();
                 message.to_bytes(&mut packet.payload)?;
                 packet.prewritten_size = packet
                     .prewritten_size
@@ -411,9 +420,11 @@ impl PacketBuilder {
                         fragment_index: None,
                         num_fragments: None,
                         #[cfg(feature = "metrics")]
-                        num_bytes: message.bytes_len(),
+                        num_bytes: message_bytes,
                     });
                 }
+                #[cfg(feature = "metrics")]
+                packet.record_message_stats(channel_id, message_bytes);
             }
             *num_messages = 0;
         }
@@ -463,7 +474,13 @@ impl PacketBuilder {
                 });
             }
 
-            Self::append_single_messages(&mut packet, *channel_id, single_messages, fit_count)?;
+            Self::append_single_messages(
+                &mut packet,
+                *channel_id,
+                single_messages,
+                fit_count,
+                true,
+            )?;
             for _ in 0..fit_count {
                 single_messages.pop_front();
             }
@@ -585,11 +602,13 @@ impl PacketBuilder {
         let mut candidate = Packet {
             payload: packet.payload.clone(),
             messages: Vec::new(),
+            #[cfg(feature = "metrics")]
+            message_stats: Vec::new(),
             packet_id: packet.packet_id,
             prewritten_size: 0,
             compression: None,
         };
-        Self::append_single_messages(&mut candidate, channel_id, messages, count)?;
+        Self::append_single_messages(&mut candidate, channel_id, messages, count, false)?;
         Ok(candidate)
     }
 
@@ -598,11 +617,14 @@ impl PacketBuilder {
         channel_id: ChannelId,
         messages: &VecDeque<SingleData>,
         count: usize,
+        _record_stats: bool,
     ) -> Result<(), SerializationError> {
         debug_assert!(count <= MAX_MESSAGES_PER_CHANNEL_BATCH);
         channel_id.to_bytes(&mut packet.payload)?;
         packet.payload.write_u8(count as u8)?;
         for message in messages.iter().take(count) {
+            #[cfg(feature = "metrics")]
+            let message_bytes = message.bytes_len();
             message.to_bytes(&mut packet.payload)?;
             if let Some(id) = message.id {
                 packet.messages.push(MessageMetadata {
@@ -611,8 +633,12 @@ impl PacketBuilder {
                     fragment_index: None,
                     num_fragments: None,
                     #[cfg(feature = "metrics")]
-                    num_bytes: message.bytes_len(),
+                    num_bytes: message_bytes,
                 });
+            }
+            #[cfg(feature = "metrics")]
+            if _record_stats {
+                packet.record_message_stats(channel_id, message_bytes);
             }
         }
         Ok(())
@@ -750,6 +776,8 @@ mod tests {
     use crate::packet::message::{FragmentIndex, MessageId};
     #[cfg(feature = "compression_lz4")]
     use crate::packet::packet::HEADER_BYTES;
+    #[cfg(feature = "metrics")]
+    use crate::packet::packet::PacketMessageStats;
     use bytes::Bytes;
 
     use super::*;
@@ -834,6 +862,28 @@ mod tests {
         assert_eq!(packets.len(), 1);
         let packet = packets.pop().unwrap();
         assert_eq!(packet.messages, vec![]);
+        #[cfg(feature = "metrics")]
+        assert_eq!(
+            packet.message_stats,
+            vec![
+                PacketMessageStats {
+                    channel: *channel_id1,
+                    num_bytes: small_message.bytes_len(),
+                },
+                PacketMessageStats {
+                    channel: *channel_id2,
+                    num_bytes: small_message.bytes_len(),
+                },
+                PacketMessageStats {
+                    channel: *channel_id2,
+                    num_bytes: small_message.bytes_len(),
+                },
+                PacketMessageStats {
+                    channel: *channel_id3,
+                    num_bytes: small_message.bytes_len(),
+                },
+            ]
+        );
         let contents = packet.parse_packet_payload()?;
         assert_eq!(
             contents.get(channel_id1).unwrap(),
@@ -927,6 +977,28 @@ mod tests {
         Ok(())
     }
 
+    #[cfg(feature = "metrics")]
+    #[test]
+    fn compression_candidate_packets_do_not_record_message_stats() {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let messages = VecDeque::from(vec![
+            SingleData::new(None, Bytes::from(vec![7u8; 32])),
+            SingleData::new(None, Bytes::from(vec![8u8; 32])),
+        ]);
+
+        let mut manager = PacketBuilder::new(1.5);
+        manager
+            .build_new_single_packet(Duration::default(), Tick(0))
+            .unwrap();
+        let packet = manager.current_packet.take().unwrap();
+        let candidate = PacketBuilder::candidate_packet(&packet, *channel_id, &messages, 2)
+            .expect("candidate packet should serialize");
+
+        assert!(candidate.message_stats.is_empty());
+    }
+
     #[cfg(feature = "compression_lz4")]
     #[test]
     fn compression_aware_packing_can_pack_beyond_uncompressed_mtu() -> Result<(), PacketError> {
@@ -964,6 +1036,13 @@ mod tests {
 
         assert_eq!(packets.len(), 1);
         assert!(packets[0].payload.len() <= MAX_PACKET_SIZE);
+        #[cfg(feature = "metrics")]
+        {
+            assert_eq!(packets[0].message_stats.len(), 128);
+            assert!(packets[0].message_stats.iter().all(|stats| {
+                stats.channel == *channel_id && stats.num_bytes == small_message.bytes_len()
+            }));
+        }
         assert_eq!(
             PacketType::try_from(packets[0].payload[PacketHeader::PACKET_TYPE_OFFSET])?,
             PacketType::DataCompressed

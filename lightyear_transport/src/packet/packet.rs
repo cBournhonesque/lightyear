@@ -50,6 +50,13 @@ pub(crate) struct MessageMetadata {
     pub(crate) num_bytes: usize,
 }
 
+#[cfg(feature = "metrics")]
+#[derive(Debug, PartialEq)]
+pub(crate) struct PacketMessageStats {
+    pub(crate) channel: ChannelId,
+    pub(crate) num_bytes: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct PacketCompressionInfo {
     pub(crate) original_len: usize,
@@ -62,6 +69,8 @@ pub(crate) struct Packet {
     pub(crate) payload: Payload,
     /// MessageIds contained in the packet so we can map from channel id to message ids
     pub(crate) messages: Vec<MessageMetadata>,
+    #[cfg(feature = "metrics")]
+    pub(crate) message_stats: Vec<PacketMessageStats>,
     pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     pub(crate) prewritten_size: usize,
@@ -89,6 +98,12 @@ impl Packet {
 
     pub(crate) fn num_messages(&self) -> usize {
         self.messages.len()
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_message_stats(&mut self, channel: ChannelId, num_bytes: usize) {
+        self.message_stats
+            .push(PacketMessageStats { channel, num_bytes });
     }
 
     #[allow(unused)]

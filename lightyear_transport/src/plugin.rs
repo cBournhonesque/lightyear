@@ -401,6 +401,14 @@ impl TransportPlugin {
                 {
                     break;
                 }
+                #[cfg(feature = "metrics")]
+                for stats in packet.message_stats.iter() {
+                    let channel_name = channel_registry.get_name_from_net_id(stats.channel);
+                    metrics::gauge!("channel/send_messages", "channel" => channel_name)
+                        .increment(1);
+                    metrics::gauge!("channel/send_bytes", "channel" => channel_name)
+                        .increment(stats.num_bytes as f64);
+                }
                 if let Some(compression_info) = packet.compression {
                     #[cfg(feature = "metrics")]
                     {

@@ -5,8 +5,6 @@ use alloc::{vec, vec::Vec};
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
 use lightyear_core::network::NetId;
-#[cfg(feature = "metrics")]
-use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
@@ -112,12 +110,6 @@ impl PriorityManager {
             let mut single_data = vec![];
             let mut fragment_data = vec![];
             for (net_id, (single, fragment)) in self.data_to_send.drain(..) {
-                #[cfg(feature = "metrics")]
-                let channel_name = channel_registry.get_name_from_net_id(net_id);
-                #[cfg(feature = "metrics")]
-                metrics::gauge!("channel/send_messages", "channel" => channel_name)
-                    .increment((single.len() + fragment.len()) as f64);
-
                 single_data.push((
                     net_id,
                     single
@@ -126,11 +118,6 @@ impl PriorityManager {
                             let MessageData::Single(single) = message.data else {
                                 unreachable!()
                             };
-                            #[cfg(feature = "metrics")]
-                            {
-                                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                                    .increment(single.bytes_len() as f64);
-                            }
                             single
                         })
                         .collect(),
@@ -143,11 +130,6 @@ impl PriorityManager {
                             let MessageData::Fragment(fragment) = message.data else {
                                 unreachable!()
                             };
-                            #[cfg(feature = "metrics")]
-                            {
-                                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                                    .increment(fragment.bytes_len() as f64);
-                            }
                             fragment
                         })
                         .collect(),
@@ -198,15 +180,6 @@ impl PriorityManager {
         let mut fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)> = vec![];
         while let Some(buffered_message) = all_messages.pop() {
             trace!(channel=?buffered_message.channel_net_id, "Selected message with priority {:?}", buffered_message.priority);
-
-            #[cfg(feature = "metrics")]
-            {
-                let channel_name =
-                    channel_registry.get_name_from_net_id(buffered_message.channel_net_id);
-                metrics::gauge!("channel/send_messages", "channel" => channel_name).increment(1);
-                metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                    .increment(buffered_message.data.bytes_len() as f64);
-            }
 
             // the message is allowed, add it to the list of messages to send
             match buffered_message.data {
