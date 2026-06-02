@@ -61,6 +61,7 @@ lightyear_crossbeam.workspace = true
 lightyear_connection = { workspace = true, features = ["client", "server"] }
 lightyear_sync = { workspace = true, features = ["client", "server"] }
 lightyear_prediction = { workspace = true, features = ["deterministic"] }
+lightyear_interpolation.workspace = true
 lightyear_deterministic_replication.workspace = true
 lightyear_inputs = { workspace = true, features = ["client", "server"] }
 lightyear_inputs_leafwing.workspace = true

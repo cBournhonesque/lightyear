@@ -8,6 +8,7 @@ mod deterministic;
 mod hierarchy;
 mod input;
 mod messages;
+mod op_delta;
 mod prediction;
 mod replication;
 // mod replication_advanced;

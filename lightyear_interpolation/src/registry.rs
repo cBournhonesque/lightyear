@@ -1,6 +1,7 @@
 use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
 use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
+use alloc::format;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::{component::Component, resource::Resource};
 use bevy_math::{
@@ -10,11 +11,13 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::RepliconTick;
-use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
+use bevy_replicon::postcard_utils;
+use bevy_replicon::prelude::{AppMarkerExt, OpDeltaComponent, RepliconTick, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::op_delta::{OpDeltaReceiver, OpDeltaWire};
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+use bevy_utils::prelude::DebugName;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
@@ -85,6 +88,42 @@ impl InterpolationRegistry {
 }
 
 fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
+    register_interpolated_marker_fns_with::<C>(
+        app,
+        write_history::<C>,
+        remove_history::<C>,
+        InterpolatedMarkerRegistration::InsertIfMissing,
+    );
+}
+
+fn register_interpolated_marker_fns_op_delta<C: SyncComponent + OpDeltaComponent>(
+    app: &mut bevy_app::App,
+) {
+    register_interpolated_marker_fns_with::<C>(
+        app,
+        write_history_op_delta::<C>,
+        remove_history_op_delta::<C>,
+        InterpolatedMarkerRegistration::ReplaceExisting,
+    );
+}
+
+#[derive(Clone, Copy)]
+enum InterpolatedMarkerRegistration {
+    InsertIfMissing,
+    ReplaceExisting,
+}
+
+fn register_interpolated_marker_fns_with<C: SyncComponent>(
+    app: &mut bevy_app::App,
+    write: fn(
+        &mut WriteCtx,
+        &RuleFns<C>,
+        &mut DeferredEntity,
+        &mut Bytes,
+    ) -> bevy_ecs::error::Result<()>,
+    remove: fn(&mut RemoveCtx, &mut DeferredEntity),
+    registration: InterpolatedMarkerRegistration,
+) {
     if !app
         .world()
         .contains_resource::<InterpolatedMarkerFnRegistry>()
@@ -97,18 +136,27 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
         let registry = app.world().resource::<InterpolatedMarkerFnRegistry>();
         registry.kinds.contains(&kind)
     };
-    if already_registered {
+    if already_registered
+        && matches!(
+            registration,
+            InterpolatedMarkerRegistration::InsertIfMissing
+        )
+    {
         return;
     }
-    app.register_marker_with::<Interpolated>(MarkerConfig {
-        priority: 100,
-        need_history: true,
-    });
-    app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
-    app.world_mut()
-        .resource_mut::<InterpolatedMarkerFnRegistry>()
-        .kinds
-        .insert(kind);
+    if !already_registered {
+        app.register_marker_with::<Interpolated>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+    }
+    app.set_marker_fns::<Interpolated, C>(write, remove);
+    if !already_registered {
+        app.world_mut()
+            .resource_mut::<InterpolatedMarkerFnRegistry>()
+            .kinds
+            .insert(kind);
+    }
 }
 
 fn resolve_message_tick(
@@ -155,6 +203,12 @@ pub trait InterpolationRegistrationExt<C> {
     fn add_custom_interpolation(self) -> Self
     where
         C: SyncComponent;
+
+    /// Like [`Self::add_custom_interpolation`], but for components replicated through
+    /// Replicon's op-delta rule.
+    fn add_custom_interpolation_op_delta(self) -> Self
+    where
+        C: SyncComponent + OpDeltaComponent;
 }
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
@@ -162,7 +216,6 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        register_interpolated_marker_fns::<C>(self.app);
         if !self
             .app
             .world()
@@ -189,6 +242,7 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
         C: SyncComponent,
     {
         self = self.register_interpolation_fn(interpolation_fn);
+        register_interpolated_marker_fns::<C>(self.app);
         add_prepare_interpolation_systems::<C>(self.app);
         add_interpolation_systems::<C>(self.app);
 
@@ -217,6 +271,44 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     {
         let kind = ComponentKind::of::<C>();
         register_interpolated_marker_fns::<C>(self.app);
+        if !self
+            .app
+            .world()
+            .contains_resource::<InterpolationRegistry>()
+        {
+            self.app
+                .world_mut()
+                .insert_resource(InterpolationRegistry::default());
+        }
+        let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
+        registry
+            .interpolation_map
+            .entry(kind)
+            .and_modify(|r| r.custom_interpolation = true)
+            .or_insert_with(|| InterpolationMetadata {
+                interpolation: None,
+                custom_interpolation: true,
+            });
+        add_prepare_interpolation_systems::<C>(self.app);
+
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        registry
+            .component_metadata_map
+            .get_mut(&ComponentKind::of::<C>())
+            .unwrap()
+            .replication
+            .as_mut()
+            .unwrap()
+            .set_interpolated(true);
+        self
+    }
+
+    fn add_custom_interpolation_op_delta(self) -> Self
+    where
+        C: SyncComponent + OpDeltaComponent,
+    {
+        let kind = ComponentKind::of::<C>();
+        register_interpolated_marker_fns_op_delta::<C>(self.app);
         if !self
             .app
             .world()
@@ -287,6 +379,95 @@ fn write_history<C: Component<Mutability = Mutable>>(
     Ok(())
 }
 
+fn write_history_op_delta<C: Component<Mutability = Mutable> + Clone + OpDeltaComponent>(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<()> {
+    let Some(component) = op_delta_interpolation_component::<C>(entity, message)? else {
+        return Ok(());
+    };
+    push_confirmed_history(ctx, entity, component)
+}
+
+fn op_delta_interpolation_component<
+    C: Component<Mutability = Mutable> + Clone + OpDeltaComponent,
+>(
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<Option<C>> {
+    match postcard_utils::from_buf(message)? {
+        OpDeltaWire::<C, C::Op>::Snapshot { cursor, value } => {
+            entity.insert(OpDeltaReceiver::<C>::new(cursor));
+            Ok(Some(value))
+        }
+        OpDeltaWire::<C, C::Op>::Ops { ops, .. } => {
+            let ready_ops = {
+                let mut receiver = entity.get_mut::<OpDeltaReceiver<C>>().ok_or_else(|| {
+                    format!(
+                        "received op-delta operations for `{}` before an interpolation snapshot",
+                        DebugName::type_name::<C>()
+                    )
+                })?;
+                receiver.queue_and_take_ready(ops)
+            };
+            if ready_ops.is_empty() {
+                return Ok(None);
+            }
+
+            let mut value = entity
+                .get::<ConfirmedHistory<C>>()
+                .and_then(|history| history.newest())
+                .map(|(_, value)| value.clone())
+                .or_else(|| entity.get::<C>().map(|value| value.clone()))
+                .ok_or_else(|| {
+                    format!(
+                        "received op-delta operations for `{}` without a confirmed interpolation base",
+                        DebugName::type_name::<C>()
+                    )
+                })?;
+            for op in ready_ops {
+                value.apply_op(&op)?;
+            }
+            Ok(Some(value))
+        }
+    }
+}
+
+fn push_confirmed_history<C: Component<Mutability = Mutable>>(
+    ctx: &mut WriteCtx,
+    entity: &mut DeferredEntity,
+    component: C,
+) -> bevy_ecs::error::Result<()> {
+    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+    let checkpoints = {
+        let world = unsafe { entity.world_mut() };
+        let checkpoints =
+            world.resource::<ReplicationCheckpointMap>() as *const ReplicationCheckpointMap;
+        unsafe { &*checkpoints }
+    };
+    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+        error!(
+            message_tick = ?ctx.message_tick,
+            "missing authoritative checkpoint mapping while writing interpolation history"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while writing interpolation history"
+        );
+        return Ok(());
+    };
+    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
+        history.push(tick, component);
+    } else {
+        let mut history = ConfirmedHistory::<C>::default();
+        history.push(tick, component);
+        entity.insert(history);
+    }
+    Ok(())
+}
+
 /// Records a component removal in `ConfirmedHistory<C>`.
 ///
 /// The live component is removed later by interpolation systems once the interpolation timeline
@@ -317,6 +498,14 @@ fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity
         history.push_remove(tick);
         entity.insert(history);
     }
+}
+
+fn remove_history_op_delta<C: Component + OpDeltaComponent>(
+    ctx: &mut RemoveCtx,
+    entity: &mut DeferredEntity,
+) {
+    entity.remove::<OpDeltaReceiver<C>>();
+    remove_history::<C>(ctx, entity);
 }
 
 #[cfg(test)]

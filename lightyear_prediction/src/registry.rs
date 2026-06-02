@@ -6,7 +6,6 @@ use crate::plugin::{
 };
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
-#[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
 use bevy_ecs::component::ComponentId;
@@ -18,8 +17,10 @@ use bevy_math::{
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::{AppMarkerExt, RepliconTick, RuleFns};
+use bevy_replicon::postcard_utils;
+use bevy_replicon::prelude::{AppMarkerExt, OpDeltaComponent, RepliconTick, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::op_delta::{OpDeltaReceiver, OpDeltaWire};
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
@@ -456,6 +457,15 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
+    /// Enable prediction for an op-delta replicated component.
+    ///
+    /// Replicon mutation payloads for these components can contain operation
+    /// deltas instead of full component snapshots, so confirmed writes must
+    /// reconstruct a component value before storing it in `PredictionHistory<C>`.
+    fn add_prediction_op_delta(self) -> Self
+    where
+        C: SyncComponent + OpDeltaComponent;
+
     /// Register `write_history` as the default replicon receive function for
     /// this component, so that replicated values are stored in
     /// `PredictionHistory<C>` as confirmed state (and optionally trigger a
@@ -609,6 +619,54 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self
     }
 
+    fn add_prediction_op_delta(self) -> Self
+    where
+        C: SyncComponent + OpDeltaComponent,
+    {
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
+            trace!(
+                "Skipping op-delta prediction registration for component {:?} because PredictionPlugin is not present",
+                DebugName::type_name::<C>()
+            );
+            return self;
+        }
+        self.app.register_marker_with::<Predicted>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app.set_marker_fns::<Predicted, C>(
+            write_history_op_delta::<C>,
+            remove_history_op_delta::<C>,
+        );
+        self.app.register_marker_with::<PreSpawned>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app.set_marker_fns::<PreSpawned, C>(
+            write_history_op_delta::<C>,
+            remove_history_op_delta::<C>,
+        );
+        let history_id = self
+            .app
+            .world_mut()
+            .register_component::<PredictionHistory<C>>();
+        let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
+        trace!(
+            "Adding op-delta prediction for component {:?}",
+            DebugName::type_name::<C>()
+        );
+        registry.register::<C>(history_id);
+        add_prediction_systems::<C>(self.app);
+
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        let metadata = registry
+            .component_metadata_map
+            .get_mut(&ComponentKind::of::<C>())
+            .unwrap();
+        metadata.replication.as_mut().unwrap().set_predicted(true);
+        self
+    }
+
     fn enable_correction(self) -> Self
     where
         C: SyncComponent,
@@ -733,6 +791,68 @@ fn write_history<C: SyncComponent>(
     Ok(())
 }
 
+fn write_history_op_delta<C: SyncComponent + OpDeltaComponent>(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<()> {
+    let Some(component) = op_delta_prediction_component::<C>(entity, message)? else {
+        return Ok(());
+    };
+    let (tick, should_rollback) =
+        add_confirmed_to_history(ctx.message_tick, Some(component), entity, true)?;
+    if should_rollback {
+        // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
+        unsafe { entity.world_mut() }
+            .resource_mut::<StateRollbackMetadata>()
+            .record_mismatch(tick);
+    }
+    Ok(())
+}
+
+fn op_delta_prediction_component<C: SyncComponent + OpDeltaComponent>(
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<Option<C>> {
+    match postcard_utils::from_buf(message)? {
+        OpDeltaWire::<C, C::Op>::Snapshot { cursor, value } => {
+            entity.insert(OpDeltaReceiver::<C>::new(cursor));
+            Ok(Some(value))
+        }
+        OpDeltaWire::<C, C::Op>::Ops { ops, .. } => {
+            let ready_ops = {
+                let mut receiver = entity.get_mut::<OpDeltaReceiver<C>>().ok_or_else(|| {
+                    format!(
+                        "received op-delta operations for `{}` before a prediction snapshot",
+                        DebugName::type_name::<C>()
+                    )
+                })?;
+                receiver.queue_and_take_ready(ops)
+            };
+            if ready_ops.is_empty() {
+                return Ok(None);
+            }
+
+            let mut value = entity
+                .get::<PredictionHistory<C>>()
+                .and_then(|history| history.last_confirmed())
+                .and_then(|state| state.value())
+                .cloned()
+                .ok_or_else(|| {
+                    format!(
+                        "received op-delta operations for `{}` without a confirmed prediction base",
+                        DebugName::type_name::<C>()
+                    )
+                })?;
+            for op in ready_ops {
+                value.apply_op(&op)?;
+            }
+            Ok(Some(value))
+        }
+    }
+}
+
 fn add_confirmed_to_history<C: SyncComponent>(
     message_tick: RepliconTick,
     confirmed_component: Option<C>,
@@ -828,6 +948,14 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
             .resource_mut::<StateRollbackMetadata>()
             .record_mismatch(tick);
     }
+}
+
+fn remove_history_op_delta<C: SyncComponent + OpDeltaComponent>(
+    ctx: &mut RemoveCtx,
+    entity: &mut DeferredEntity,
+) {
+    entity.remove::<OpDeltaReceiver<C>>();
+    remove_history::<C>(ctx, entity);
 }
 
 /// Variant of [`write_history`] used by `add_confirmed_write`.
