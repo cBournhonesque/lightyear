@@ -426,3 +426,68 @@ pub struct InputChannel;
 /// Channel to send messages related to Authority transfers
 /// This is an Ordered Reliable channel
 pub struct AuthorityChannel;
+
+#[cfg(all(test, feature = "compression_lz4"))]
+mod tests {
+    use super::*;
+    use crate::packet::error::PacketError;
+    use bytes::Bytes;
+    use lightyear_core::tick::Tick;
+
+    struct LimiterCompressionChannel;
+
+    #[test]
+    fn bandwidth_limiter_uses_compressed_packet_size_after_packing() -> Result<(), PacketError> {
+        let compression = CompressionConfig {
+            min_payload_size: 0,
+            ..CompressionConfig::LZ4
+        };
+        let settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliableWithAcks,
+            ..ChannelSettings::default()
+        };
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) =
+            registry.add_channel::<LimiterCompressionChannel>(settings);
+        let mut transport = Transport::new(PriorityConfig::new(600)).with_compression(compression);
+        transport.add_sender::<LimiterCompressionChannel>(
+            (&settings).into(),
+            settings.mode,
+            channel_id,
+        );
+
+        for _ in 0..8 {
+            transport
+                .send_mut_erased(channel_kind, Bytes::from(vec![5u8; 200]), 1.0)
+                .unwrap();
+        }
+
+        let sender = &mut transport.senders.get_mut(&channel_kind).unwrap().sender;
+        let (single_messages, fragment_messages) = sender.send_packet();
+        assert_eq!(single_messages.len(), 8);
+        assert!(fragment_messages.is_empty());
+        transport
+            .priority_manager
+            .buffer_messages(channel_id, single_messages, fragment_messages);
+
+        let (single_data, fragment_data) = transport.priority_manager.prioritize(&registry);
+        let packets = transport.packet_manager.build_packets_with_compression(
+            Duration::default(),
+            Tick(0),
+            single_data,
+            fragment_data,
+            compression,
+        )?;
+
+        assert_eq!(packets.len(), 1);
+        assert_eq!(packets[0].num_messages(), 8);
+        assert!(packets[0].compression.is_some());
+        assert!(packets[0].payload.len() <= 600);
+        assert!(
+            transport
+                .priority_manager
+                .consume_packet_quota(packets[0].payload.len() as u32)
+        );
+        Ok(())
+    }
+}

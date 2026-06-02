@@ -3,12 +3,10 @@ use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
 use crate::channel::senders::ChannelSend;
 use crate::error::TransportError;
-use crate::packet::compression::{CompressionOutcome, decompress_payload, try_compress_packet};
+use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
-#[cfg(feature = "metrics")]
-use crate::packet::packet::MAX_PACKET_SIZE;
 use crate::packet::packet_type::PacketType;
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
@@ -378,10 +376,9 @@ impl TransportPlugin {
                 }
             });
 
-            // get the list of messages that we can send according to the bandwidth limiter
-            let (single_data, fragment_data, num_bytes_added_to_limiter) = transport
-                .priority_manager
-                .priority_filter(&channel_registry, &mut transport.senders);
+            // get the list of messages to pack, ordered by priority
+            let (single_data, fragment_data) =
+                transport.priority_manager.prioritize(&channel_registry);
 
             // build actual packets from these messages
             // TODO: swap to try_for_each when available
@@ -394,78 +391,30 @@ impl TransportPlugin {
 
             let mut total_bytes_sent = 0;
             for mut packet in packets {
-                let compression_info = packet.compression;
-                match try_compress_packet(&mut packet, transport.compression) {
-                    Ok(CompressionOutcome::Compressed {
-                        original_len,
-                        compressed_len,
-                    }) => {
-                        #[cfg(feature = "metrics")]
-                        {
-                            metrics::counter!("transport/compression_saved_bytes")
-                                .increment((original_len - compressed_len) as u64);
-                        }
-                        trace!(
-                            original_len,
-                            compressed_len,
-                            "compressed transport packet payload"
-                        );
-                    }
-                    Ok(CompressionOutcome::Disabled) => {}
-                    Ok(CompressionOutcome::AlreadyCompressed) => {
-                        if let Some(compression_info) = compression_info {
-                            #[cfg(feature = "metrics")]
-                            {
-                                metrics::counter!("transport/compression_saved_bytes")
-                                    .increment((compression_info.original_len - compression_info.compressed_len) as u64);
-                            }
-                            trace!(
-                                original_len = compression_info.original_len,
-                                compressed_len = compression_info.compressed_len,
-                                "transport packet was already compressed by packet builder"
-                            );
-                        }
-                    }
-                    Ok(CompressionOutcome::TooSmall { .. })
-                    | Ok(CompressionOutcome::TooLargeForDecompressionLimit { .. }) => {
-                        #[cfg(feature = "metrics")]
-                        if transport.compression.is_enabled() {
-                            metrics::counter!("transport/compression_skipped").increment(1);
-                        }
-                    }
-                    Ok(CompressionOutcome::NotSmaller {
-                        original_len,
-                        compressed_len,
-                    }) => {
-                        #[cfg(feature = "metrics")]
-                        if transport.compression.is_enabled() {
-                            metrics::counter!("transport/compression_abandoned").increment(1);
-                            metrics::counter!("transport/compression_skipped").increment(1);
-                            if compressed_len > original_len {
-                                metrics::counter!("transport/compression_expanded_packets")
-                                    .increment(1);
-                            }
-                            if compressed_len > MAX_PACKET_SIZE {
-                                metrics::counter!("transport/compression_above_mtu_packets")
-                                    .increment(1);
-                            }
-                        }
-                        trace!(
-                            original_len,
-                            compressed_len,
-                            "skipped transport packet compression because output was not smaller"
-                        );
-                    }
-                    Err(error) => {
-                        #[cfg(feature = "metrics")]
-                        metrics::counter!("transport/compression_errors").increment(1);
-                        error!("Failed to compress packet payload: {error:?}");
-                    }
-                }
                 trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
                 let packet_id = packet.packet_id;
                 let num_messages = packet.num_messages();
                 let packet_len = packet.payload.len();
+                if !transport
+                    .priority_manager
+                    .consume_packet_quota(packet_len as u32)
+                {
+                    break;
+                }
+                if let Some(compression_info) = packet.compression {
+                    #[cfg(feature = "metrics")]
+                    {
+                        metrics::counter!("transport/compression_saved_bytes").increment(
+                            (compression_info.original_len - compression_info.compressed_len)
+                                as u64,
+                        );
+                    }
+                    trace!(
+                        original_len = compression_info.original_len,
+                        compressed_len = compression_info.compressed_len,
+                        "transport packet was compressed by packet builder"
+                    );
+                }
                 trace!(
                     target: "lightyear_debug::transport",
                     kind = "packet_send",
@@ -493,6 +442,7 @@ impl TransportPlugin {
 
                         // note: cannot compute send metrics here because this is just for messages
                         //   that have a message id
+                        sender_metadata.messages_sent.push(metadata.message);
                         if sender_metadata.mode.is_watching_acks() {
                             trace!(
                                 "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
@@ -534,17 +484,6 @@ impl TransportPlugin {
 
             #[cfg(feature = "metrics")]
             metrics::gauge!("transport/send_bytes").increment(total_bytes_sent as f64);
-
-            // adjust the real amount of bytes that we sent through the limiter (to account for the actual packet size)
-            if transport.priority_manager.config.enabled
-                && let Ok(remaining_bytes_to_add) =
-                    (total_bytes_sent - num_bytes_added_to_limiter).try_into()
-                {
-                    let _ = transport
-                        .priority_manager
-                        .limiter
-                        .check_n(remaining_bytes_to_add);
-            }
         });
     }
 
