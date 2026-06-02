@@ -1383,7 +1383,7 @@ mod tests {
             message_id: MessageId(7),
             fragment_id: FragmentIndex(0),
             num_fragments: FragmentIndex(1),
-            compression: FragmentCompression::None,
+            compression: Some(FragmentCompression::None),
             bytes: Bytes::from(vec![2u8; 512]),
         };
         let mut packets = manager.build_packets(

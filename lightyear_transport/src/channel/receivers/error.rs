@@ -21,6 +21,8 @@ pub enum ChannelReceiveError {
         expected: &'static str,
         actual: &'static str,
     },
+    #[error("fragmented message completed before receiving compression metadata")]
+    MissingFragmentCompression,
     #[error("fragment uses unsupported compression: {compression}")]
     UnsupportedFragmentCompression { compression: &'static str },
     #[error("compressed fragment payload could not be decompressed")]

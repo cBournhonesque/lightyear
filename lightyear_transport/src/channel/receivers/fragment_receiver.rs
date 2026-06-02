@@ -63,24 +63,20 @@ impl FragmentReceiver {
 
         let message_id = fragment.message_id;
         let fragment_compression = fragment.compression;
-        let fragment_message = self.fragment_messages.entry(message_id).or_insert_with(|| {
-            FragmentConstructor::new(
-                remote_sent_tick,
-                num_fragments as usize,
-                fragment_compression,
-            )
-        });
+        let fragment_message = self
+            .fragment_messages
+            .entry(message_id)
+            .or_insert_with(|| FragmentConstructor::new(remote_sent_tick, num_fragments as usize));
         if fragment_message.num_fragments != num_fragments as usize {
             return Err(ChannelReceiveError::FragmentCountMismatch {
                 expected: fragment_message.num_fragments,
                 actual: num_fragments as usize,
             });
         }
-        if fragment_message.compression != fragment_compression {
-            return Err(ChannelReceiveError::FragmentCompressionMismatch {
-                expected: fragment_message.compression.as_str(),
-                actual: fragment_compression.as_str(),
-            });
+        if let Some(fragment_compression) = fragment_compression {
+            fragment_message.set_compression(fragment_compression)?;
+        } else if fragment_index == 0 {
+            return Err(ChannelReceiveError::MissingFragmentCompression);
         }
 
         // completed the fragmented message!
@@ -89,6 +85,9 @@ impl FragmentReceiver {
             fragment.bytes.as_ref(),
             current_time,
         )? {
+            let fragment_compression = fragment_message
+                .compression
+                .ok_or(ChannelReceiveError::MissingFragmentCompression)?;
             self.fragment_messages.remove(&message_id);
             let (tick, payload) = payload;
             return decompress_fragment_payload(fragment_compression, payload, compression)
@@ -109,21 +108,35 @@ pub struct FragmentConstructor {
     bytes: Vec<u8>,
 
     tick: Tick,
-    compression: FragmentCompression,
+    compression: Option<FragmentCompression>,
     last_received: Option<Duration>,
 }
 
 impl FragmentConstructor {
-    pub fn new(tick: Tick, num_fragments: usize, compression: FragmentCompression) -> Self {
+    pub fn new(tick: Tick, num_fragments: usize) -> Self {
         Self {
             num_fragments,
             num_received_fragments: 0,
             received: vec![false; num_fragments],
             bytes: vec![0; num_fragments * FRAGMENT_SIZE],
             tick,
-            compression,
+            compression: None,
             last_received: None,
         }
+    }
+
+    pub fn set_compression(&mut self, compression: FragmentCompression) -> Result<()> {
+        if let Some(expected) = self.compression {
+            if expected != compression {
+                return Err(ChannelReceiveError::FragmentCompressionMismatch {
+                    expected: expected.as_str(),
+                    actual: compression.as_str(),
+                });
+            }
+        } else {
+            self.compression = Some(compression);
+        }
+        Ok(())
     }
 
     pub fn receive_fragment(
@@ -246,8 +259,8 @@ mod tests {
 
         assert_eq!(
             receiver.receive_fragment(
-                fragments[0].clone(),
-                Tick(0),
+                fragments[1].clone(),
+                Tick(1),
                 None,
                 CompressionConfig::DISABLED
             )?,
@@ -255,12 +268,12 @@ mod tests {
         );
         assert_eq!(
             receiver.receive_fragment(
-                fragments[1].clone(),
-                Tick(1),
+                fragments[0].clone(),
+                Tick(0),
                 None,
                 CompressionConfig::DISABLED
             )?,
-            Some((Tick(0), message_bytes.clone()))
+            Some((Tick(1), message_bytes.clone()))
         );
         Ok(())
     }
@@ -282,10 +295,12 @@ mod tests {
         );
 
         assert!(fragments.len() < 3);
+        assert_eq!(fragments[0].compression, Some(FragmentCompression::Lz4));
         assert!(
             fragments
                 .iter()
-                .all(|fragment| fragment.compression == FragmentCompression::Lz4)
+                .skip(1)
+                .all(|fragment| fragment.compression.is_none())
         );
 
         let mut result = None;

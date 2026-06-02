@@ -499,10 +499,12 @@ mod tests {
             })
             .collect::<VecDeque<_>>();
         assert!(fragments.len() < 3);
+        assert_eq!(fragments[0].compression, Some(FragmentCompression::Lz4));
         assert!(
             fragments
                 .iter()
-                .all(|fragment| fragment.compression == FragmentCompression::Lz4)
+                .skip(1)
+                .all(|fragment| fragment.compression.is_none())
         );
 
         let packets = sender_transport

@@ -155,7 +155,8 @@ pub(crate) struct FragmentData {
     pub message_id: MessageId,
     pub fragment_id: FragmentIndex,
     pub num_fragments: FragmentIndex,
-    pub compression: FragmentCompression,
+    /// Compression mode for the reassembled message. Serialized only on fragment 0.
+    pub compression: Option<FragmentCompression>,
     /// Bytes data associated with the message that is too big
     pub bytes: Bytes,
 }
@@ -199,7 +200,11 @@ impl ToBytes for FragmentData {
         self.message_id.bytes_len()
             + self.fragment_id.bytes_len()
             + self.num_fragments.bytes_len()
-            + self.compression.bytes_len()
+            + if self.is_initial_fragment() {
+                FragmentCompression::None.bytes_len()
+            } else {
+                0
+            }
             + self.bytes.bytes_len()
     }
 
@@ -207,7 +212,9 @@ impl ToBytes for FragmentData {
         self.message_id.to_bytes(buffer)?;
         self.fragment_id.to_bytes(buffer)?;
         self.num_fragments.to_bytes(buffer)?;
-        self.compression.to_bytes(buffer)?;
+        if self.is_initial_fragment() {
+            self.compression.unwrap_or_default().to_bytes(buffer)?;
+        }
         self.bytes.to_bytes(buffer)?;
         Ok(())
     }
@@ -220,7 +227,11 @@ impl ToBytes for FragmentData {
         let message_id = MessageId::from_bytes(buffer)?;
         let fragment_id = FragmentIndex::from_bytes(buffer)?;
         let num_fragments = FragmentIndex::from_bytes(buffer)?;
-        let compression = FragmentCompression::from_bytes(buffer)?;
+        let compression = if fragment_id.0 == 0 {
+            Some(FragmentCompression::from_bytes(buffer)?)
+        } else {
+            None
+        };
         let bytes = Bytes::from_bytes(buffer)?;
         Ok(Self {
             message_id,
@@ -258,6 +269,10 @@ impl ToBytes for FragmentCompression {
 }
 
 impl FragmentData {
+    pub(crate) fn is_initial_fragment(&self) -> bool {
+        self.fragment_id.0 == 0
+    }
+
     pub(crate) fn is_last_fragment(&self) -> bool {
         self.fragment_id.0 == self.num_fragments.0 - 1
     }
@@ -301,7 +316,7 @@ mod tests {
             message_id: MessageId(0),
             fragment_id: FragmentIndex(2),
             num_fragments: FragmentIndex(3),
-            compression: FragmentCompression::None,
+            compression: None,
             bytes: bytes.clone(),
         };
         let mut writer = vec![];
@@ -312,5 +327,22 @@ mod tests {
         let mut reader = writer.into();
         let decoded = FragmentData::from_bytes(&mut reader).unwrap();
         assert_eq!(decoded, data);
+
+        let initial_data = FragmentData {
+            message_id: MessageId(0),
+            fragment_id: FragmentIndex(0),
+            num_fragments: FragmentIndex(3),
+            compression: Some(FragmentCompression::Lz4),
+            bytes,
+        };
+        let mut writer = vec![];
+        initial_data.to_bytes(&mut writer).unwrap();
+
+        assert_eq!(writer.len(), initial_data.bytes_len());
+        assert_eq!(initial_data.bytes_len(), data.bytes_len() + 1);
+
+        let mut reader = writer.into();
+        let decoded = FragmentData::from_bytes(&mut reader).unwrap();
+        assert_eq!(decoded, initial_data);
     }
 }

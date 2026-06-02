@@ -16,6 +16,11 @@ pub enum PacketType {
     Data = 0,
     DataFragment = 1,
     DataCompressed = 2,
+    /// A packet containing a fragment, where packet-level compression is enabled
+    /// for the non-fragment data.
+    ///
+    /// Compression for the fragment payload itself is tracked separately in the
+    /// fragment metadata serialized on the first fragment.
     DataFragmentCompressed = 3,
 }
 

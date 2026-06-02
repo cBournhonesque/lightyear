@@ -21,20 +21,20 @@ pub(crate) const HEADER_BYTES: usize = PacketHeader::BYTES;
 const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
 const MAX_FRAGMENT_ID_BYTES: usize = 8;
 const MAX_FRAGMENT_COUNT_BYTES: usize = 8;
-const FRAGMENT_COMPRESSION_BYTES: usize = 1;
+const INITIAL_FRAGMENT_COMPRESSION_BYTES: usize = 1;
 const MAX_FRAGMENT_LENGTH_BYTES: usize = varint_len(MAX_PACKET_SIZE as u64);
 const MAX_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
     + 4 // MessageId
     + MAX_FRAGMENT_ID_BYTES
     + MAX_FRAGMENT_COUNT_BYTES
-    + FRAGMENT_COMPRESSION_BYTES
+    + INITIAL_FRAGMENT_COMPRESSION_BYTES
     + MAX_FRAGMENT_LENGTH_BYTES;
 
 /// The maximum number of payload bytes in a transport fragment.
 ///
 /// This reserves enough room for the packet header plus the largest supported encoded fragment
-/// metadata. The receiver assumes every non-final fragment has this fixed size when
-/// reconstructing the original message.
+/// metadata, including the compression marker on fragment 0. The receiver assumes every non-final
+/// fragment has this fixed size when reconstructing the original message.
 pub(crate) const FRAGMENT_SIZE: usize =
     MAX_PACKET_SIZE - HEADER_BYTES - MAX_FRAGMENT_METADATA_BYTES;
 
