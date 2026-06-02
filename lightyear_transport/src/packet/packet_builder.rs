@@ -757,6 +757,8 @@ mod tests {
     use crate::packet::error::PacketError;
     #[cfg(feature = "compression_lz4")]
     use crate::packet::header::PacketHeader;
+    #[cfg(feature = "compression_lz4")]
+    use crate::packet::message::FragmentCompression;
     use crate::packet::message::{FragmentIndex, MessageId};
     #[cfg(feature = "compression_lz4")]
     use crate::packet::packet::HEADER_BYTES;
@@ -1381,6 +1383,7 @@ mod tests {
             message_id: MessageId(7),
             fragment_id: FragmentIndex(0),
             num_fragments: FragmentIndex(1),
+            compression: FragmentCompression::None,
             bytes: Bytes::from(vec![2u8; 512]),
         };
         let mut packets = manager.build_packets(

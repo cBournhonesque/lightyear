@@ -69,7 +69,8 @@ impl ChannelReceive for SequencedReliableReceiver {
                         fragment,
                         message.remote_sent_tick,
                         None,
-                    ) {
+                        message.compression,
+                    )? {
                         entry.insert(res);
                     }
                 }
@@ -93,6 +94,7 @@ mod tests {
     use bytes::Bytes;
 
     use crate::channel::receivers::ChannelReceive;
+    use crate::packet::compression::CompressionConfig;
     use crate::packet::message::SingleData;
 
     use super::*;
@@ -114,6 +116,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: stale.clone().into(),
             remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
@@ -124,6 +127,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single2.clone().into(),
             remote_sent_tick: Tick(2),
+            compression: CompressionConfig::DISABLED,
         })?;
 
         // we process the message
@@ -142,6 +146,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single1.clone().into(),
             remote_sent_tick: Tick(3),
+            compression: CompressionConfig::DISABLED,
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
         assert_eq!(receiver.read_message(), None);

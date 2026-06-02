@@ -1,7 +1,11 @@
-use crate::packet::message::{FragmentData, FragmentIndex, MessageId};
+use crate::packet::compression::{
+    CompressionConfig, PayloadCompressionCandidate, try_build_compressed_payload,
+};
+use crate::packet::message::{FragmentCompression, FragmentData, FragmentIndex, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
 use alloc::vec::Vec;
 use bytes::Bytes;
+use tracing::trace;
 
 /// `FragmentReceiver` is used to reconstruct fragmented messages
 #[derive(Debug)]
@@ -21,12 +25,59 @@ impl FragmentSender {
         fragment_message_id: MessageId,
         fragment_bytes: Bytes,
     ) -> Vec<FragmentData> {
-        if fragment_bytes.len() <= FRAGMENT_SIZE {
+        if fragment_bytes.len() <= self.fragment_size {
             unreachable!(
                 "Message size must be at least {} to need to be fragmented",
-                FRAGMENT_SIZE
+                self.fragment_size
             );
         }
+        self.build_fragments_with_compression(
+            fragment_message_id,
+            fragment_bytes,
+            FragmentCompression::None,
+        )
+    }
+
+    pub(crate) fn build_fragments_for_message(
+        &self,
+        fragment_message_id: MessageId,
+        message: Bytes,
+        compression: CompressionConfig,
+    ) -> Vec<FragmentData> {
+        if message.len() <= self.fragment_size {
+            unreachable!(
+                "Message size must be at least {} to need to be fragmented",
+                self.fragment_size
+            );
+        }
+
+        if let Ok(PayloadCompressionCandidate::Compressed {
+            payload,
+            original_len,
+            compressed_len,
+        }) = try_build_compressed_payload(message.as_ref(), compression)
+            && let Some(fragment_compression) = fragment_compression(compression)
+        {
+            trace!(
+                original_len,
+                compressed_len, "compressed fragmented message payload"
+            );
+            return self.build_fragments_with_compression(
+                fragment_message_id,
+                Bytes::from(payload),
+                fragment_compression,
+            );
+        }
+
+        self.build_fragments(fragment_message_id, message)
+    }
+
+    fn build_fragments_with_compression(
+        &self,
+        fragment_message_id: MessageId,
+        fragment_bytes: Bytes,
+        compression: FragmentCompression,
+    ) -> Vec<FragmentData> {
         let chunks = fragment_bytes.chunks(self.fragment_size);
         let num_fragments = chunks.len();
         chunks
@@ -36,9 +87,20 @@ impl FragmentSender {
                 message_id: fragment_message_id,
                 fragment_id: FragmentIndex(fragment_index as u64),
                 num_fragments: FragmentIndex(num_fragments as u64),
+                compression,
                 bytes: fragment_bytes.slice_ref(chunk),
             })
             .collect::<_>()
+    }
+}
+
+fn fragment_compression(compression: CompressionConfig) -> Option<FragmentCompression> {
+    match compression.algorithm {
+        #[cfg(feature = "compression_lz4")]
+        Some(crate::packet::compression::CompressionAlgorithm::Lz4) => {
+            Some(FragmentCompression::Lz4)
+        }
+        None => None,
     }
 }
 
@@ -69,6 +131,7 @@ mod tests {
                 message_id,
                 fragment_id: FragmentIndex(0),
                 num_fragments: FragmentIndex(expected_num_fragments as u64),
+                compression: FragmentCompression::None,
                 bytes: bytes.slice(0..FRAGMENT_SIZE),
             }
         );
@@ -78,6 +141,7 @@ mod tests {
                 message_id,
                 fragment_id: FragmentIndex(1),
                 num_fragments: FragmentIndex(expected_num_fragments as u64),
+                compression: FragmentCompression::None,
                 bytes: bytes.slice(FRAGMENT_SIZE..2 * FRAGMENT_SIZE),
             }
         );
@@ -88,6 +152,7 @@ mod tests {
                 // tick: None,
                 fragment_id: FragmentIndex(2),
                 num_fragments: FragmentIndex(expected_num_fragments as u64),
+                compression: FragmentCompression::None,
                 bytes: bytes.slice(2 * FRAGMENT_SIZE..),
             }
         );

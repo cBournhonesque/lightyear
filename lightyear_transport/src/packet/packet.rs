@@ -21,11 +21,13 @@ pub(crate) const HEADER_BYTES: usize = PacketHeader::BYTES;
 const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
 const MAX_FRAGMENT_ID_BYTES: usize = 8;
 const MAX_FRAGMENT_COUNT_BYTES: usize = 8;
+const FRAGMENT_COMPRESSION_BYTES: usize = 1;
 const MAX_FRAGMENT_LENGTH_BYTES: usize = varint_len(MAX_PACKET_SIZE as u64);
 const MAX_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
     + 4 // MessageId
     + MAX_FRAGMENT_ID_BYTES
     + MAX_FRAGMENT_COUNT_BYTES
+    + FRAGMENT_COMPRESSION_BYTES
     + MAX_FRAGMENT_LENGTH_BYTES;
 
 /// The maximum number of payload bytes in a transport fragment.

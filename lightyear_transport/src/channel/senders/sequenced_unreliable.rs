@@ -1,5 +1,6 @@
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use alloc::collections::VecDeque;
 use bevy_time::{Real, Time, Timer, TimerMode};
@@ -50,10 +51,18 @@ impl ChannelSend for SequencedUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+        compression: CompressionConfig,
+    ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
-            for fragment in self.fragment_sender.build_fragments(message_id, message) {
+            for fragment in
+                self.fragment_sender
+                    .build_fragments_for_message(message_id, message, compression)
+            {
                 self.fragmented_messages_to_send.push_back(SendMessage {
                     data: MessageData::Fragment(fragment),
                     priority,
@@ -97,7 +106,9 @@ mod tests {
         let mut sender = SequencedUnreliableSender::new(Duration::from_secs(1));
         assert!(sender.timer.as_ref().is_some_and(|t| !t.is_finished()));
 
-        sender.buffer_send(Bytes::from("hello"), 1.0).unwrap();
+        sender
+            .buffer_send(Bytes::from("hello"), 1.0, CompressionConfig::DISABLED)
+            .unwrap();
 
         // we do not send because we didn't reach the timer
         let (single, _) = sender.send_packet();

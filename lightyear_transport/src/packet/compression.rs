@@ -102,6 +102,27 @@ pub(crate) enum CompressionCandidate {
     },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum PayloadCompressionCandidate {
+    Disabled,
+    TooSmall {
+        payload_len: usize,
+    },
+    TooLargeForDecompressionLimit {
+        payload_len: usize,
+        limit: usize,
+    },
+    NotSmaller {
+        original_len: usize,
+        compressed_len: usize,
+    },
+    Compressed {
+        payload: Vec<u8>,
+        original_len: usize,
+        compressed_len: usize,
+    },
+}
+
 /// Try to compress the packet payload body in place.
 ///
 /// The packet is only modified if the compressed final packet is strictly smaller than the original
@@ -148,9 +169,9 @@ pub(crate) fn try_build_compressed_packet_payload(
     packet_payload: &[u8],
     config: CompressionConfig,
 ) -> Result<CompressionCandidate, PacketError> {
-    let Some(algorithm) = config.algorithm else {
+    if config.algorithm.is_none() {
         return Ok(CompressionCandidate::Disabled);
-    };
+    }
 
     if packet_payload.len() <= HEADER_BYTES {
         return Ok(CompressionCandidate::TooSmall { payload_len: 0 });
@@ -161,36 +182,81 @@ pub(crate) fn try_build_compressed_packet_payload(
         return Ok(CompressionCandidate::AlreadyCompressed);
     };
 
-    let payload_len = packet_payload.len() - HEADER_BYTES;
+    match try_build_compressed_payload(&packet_payload[HEADER_BYTES..], config)? {
+        PayloadCompressionCandidate::Disabled => Ok(CompressionCandidate::Disabled),
+        PayloadCompressionCandidate::TooSmall { payload_len } => {
+            Ok(CompressionCandidate::TooSmall { payload_len })
+        }
+        PayloadCompressionCandidate::TooLargeForDecompressionLimit { payload_len, limit } => {
+            Ok(CompressionCandidate::TooLargeForDecompressionLimit { payload_len, limit })
+        }
+        PayloadCompressionCandidate::NotSmaller {
+            original_len,
+            compressed_len,
+        } => Ok(CompressionCandidate::NotSmaller {
+            original_len: HEADER_BYTES + original_len,
+            compressed_len: HEADER_BYTES + compressed_len,
+        }),
+        PayloadCompressionCandidate::Compressed {
+            payload: compressed_payload,
+            original_len,
+            compressed_len,
+        } => {
+            let compressed_packet_len = HEADER_BYTES + compressed_len;
+            let original_packet_len = HEADER_BYTES + original_len;
+            if compressed_packet_len > MAX_PACKET_SIZE {
+                return Ok(CompressionCandidate::NotSmaller {
+                    original_len: original_packet_len,
+                    compressed_len: compressed_packet_len,
+                });
+            }
+
+            let mut payload = Vec::with_capacity(compressed_packet_len);
+            payload.extend_from_slice(&packet_payload[..HEADER_BYTES]);
+            payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
+            payload.extend_from_slice(&compressed_payload);
+
+            Ok(CompressionCandidate::Compressed {
+                payload,
+                original_len: original_packet_len,
+                compressed_len: compressed_packet_len,
+            })
+        }
+    }
+}
+
+pub(crate) fn try_build_compressed_payload(
+    payload: &[u8],
+    config: CompressionConfig,
+) -> Result<PayloadCompressionCandidate, PacketError> {
+    let Some(algorithm) = config.algorithm else {
+        return Ok(PayloadCompressionCandidate::Disabled);
+    };
+
+    let payload_len = payload.len();
     if payload_len < config.min_payload_size {
-        return Ok(CompressionCandidate::TooSmall { payload_len });
+        return Ok(PayloadCompressionCandidate::TooSmall { payload_len });
     }
     if payload_len > config.max_decompressed_payload_size {
-        return Ok(CompressionCandidate::TooLargeForDecompressionLimit {
+        return Ok(PayloadCompressionCandidate::TooLargeForDecompressionLimit {
             payload_len,
             limit: config.max_decompressed_payload_size,
         });
     }
 
-    let compressed_payload = compress_payload(&packet_payload[HEADER_BYTES..], algorithm);
-    let compressed_len = HEADER_BYTES + compressed_payload.len();
-    let original_len = packet_payload.len();
+    let compressed_payload = compress_payload(payload, algorithm);
+    let compressed_len = compressed_payload.len();
 
-    if compressed_len >= original_len || compressed_len > MAX_PACKET_SIZE {
-        return Ok(CompressionCandidate::NotSmaller {
-            original_len,
+    if compressed_len >= payload_len {
+        return Ok(PayloadCompressionCandidate::NotSmaller {
+            original_len: payload_len,
             compressed_len,
         });
     }
 
-    let mut payload = Vec::with_capacity(compressed_len);
-    payload.extend_from_slice(&packet_payload[..HEADER_BYTES]);
-    payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
-    payload.extend_from_slice(&compressed_payload);
-
-    Ok(CompressionCandidate::Compressed {
-        payload,
-        original_len,
+    Ok(PayloadCompressionCandidate::Compressed {
+        payload: compressed_payload,
+        original_len: payload_len,
         compressed_len,
     })
 }

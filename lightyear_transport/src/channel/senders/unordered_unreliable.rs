@@ -4,6 +4,7 @@ use core::time::Duration;
 
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use lightyear_link::LinkStats;
@@ -51,12 +52,18 @@ impl ChannelSend for UnorderedUnreliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+        compression: CompressionConfig,
+    ) -> Option<MessageId> {
         if message.len() > self.fragment_sender.fragment_size {
-            for fragment in self
-                .fragment_sender
-                .build_fragments(self.next_send_fragmented_message_id, message)
-            {
+            for fragment in self.fragment_sender.build_fragments_for_message(
+                self.next_send_fragmented_message_id,
+                message,
+                compression,
+            ) {
                 self.fragmented_messages_to_send.push_back(SendMessage {
                     data: MessageData::Fragment(fragment),
                     priority,

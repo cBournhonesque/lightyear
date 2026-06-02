@@ -220,6 +220,7 @@ impl TransportPlugin {
                                 .buffer_recv(ReceiveMessage {
                                     data: fragment_data.into(),
                                     remote_sent_tick: tick,
+                                    compression: transport.compression,
                                 })?;
                         }
                         // read single message data
@@ -269,6 +270,7 @@ impl TransportPlugin {
                                     .buffer_recv(ReceiveMessage {
                                         data: single_data.into(),
                                         remote_sent_tick: tick,
+                                        compression: transport.compression,
                                     })?;
                             }
                         }
@@ -361,7 +363,9 @@ impl TransportPlugin {
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
                 let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
                 // TODO: do we need the message_id?
-                sender_metadata.sender.buffer_send(bytes, priority);
+                sender_metadata
+                    .sender
+                    .buffer_send(bytes, priority, transport.compression);
                 Ok::<(), TransportError>(())
             }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
 

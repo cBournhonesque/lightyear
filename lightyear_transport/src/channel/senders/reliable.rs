@@ -6,6 +6,7 @@ use bevy_time::{Real, Time, Timer, TimerMode};
 use crate::channel::builder::ReliableSettings;
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
 use bytes::Bytes;
 use core::time::Duration;
@@ -110,10 +111,17 @@ impl ChannelSend for ReliableSender {
 
     /// Add a new message to the buffer of messages to be sent.
     /// This is a client-facing function, to be called when you want to send a message
-    fn buffer_send(&mut self, message: Bytes, priority: f32) -> Option<MessageId> {
+    fn buffer_send(
+        &mut self,
+        message: Bytes,
+        priority: f32,
+        compression: CompressionConfig,
+    ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
-            let fragments = self.fragment_sender.build_fragments(message_id, message);
+            let fragments =
+                self.fragment_sender
+                    .build_fragments_for_message(message_id, message, compression);
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -314,7 +322,9 @@ mod tests {
 
         // Buffer a new message
         let message1 = Bytes::from("hello");
-        sender.buffer_send(message1.clone(), 1.0).unwrap();
+        sender
+            .buffer_send(message1.clone(), 1.0, CompressionConfig::DISABLED)
+            .unwrap();
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent

@@ -63,7 +63,8 @@ impl ChannelReceive for OrderedReliableReceiver {
                         fragment,
                         message.remote_sent_tick,
                         None,
-                    ) {
+                        message.compression,
+                    )? {
                         entry.insert(res);
                     }
                 }
@@ -93,6 +94,7 @@ impl ChannelReceive for OrderedReliableReceiver {
 mod tests {
     use crate::channel::receivers::ChannelReceive;
     use crate::channel::receivers::ordered_reliable::OrderedReliableReceiver;
+    use crate::packet::compression::CompressionConfig;
     use crate::packet::error::PacketError;
     use crate::packet::message::{MessageId, ReceiveMessage, SingleData};
     use bytes::Bytes;
@@ -113,6 +115,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: stale.clone().into(),
             remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
 
@@ -123,6 +126,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single2.clone().into(),
             remote_sent_tick: Tick(2),
+            compression: CompressionConfig::DISABLED,
         })?;
 
         // the message has been buffered, but we are not processing it yet
@@ -137,6 +141,7 @@ mod tests {
         receiver.buffer_recv(ReceiveMessage {
             data: single1.clone().into(),
             remote_sent_tick: Tick(3),
+            compression: CompressionConfig::DISABLED,
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 2);
 
