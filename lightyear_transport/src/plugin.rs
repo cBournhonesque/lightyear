@@ -399,6 +399,7 @@ impl TransportPlugin {
                 let packet_id = packet.packet_id;
                 let num_messages = packet.num_messages();
                 let packet_len = packet.payload.len();
+                let packet_compression = packet.compression;
                 if !transport
                     .priority_manager
                     .consume_packet_quota(packet_len as u32)
@@ -443,6 +444,11 @@ impl TransportPlugin {
                     local_tick = tick.0,
                     bytes = packet_len,
                     num_messages,
+                    compression_enabled = transport.compression.is_enabled(),
+                    compression_algorithm = ?transport.compression.algorithm,
+                    packet_compressed = packet_compression.is_some(),
+                    compression_original_len = packet_compression.map_or(0, |info| info.original_len),
+                    compression_compressed_len = packet_compression.map_or(0, |info| info.compressed_len),
                     "sending transport packet"
                 );
 
