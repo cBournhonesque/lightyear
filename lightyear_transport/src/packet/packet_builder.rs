@@ -1,8 +1,8 @@
 //! Module to take a buffer of messages to send and build packets
 use crate::channel::registry::ChannelId;
 use crate::packet::compression::{
-    CompressionCandidate, CompressionConfig, try_build_compressed_packet_payload,
-    try_compress_packet,
+    CompressionCandidate, CompressionConfig, CompressionOutcome,
+    try_build_compressed_packet_payload, try_compress_packet,
 };
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
@@ -196,12 +196,18 @@ impl PacketBuilder {
         compression: CompressionConfig,
     ) -> Result<Vec<Packet>, PacketError> {
         if !compression.is_enabled() {
-            return Ok(self.build_packets_uncompressed(
-                real,
-                current_tick,
-                single_data,
-                fragment_data,
-            )?);
+            let packets =
+                self.build_packets_uncompressed(real, current_tick, single_data, fragment_data)?;
+            for packet in &packets {
+                Self::trace_compression_outcome(
+                    packet,
+                    "disabled",
+                    packet.payload.len(),
+                    None,
+                    None,
+                );
+            }
+            return Ok(packets);
         }
         self.build_packets_internal(real, current_tick, single_data, fragment_data, compression)
     }
@@ -554,9 +560,7 @@ impl PacketBuilder {
         compression: CompressionConfig,
     ) -> Result<bool, PacketError> {
         let candidate = Self::candidate_packet(packet, channel_id, messages, count)?;
-        if candidate.payload.len() <= MAX_PACKET_SIZE {
-            return Ok(true);
-        }
+        let uncompressed_fits = candidate.payload.len() <= MAX_PACKET_SIZE;
         let compression_candidate =
             try_build_compressed_packet_payload(&candidate.payload, compression)?;
         #[cfg(feature = "metrics")]
@@ -566,10 +570,11 @@ impl PacketBuilder {
         ) {
             metrics::counter!("transport/compression_abandoned").increment(1);
         }
-        Ok(matches!(
-            compression_candidate,
-            CompressionCandidate::Compressed { .. }
-        ))
+        Ok(uncompressed_fits
+            || matches!(
+                compression_candidate,
+                CompressionCandidate::Compressed { .. }
+            ))
     }
 
     fn candidate_packet_len(
@@ -632,26 +637,117 @@ impl PacketBuilder {
         mut packet: Packet,
         compression: CompressionConfig,
     ) -> Result<Packet, PacketError> {
-        if packet.payload.len() > MAX_PACKET_SIZE {
-            match try_compress_packet(&mut packet, compression)? {
-                crate::packet::compression::CompressionOutcome::Compressed { .. } => {}
-                crate::packet::compression::CompressionOutcome::NotSmaller { .. } => {
-                    #[cfg(feature = "metrics")]
-                    metrics::counter!("transport/compression_abandoned").increment(1);
+        let uncompressed_len = packet.payload.len();
+        let outcome = try_compress_packet(&mut packet, compression)?;
+        match outcome {
+            CompressionOutcome::Compressed {
+                original_len,
+                compressed_len,
+            } => {
+                Self::trace_compression_outcome(
+                    &packet,
+                    "compressed",
+                    uncompressed_len,
+                    Some(original_len),
+                    Some(compressed_len),
+                );
+            }
+            CompressionOutcome::NotSmaller {
+                original_len,
+                compressed_len,
+            } => {
+                #[cfg(feature = "metrics")]
+                metrics::counter!("transport/compression_abandoned").increment(1);
+                Self::trace_compression_outcome(
+                    &packet,
+                    "not_smaller",
+                    uncompressed_len,
+                    Some(original_len),
+                    Some(compressed_len),
+                );
+                if uncompressed_len > MAX_PACKET_SIZE {
                     return Err(PacketError::PacketTooLarge {
-                        actual: packet.payload.len(),
+                        actual: uncompressed_len,
                         mtu: MAX_PACKET_SIZE,
                     });
                 }
-                _ => {
+            }
+            CompressionOutcome::Disabled => {
+                Self::trace_compression_outcome(&packet, "disabled", uncompressed_len, None, None);
+                if uncompressed_len > MAX_PACKET_SIZE {
                     return Err(PacketError::PacketTooLarge {
-                        actual: packet.payload.len(),
+                        actual: uncompressed_len,
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+            }
+            CompressionOutcome::AlreadyCompressed => {
+                Self::trace_compression_outcome(
+                    &packet,
+                    "already_compressed",
+                    uncompressed_len,
+                    None,
+                    None,
+                );
+                if uncompressed_len > MAX_PACKET_SIZE {
+                    return Err(PacketError::PacketTooLarge {
+                        actual: uncompressed_len,
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+            }
+            CompressionOutcome::TooSmall { payload_len } => {
+                Self::trace_compression_outcome(
+                    &packet,
+                    "too_small",
+                    uncompressed_len,
+                    Some(payload_len),
+                    None,
+                );
+                if uncompressed_len > MAX_PACKET_SIZE {
+                    return Err(PacketError::PacketTooLarge {
+                        actual: uncompressed_len,
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+            }
+            CompressionOutcome::TooLargeForDecompressionLimit { payload_len, .. } => {
+                Self::trace_compression_outcome(
+                    &packet,
+                    "too_large_for_decompression_limit",
+                    uncompressed_len,
+                    Some(payload_len),
+                    None,
+                );
+                if uncompressed_len > MAX_PACKET_SIZE {
+                    return Err(PacketError::PacketTooLarge {
+                        actual: uncompressed_len,
                         mtu: MAX_PACKET_SIZE,
                     });
                 }
             }
         }
         Ok(Self::finalize_packet(packet))
+    }
+
+    fn trace_compression_outcome(
+        packet: &Packet,
+        outcome: &'static str,
+        packet_len: usize,
+        original_len: Option<usize>,
+        compressed_len: Option<usize>,
+    ) {
+        trace!(
+            target: "lightyear_debug::transport",
+            kind = "packet_compression",
+            packet_id = ?packet.packet_id,
+            outcome,
+            bytes = packet_len,
+            original_len = original_len.unwrap_or(0),
+            compressed_len = compressed_len.unwrap_or(0),
+            num_messages = packet.num_messages(),
+            "transport packet compression outcome"
+        );
     }
 
     fn packet_has_body(packet: &Packet) -> bool {
@@ -994,6 +1090,54 @@ mod tests {
             .expect("candidate packet should serialize");
 
         assert!(candidate.messages.is_empty());
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    #[test]
+    fn compression_aware_packing_compresses_under_mtu_packet() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let bytes = Bytes::from(vec![7u8; 512]);
+        let single_message = SingleData::new(None, bytes.clone());
+
+        let uncompressed_packets = PacketBuilder::new(1.5).build_packets(
+            Duration::default(),
+            Tick(0),
+            vec![(*channel_id, VecDeque::from(vec![single_message.clone()]))],
+            vec![],
+        )?;
+        assert_eq!(uncompressed_packets.len(), 1);
+        assert!(uncompressed_packets[0].payload.len() < MAX_PACKET_SIZE);
+
+        let mut packets = PacketBuilder::new(1.5).build_packets_with_compression(
+            Duration::default(),
+            Tick(0),
+            vec![(*channel_id, VecDeque::from(vec![single_message]))],
+            vec![],
+            CompressionConfig {
+                min_payload_size: 0,
+                ..CompressionConfig::LZ4
+            },
+        )?;
+
+        assert_eq!(packets.len(), 1);
+        let packet = packets.pop().unwrap();
+        let compression_info = packet
+            .compression
+            .expect("under-MTU packet should still be compressed");
+        assert_eq!(
+            PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?,
+            PacketType::DataCompressed
+        );
+        assert!(compression_info.original_len < MAX_PACKET_SIZE);
+        assert!(compression_info.compressed_len < compression_info.original_len);
+        assert_eq!(packet.payload.len(), compression_info.compressed_len);
+
+        let packet = decompress_packet_for_test(packet)?;
+        let contents = packet.parse_packet_payload()?;
+        assert_eq!(contents.get(channel_id).unwrap(), &vec![bytes]);
+        Ok(())
     }
 
     #[cfg(feature = "compression_lz4")]
