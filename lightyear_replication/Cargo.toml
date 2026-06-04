@@ -76,3 +76,4 @@ workspace = true
 
 [package.metadata.docs.rs]
 all-features = true
+features = ["avian2d/2d", "avian2d/f32", "avian3d/3d", "avian3d/f32"]
