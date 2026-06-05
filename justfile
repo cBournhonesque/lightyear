@@ -515,23 +515,48 @@ lightyear_webtransport:
     cargo clippy -p lightyear_webtransport --tests --all-features -- -D warnings --no-deps
 
 add_avian_symlinks:
-    sed -i '' 's@path = "../lightyear_avian/src/lib.rs"@#path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian2d/Cargo.toml
-    sed -i '' 's@path = "../lightyear_avian/src/lib.rs"@#path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian3d/Cargo.toml
-    ln -s ../lightyear_avian/src lightyear_avian2d/src
-    ln -s ../lightyear_avian/src lightyear_avian3d/src
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for crate in lightyear_avian2d lightyear_avian3d; do
+        src="$crate/src"
+        if [ -e "$src" ] && [ ! -L "$src" ]; then
+            echo "$src exists and is not a symlink" >&2
+            exit 1
+        fi
+        rm -f "$src"
+        perl -0pi -e 's@(?m)^path = "\.\./lightyear_avian/src/lib\.rs"$@#path = "../lightyear_avian/src/lib.rs"@' "$crate/Cargo.toml"
+        ln -s ../lightyear_avian/src "$src"
+    done
 
 remove_avian_symlinks:
-    sed -i '' 's@#path = "../lightyear_avian/src/lib.rs"@path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian2d/Cargo.toml
-    sed -i '' 's@#path = "../lightyear_avian/src/lib.rs"@path = "../lightyear_avian/src/lib.rs"@g' lightyear_avian3d/Cargo.toml
-    rm lightyear_avian2d/src
-    rm lightyear_avian3d/src
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for crate in lightyear_avian2d lightyear_avian3d; do
+        src="$crate/src"
+        if [ -L "$src" ]; then
+            rm "$src"
+        elif [ -e "$src" ]; then
+            echo "$src exists and is not a symlink; leaving it in place" >&2
+        fi
+        perl -0pi -e 's@(?m)^#path = "\.\./lightyear_avian/src/lib\.rs"$@path = "../lightyear_avian/src/lib.rs"@' "$crate/Cargo.toml"
+    done
 
-release_dryrun:
-    @just add_avian_symlinks
-    cargo release --no-tag --no-push --workspace --config .release.toml -vvv VERSION
-    @just remove_avian_symlinks
+release_dryrun version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cleanup() {
+        just remove_avian_symlinks
+    }
+    trap cleanup EXIT
+    just add_avian_symlinks
+    cargo release --no-tag --no-push --workspace --config .release.toml -vvv "{{version}}"
 
-release:
-    @just add_avian_symlinks
-    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv VERSION
-    @just remove_avian_symlinks
+release version:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cleanup() {
+        just remove_avian_symlinks
+    }
+    trap cleanup EXIT
+    just add_avian_symlinks
+    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv "{{version}}"
