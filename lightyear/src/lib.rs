@@ -193,8 +193,8 @@ fn send_message(mut receivers: Query<&mut MessageReceiver<MyMessage>>) {
 
 To replicate an entity from the local world to the remote world, you can just add the [`Replicate`](prelude::Replicate) component to the entity.
 
-The marker component [`Replicating`](prelude::Replicating) indicates that the entity is getting replicated to a remote peer.
-You can remove the [`Replicating`](prelude::Replicating) component to pause the replication. This will not despawn the entity on the remote world; it will simply stop sending replication updates.
+The [`Replicate`](prelude::Replicate) component indicates that the entity is getting replicated to a remote peer.
+You can remove the [`Replicate`](prelude::Replicate) component to pause the replication. This will not despawn the entity on the remote world; it will simply stop sending replication updates.
 
 
 ### Reacting to replication events
@@ -220,7 +220,6 @@ fn component_inserted(query: Query<Entity, (With<client::Remote>, Added<MyCompon
 ```
 
 [`Replicated`]: prelude::Replicated
-[`Replicating`]: prelude::Replicating
 [`lightyear_steam`]: lightyear_steam
  */
 //!

@@ -11,7 +11,7 @@ typos:
     typos -w
 
 doc:
-    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going --all-features
+    RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --document-private-items --keep-going --all-features --features="lightyear_avian2d/f32 lightyear_avian3d/f32"
 
 clippy: lightyear lightyear_aeronet lightyear_avian lightyear_connection lightyear_core \
     lightyear_crossbeam lightyear_frame_interpolation lightyear_inputs lightyear_interpolation \
