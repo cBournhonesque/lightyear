@@ -545,18 +545,30 @@ release_dryrun version:
     #!/usr/bin/env bash
     set -euo pipefail
     cleanup() {
-        just remove_avian_symlinks
+        status=$?
+        just remove_avian_symlinks >/dev/null 2>&1 || true
+        exit "$status"
     }
     trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    cargo release --no-publish --no-tag --no-push --workspace --config .release.toml "{{version}}"
     just add_avian_symlinks
-    cargo release --no-tag --no-push --workspace --config .release.toml -vvv "{{version}}"
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | "-p " + .name' | tr "\n" " ")
+    cargo package --allow-dirty -j 4 $pkgs
 
 release version:
     #!/usr/bin/env bash
     set -euo pipefail
     cleanup() {
-        just remove_avian_symlinks
+        status=$?
+        just remove_avian_symlinks >/dev/null 2>&1 || true
+        exit "$status"
     }
     trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    cargo release --execute --no-publish --no-tag --no-push --workspace --config .release.toml "{{version}}"
     just add_avian_symlinks
-    cargo release --execute --no-tag --no-push --workspace --config .release.toml -vvv "{{version}}"
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.publish != []) | "-p " + .name' | tr "\n" " ")
+    cargo publish --allow-dirty -j 4 $pkgs

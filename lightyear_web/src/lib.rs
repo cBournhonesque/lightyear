@@ -3,5 +3,7 @@
 
 extern crate alloc;
 
+#[cfg(target_family = "wasm")]
 mod background_worker;
+#[cfg(target_family = "wasm")]
 pub use background_worker::{KeepaliveSettings, WebKeepalivePlugin};

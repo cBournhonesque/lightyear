@@ -18,15 +18,13 @@ use bevy_enhanced_input::prelude::*;
 use bevy_utils::prelude::DebugName;
 #[cfg(all(feature = "client", feature = "server"))]
 use lightyear_connection::host::HostServer;
+use lightyear_connection::{host::HostClient, server::Started};
+use lightyear_link::prelude::Server;
 use lightyear_messages::MessageManager;
+#[cfg(feature = "client")]
 use lightyear_replication::prelude::PreSpawned;
 #[allow(unused_imports)]
 use tracing::{debug, info};
-#[cfg(any(feature = "client", feature = "server"))]
-use {
-    lightyear_connection::{host::HostClient, server::Started},
-    lightyear_link::prelude::Server,
-};
 #[cfg(feature = "server")]
 use {
     lightyear_inputs::server::ServerInputConfig,

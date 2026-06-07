@@ -1,11 +1,9 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::{BEIBuffer, BEIStateSequence};
 
-#[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
 use bevy_app::{PreUpdate, prelude::*};
 use bevy_ecs::prelude::*;
-#[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::common_conditions::not;
@@ -14,6 +12,7 @@ use bevy_enhanced_input::EnhancedInputSystems;
 #[cfg(feature = "client")]
 use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::context::InputContextAppExt;
+#[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
 use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
@@ -24,9 +23,7 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
-#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_messages::plugin::MessageSystems;
-#[cfg(any(feature = "client", feature = "server"))]
 use lightyear_replication::ReplicationSystems;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
