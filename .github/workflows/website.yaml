@@ -1,22 +1,29 @@
 name: Deploy book
+
 on:
+  pull_request:
+    paths:
+      - "book/**"
+      - ".github/workflows/website.yaml"
   push:
     paths:
       - "book/**"
-    branches:
-      - main
+      - ".github/workflows/website.yaml"
+
+concurrency:
+  group: pages-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  deploy:
+  build:
     runs-on: ubuntu-latest
     permissions:
-      contents: write  # To push a branch
-      pages: write  # To push to a GitHub Pages site
-      id-token: write # To update the deployment status
+      contents: read
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
       - name: Install latest mdbook
         run: |
           tag=$(curl 'https://api.github.com/repos/rust-lang/mdbook/releases/latest' | jq -r '.tag_name')
@@ -24,23 +31,37 @@ jobs:
           mkdir mdbook
           curl -sSL $url | tar -xz --directory=./mdbook
           echo `pwd`/mdbook >> $GITHUB_PATH
+
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+
       - name: Install mdbook-mermaid
-        run: cargo install mdbook-mermaid
-      - name: Install mdbook-linkcheck
-        run: cargo install mdbook-linkcheck
+        run: CARGO_BUILD_JOBS=4 cargo install mdbook-mermaid --locked
+
       - name: Build Book
         run: |
           cd book
           mdbook build
-      - name: Setup Pages
-        uses: actions/configure-pages@v6
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
-          # Upload entire repository
-          path: book
+          path: book/book
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Setup Pages
+        uses: actions/configure-pages@v6
+
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

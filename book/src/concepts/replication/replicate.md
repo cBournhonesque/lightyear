@@ -1,62 +1,95 @@
-# Replication
+# Replicate
 
-You can use the `Replicate` bundle to initiate replicating an entity from the local `World` to the remote `World`.
+Add `Replicate` to a server entity when you want that entity to appear on clients.
 
-It is composed of multiple smaller components that each control an aspect of replication:
-- `ReplicationTarget` to decide who to replicate to
-- `VisibilityMode` to enable interest management
-- `ControlledBy` so the server can track which entity is owned by each client
-- `ReplicationGroup` to know which entity updates should be sent together in the same message
-- `ReplicateHierarchy` to control if the children of an entity should also be replicated
-- `DisabledComponents` to control which specific components will be replicated for a given entity (if you only want to replicate a subset of the registered components)
-- `ReplicateOnceComponent<C>` to specify that some components should not replicate updates, only inserts/removals
-- `OverrideTargetComponent<C>` to override the replication target for a specific component
+```rust,ignore
+commands.spawn((
+    PlayerBundle::new(client_id),
+    Replicate::to_clients(NetworkTarget::All),
+));
+```
 
-By default, every component in the entity that is part of the `ComponentRegistry` will be replicated. Any changes in
-those components will be replicated.
-However the entity state will always be 'consistent': the remote entity will always contain the exact same combination
-of components as the local entity, even if it's a bit delayed.
+`Replicate` is Lightyear's convenience target component on top of `bevy_replicon` visibility. It tells Replicon which client links should receive the entity.
 
-You can remove the `ReplicationTarget` component to pause the replication. This can be useful when you want to despawn the
-entity on the server without replicating the despawn.
-(e.g. an entity can be despawned immediately on the server, but needs to remain alive on the client to play a dying
-animation)
+On the server, every client link that should receive replicated state needs a `ReplicationSender`:
 
-You can find some of the other usages in the [advanced_replication](../advanced_replication/title.md) section.
+```rust,ignore
+fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert(ReplicationSender);
+}
+```
 
+Once the link is connected, a replicated entity can be sent to all clients, one client, all except one client, or a manually selected set of link entities:
 
-### Replicating resources
+```rust,ignore
+Replicate::to_clients(NetworkTarget::All);
+Replicate::to_clients(NetworkTarget::Single(client_id));
+Replicate::to_clients(NetworkTarget::AllExceptSingle(client_id));
+Replicate::manual(vec![client_link_entity]);
+```
 
-You can also replicate bevy `Resource`s. This is useful when you want to update a `Resource` on the server and keep synced
-copies on the client. This only works for `Resources` that also implement `Clone`, and should be limited to resources which are cheap to clone.
+Only registered components are sent. Components that are not registered stay local to the server.
 
-To replicate a `Resource`:
-- Ensure that you have a [`Channel`](../reliability/channels.md) that the resource can be replicated over.
-  This can be done by creating a public struct that derives `Channel` and adding it to your protocol.
-- Next, define your resource and register it:
-    ```rust
-    #[derive(Channel)]
-    pub struct Channel1;
+## Receiver-side entities
 
-    #[derive(Resource, Clone, Serialize, Deserialize)]
-    pub struct MyResource(pub f32);
+On the client, entities that came from the server are remote entities. Use the `Remote` marker when you want to query for them on the client.
 
-    pub fn plugin(app: &mut App) {
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..Default::default()
-        });
-
-        app.register_resource::<MyResource>(ChannelDirection::ServerToClient);
+```rust,ignore
+fn on_remote_player(players: Query<Entity, (With<Remote>, Added<PlayerId>)>) {
+    for entity in &players {
+        // Add rendering, UI markers, local-only components, etc.
     }
-    ```
-- Finally, to replicate the `Resource`, you can use the `commands.replicate_resource::<R>(replicate)` method.
-  You will need to provide the channel and a `NetworkTarget` to specify how the replication should be done
-  (e.g. to which clients should the resource be replicated):
-    ```rust
-    commands.replicate_resource::<MyResource, Channel1>(NetworkTarget::All);
-    // This will be replicated to all clients; any changes to the resource will also be replicated
-    commands.insert_resource(MyResource(1.0));
-    ```
-- To stop replicating a `Resource`, you can use the `commands.stop_replicate_resource::<R>()` method.
-  Note that this won't delete the resource from the client, but it will stop updating it.
+}
+```
+
+## Visibility
+
+Replication target is the coarse filter. Visibility is the fine filter.
+
+You can show or hide an entity for a specific client link:
+
+```rust,ignore
+commands.lose_visibility(player_entity, client_link_entity);
+commands.gain_visibility(player_entity, client_link_entity);
+```
+
+You can also use `Rooms` for semi-static interest management:
+
+```rust,ignore
+app.add_plugins(RoomPlugin);
+
+let room = app.world_mut().resource_mut::<RoomAllocator>().allocate();
+
+commands.spawn((
+    Replicate::default(),
+    Rooms::single(room),
+));
+```
+
+If the client and entity share a room, the entity is visible to that client. If they no longer share a room, Replicon will stop sending it to that client and the client will despawn its remote copy.
+
+## Pausing and despawning
+
+Removing `Replicate` used to be a way to pause replication without despawning the remote entity. With the Replicon backend this behavior is different: removing the replicated marker can be interpreted as a despawn on the receiver. If you need to hide an entity temporarily, prefer visibility (`lose_visibility`) or a gameplay-level disabled component until a dedicated pause/resume API exists.
+
+To despawn an entity for clients, despawn it on the server while it is visible to those clients. To remove it only for some clients, change visibility for those clients.
+
+## Resources
+
+Resource replication is still useful for global state such as match phase, scoreboards, or map metadata. Keep replicated resources small and cheap to clone.
+
+```rust,ignore
+#[derive(Resource, Clone, Serialize, Deserialize)]
+pub struct MatchState {
+    pub phase: MatchPhase,
+}
+
+app.register_resource::<MatchState>(ChannelDirection::ServerToClient);
+
+commands.replicate_resource::<MatchState, ReliableChannel>(NetworkTarget::All);
+commands.insert_resource(MatchState {
+    phase: MatchPhase::Warmup,
+});
+```
+
+For frequently changing per-entity state, prefer components. Resources are best for state that really is global.

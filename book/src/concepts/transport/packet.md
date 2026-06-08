@@ -1,29 +1,66 @@
 # Packet
 
-On top of the transport layer (which lets us send some arbitrary bytes) we have the packet layer.
+A packet is the byte payload that the `Link` sends through the IO backend.
 
-A packet is a structure that contains some data and some metadata (inside the header).
+Lightyear keeps packets small: the current maximum packet size is 1200 bytes. That size is chosen to avoid relying on IP fragmentation for normal UDP traffic.
 
-## Packet header
+Each packet has:
 
-The packet header will contain the same data as described in the Gaffer On Games articles:
+- a fixed-size packet header
+- one or more channel batches, or one message fragment
+- optional compression, depending on the packet type
 
-- the packet type (single vs fragmented)
-- the packet id (a wrapping u16)
-- the last ack-ed packet id received by the sender
-- an ack bitfield containing the ack of the last 32 packets before last_ack_packet_id
-- the current tick
+## Packet types
 
-## Packet data
+The packet type is stored in the header. Current packet types are:
 
-The data will be a list of Messages that are contained in the packet.
+- `Data`: normal uncompressed packet containing one or more channel batches
+- `DataFragment`: packet containing one fragment of a larger message
+- `DataCompressed`: compressed version of `Data`
+- `DataFragmentCompressed`: compressed packet wrapper for a fragment packet
 
-A message is a structure that knows how to serialize/deserialize itself.
+Fragment payload compression is tracked separately on the fragment itself, because the whole message may be compressed before it is split into fragments.
 
-This is how we store messages into packets:
+## Normal data packet layout
 
-- the message get serialized into raw bytes
-- if the message is over the packet limit size (roughly 1200 bytes), it gets fragmented into multiple parts
-- we build a packet by iterating through the channels in order of priority, and then storing as many messages we can
-  into the packet
+A normal packet is roughly:
 
+```text
+packet header
+channel id
+number of messages for that channel
+message 1
+message 2
+...
+channel id
+number of messages for that channel
+message 1
+...
+```
+
+Messages are grouped by channel because each channel has its own reliability and ordering behavior.
+
+The packet builder tries to fill packets efficiently. Small messages can share a packet. Large messages become fragments.
+
+## Fragment packet layout
+
+A fragment packet carries one fragment:
+
+```text
+packet header
+channel id
+fragment metadata
+fragment bytes
+```
+
+Fragment packets are described in more detail in the [fragmentation](../reliability/fragmentation.md) page.
+
+## Packet ids versus message ids
+
+Packet ids and message ids solve different problems.
+
+Packet ids are used by the packet header acknowledgement system. They answer: "did packet 42 arrive?"
+
+Message ids are used by reliable channels and fragmentation. They answer: "did logical message 17 arrive?" or "did fragment 3 of message 17 arrive?"
+
+A reliable message may be sent in more than one packet over time if it needs to be retried. A fragmented message may span several packets at once.

@@ -1,95 +1,55 @@
 # Interest management
 
-Interest management is the concept of only replicating to clients the entities that they need.
+Interest management means only sending an entity to clients that need to know about it.
 
-For example: in a MMORPG, replicating only the entities that are "close" to the player.
+It saves bandwidth, but it is also a security boundary. If a client should not know about an enemy behind fog-of-war, do not replicate that enemy to the client and hope the renderer hides it.
 
+Lightyear uses Replicon's visibility system for this.
 
-There are two main advantages:
-- bandwidth savings: it is pointless to replicate entities that are far away from the player, or that the player cannot interact with.
-  Those bandwidth savings become especially important when you have a lot of concurrent connected clients.
-- prevent cheating: if you replicate entities that the player is not supposed to see, there is a risk that clients read that data and use it to cheat.
-  For example, in a RTS, you can avoid replicating units that are in fog-of-war.
+## Target first, visibility second
 
+`Replicate::to_clients(...)` is the broad target:
 
-## Implementation
-
-### VisibilityMode
-
-The first step is to think about the `NetworkRelevanceMode` of your entities. It is defined on the `Replicate` component.
-
-```rust,noplayground
-#[derive(Default)]
-pub enum VisibilityMode {
-  /// We will replicate this entity to all clients that are present in the [`NetworkTarget`] AND use relevance on top of that
-  InterestManagement,
-  /// We will replicate this entity to all clients that are present in the [`NetworkTarget`]
-  #[default]
-  All
-}
+```rust,ignore
+Replicate::to_clients(NetworkTarget::All)
 ```
 
-If `NetworkRelevanceMode::All`, you have a coarse way of doing interest management, which is to use the `replication_target` to 
-specify which clients will receive client updates. The `replication_target` is a `NetworkTarget` which is a list of clients 
-that we should replicate to.
+Visibility is the fine-grained filter. You can hide or show an entity for a specific client link:
 
-In some cases, you might want to use `NetworkRelevanceMode::InterestManagement`, which is a more fine-grained way of doing interest management.
-This adds additional constraints on top of the `replication_target`, we will **never** send updates for a client that is not in the 
-`replication_target` of your entity.
-
-
-### Interest management
-
-If you set `NetworkRelevanceMode::InterestManagement`, we will add a `ReplicateVisibility` component to your entity,
-which is a cached list of clients that should receive replication updates about this entity.
-
-There are several ways to update the relevance of an entity:
-- you can either update the relevance directly with the `RelevanceManager` resource
-- we also provide a more static way of updating the relevance with the concept of `Rooms` and the `RoomManager` resource.
-
-#### Immediate relevance update
-
-You can simply directly update the relevance of an entity/client pair with the `RelevanceManager` resource.
-
-```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
-
-fn my_system(
-    mut relevance_manager: ResMut<RelevanceManager>,
-) {
-    // you can update the relevance like so
-    relevance_manager.gain_relevance(ClientId::Netcode(1), Entity::PLACEHOLDER);
-    relevance_manager.lose_relevance(ClientId::Netcode(2), Entity::PLACEHOLDER);
-}
+```rust,ignore
+commands.lose_visibility(enemy_entity, client_link_entity);
+commands.gain_visibility(enemy_entity, client_link_entity);
 ```
 
-#### Rooms
+The `client_link_entity` is the server-side entity representing that connection, usually the entity with `ClientOf` and `ReplicationSender`.
 
-An entity can join one or more rooms, and clients can similarly join one or more rooms.
+Visibility changes also propagate through Lightyear's replicated hierarchy support, so hiding a replicated parent can hide its replicated children too.
 
-We then compute which entities should be replicated to which clients by looking at which rooms they are both in.
+## Rooms
 
-To summarize:
-- if a client is in a room but the entity is not (or vice-versa), we will not replicate that entity to that client
-- if the client and entity are both in the same room, we will replicate that entity to that client
-- if a client leaves a room that the entity is in (or an entity leaves a room that the client is in), we will despawn that entity for that client
-- if a client joins a room that the entity is in (or an entity joins a room that the client is in), we will spawn that entity for that client
+Rooms are the simple built-in interest-management tool.
 
-This can be useful for games where you have physical instances of rooms:
-- a RPG where you can have different rooms (tavern, cave, city, etc.)
-- a server could have multiple lobbies, and each lobby is in its own room
-- a map could be divided into a grid of 2D squares, where each square is its own room
+Add `RoomPlugin`, allocate room ids, then put clients and entities in rooms. If a client and entity share at least one room, the entity is visible to that client. If they stop sharing a room, the entity is no longer visible.
 
-```rust
-use bevy::prelude::*;
-use lightyear::prelude::*;
-use lightyear::prelude::server::*;
+```rust,ignore
+app.add_plugins(RoomPlugin);
 
-fn room_system(mut manager: ResMut<RoomManager>) {
-   // the entity will now be visible to the client
-   manager.add_client(ClientId::Netcode(0), RoomId(0));
-   manager.add_entity(Entity::PLACEHOLDER, RoomId(0));
-}
+let room = app.world_mut().resource_mut::<RoomAllocator>().allocate();
+
+commands.entity(client_link_entity).insert(Rooms::single(room));
+commands.spawn((
+    EnemyBundle::default(),
+    Replicate::to_clients(NetworkTarget::All),
+    Rooms::single(room),
+));
 ```
+
+This fits lobbies, map chunks, dungeon rooms, streaming zones, and other semi-static groups.
+
+For fast-moving spatial relevance, you can still build your own system that calls `gain_visibility` and `lose_visibility` based on distance, teams, line of sight, or fog-of-war.
+
+## What the client sees
+
+When an entity becomes invisible to a client, the client's remote entity is despawned. When it becomes visible again, it is spawned again from server state.
+
+Design client-only presentation around that. If you need a fade-out, death animation, or "last known position" marker, use a local client-side entity for the presentation and let the replicated entity disappear when visibility is lost.

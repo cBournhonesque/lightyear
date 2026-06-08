@@ -4,13 +4,11 @@
 
 - [Tutorial](./tutorial/title.md)
   - [Setup](./tutorial/setup.md)
-  - [Building the client and server ](./tutorial/build_client_server.md)
+  - [Building the client and server](./tutorial/build_client_server.md)
   - [Adding basic systems](./tutorial/basic_systems.md)
-  - [Adding advances systems (prediction/interpolation)](./tutorial/advanced_systems.md)
+  - [Adding advanced systems](./tutorial/advanced_systems.md)
 
 - [Examples](./examples/title.md)
-
- 
 - [Concepts](./concepts/title.md)
   - [Transport](./concepts/transport/title.md)
     - [Serialization](./concepts/transport/serialization.md)
@@ -20,6 +18,7 @@
   - [Reliability](./concepts/reliability/title.md)
     - [PacketHeader](./concepts/reliability/packet_header.md)
     - [Channels](./concepts/reliability/channels.md)
+    - [Fragmentation](./concepts/reliability/fragmentation.md)
   - [Replication](./concepts/replication/title.md)
     - [Protocol](./concepts/replication/protocol.md)
     - [Replicate](./concepts/replication/replicate.md)
@@ -39,7 +38,7 @@
     - [Prediction](./concepts/advanced_replication/prediction.md)
     - [Visual Interpolation](./concepts/advanced_replication/visual_interpolation.md)
     - [Prespawning](./concepts/advanced_replication/prespawning.md)
-    - [ComponentSyncMode](./concepts/advanced_replication/component_sync_mode.md)
+    - [Component registration](./concepts/advanced_replication/component_registration.md)
     - [Interest management](./concepts/advanced_replication/interest_management.md)
     - [Client Replication](./concepts/advanced_replication/client_replication.md)
 

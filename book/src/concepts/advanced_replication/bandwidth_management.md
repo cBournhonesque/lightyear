@@ -1,58 +1,56 @@
 # Bandwidth management
 
-By default, lightyear sends all messages (created by the user, or messages created from replication updates)
-every `send_interval` (this interval is configurable) without any regard for the bandwidth available to the client.
+The cheapest packet is the one you never send.
 
-But in some situations you might want to limit the bandwidth used by the client or the server, for example to limit
-server traffic costs, or because the client's connection cannot handle a very high bandwidth.
+Before looking for clever prioritization, first make sure the server only replicates state that clients actually need.
 
-This page will explain how to do that. There are several options to choose from.
+## Replicate less
 
-## Limiting the number of replication objects
+Do not replicate rendering-only data such as mesh handles, particle state, local animation helpers, UI markers, or client-only effects. Spawn those locally on the client when a replicated gameplay entity appears.
 
-The simplest thing you can do is to carefully choose which entities and components you need to replicate.
-For example, rendering-related components (particles, assets, etc.) do not need to spawned on the server and replicated to the client.
-They can be created on the client and only the necessary information (position, rotation, etc.) can be replicated.
+Prefer small gameplay components:
 
-This also saves CPU costs on the server.
+```rust,ignore
+#[derive(Component, Serialize, Deserialize, Clone)]
+pub struct Position(pub Vec2);
 
-## Updating the send interval
+#[derive(Component, Serialize, Deserialize, Clone)]
+pub struct Health(pub u16);
+```
 
-Another thing you can do is to update the `send_interval` of the client or server. This will reduce the number of times
-the `SystemSet::Send` systems will run.
-This `SystemSet` is responsible for aggregating all the messages that were buffered and are ready to send, as well as generating all the
-replication-messages (entity-actions, entity-updates) that should be sent.
+Leave large local presentation state out of the replication registry.
 
-NOTE: Currently `lightyear` expects `send_interval` to be 0 on the client (i.e. the client sends all updates immediately) to manage client inputs properly.
+## Use `register_component_once`
 
-This will also reduce the CPU usage of the server as it runs the replication-send logic less often.
+Some components need to be sent when the entity appears, but do not need later mutation updates.
 
+```rust,ignore
+app.register_component_once::<PlayerId>();
+app.register_component_once::<Team>();
+```
 
-## TODO: Updating the replication rate per replication group
+That is a good fit for ids, tags, display names, team assignment, spawn metadata, and other mostly-static state.
 
-You can also override the replication rate per replication group. 
-For some entities it might not be important to run replication at a very high rate, so you can reduce the rate for those entities.
+## Use visibility
 
-NOTE: this is currently not possible
+Visibility is the biggest bandwidth lever.
 
+Use `NetworkTarget` for broad targeting and `gain_visibility` / `lose_visibility` or `Rooms` for interest management. If a client cannot see or interact with an entity, do not replicate that entity to the client.
 
-## Prioritizing replication groups
+```rust,ignore
+commands.lose_visibility(entity, client_link);
+```
 
-Even so, there might be situations where you have more messages to send than the bandwidth available to you.
-In that case you can set a **priority** to indicate which messages are important and should be sent first.
+For large worlds, divide the world into rooms or zones and move clients/entities between them as needed.
 
-Every time the server (or client) is ready to send messages, it will first:
-- aggregate the list of messages that should be sent
-- then sort them by priority. The priority is computed with the formula `channel_priority * message_priority`.
-- it will send messages in order of priority until all the bandwidth is used
-- it will then discard the remaining messages
-  - note that this means that discarded messages via an unreliable channel will simply **not be sent**
-  - for entity updates, we still try to send an update until the remote world is consistent with the local world, so we will keep trying sending updates until we receive an ack from the remote that
-    it received the updates.
+## Tune send intervals carefully
 
-Only the relative priority values matter, not their absolute value: an entity with priority 10 will be replicated twice as often as an entity with priority 5.
+The send interval controls how often pending network data is flushed. Higher rates feel more responsive but cost more bandwidth and CPU. Lower rates are cheaper but make remote entities update less often, so interpolation becomes more important.
 
-To avoid having some replication groups entities be starved of updates (because their priority is always too low), we do **priority accumulation**:
-- every send_interval, we accumulate the priority of all messages: `accumulated_priority += priority`
-- if a replication groups successfully sends an update or an action, we reset the accumulated priority to 0. (note that it's not guaranteed that the message was received by the remote, just that the message was sent)
-- for reliable channels, we also keep accumulating the priority until we receive an ack from the remote that the message was successfully received
+Start with a conservative rate that works for your game, then measure.
+
+## Priority
+
+For now, the reliable tools are component choice, one-shot registration, visibility, and send rate.
+
+Channel priorities still matter for user messages that flow through transport channels. Replicated entity updates are currently driven by the Replicon backend, so entity-level replication priority should be treated as a separate design area rather than something you get automatically from channel priority.

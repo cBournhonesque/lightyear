@@ -13,9 +13,9 @@ That entity will have a [`Link`] component that represents the connection to the
 However it is your responsibility to customize that connection with extra components, such as [`ReplicationSender`] or [`MessageManager`], to handle the replication and message sending/receiving.
 This can be done using triggers:
 ```rust,ignore
-pub(crate) fn handle_new_client(trigger: Trigger<OnAdd, LinkOf>, mut commands: Commands) {
-    commands.entity(trigger.target()).insert((
-        ReplicationSender::new(SEND_INTERVAL, SendUpdatesMode::SinceLastAck, false),
+pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands) {
+    commands.entity(trigger.entity).insert((
+        ReplicationSender,
         Name::from("Client"),
     ));
 }
@@ -27,11 +27,11 @@ Only after the authentication is successful will the [`Connected`] component be 
 When that happens we can start adding game behaviour:
 ```rust,ignore
 pub(crate) fn handle_connected(
-    trigger: Trigger<OnAdd, Connected>,
+    trigger: On<Add, Connected>,
     query: Query<&RemoteId, With<ClientOf>>,
     mut commands: Commands,
 ) {
-    let Ok(client_id) = query.get(trigger.target()) else {
+    let Ok(client_id) = query.get(trigger.entity) else {
         return;
     };
     let client_id = client_id.0;
@@ -137,9 +137,7 @@ pub(crate) fn buffer_input(
         if keypress.pressed(KeyCode::KeyD) || keypress.pressed(KeyCode::ArrowRight) {
             direction.right = true;
         }
-        // we always set the value. Setting it to None means that the input was missing, it's not the same
-        // as saying that the input was 'no keys pressed'
-        action_state.value = Some(Inputs::Direction(direction));
+        action_state.0 = Inputs::Direction(direction);
     }
 }
 ```
@@ -160,12 +158,10 @@ As a rule of thumb, any simulation system (physics, etc.) must run in the `Fixed
 
 ```rust,ignore
 fn movement(
-    mut position_query: Query<&mut PlayerPosition, &ActionState<Inputs>>,
+    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>)>,
 ) {
     for (position, inputs) in position_query.iter_mut() {
-        if let Some(inputs) = &inputs.value {
-            shared::shared_movement_behaviour(position, inputs);
-        }
+        shared::shared_movement_behaviour(position, inputs);
     }
 }
 ```

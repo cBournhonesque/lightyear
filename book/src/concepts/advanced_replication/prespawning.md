@@ -1,89 +1,106 @@
 # Prespawning
 
-## Introduction
+Prespawning means the receiving side creates an entity before the replicated spawn for that entity arrives, then matches the local entity to the replicated entity instead of creating a duplicate.
 
-There are several types of entities you might want to create on the client (predicted) timeline:
-- normal ("delayed") predicted entities: they are spawned on the server and then replicated to the client.
-  The client creates a Confirmed entity, and performs a rollback to create a corresponding Predicted entity on the client timeline.
-- client-issued pre-predicted entities: the entity is first created on the client, and then replicated to the server.
-  The server then receives the entity, decides if it's valid, and if so, replicates back the original client.
-- prespawned entities: the entity is created on the client (in the predicted timeline) and the server using the same system. 
-  When the server replicates the entity back to the client, the client creates a Confirmed entity, but instead of 
-  creating a new Predicted entity, it re-uses the pre-spawned entity.
+That is useful for prediction, but it is not only a prediction feature.
 
-This section focuses about the third type of predicted entity: prespawned entities.
+You can use prespawning whenever both sides can create "the same" entity ahead of replication:
 
-## How does it work
+- a board game where both client and server spawn the board locally
+- map objects loaded from the same level file
+- action entities used by an input library
+- projectiles or effects that the client wants to see immediately
+- deterministic entities that are cheaper to spawn locally than to fully describe over the network
 
-You can find an example of prespawning in the [prespawned example](https://github.com/cBournhonesque/lightyear/tree/main/examples/bullet_prespawn).
+The important part is the match. The client and server need a deterministic signature that identifies the entity.
 
-Let's say you want to spawn a bullet when the client shoots.
-You could just spawn the bullet on the server and wait for it to be replicated + predicted on the client.
-However that would introduce a delay between clicking on the 'shoot' button and seeing the bullet spawned.
+Replicon has this concept directly in its [`Signature`](https://docs.rs/bevy_replicon/latest/bevy_replicon/shared/replication/signature/struct.Signature.html) component. The short version is: insert a compatible signature on both the server entity and the pre-existing client entity. When the replicated spawn arrives, Replicon can map the server entity to the existing local entity if the signature matches.
 
-So instead you run the same system on the client to prespawn the bullet in the predicted timeline.
-The only thing you need to do is add the `PreSpawnedPlayerObject` component to the entity spawned (on both the client and server).
+Lightyear's `PreSpawned` component is a convenience layer around that matching flow. When `PreSpawned` is inserted on a local entity, Lightyear registers the matching hash and inserts the Replicon `Signature` for you.
 
-```rust,noplayground
-commands.spawn((BulletBundle::default(), PreSpawnedPlayerObject));
+## Why this exists
+
+Normally, when the client receives a replicated server entity, it allocates a new local entity and stores the server-to-client mapping.
+
+That is exactly right for most gameplay. The client had no local entity before, so it needs one.
+
+Prespawning changes that first step. The local entity already exists. When the server spawn arrives, the client wants to say: "that server entity is this local entity."
+
+Once that mapping exists, later replicated components and entity references can use the normal entity-map path.
+
+## A non-prediction example
+
+Imagine a chess board. The board squares are deterministic: every client and the server can spawn the same 64 squares from the same rules.
+
+There is no need to replicate the full spawn for every square just to create local entities. Both sides can spawn them on startup. Then the server can replicate state for those entities, and signatures let the client match each server square to the square it already created.
+
+The signature could be based on a component like:
+
+```rust,ignore
+#[derive(Component, Serialize, Deserialize, Hash)]
+pub struct BoardSquare {
+    pub file: u8,
+    pub rank: u8,
+}
+
+commands.spawn((
+    BoardSquare { file, rank },
+    Signature::of::<BoardSquare>(),
+));
 ```
 
-That's it!
-- The client will assign a hash to the entity, based on its components and the tick at which it was spawned.
-  You can also override the hash to use a custom one.
-- When the client receives a server entity that has `PreSpawnedPlayerObject`, it will check if the hash matches any of its pre-spawned entities.
-  If it does, it will remove the `PreSpawnedPlayerObject` component and add the `Predicted` component.
-  If it doesn't, it will just spawn a normal predicted entity.
+On the server, the entity still needs to be replicated, for example with `Replicate::to_clients(NetworkTarget::All)`. On the client, the local pre-existing square only needs the matching data and signature.
 
+The values must be unique per entity and identical on both sides. If two entities get the same signature, the mapping is ambiguous. If the same entity gets different signatures, it will not match.
 
-## In-depth
+You can also express this through Lightyear's `PreSpawned` component when you want Lightyear to track cleanup and rollback behavior:
 
-The various system-sets for prespawning are:
+```rust,ignore
+commands.spawn((
+    BoardSquare { file, rank },
+    PreSpawned::new(board_square_hash(file, rank)),
+));
+```
 
-- PreSpawnedPlayerObject Component Hook, on_add:
-  - Unless a hash is provided, computes the hash of the prespawned entity based on its archetype (only the components that are present in the ComponentProtocol) + spawn tick.
+## A prediction example
 
-- PreUpdate schedule:
-  - `PredictionSet::SpawnPrediction`: we first run the prespawn match system to match the pre-spawned entities with their corresponding server entity.
-    If there is a match, we remove the PreSpawnedPlayerObject component and add the Predicted/Confirmed components.
-    We then run an apply_deferred, and we run the normal predicted spawn system, which will skip all confirmed entities that 
-    already have a `predicted` counterpart (i.e. were matched)
+The usual game example is a projectile.
 
-- FixedUpdate schedule:
-  - FixedUpdate::Main: prespawn the entity
-  - FixedUpdate::SetPreSpawnedHash: we store all new hashes and the spawn tick in the `PredictionManager` (not in the `PreSpawnedPlayerObject` component).
-  - FixedUpdate::SpawnHistory: add a PredictionHistory for each component of the pre-spawned entity. We need this to:
-    - not rollback immediately when we get the corresponding server entity
-    - do rollbacks correctly for pre-spawned entities
+If the player presses fire, waiting for a round trip before showing the projectile can feel bad. The client can spawn a local projectile immediately. The server receives the input, validates it, and spawns the authoritative projectile. When that authoritative projectile replicates back, the client tries to match it to the local projectile.
 
-- PostUpdate schedule:
-  - we cleanup any pre-spawned entity no the clients that were not matched with any server entity.
-    We do the cleanup when the `(spawn_tick - interpolation_tick) * 2` ticks have elapsed. Normally at interpolation tick we should have 
-    received all the matching replication messages, but it doesn't seem like it's the case for some reason.. To be investigated.
+That gives quick local feedback while keeping the server authoritative.
 
+The tricky part is cleanup. The server may reject the shot, spawn it with different data, or the match may fail. Your game needs a policy for the local entity in those cases.
 
-One thing to note is that we updated the rollback logic for pre-spawned entities. The normal rollback logic is:
-- we receive a confirmed update
-- we check if the confirmed update matches the predicted history
-- if not, we initiate a rollback, and restore the predicted history to the confirmed state. (Thanks to replication group, all components of all entities
-  in the replication group are guaranteed to be on the same confirmed tick)
+## What makes a good signature?
 
-However for pre-spawned entities, we do not have a confirmed entity yet! So instead we need to rollback to history of the pre-spawned entity.
-- we compute the prediction history of all components during FixedUpdate
-- when we have a rollback, we also rollback all prespawned entities to their history
-- Edge cases:
-  - if the prespawned entity didn't exist at the rollback tick, we despawn it
-  - if a component didn't exist at the rollback tick, we remove it
-  - if a component existed at the rollback tick but not anymore, we re-spawn it
-  - TODO: if the preentity existed at the rollback tick but not anymore, we re-spawn it
-    This one is NOT handled (or maybe it is via `prediction_despawn()`, check!)
+A good signature is:
 
+- deterministic on both sides
+- unique among entities that may be matched
+- based on stable gameplay data, not local entity ids
+- available before replication tries to match the entity
 
-## Caveats
+Good inputs include level ids, grid coordinates, spawn tick plus owner id, action name plus owning context, or a server/client-agreed spawn sequence.
 
-There are some things to be careful of:
-- the entity must be spawned in a system that runs in the `FixedUpdate::Main` SystemSet, because only then are you guaranteed 
-  to have exactly the same tick between client and server.
-  - If you spawn the prespawned entity in the `Update` schedule, it won't be registered correctly for rollbacks, and also the tick associated
-    with the entity spawn might be incorrect.
-  
+Bad inputs include random local ids, floating-point values that may diverge, or data that only one side knows.
+
+## `PreSpawned` hashes
+
+`PreSpawned::new(hash)` is the explicit path. Use it when your game already has a stable id for the entity.
+
+`PreSpawned::default()` computes a hash from the local spawn tick and the entity's registered component set. `PreSpawned::default_with_salt(salt)` adds an extra value to that hash. The salt is useful when two otherwise similar entities can be spawned on the same tick, such as two players firing the same projectile.
+
+The default hash is convenient for prediction-style spawns, but it is not magic. Both sides still need to create compatible entities at compatible ticks. For deterministic world objects, an explicit hash is usually easier to reason about.
+
+## Current Lightyear guidance
+
+Prespawning is a good fit for deterministic remote matching and for latency hiding. It is also one of the areas most sensitive to the Replicon integration, because entity mapping has to be correct before later components with `Entity` fields are applied.
+
+For ordinary gameplay entities, start with server-spawned replication. Add prespawning when you have a concrete reason:
+
+- you need immediate local feedback
+- the entity is deterministic and already exists locally
+- an integration layer needs matching entities on both sides
+
+When using it for prediction, remember that prespawning is only the spawn/match piece. Prediction still needs input history, component history, rollback, and deterministic fixed-tick systems.

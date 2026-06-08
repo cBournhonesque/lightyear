@@ -1,81 +1,112 @@
-# Replication Logic
+# Replication logic
 
-This page explains how replication works and what guarantees can be made.
+Lightyear's replication layer is built on `bevy_replicon`.
 
-Replication makes a distinction between:
-- Entity Actions (entity spawn/despawn, component insert/remove): these events change the archetype of an entity
-- Entity Updates (component update): these events don't change the archetype of an entity but simply update the value of some components. 
-    Most (90%+) replication messages should be Entity Updates.
+Replicon tracks registered component changes, serializes them, applies visibility filters, sends server updates, and applies them on the client. Lightyear adds the game-networking pieces around that:
 
-Those two are handled differently by the replication system.
+- transport channels for Replicon packets
+- server/client connection state
+- per-client visibility through `NetworkTarget`, immediate visibility, and rooms
+- checkpoint mapping from Replicon ticks to Lightyear simulation ticks
+- prediction and interpolation history hooks
+- hierarchy helpers
 
-## Invariants
+The current supported replication direction is server to client. Clients normally affect replicated state by sending inputs or messages to the server, then the server mutates its world and replicates the result back.
 
-There are certain invariants/guarantees that we wish to maintain with replication.
+## What gets replicated
 
-**Rule #1a**: we would like a replicated entity to be in a consistent state compared to what it was on the server: at no point do we want a situation where
-a given component is on tick T1 but another component of the same entity is on tick T2. The replicated entity should be equal to a version of the remote entity in the past.
-Similarly, we would not want one component of an entity to be inserted later than other components. This could be disastrous because some other system could depend on both
-components being present together!
+Add `Replicate::to_clients(...)` to a server entity to make it part of the replication stream.
 
-**Rule #2**: we want to be able to extend this guarantee to multiple entities.
-I will give two relevant examples:
-- client prediction: for client-prediction, we want to rollback if a receives server-state doesn't match with the predicted history.
-    If we are running client-prediction for multiple entities that are not in the same tick, we could have situations where we need to rollback one entity starting from tick T1
-    and another entity starting from tick T2. This can be fairly hard to achieve, so we'd like to have all predicted entities be on the same tick.
-- hierarchies: some entities have relationships. For example you could have an entity with a component Head, and an entity Body with a component `HasParent(Entity)`
-  which points to the Head entity. If we want to replicate this hierarchy, we need to make sure that the Head entity is replicated before the Body entity.
-  (otherwise the `Entity` pointed to in `HasParent` would be invalid on the client). Therefore we need to make sure that all updates for both the parent and the head
-  are in sync.
+Only registered components are sent. Register normal gameplay state with `register_component::<C>()`, and use `register_component_once::<C>()` for components whose value only needs to be sent when the component is inserted or removed.
 
+Replicon handles the usual ECS replication operations:
 
-The only way to guarantee that these rules are respected is to send all the updates for a given "replication group" as a single message.
-(if we send multiple messages, they could be added to multiple packets, and therefore arrive in a different time/order on the client because of jitter and packet loss)
+- entity spawn
+- entity despawn
+- component insert
+- component remove
+- component mutation
 
-Lightyear introduces the concept of a [`ReplicationGroup`](crate::prelude::ReplicationGroup) which is a group of entity whose `EntityActions` and `EntityUpdates` will be sent 
-over the network as a single message.
-It is **guaranteed** that the state of all entities in a given `ReplicationGroup` will be consistent on the client, i.e.
-will be equivalent to the state of the group on the server at a given previous tick T.
+Those operations are different from a gameplay point of view. A component mutation changes a value on an entity that already exists. A spawn, despawn, insert, or remove can change which systems match the entity. When you design replicated components, keep that in mind: components that must appear together should usually be spawned together, and systems should tolerate the fact that a remote entity only exists after replication has delivered it.
 
+## Server tick and send timing
 
+Replication is emitted when Replicon's server tick advances. Lightyear advances that after the fixed loop has drained, so a frame's fixed simulation changes can be bundled into the outgoing replication work.
 
-## Entity Actions
+For gameplay code, the useful rule is:
 
-For each [`ReplicationGroup`](crate::prelude::ReplicationGroup), Entity Actions are replicated in an `OrderedReliable` manner.
+- receive network data before simulation
+- run fixed simulation
+- send network data after simulation
 
-### Send
+That keeps replicated state aligned with the tick that produced it.
 
-Whenever there are any actions for a given [`ReplicationGroup`](crate::prelude::ReplicationGroup), we send them as a single message AND we include any updates for this group as well.
-This is to guarantee consistency; if we sent them as 2 separate messages, the packet containing the updates could get lost and we would be in an inconsistent state.
-Each message for a given [`ReplicationGroup`] is associated with a message id (a monotonically increasing number) that is used to order the messages on the client.
+The relevant system sets are:
 
-### Receive
+- `ReplicationSystems::Receive`: applies incoming replication data
+- `ReplicationSystems::Send`: flushes outgoing replication data
 
-On the receive side, we buffer the EntityActions that we receive, so that we can read them in order (message id 1, 2, 3, 4, etc.)
-We keep track of the next message id that we should receive.
+Most gameplay should not need to schedule directly inside those sets. They are useful when you have glue code that must run before replicated state is applied or before replicated changes are sent.
 
+## Consistency
 
-## Entity Updates
+The practical goal of replication is that the client observes a coherent server state from the past.
 
-### Send
+For a single entity, that means you should avoid situations where gameplay systems see half of a replicated concept. If `Health` and `Dead` must be interpreted together, register and mutate them with that relationship in mind. If a marker changes which client systems run, make sure the components those systems read are also available when the marker arrives.
 
-We gather all updates since the last time we got an ACK from the client that the EntityUpdates was received
+For multiple entities, consistency usually comes down to references and hierarchy. If one replicated component points to another entity, the receiver needs a valid local entity mapping before the reference is used. This is why entity mapping is not optional for components that contain `Entity`.
 
-The reason for this is:
-- we could be gathering all the component changes since the last time we sent EntityActions, but then it could be wasteful
-if the last time we had any entity actions was a long time ago and many components got updated since.
-- we could be gathering all the component changes since the last time we sent a message, but then we could have a situation where:
-  - we send changes for C1 on tick 1
-  - we send changes for C2 on tick 2
-  - packet for C1 gets lost, and we apply the C2 changes -> the entity is now in an inconsistent state at C2
+```rust,ignore
+#[derive(Component, Serialize, Deserialize, Clone)]
+pub struct EquippedBy {
+    pub player: Entity,
+}
 
+impl MapEntities for EquippedBy {
+    fn map_entities<M: EntityMapper>(&mut self, mapper: &mut M) {
+        self.player = mapper.get_mapped(self.player);
+    }
+}
+```
 
-### Receive
+The same rule applies to nested structs and collections. If an entity id crosses the network, it has to be mapped.
 
-For each [`ReplicationGroup`](crate::prelude::ReplicationGroup), Entity Updates are replicated in a `SequencedUnreliable` manner.
-We have some additional constraints:
-- we only apply EntityUpdates if we have already applied all the EntityActions for the given [`ReplicationGroup`](crate::prelude::ReplicationGroup) that were sent when the Updates were sent.
-  - for example we send A1, U2, A3, U4; we receive U4 first, but we only apply it if we have applied A3, as those are the latest EntityActions sent when U4 was sent
-- if we received a more recent update that can be applied, we discard the older one (Sequencing)
-  - for example if we send A1, U2, U3 and we receive A1 then U3, we discard U2 because it is older than U3
-    
+## Hierarchies
+
+Lightyear has helpers for Bevy relationships such as `ChildOf`.
+
+When a replicated root has children, Lightyear can propagate replication configuration through the hierarchy using `ReplicateLike`. That lets a child use the root's replication target, prediction target, interpolation target, and visibility rules without manually copying the same components everywhere.
+
+Use `DisableReplicateHierarchy` on a child when you do not want that propagation for the child or its descendants.
+
+This is mostly about keeping intent local. You can say "this player entity replicates to these clients" on the root, and the child entities that make up the player can follow that rule.
+
+## Visibility
+
+`Replicate::to_clients(NetworkTarget::...)` is the broad target. Visibility is the fine-grained filter.
+
+Use immediate visibility changes when an entity should be shown or hidden for one client right now. Use rooms when a set of clients and entities share a stable interest-management region.
+
+Visibility also matters for bandwidth. The cheapest replicated update is the one that is not sent.
+
+## Prediction and interpolation hooks
+
+Prediction and interpolation do not replace Replicon. They change how received component data is written when an entity has the relevant marker.
+
+For prediction, incoming server values can be stored as confirmed history so Lightyear can detect mismatches and roll back.
+
+For interpolation, incoming server values can be stored in `ConfirmedHistory<C>` so the interpolation timeline can sample between known states.
+
+Both systems depend on the server stream. They are not client-to-server replication.
+
+## Current limitations
+
+The Replicon backend works best when the server owns replicated state and clients send intent through inputs or messages. A few patterns still need extra care:
+
+- pausing replication by removing `Replicate`
+- fully client-authored replicated entities
+- some authority-transfer flows
+
+Prespawning is still useful, but treat it as entity matching: the receiving world creates a deterministic entity, gives it a Replicon signature, and lets Replicon match the replicated spawn to that entity later.
+
+When building a game today, prefer the supported path: server-owned replicated entities, client inputs/messages, explicit visibility, and prespawning only where deterministic matching gives you something concrete.

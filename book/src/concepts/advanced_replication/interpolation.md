@@ -1,84 +1,59 @@
 # Interpolation
 
-## Introduction
-Interpolation means that we will store replicated entities in a buffer, and then interpolate between the last two states to get a smoother movement.
+Network interpolation smooths entities that are controlled by the server.
 
-See this excellent explanation from Valve: [link](https://developer.valvesoftware.com/wiki/Source_Multiplayer_Networking)
-or this one from Gabriel Gambetta: [link](https://www.gabrielgambetta.com/entity-interpolation.html)
+The server does not send an update every render frame. It sends snapshots at a network rate, packets can arrive unevenly, and some packets can be lost. If the client draws the latest received value directly, movement can look jittery.
 
+Interpolation fixes that by rendering a little bit behind the newest server state. The client keeps a small history of confirmed component values and samples between two known states.
 
-## Implementation
+## How to enable it
 
-In lightyear, interpolation can be automatically managed for you.
+Register interpolation for the component:
 
-Every replicated entity can specify to which clients it should be interpolated to:
-```rust,noplayground
-Replicate {
-    interpolation_target: NetworkTarget::AllExcept(vec![id]),
-    ..default()
-},
+```rust,ignore
+app.register_component::<PlayerPosition>()
+    .add_linear_interpolation();
 ```
 
-This means that all clients except for the one with id `id` will interpolate this entity.
-In practice, it means that they will store in a buffer the history for all components that are enabled for Interpolation.
+Then tell Lightyear which clients should interpolate the entity:
 
-
-## Component Sync Mode
-
-Not all components in the protocol are necessarily interpolated.
-Each component can implement a `ComponentSyncMode` that defines how it gets handled for the `Predicted` and `Interpolated` entities.
-
-Only components that have `ComponentSyncMode::Full` will be interpolated.
-
-
-## Interpolation function
-
-By default, the implementation function for a given component will be linear interpolation.
-It is also possibly to override this behaviour by implementing a custom interpolation function.
-
-Here is an example:
-
-```rust,noplayground
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Component1(pub f32);
-    #[derive(Component, Message, Serialize, Deserialize, Debug, PartialEq, Clone)]
-    pub struct Component2(pub f32);
-
-    #[component_protocol(protocol = "MyProtocol")]
-    pub enum MyComponentProtocol {
-        #[sync(full)]
-        Component1(Component1),
-        #[sync(full, lerp = "MyCustomInterpFn")]
-        Component2(Component2),
-    }
-
-    // custom interpolation logic
-    pub struct MyCustomInterpFn;
-    impl<C> InterpFn<C> for MyCustomInterpFn {
-        fn lerp(start: C, _other: C, _t: f32) -> C {
-            start
-        }
-    }
+```rust,ignore
+commands.spawn((
+    PlayerBundle::new(client_id),
+    Replicate::to_clients(NetworkTarget::All),
+    InterpolationTarget::to_clients(NetworkTarget::AllExceptSingle(client_id)),
+));
 ```
 
-You will have to add the attribute `lerp = "TYPE_NAME"` to the component.
-The `TYPE_NAME` must be a type that implements the `InterpFn` trait.
-```rust,noplayground
-pub trait InterpFn<C> {
-    fn lerp(start: C, other: C, t: f32) -> C;
+That example is the usual player setup: the owning client predicts its own player, and other clients interpolate it.
+
+## What gets created?
+
+Do not think of interpolation as a second replicated entity. The server still replicates one entity. On the client, `Interpolated` is a marker that changes how registered components are applied.
+
+For an interpolated component, incoming authoritative values are stored in `ConfirmedHistory<C>`. The interpolation systems then write the sampled value to the live component for the interpolation timeline.
+
+## Interpolation functions
+
+For simple types, `.add_linear_interpolation()` is enough if the component supports Bevy's `Ease` behavior.
+
+For custom types, provide your own function:
+
+```rust,ignore
+fn interpolate_position(start: PlayerPosition, end: PlayerPosition, t: f32) -> PlayerPosition {
+    PlayerPosition(start.0.lerp(end.0, t))
 }
+
+app.register_component::<PlayerPosition>()
+    .add_interpolation_with(interpolate_position);
 ```
 
+If a component needs several fields or several entities to interpolate correctly, use `.add_custom_interpolation()`. Lightyear will keep the confirmed history for you, and your own system can decide how to sample it.
 
-## Complex interpolation
+## Interpolation versus frame interpolation
 
-In some cases, the interpolation logic can be more complex than a simple linear interpolation.
-For example, we might want to have different interpolation functions for different entities, even if they have the same component type.
-Or we might want to do interpolation based on multiple comments (applying some cubic spline interpolation that relies not only on the position,
-but also on the velocity and acceleration).
+Network interpolation smooths between server updates.
 
-In those cases, you can disable the default per-component interpolation logic and provide your own custom logic.
-```rust,noplayground```
+Frame interpolation smooths between fixed simulation ticks and render frames.
 
-
-
+Most games need both eventually, but they solve different problems. If an entity is stuttering because packets arrive at 10 or 20 Hz, use network interpolation. If an entity is stuttering because physics runs in `FixedUpdate` and rendering runs in `Update`/`PostUpdate`, use frame interpolation.
