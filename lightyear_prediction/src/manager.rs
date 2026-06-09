@@ -117,24 +117,16 @@ impl LastConfirmedInput {
 }
 
 /// Stores metadata related to state-based prediction.
-///
-/// Key invariant: `last_confirmed_tick = T` guarantees that for all entities,
-/// we have complete information at tick T:
-/// - Entities that received an update at T: their confirmed value is in the message
-/// - Entities that didn't receive an update: their value at T = their last confirmed value
-///   (because if a message was lost/in-flight, the server would resend on the next tick)
 #[derive(Resource, Clone, Copy, Debug, Default, Reflect)]
 pub struct StateRollbackMetadata {
-    /// The latest authoritative tick for which all mutate messages were received.
-    last_confirmed_tick: Option<Tick>,
-
     /// The last confirmed tick where we checked unchanged entities.
     ///
-    /// This is separate from `last_confirmed_tick`: a confirmed tick can stay
-    /// unchanged across many frames, and `check_rollback` only needs to scan
-    /// unchanged entities once per completed tick. If the confirmed tick is in
-    /// the client's future, it is not marked processed yet so the check can be
-    /// retried once local prediction history reaches that tick.
+    /// The completed mutation tick itself comes from Replicon's
+    /// `ServerMutateTicks::last_confirmed_tick`. This field only tracks whether
+    /// Lightyear already scanned unchanged predicted entities for that tick.
+    /// If the confirmed tick is in the client's future, it is not marked
+    /// processed yet so the check can be retried once local prediction history
+    /// reaches that tick.
     last_processed_tick: Option<Tick>,
 
     /// The earliest tick where we detected a mismatch this frame.
@@ -195,20 +187,6 @@ impl StateRollbackMetadata {
     /// skip), otherwise `prepare_rollback` won't find the restore value.
     pub fn forced_rollback_tick(&self) -> Option<Tick> {
         self.forced_rollback_tick
-    }
-
-    /// Latest authoritative tick for which all mutate messages were received.
-    pub fn last_confirmed_tick(&self) -> Option<Tick> {
-        self.last_confirmed_tick
-    }
-
-    /// Record a newly completed mutate tick.
-    pub fn record_last_confirmed_tick(&mut self, tick: Tick) {
-        match self.last_confirmed_tick {
-            None => self.last_confirmed_tick = Some(tick),
-            Some(existing) if tick > existing => self.last_confirmed_tick = Some(tick),
-            _ => {}
-        }
     }
 
     /// Reset all connection-scoped rollback metadata.
@@ -313,17 +291,6 @@ mod tests {
     }
 
     #[test]
-    fn record_last_confirmed_tick_keeps_latest_tick() {
-        let mut metadata = StateRollbackMetadata::default();
-
-        metadata.record_last_confirmed_tick(Tick(12));
-        metadata.record_last_confirmed_tick(Tick(10));
-        metadata.record_last_confirmed_tick(Tick(14));
-
-        assert_eq!(metadata.last_confirmed_tick(), Some(Tick(14)));
-    }
-
-    #[test]
     fn confirmed_tick_advancement_uses_last_processed_tick() {
         let mut metadata = StateRollbackMetadata::default();
         assert!(metadata.has_confirmed_tick_advanced(Tick(10)));
@@ -332,27 +299,6 @@ mod tests {
         assert!(!metadata.has_confirmed_tick_advanced(Tick(10)));
         assert!(!metadata.has_confirmed_tick_advanced(Tick(9)));
         assert!(metadata.has_confirmed_tick_advanced(Tick(11)));
-    }
-
-    #[test]
-    fn server_mutate_last_tick_can_be_newer_than_latest_complete_tick() {
-        use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
-        use bevy_replicon::prelude::RepliconTick;
-
-        let complete_tick = RepliconTick::new(9);
-        let incomplete_tick = RepliconTick::new(10);
-
-        let mut server_mutate_ticks = ServerMutateTicks::default();
-        assert!(server_mutate_ticks.confirm(complete_tick, 1));
-        assert!(!server_mutate_ticks.confirm(incomplete_tick, 2));
-
-        assert_eq!(server_mutate_ticks.last_tick(), incomplete_tick);
-        assert!(server_mutate_ticks.contains(complete_tick));
-        assert!(!server_mutate_ticks.contains(incomplete_tick));
-
-        let mut metadata = StateRollbackMetadata::default();
-        metadata.record_last_confirmed_tick(Tick(900));
-        assert_eq!(metadata.last_confirmed_tick(), Some(Tick(900)));
     }
 
     #[test]

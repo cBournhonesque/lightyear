@@ -1,7 +1,7 @@
 use bevy_replicon::prelude::RepliconTick;
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-use lightyear_replication::prelude::ConfirmHistory;
+use lightyear_replication::prelude::{ConfirmHistory, ServerMutateTicks};
 
 pub(crate) fn resolve_message_tick(
     checkpoints: &ReplicationCheckpointMap,
@@ -15,6 +15,13 @@ pub(crate) fn resolve_confirm_history_tick(
     history: &ConfirmHistory,
 ) -> Option<Tick> {
     resolve_message_tick(checkpoints, history.last_tick())
+}
+
+pub(crate) fn resolve_server_last_confirmed_tick(
+    checkpoints: &ReplicationCheckpointMap,
+    ticks: &ServerMutateTicks,
+) -> Option<Tick> {
+    lightyear_replication::checkpoint::resolve_server_last_confirmed_tick(checkpoints, ticks)
 }
 
 #[cfg(test)]

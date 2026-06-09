@@ -7,7 +7,9 @@ use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::NetworkTimeline;
 use lightyear_core::tick::Tick;
-use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_server_mutate_tick};
+use lightyear_replication::checkpoint::{
+    ReplicationCheckpointMap, resolve_server_last_confirmed_tick,
+};
 use lightyear_replication::prelude::ServerMutateTicks;
 use lightyear_sync::prelude::client::IsSynced;
 #[allow(unused_imports)]
@@ -33,7 +35,8 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
     mut commands: Commands,
 ) {
     let timeline = interpolation.into_inner();
-    let server_complete_tick = resolve_server_mutate_tick(&checkpoints, &server_mutate_ticks);
+    let server_complete_tick =
+        resolve_server_last_confirmed_tick(&checkpoints, &server_mutate_ticks);
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
         // ServerMutateTicks is the global completeness signal for mutate messages. If it confirms

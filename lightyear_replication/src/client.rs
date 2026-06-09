@@ -15,6 +15,7 @@ use crate::channels::RepliconChannelMap;
 use crate::checkpoint::{
     ReplicationCheckpointMap, extract_server_replicon_tick, unwrap_server_payload,
 };
+use crate::prelude::Replicated;
 use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::{debug, error};
@@ -160,8 +161,8 @@ fn send_client_packets(
 ///
 /// This matches the old `ReplicationReceivePlugin::handle_disconnection` behavior:
 /// all entities that were spawned from replication are despawned on disconnect.
-/// In the new replicon flow, predicted and interpolated entities also have `Replicated`
-/// since they arrive as replicated components.
+/// In the Replicon flow, received entities have `Remote`, which Lightyear exposes
+/// as its receiver-side `Replicated` marker.
 fn despawn_replicated_on_disconnect(
     mut commands: Commands,
     replicated: Query<Entity, (With<Replicated>, Without<Replicate>)>,

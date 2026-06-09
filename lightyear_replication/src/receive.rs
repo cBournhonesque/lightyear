@@ -2,13 +2,13 @@ use crate::ReplicationSystems;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_replicon::client::ClientSystems;
-use bevy_replicon::client::confirm_history::ConfirmHistory;
 // TODO: add special rules so that entities with Predicted/Interpolation apply components differently
 
 /// Replicated is used as a marker component to find entities that were replicated from a remote.
 ///
-/// replicon always adds a [`ConfirmHistory`] component on replicated entities, so we can just use that.
-pub type Replicated = ConfirmHistory;
+/// Replicon adds [`Remote`](bevy_replicon::prelude::Remote) on entities spawned
+/// from a remote, and Lightyear keeps `Replicated` as its receiver-side name.
+pub use bevy_replicon::prelude::Remote as Replicated;
 
 /// Marker component added to a link entity to enable incoming replication.
 ///
