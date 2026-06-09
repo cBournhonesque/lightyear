@@ -96,6 +96,13 @@ impl Plugin for ProtocolCheckPlugin {
     }
 
     fn finish(&self, app: &mut App) {
+        // Replication can be enabled without any user-defined components. In that case,
+        // make sure the registry exists on both sides so the protocol check compares
+        // empty registries rather than `Some(...)` vs `None`.
+        if !app.world().contains_resource::<ComponentRegistry>() {
+            app.world_mut().init_resource::<ComponentRegistry>();
+        }
+
         app.add_observer(Self::send_verify_protocol);
         app.add_observer(Self::receive_verify_protocol);
     }
@@ -112,4 +119,21 @@ impl Plugin for ProtocolCheckPlugin {
     //     app.add_trigger::<ProtocolCheck>()
     //         .add_direction(NetworkDirection::ServerToClient);
     // }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ProtocolCheckPlugin;
+    use bevy_app::App;
+    use lightyear_replication::registry::ComponentRegistry;
+
+    #[test]
+    fn protocol_check_initializes_empty_component_registry() {
+        let mut app = App::new();
+
+        app.add_plugins(ProtocolCheckPlugin);
+        app.finish();
+
+        assert!(app.world().contains_resource::<ComponentRegistry>());
+    }
 }
