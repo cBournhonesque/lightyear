@@ -4,6 +4,7 @@ use crate::timeline::InterpolationTimeline;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::prelude::*;
+use bevy_replicon::prelude::{Diffable as RepliconDiffable, PatchIndex};
 use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::NetworkTimeline;
 use lightyear_core::tick::Tick;
@@ -15,6 +16,8 @@ use lightyear_sync::prelude::client::IsSynced;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
+const DIFF_CURSOR_RETENTION: usize = 25;
+
 /// Compute the interpolation fraction
 pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f32) -> f32 {
     ((current - start) as f32 + overstep) / (end - start) as f32
@@ -24,16 +27,19 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
 ///
 /// The goal is to keep the freshest bracketing pair while updates are flowing,
 /// then advance unchanged values using empty mutate ticks when explicit component updates stop.
-pub(crate) fn update_confirmed_history<C: Component + Clone>(
+pub(crate) fn update_confirmed_history<C, M>(
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
     interpolation_registry: Res<InterpolationRegistry>,
     interpolation: Single<&InterpolationTimeline>,
     checkpoints: Res<ReplicationCheckpointMap>,
     server_mutate_ticks: Res<ServerMutateTicks>,
-    mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>)>,
+    mut query: Query<(Entity, &mut ConfirmedHistory<C, M>, Has<C>)>,
     mut commands: Commands,
-) {
+) where
+    C: Component + Clone,
+    M: Clone + Send + Sync + 'static,
+{
     let timeline = interpolation.into_inner();
     let server_complete_tick =
         resolve_server_last_confirmed_tick(&checkpoints, &server_mutate_ticks);
@@ -86,13 +92,76 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
     }
 }
 
+/// Diff-enabled interpolation needs to retain recent patch-cursor bases in
+/// `ConfirmedHistory`, even after those anchors are no longer needed for visual sampling.
+pub(crate) fn update_confirmed_history_diff<C>(
+    interpolation_registry: Res<InterpolationRegistry>,
+    interpolation: Single<&InterpolationTimeline>,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    server_mutate_ticks: Res<ServerMutateTicks>,
+    mut query: Query<(Entity, &mut ConfirmedHistory<C, Option<PatchIndex>>, Has<C>)>,
+    mut commands: Commands,
+) where
+    C: Component + Clone + RepliconDiffable,
+{
+    let timeline = interpolation.into_inner();
+    let server_complete_tick =
+        resolve_server_last_confirmed_tick(&checkpoints, &server_mutate_ticks);
+    let current_interpolate_tick = timeline.now().tick();
+    let retained_entry_floor = DIFF_CURSOR_RETENTION.saturating_add(2);
+
+    for (entity, mut history, present) in query.iter_mut() {
+        if let Some(server_complete_tick) = server_complete_tick
+            && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
+        {
+            trace!(
+                target: "lightyear_debug::interpolation",
+                kind = "confirmed_history_unchanged_advance",
+                schedule = "Update",
+                sample_point = "Update",
+                entity = ?entity,
+                component = ?DebugName::type_name::<C>(),
+                previous_newest_tick = previous_newest_tick.0,
+                server_complete_tick = server_complete_tick.0,
+                history_len = history.len(),
+                "advanced unchanged interpolation history"
+            );
+        }
+
+        while history.len() > retained_entry_floor
+            && history
+                .get_nth_tick(1)
+                .is_some_and(|tick| tick <= current_interpolate_tick)
+        {
+            history.pop();
+        }
+
+        match history.sample(
+            current_interpolate_tick,
+            timeline.overstep().to_f32(),
+            interpolation_registry.as_ref(),
+        ) {
+            ConfirmedHistorySample::Pending | ConfirmedHistorySample::Removed if present => {
+                commands.entity(entity).try_remove::<C>();
+            }
+            ConfirmedHistorySample::Present(value) if !present => {
+                commands.entity(entity).try_insert(value);
+            }
+            _ => {}
+        }
+    }
+}
+
 /// Apply interpolation for the component
-pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
+pub(crate) fn interpolate<C, M>(
     interpolation_registry: Res<InterpolationRegistry>,
     timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
-    mut query: Query<(Entity, &mut C, &ConfirmedHistory<C>)>,
+    mut query: Query<(Entity, &mut C, &ConfirmedHistory<C, M>)>,
     mut commands: Commands,
-) {
+) where
+    C: Component<Mutability = Mutable> + Clone,
+    M: Send + Sync + 'static,
+{
     let interpolation_tick = timeline.tick();
     let interpolation_overstep = timeline.overstep().to_f32();
     for (entity, mut component, history) in query.iter_mut() {
@@ -181,8 +250,8 @@ mod tests {
         app.add_systems(
             Update,
             (
-                update_confirmed_history::<TestComp>,
-                interpolate::<TestComp>,
+                update_confirmed_history::<TestComp, ()>,
+                interpolate::<TestComp, ()>,
             )
                 .chain(),
         );
@@ -219,7 +288,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_coalesces_repeated_empty_mutate_ticks() {
         let mut app = setup_app(Tick(30), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
         confirm_server_tick(&mut app, 1, Tick(30));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -249,7 +318,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_does_not_move_history_backwards() {
         let mut app = setup_app(Tick(30), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
         confirm_server_tick(&mut app, 1, Tick(100));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -273,7 +342,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_advances_from_server_mutate_ticks_without_entity_confirm_history() {
         let mut app = setup_app(Tick(30), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
         confirm_server_tick(&mut app, 1, Tick(20));
         confirm_server_tick(&mut app, 2, Tick(30));
 
@@ -301,8 +370,8 @@ mod tests {
         app.add_systems(
             Update,
             (
-                update_confirmed_history::<TestComp>,
-                interpolate::<TestComp>,
+                update_confirmed_history::<TestComp, ()>,
+                interpolate::<TestComp, ()>,
             )
                 .chain(),
         );
@@ -339,7 +408,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_waits_to_insert_component_until_start_tick() {
         let mut app = setup_app(Tick(9), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -355,7 +424,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_removes_component_until_start_tick() {
         let mut app = setup_app(Tick(9), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -374,8 +443,8 @@ mod tests {
         app.add_systems(
             Update,
             (
-                update_confirmed_history::<TestComp>,
-                interpolate::<TestComp>,
+                update_confirmed_history::<TestComp, ()>,
+                interpolate::<TestComp, ()>,
             )
                 .chain(),
         );
@@ -400,8 +469,8 @@ mod tests {
         app.add_systems(
             Update,
             (
-                update_confirmed_history::<TestComp>,
-                interpolate::<TestComp>,
+                update_confirmed_history::<TestComp, ()>,
+                interpolate::<TestComp, ()>,
             )
                 .chain(),
         );
@@ -426,7 +495,7 @@ mod tests {
     #[test]
     fn component_reinsert_after_removal_waits_until_insert_tick() {
         let mut app = setup_app(Tick(15), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -445,7 +514,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_seeds_component_at_current_interpolation_sample() {
         let mut app = setup_app(Tick(15), 40);
-        app.add_systems(Update, update_confirmed_history::<TestComp>);
+        app.add_systems(Update, update_confirmed_history::<TestComp, ()>);
         let mut registry = InterpolationRegistry::default();
         registry.set_interpolation::<TestComp>(lerp);
         app.world_mut().insert_resource(registry);

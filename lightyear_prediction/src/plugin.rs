@@ -3,14 +3,15 @@ use super::resource_history::{
     update_resource_history_on_prediction_manager_added,
 };
 use super::rollback::{
-    RollbackPlugin, RollbackSystems, prepare_rollback, prepare_rollback_resource,
+    RollbackPlugin, RollbackSystems, prepare_rollback, prepare_rollback_diff,
+    prepare_rollback_resource,
 };
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
-    add_prediction_history, apply_component_removal_predicted,
+    add_prediction_history, add_prediction_history_diff, apply_component_removal_predicted,
     handle_tick_event_prediction_history, snap_to_confirmed_during_rollback,
     update_prediction_history,
 };
@@ -22,6 +23,7 @@ use bevy_app::FixedPreUpdate;
 use bevy_app::prelude::*;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
+use bevy_replicon::prelude::{Diffable as RepliconDiffable, PatchIndex};
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 #[cfg(feature = "metrics")]
 use bevy_utils::prelude::DebugName;
@@ -75,20 +77,28 @@ pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
 
 /// Enable rollbacking a component even if the component is not networked
 pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
-    app.add_observer(apply_component_removal_predicted::<C>);
-    app.add_observer(add_prediction_history::<C>);
+    add_non_networked_rollback_systems_with_metadata::<C, ()>(app);
+}
+
+pub fn add_non_networked_rollback_systems_with_metadata<C, M>(app: &mut App)
+where
+    C: SyncComponent,
+    M: Default + Clone + Send + Sync + 'static,
+{
+    app.add_observer(apply_component_removal_predicted::<C, M>);
+    app.add_observer(add_prediction_history::<C, M>);
     // Without this observer, the component's `PredictionHistory<C>` buffer
     // would not get its tick values shifted on timeline-sync, so any
     // history entries accumulated pre-sync would point to stale
     // (pre-sync) ticks after the client clock jumps forward.
-    app.add_observer(handle_tick_event_prediction_history::<C>);
+    app.add_observer(handle_tick_event_prediction_history::<C, M>);
     app.add_systems(
         PreUpdate,
-        prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
+        prepare_rollback::<C, M>.in_set(RollbackSystems::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
-        update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+        update_prediction_history::<C, M>.in_set(PredictionSystems::UpdateHistory),
     );
 }
 
@@ -120,6 +130,14 @@ pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
 }
 
 pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
+    add_prediction_systems_with_metadata::<C, ()>(app);
+}
+
+pub(crate) fn add_prediction_systems_with_metadata<C, M>(app: &mut App)
+where
+    C: SyncComponent,
+    M: Default + Clone + Send + Sync + 'static,
+{
     #[cfg(feature = "metrics")]
     {
         metrics::describe_counter!(
@@ -159,9 +177,9 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     // app.register_type::<HistoryState<C>>();
     // app.register_type::<PredictionHistory<C>>();
 
-    app.add_observer(apply_component_removal_predicted::<C>);
-    app.add_observer(handle_tick_event_prediction_history::<C>);
-    app.add_observer(add_prediction_history::<C>);
+    app.add_observer(apply_component_removal_predicted::<C, M>);
+    app.add_observer(handle_tick_event_prediction_history::<C, M>);
+    app.add_observer(add_prediction_history::<C, M>);
 
     app.add_systems(
         PreUpdate,
@@ -169,20 +187,79 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
             // for SyncMode::Full, we need to check if we need to rollback.
             // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
             // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
-            prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
+            prepare_rollback::<C, M>.in_set(RollbackSystems::Prepare),
         ),
     );
     app.add_systems(
         FixedPreUpdate,
         // During rollback re-simulation, snap to confirmed values if we have them
-        snap_to_confirmed_during_rollback::<C>.in_set(PredictionSystems::SnapToConfirmed),
+        snap_to_confirmed_during_rollback::<C, M>.in_set(PredictionSystems::SnapToConfirmed),
     );
     app.add_systems(
         FixedPostUpdate,
         (
             // we need to run this during fixed update to know accurately the history for each tick
-            update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+            update_prediction_history::<C, M>.in_set(PredictionSystems::UpdateHistory),
         ),
+    );
+}
+
+pub(crate) fn add_prediction_systems_with_diff_metadata<C>(app: &mut App)
+where
+    C: SyncComponent + RepliconDiffable,
+{
+    #[cfg(feature = "metrics")]
+    {
+        metrics::describe_counter!(
+            format!(
+                "prediction::rollbacks::causes::{}::missing_on_confirmed",
+                DebugName::type_name::<C>()
+            ),
+            metrics::Unit::Count,
+            "Component present in the prediction history but missing on the confirmed entity"
+        );
+        metrics::describe_counter!(
+            format!(
+                "prediction::rollbacks::causes::{}::value_mismatch",
+                DebugName::type_name::<C>()
+            ),
+            metrics::Unit::Count,
+            "Component present in the prediction history but with a different value than on the confirmed entity"
+        );
+        metrics::describe_counter!(
+            format!(
+                "prediction::rollbacks::causes::{}::missing_on_predicted",
+                DebugName::type_name::<C>()
+            ),
+            metrics::Unit::Count,
+            "Component present in the confirmed entity but missing in the prediction history"
+        );
+        metrics::describe_counter!(
+            format!(
+                "prediction::rollbacks::causes::{}::removed_on_predicted",
+                DebugName::type_name::<C>()
+            ),
+            metrics::Unit::Count,
+            "Component present in the confirmed entity but removed in the prediction history"
+        );
+    }
+
+    app.add_observer(apply_component_removal_predicted::<C, Option<PatchIndex>>);
+    app.add_observer(handle_tick_event_prediction_history::<C, Option<PatchIndex>>);
+    app.add_observer(add_prediction_history_diff::<C>);
+
+    app.add_systems(
+        PreUpdate,
+        prepare_rollback_diff::<C>.in_set(RollbackSystems::Prepare),
+    );
+    app.add_systems(
+        FixedPreUpdate,
+        snap_to_confirmed_during_rollback::<C, Option<PatchIndex>>
+            .in_set(PredictionSystems::SnapToConfirmed),
+    );
+    app.add_systems(
+        FixedPostUpdate,
+        update_prediction_history::<C, Option<PatchIndex>>.in_set(PredictionSystems::UpdateHistory),
     );
 }
 

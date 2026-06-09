@@ -53,7 +53,9 @@ use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy_reflect::Reflect;
-use bevy_replicon::prelude::{ClientMessages, ClientSystems};
+use bevy_replicon::prelude::{
+    ClientMessages, ClientSystems, Diffable as RepliconDiffable, PatchIndex,
+};
 use bevy_replicon::shared::backend::channels::ServerChannel;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
@@ -877,7 +879,7 @@ pub(crate) fn remove_prediction_disable(
 /// 3. Reverts the component to the value at rollback_tick
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback<C: SyncComponent>(
+pub(crate) fn prepare_rollback<C, M>(
     timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
     checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
@@ -890,13 +892,16 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             Entity,
             Option<&mut C>,
             Option<&ConfirmHistory>,
-            &mut PredictionHistory<C>,
+            &mut PredictionHistory<C, M>,
             AnyOf<(&Predicted, &PreSpawned, &DeterministicPredicted)>,
         ),
         Without<DisableRollback>,
     >,
     manager_query: Single<(&PredictionManager, &Rollback)>,
-) {
+) where
+    C: SyncComponent,
+    M: Clone + Send + Sync + 'static,
+{
     let kind = DebugName::type_name::<C>();
     let (manager, rollback) = manager_query.into_inner();
     let current_tick = timeline.tick();
@@ -1036,6 +1041,146 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     }
                 };
             }
+        };
+    }
+}
+
+/// Diff-specific rollback preparation that keeps recent patch-cursor bases in history.
+#[allow(clippy::type_complexity)]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn prepare_rollback_diff<C>(
+    timeline: Res<LocalTimeline>,
+    prediction_registry: Res<PredictionRegistry>,
+    checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
+    server_mutate_ticks: Res<ServerMutateTicks>,
+    mut commands: Commands,
+    mut predicted_query: Query<
+        (
+            Entity,
+            Option<&mut C>,
+            Option<&ConfirmHistory>,
+            &mut PredictionHistory<C, Option<PatchIndex>>,
+            AnyOf<(&Predicted, &PreSpawned, &DeterministicPredicted)>,
+        ),
+        Without<DisableRollback>,
+    >,
+    manager_query: Single<(&PredictionManager, &Rollback)>,
+) where
+    C: SyncComponent + RepliconDiffable,
+{
+    let kind = DebugName::type_name::<C>();
+    let (manager, rollback) = manager_query.into_inner();
+    let current_tick = timeline.tick();
+    let _span = trace_span!("prepare_rollback_diff", tick = ?current_tick, kind = ?kind).entered();
+    let rollback_tick = manager.get_rollback_start_tick().unwrap();
+
+    let Some(server_confirmed_tick) =
+        resolve_server_last_confirmed_tick(&checkpoints, &server_mutate_ticks)
+    else {
+        return;
+    };
+
+    for (
+        entity,
+        predicted_component,
+        confirm_history,
+        mut predicted_history,
+        (predicted, _prespawned, _disable_state_rollback),
+    ) in predicted_query.iter_mut()
+    {
+        if matches!(rollback, Rollback::FromState)
+            && !matches!(manager.rollback_policy.state, RollbackMode::Disabled)
+            && let Some(confirm_history) = confirm_history
+        {
+            let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
+            else {
+                debug!(
+                    entity = ?entity,
+                    replicon_tick = ?confirm_history.last_tick(),
+                    "Skipping unchanged confirmation for entity with missing ConfirmHistory checkpoint mapping during rollback preparation"
+                );
+                continue;
+            };
+            if confirm_tick < server_confirmed_tick {
+                predicted_history.add_confirmed_unchanged(server_confirmed_tick);
+            }
+        }
+
+        let restore_value = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
+            predicted_history
+                .pop_until_tick_retaining_confirmed_metadata(server_confirmed_tick)
+                .and_then(|s| s.into_value())
+        } else {
+            let restore_value = predicted_history.get(rollback_tick).cloned();
+            let clear_until_tick =
+                if matches!(manager.rollback_policy.state, RollbackMode::Disabled) {
+                    rollback_tick
+                } else {
+                    server_confirmed_tick
+                };
+            predicted_history.clear_until_tick_retaining_confirmed_metadata(clear_until_tick);
+            predicted_history.clear_predicted_from(rollback_tick);
+            restore_value
+        };
+        trace!(
+            ?entity,
+            ?rollback_tick,
+            ?restore_value,
+            "Prepared rollback for diff component {:?}. History after clear: {:?}",
+            kind,
+            predicted_history.len()
+        );
+        trace!(
+            target: "lightyear_debug::prediction",
+            kind = "prepare_rollback_component",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            entity = ?entity,
+            component = ?kind,
+            local_tick = current_tick.0,
+            rollback_tick = rollback_tick.0,
+            confirmed_tick = server_confirmed_tick.0,
+            rollback = ?rollback,
+            restore_value = ?restore_value,
+            history_len = predicted_history.len(),
+            "prepared diff component rollback"
+        );
+
+        let mut entity_mut = commands.entity(entity);
+        match restore_value {
+            None => {
+                entity_mut.try_remove::<C>();
+                trace!("Removing diff component from predicted entity for rollback");
+            }
+            Some(correct) => match predicted_component {
+                None => {
+                    debug!("Re-adding deleted diff component to predicted");
+                    entity_mut.insert(correct);
+                }
+                Some(mut predicted_component) => {
+                    if prediction_registry.has_correction::<C>() {
+                        entity_mut.insert(PreviousVisual(predicted_component.clone()));
+                        trace!(
+                            ?entity,
+                            previous_visual = ?predicted_component,
+                            "Storing PreviousVisual for diff correction"
+                        );
+                        trace!(
+                            target: "lightyear_debug::prediction",
+                            kind = "previous_visual_stored",
+                            schedule = "PreUpdate",
+                            sample_point = "PreUpdate",
+                            entity = ?entity,
+                            component = ?kind,
+                            local_tick = current_tick.0,
+                            rollback_tick = rollback_tick.0,
+                            previous_visual = ?predicted_component,
+                            "stored previous visual for diff correction"
+                        );
+                    }
+                    *predicted_component = correct;
+                }
+            },
         };
     }
 }
