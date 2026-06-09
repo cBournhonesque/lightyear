@@ -960,8 +960,6 @@ fn emulate_replicate_on_host_client_added(
                 }
                 true
             }
-            #[cfg(not(feature = "client"))]
-            ReplicationMode::SingleClient => false,
             #[cfg(feature = "server")]
             ReplicationMode::SingleServer(target) => {
                 host_peer_id.is_some_and(|peer_id| target.targets(&peer_id))

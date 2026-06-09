@@ -90,7 +90,6 @@ extern crate alloc;
 extern crate std;
 
 use bevy_app::PluginGroupBuilder;
-#[cfg(feature = "client")]
 use bevy_app::prelude::Plugin;
 use bevy_app::prelude::PluginGroup;
 use bevy_ecs::prelude::SystemSet;
