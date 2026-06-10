@@ -1,6 +1,6 @@
 use super::*;
 use crate::protocol::CompFull;
-use bevy::prelude::Entity;
+use bevy::prelude::{Entity, FixedUpdate, Query, With};
 use lightyear::prelude::*;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
@@ -265,4 +265,97 @@ fn test_update_history() {
         "Expected component value preserved during mid-history rollback"
     );
     check_history_consecutive_ticks(&stepper, predicted);
+}
+
+#[test]
+fn test_predicted_history_stays_ordered_after_future_confirmed_state() {
+    fn increment_component(mut query: Query<&mut CompFull, With<Predicted>>) {
+        for mut comp in query.iter_mut() {
+            comp.0 += 1.0;
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let predicted = stepper
+        .client_app()
+        .world_mut()
+        .spawn((Predicted, Replicated, CompFull(1.0)))
+        .id();
+
+    stepper.frame_step(1);
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_component);
+    stepper.frame_step(2);
+
+    let current_tick = stepper.client_tick(0);
+    let future_confirmed_tick = current_tick + 10;
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .get_mut::<PredictionHistory<CompFull>>()
+        .expect("Expected prediction history to be added")
+        .add_confirmed(future_confirmed_tick, Some(CompFull(100.0)));
+
+    // Let normal prediction history recording add a local predicted sample while
+    // the newest history entry is already the future confirmed sample.
+    stepper.frame_step(1);
+
+    let world = stepper.client_app().world();
+    let live_value = world
+        .get::<CompFull>(predicted)
+        .expect("Expected predicted component to still exist")
+        .0;
+    let history = world
+        .get::<PredictionHistory<CompFull>>(predicted)
+        .expect("Expected prediction history to be added");
+
+    let ticks = history
+        .buffer()
+        .iter()
+        .map(|(tick, _)| *tick)
+        .collect::<Vec<_>>();
+    assert!(
+        ticks.windows(2).all(|pair| pair[0] <= pair[1]),
+        "Prediction history should stay tick-ordered after a predicted sample is \
+         recorded behind a future confirmed sample: {:?}",
+        history.buffer().iter().collect::<Vec<_>>()
+    );
+
+    let predicted_tick_after_future_insert = history
+        .buffer()
+        .iter()
+        .filter(|(tick, state)| {
+            *tick > current_tick && *tick < future_confirmed_tick && state.is_predicted()
+        })
+        .map(|(tick, _)| *tick)
+        .last()
+        .expect("Expected a predicted sample recorded before the future confirmed sample");
+
+    assert_eq!(
+        history
+            .get(predicted_tick_after_future_insert)
+            .expect("Expected predicted sample to be readable")
+            .0,
+        live_value,
+        "The predicted sample recorded after the future confirmed insert should \
+         be found by tick-relative lookup"
+    );
+    assert_eq!(
+        history
+            .get(future_confirmed_tick)
+            .expect("Expected future confirmed sample to be readable")
+            .0,
+        100.0
+    );
+    assert_eq!(
+        history
+            .second_most_recent(future_confirmed_tick)
+            .expect("Expected previous value before future confirmed sample")
+            .0,
+        live_value,
+        "Correction lookup should ignore the future confirmed sample when asking \
+         for the previous value at that same tick"
+    );
 }
