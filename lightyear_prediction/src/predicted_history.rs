@@ -285,30 +285,44 @@ impl<C> PredictionHistory<C> {
     ///
     /// Used to efficiently get the previous value when doing correction.
     pub fn second_most_recent(&self, tick: Tick) -> Option<&C> {
-        let (most_recent_tick, most_recent) = self.most_recent()?;
-        if *most_recent_tick < tick {
-            return most_recent.into();
+        if let Some((most_recent_tick, most_recent)) = self.most_recent()
+            && *most_recent_tick < tick
+        {
+            return most_recent.value();
         }
-        let len = self.buffer.len();
-        if len < 2 {
+        let partition = self
+            .buffer
+            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+        if partition == 0 {
             return None;
         }
-        self.buffer.get(len - 2).and_then(|(_, x)| x.into())
+        let latest_at_or_before_tick = partition - 1;
+        if self.buffer[latest_at_or_before_tick].0 < tick {
+            return self.buffer[latest_at_or_before_tick].1.value();
+        }
+        if latest_at_or_before_tick == 0 {
+            return None;
+        }
+        self.buffer
+            .get(latest_at_or_before_tick - 1)
+            .and_then(|(_, state)| state.value())
     }
 
-    /// Add a value with a specific state (for predicted values, appends to end)
+    /// Add a value with a specific state.
     fn add_state(&mut self, tick: Tick, state: PredictionState<C>) {
-        if let Some((last_tick, _)) = self.buffer.back()
-            && *last_tick == tick
-        {
-            // Replace the existing value at this tick
-            self.buffer.pop_back();
+        match self.buffer.back().map(|(last_tick, _)| *last_tick) {
+            None => self.buffer.push_back((tick, state)),
+            Some(last_tick) if last_tick < tick => self.buffer.push_back((tick, state)),
+            Some(last_tick) if last_tick == tick => {
+                self.buffer.pop_back();
+                self.buffer.push_back((tick, state));
+            }
+            Some(_) => self.insert_at_tick(tick, state),
         }
-        self.buffer.push_back((tick, state));
     }
 
     /// Insert a value at the correct position in the buffer (maintaining tick order).
-    /// This is used for confirmed values which might arrive out of order.
+    /// This is used for values that might arrive out of order.
     /// If a value already exists at this tick, it will be replaced.
     fn insert_at_tick(&mut self, tick: Tick, state: PredictionState<C>) {
         // Find the position where this tick should be inserted
@@ -753,5 +767,28 @@ mod tests {
                 .0,
             100.0
         );
+    }
+
+    #[test]
+    fn predicted_insert_after_future_confirmed_preserves_tick_order() {
+        let mut history = PredictionHistory::<TestValue>::default();
+
+        history.add_predicted(Tick(670), Some(TestValue(670.0)));
+        history.add_confirmed(Tick(691), Some(TestValue(691.0)));
+        history.add_predicted(Tick(676), Some(TestValue(676.0)));
+
+        assert_eq!(history.buffer().len(), 3);
+        assert_eq!(history.buffer()[0].0, Tick(670));
+        assert_eq!(history.buffer()[1].0, Tick(676));
+        assert_eq!(history.buffer()[2].0, Tick(691));
+        assert_eq!(
+            history.most_recent().map(|(tick, _)| *tick),
+            Some(Tick(691))
+        );
+        assert_eq!(history.get(Tick(680)).unwrap().0, 676.0);
+        assert_eq!(history.get(Tick(691)).unwrap().0, 691.0);
+        assert_eq!(history.second_most_recent(Tick(676)).unwrap().0, 670.0);
+        assert_eq!(history.second_most_recent(Tick(680)).unwrap().0, 676.0);
+        assert_eq!(history.second_most_recent(Tick(691)).unwrap().0, 676.0);
     }
 }
