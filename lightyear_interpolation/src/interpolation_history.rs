@@ -1,25 +1,13 @@
 use crate::prelude::InterpolationRegistry;
 use bevy_ecs::prelude::*;
-use bevy_reflect::Reflect;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_utils::prelude::DebugName;
-use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::Tick;
+pub use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState};
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 #[allow(unused_imports)]
 use tracing::{info, trace};
-
-/// Stores a buffer of past component values received from the remote
-#[derive(Component, Debug, Reflect)]
-pub struct ConfirmedHistory<C> {
-    history: HistoryBuffer<C>,
-    /// True when the newest anchor was synthesized from an empty mutate tick.
-    ///
-    /// Empty mutate ticks confirm that a component did not change. While this stays true, newer
-    /// empty mutate ticks can slide the same anchor forward instead of cloning the value again.
-    newest_is_unchanged: bool,
-}
 
 #[derive(Debug, PartialEq)]
 pub(crate) enum ConfirmedHistorySample<C> {
@@ -28,111 +16,26 @@ pub(crate) enum ConfirmedHistorySample<C> {
     Present(C),
 }
 
-impl<C> Default for ConfirmedHistory<C> {
-    fn default() -> Self {
-        Self {
-            history: HistoryBuffer::<C>::default(),
-            newest_is_unchanged: false,
-        }
-    }
+pub(crate) trait ConfirmedHistorySampleExt<C> {
+    fn sample(
+        &self,
+        interpolation_tick: Tick,
+        interpolation_overstep: f32,
+        interpolation_registry: &InterpolationRegistry,
+    ) -> ConfirmedHistorySample<C>;
 }
 
-impl<C> PartialEq for ConfirmedHistory<C> {
-    fn eq(&self, other: &Self) -> bool {
-        self.history.eq(&other.history) && self.newest_is_unchanged == other.newest_is_unchanged
-    }
+pub trait ConfirmedHistoryInterpolationExt<C> {
+    fn interpolate(
+        &self,
+        interpolation_tick: Tick,
+        interpolation_overstep: f32,
+        interpolation_registry: &InterpolationRegistry,
+    ) -> Option<C>;
 }
 
-impl<C> ConfirmedHistory<C> {
-    pub(crate) fn len(&self) -> usize {
-        self.history.len()
-    }
-
-    /// Get the n-th oldest tick in the buffer (starts from n = 0)
-    pub fn get_nth_tick(&self, n: usize) -> Option<Tick> {
-        self.history.get_nth(n).map(|(t, _)| *t)
-    }
-
-    fn get_nth_state(&self, n: usize) -> Option<(Tick, &HistoryState<C>)> {
-        self.history.get_nth(n).map(|(t, state)| (*t, state))
-    }
-
-    /// The oldest value in the history, which is used as the start value for the interpolation
-    pub fn start(&self) -> Option<(Tick, &C)> {
-        self.get_nth(0)
-    }
-
-    /// The second oldest value in the history, which is used as the end value for the interpolation
-    pub fn end(&self) -> Option<(Tick, &C)> {
-        self.get_nth(1)
-    }
-
-    /// The most recent value in the history.
-    pub fn newest(&self) -> Option<(Tick, &C)> {
-        match self.history.most_recent() {
-            None | Some((_, HistoryState::Removed)) => None,
-            Some((t, HistoryState::Updated(v))) => Some((*t, v)),
-        }
-    }
-
-    /// Get the n-th oldest tick in the buffer (starts from n = 0)
-    pub(crate) fn get_nth(&self, n: usize) -> Option<(Tick, &C)> {
-        match self.history.get_nth(n) {
-            None | Some((_, HistoryState::Removed)) => None,
-            Some((t, HistoryState::Updated(v))) => Some((*t, v)),
-        }
-    }
-
-    /// Push a new value in the history.
-    /// It MUST be more recent than all previous values, which is guaranteed from
-    /// how lightyear_replication::receive works
-    pub fn push(&mut self, tick: Tick, value: C) {
-        self.history.add_update(tick, value);
-        self.newest_is_unchanged = false;
-    }
-
-    /// Push a removal in the history.
-    pub(crate) fn push_remove(&mut self, tick: Tick) {
-        self.history.add_remove(tick);
-        self.newest_is_unchanged = false;
-    }
-
-    /// Pop the oldest value in the history
-    pub fn pop(&mut self) -> Option<(Tick, C)> {
-        let popped = match self.history.pop() {
-            None | Some((_, HistoryState::Removed)) => None,
-            Some((t, HistoryState::Updated(v))) => Some((t, v)),
-        };
-        if self.history.len() == 0 {
-            self.newest_is_unchanged = false;
-        }
-        popped
-    }
-}
-
-impl<C: Clone> ConfirmedHistory<C> {
-    /// Mark the newest value as unchanged at `tick`.
-    ///
-    /// If the newest anchor was already synthesized from an empty mutate tick, only its tick is
-    /// advanced. Otherwise a single unchanged anchor is appended by cloning the newest value.
-    pub(crate) fn push_unchanged(&mut self, tick: Tick) -> Option<Tick> {
-        let (newest_tick, newest_value) = self.newest()?;
-        if tick <= newest_tick {
-            return None;
-        }
-
-        if self.newest_is_unchanged {
-            self.history.set_most_recent_tick(tick);
-        } else {
-            self.history.add_update(tick, newest_value.clone());
-            self.newest_is_unchanged = true;
-        }
-        Some(newest_tick)
-    }
-}
-
-impl<C: Component + Clone> ConfirmedHistory<C> {
-    pub(crate) fn sample(
+impl<C: Component + Clone> ConfirmedHistorySampleExt<C> for ConfirmedHistory<C> {
+    fn sample(
         &self,
         interpolation_tick: Tick,
         interpolation_overstep: f32,
@@ -151,11 +54,12 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
         let Some((start_tick, start_state)) = self.get_nth_state(previous_index) else {
             return ConfirmedHistorySample::Pending;
         };
-        let HistoryState::Updated(start) = start_state else {
+        let ConfirmedState::Confirmed(start) = start_state else {
             return ConfirmedHistorySample::Removed;
         };
 
-        let Some((end_tick, HistoryState::Updated(end))) = self.get_nth_state(previous_index + 1)
+        let Some((end_tick, ConfirmedState::Confirmed(end))) =
+            self.get_nth_state(previous_index + 1)
         else {
             return ConfirmedHistorySample::Present(start.clone());
         };
@@ -197,8 +101,10 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
             fraction,
         ))
     }
+}
 
-    pub fn interpolate(
+impl<C: Component + Clone> ConfirmedHistoryInterpolationExt<C> for ConfirmedHistory<C> {
+    fn interpolate(
         &self,
         interpolation_tick: Tick,
         interpolation_overstep: f32,
@@ -212,7 +118,7 @@ impl<C: Component + Clone> ConfirmedHistory<C> {
             return None;
         }
 
-        let (end_tick, end) = self.end()?;
+        let (end_tick, end) = self.get_nth(1)?;
         // Clamp rather than extrapolate beyond the newest confirmed value. This
         // makes late packets converge to the freshest server state instead of
         // overshooting when motion changes direction.
@@ -271,7 +177,7 @@ pub(crate) fn insert_confirmed_history_on_interpolated<C: Component + Clone>(
     };
 
     let mut history = ConfirmedHistory::<C>::default();
-    history.push(tick, component.clone());
+    history.insert(tick, Some(component.clone()));
     commands
         .entity(trigger.entity)
         .try_insert(history)
@@ -301,8 +207,8 @@ mod tests {
     #[test]
     fn interpolate_clamps_to_newest_value_when_tick_is_past_end() {
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
 
         let registry = registry();
         assert_eq!(
@@ -318,7 +224,7 @@ mod tests {
     #[test]
     fn interpolate_returns_none_with_single_keyframe() {
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(42.0));
+        history.insert(Tick(10), Some(TestComp(42.0)));
 
         let registry = registry();
         assert_eq!(history.interpolate(Tick(10), 0.0, &registry), None);

@@ -40,7 +40,7 @@
 //!    tick `S` containing the gated entities' state.
 //!
 //! 4. The client receives all catch-up components at server tick `S`.
-//!    `add_confirmed_write` routes those writes into `PredictionHistory<C>`
+//!    `add_confirmed_write` routes those writes into `ConfirmedHistory<C>`
 //!    as confirmed entries at `S`. User code waits until all gated entities
 //!    have their catch-up components present and then calls
 //!    [`request_forced_rollback_to_catch_up_tick`] once. That schedules a

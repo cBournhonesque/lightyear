@@ -269,10 +269,10 @@ fn write_history<C: Component<Mutability = Mutable>>(
         return Ok(());
     };
     if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.push(tick, component);
+        history.insert(tick, Some(component));
     } else {
         let mut history = ConfirmedHistory::<C>::default();
-        history.push(tick, component);
+        history.insert(tick, Some(component));
         entity.insert(history);
     }
     Ok(())
@@ -302,10 +302,10 @@ fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity
         return;
     };
     if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.push_remove(tick);
+        history.insert(tick, None);
     } else {
         let mut history = ConfirmedHistory::<C>::default();
-        history.push_remove(tick);
+        history.insert(tick, None);
         entity.insert(history);
     }
 }

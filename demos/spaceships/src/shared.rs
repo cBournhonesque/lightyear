@@ -13,7 +13,6 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::interpolation::interpolation_history::ConfirmedHistory;
-use lightyear::prediction::prelude::PredictionHistory;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use tracing::Level;
@@ -126,7 +125,7 @@ fn emit_bullet_post_update_state(
         let position_history_start_tick =
             position_history.and_then(|history| history.start().map(|(tick, _)| tick.0 as i64));
         let position_history_end_tick =
-            position_history.and_then(|history| history.end().map(|(tick, _)| tick.0 as i64));
+            position_history.and_then(|history| history.get_nth(1).map(|(tick, _)| tick.0 as i64));
         let position_visual_ready = position_history_end_tick.is_some()
             && position_history_start_tick
                 .zip(interpolation_tick)
@@ -257,7 +256,7 @@ pub fn shared_player_firing(
         &ActionState<PlayerActions>,
         &LeafwingBuffer<PlayerActions>,
         &mut Weapon,
-        Option<&PredictionHistory<Weapon>>,
+        Option<&ConfirmedHistory<Weapon>>,
         Has<Controlled>,
         Has<Predicted>,
         Has<Interpolated>,
@@ -434,7 +433,7 @@ fn client_should_fire(
 
 fn effective_last_fire_tick(
     weapon: &Weapon,
-    weapon_history: Option<&PredictionHistory<Weapon>>,
+    weapon_history: Option<&ConfirmedHistory<Weapon>>,
     tick: Tick,
 ) -> Tick {
     let mut last_fire_tick = weapon.last_fire_tick;
@@ -895,8 +894,8 @@ mod tests {
             cooldown: 12,
             bullet_speed: 500.0,
         };
-        let mut history = PredictionHistory::<Weapon>::default();
-        history.add_confirmed(
+        let mut history = ConfirmedHistory::<Weapon>::default();
+        history.insert(
             Tick(435),
             Some(Weapon {
                 last_fire_tick: Tick(435),
@@ -918,8 +917,8 @@ mod tests {
             cooldown: 12,
             bullet_speed: 500.0,
         };
-        let mut history = PredictionHistory::<Weapon>::default();
-        history.add_confirmed(
+        let mut history = ConfirmedHistory::<Weapon>::default();
+        history.insert(
             Tick(383),
             Some(Weapon {
                 last_fire_tick: Tick(383),

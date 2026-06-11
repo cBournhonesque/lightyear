@@ -172,14 +172,16 @@ pub(crate) fn draw_confirmed_shadows(
     >,
 ) {
     for (pred_pos, collider, color, pos_history, rot_history, vel_history) in query.iter() {
-        let Some((_, confirmed_pos)) = pos_history.end().or_else(|| pos_history.start()) else {
+        let Some((_, confirmed_pos)) = pos_history.get_nth(1).or_else(|| pos_history.start())
+        else {
             continue;
         };
-        let Some((_, confirmed_rot)) = rot_history.end().or_else(|| rot_history.start()) else {
+        let Some((_, confirmed_rot)) = rot_history.get_nth(1).or_else(|| rot_history.start())
+        else {
             continue;
         };
         let confirmed_speed = vel_history
-            .end()
+            .get_nth(1)
             .or_else(|| vel_history.start())
             .map(|(_, v)| v.length())
             .unwrap_or(0.0);

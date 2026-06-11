@@ -60,7 +60,7 @@ use core::fmt::Debug;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
@@ -184,7 +184,7 @@ impl Plugin for RollbackPlugin {
                 component_registry
                     .component_metadata_map
                     .contains_key(kind)
-                    .then_some(p.history_id)
+                    .then_some((p.prediction_history_id, p.confirmed_history_id))
             })
             .collect::<Vec<_>>();
 
@@ -200,7 +200,7 @@ impl Plugin for RollbackPlugin {
                 if !replicated_prediction_histories.is_empty() {
                     builder.or(|b| {
                         for history_id in &replicated_prediction_histories {
-                            b.with_id(*history_id);
+                            b.with_id(history_id.0);
                         }
                     });
                 } else {
@@ -210,10 +210,13 @@ impl Plugin for RollbackPlugin {
                     builder.with::<NoRollbackCheckTargets>();
                 }
                 builder.optional(|b| {
-                    // include access to &mut PredictionHistory<C> and &Confirmed<C> for all predicted components, if the components are replicated
+                    // include access to prediction and confirmed histories for all replicated predicted components
                     // (no need to check rollback for non-networked components)
-                    for history_id in &replicated_prediction_histories {
-                        b.mut_id(*history_id);
+                    for (prediction_history_id, confirmed_history_id) in
+                        &replicated_prediction_histories
+                    {
+                        b.mut_id(*prediction_history_id);
+                        b.mut_id(*confirmed_history_id);
                     }
                 });
             }),
@@ -298,7 +301,7 @@ impl DeterministicPredicted {
 
 /// Marker component indicating that an entity is currently awaiting a
 /// state-based catch-up snapshot from the server, and that any replicated
-/// component updates should be routed into `PredictionHistory<C>` via the
+/// component updates should be routed into `ConfirmedHistory<C>` via the
 /// marker-fn registered by `add_confirmed_write` rather than the live
 /// component.
 ///
@@ -310,12 +313,12 @@ impl DeterministicPredicted {
 ///
 /// - **StateBasedCatchUp**: the client inserts `AwaitingCatchUpSnapshot`
 ///   when it's expecting a bundled snapshot. While the marker is present,
-///   replicated Position/Rotation/etc. go into `PredictionHistory` (as
-///   confirmed values at the snapshot tick). User code then inserts
+///   replicated Position/Rotation/etc. go into `ConfirmedHistory` as
+///   confirmed values at the snapshot tick. User code then inserts
 ///   `DeterministicPredicted` + activates physics, removes this marker,
 ///   and calls `request_forced_rollback_to_catch_up_tick` to reconcile.
-///   The forced-rollback `prepare_rollback` reads the history to restore
-///   the live component.
+///   The forced-rollback `prepare_rollback` reads confirmed history to
+///   restore the live component.
 ///
 /// - **InputOnly** (no catch-up snapshot): the entity is
 ///   `DeterministicPredicted` from the start, but there's no catch-up
@@ -493,10 +496,9 @@ fn check_rollback(
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
 
-    // The tick where ALL messages have been received (guaranteed complete information)
-    let Some(server_confirmed_tick) = state_metadata.last_confirmed_tick() else {
-        return;
-    };
+    // The tick where ALL messages have been received (guaranteed complete information).
+    // Explicit mismatch checks can exist before this is known, so don't return early.
+    let server_confirmed_tick = state_metadata.last_confirmed_tick();
 
     let do_rollback = move |rollback_tick: Tick,
                             prediction_manager: &PredictionManager,
@@ -588,7 +590,7 @@ fn check_rollback(
             schedule = "PreUpdate",
             sample_point = "PreUpdate",
             local_tick = tick.0,
-            server_confirmed_tick = server_confirmed_tick.0,
+            server_confirmed_tick = server_confirmed_tick.map(|tick| tick.0),
             "policy-driven rollback checks deferred while a catch-up snapshot is pending"
         );
     } else {
@@ -596,7 +598,10 @@ fn check_rollback(
         match prediction_manager.rollback_policy.state {
             // if we received a state update, we don't check for mismatches and just set the rollback tick
             RollbackMode::Always => {
-                if received_state && !predicted_entities.is_empty() {
+                if let Some(server_confirmed_tick) = server_confirmed_tick
+                    && received_state
+                    && !predicted_entities.is_empty()
+                {
                     debug!(
                         ?server_confirmed_tick,
                         "Rollback because we have received a new confirmed state. (no mismatch check)"
@@ -636,7 +641,7 @@ fn check_rollback(
                         schedule = "PreUpdate",
                         sample_point = "PreUpdate",
                         local_tick = tick.0,
-                        confirmed_tick = server_confirmed_tick.0,
+                        confirmed_tick = server_confirmed_tick.map(|tick| tick.0),
                         rollback_tick = mismatch_tick.0,
                         "state mismatch consumed by rollback checker"
                     );
@@ -649,12 +654,15 @@ fn check_rollback(
                 }
 
                 // Check if the completed mutate tick has advanced since we last processed it.
-                let server_ticks_advanced =
-                    state_metadata.has_confirmed_tick_advanced(server_confirmed_tick);
+                let server_ticks_advanced = server_confirmed_tick
+                    .is_some_and(|tick| state_metadata.has_confirmed_tick_advanced(tick));
 
                 // Second check: if the completed mutate tick advanced, check unchanged entities.
                 // Only check if we haven't already triggered a rollback.
-                if !prediction_manager.is_rollback() && server_ticks_advanced {
+                if let Some(server_confirmed_tick) = server_confirmed_tick
+                    && !prediction_manager.is_rollback()
+                    && server_ticks_advanced
+                {
                     if server_confirmed_tick > tick {
                         debug!(
                             "Confirmed mutate tick is in the future: {:?} compared to client timeline. Current tick: {:?}",
@@ -970,6 +978,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             Option<&mut C>,
             Option<&ConfirmHistory>,
             &mut PredictionHistory<C>,
+            Option<&mut ConfirmedHistory<C>>,
             AnyOf<(&Predicted, &PreSpawned, &DeterministicPredicted)>,
         ),
         Without<DisableRollback>,
@@ -982,16 +991,15 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
 
-    // The tick where ALL messages have been received (guaranteed complete information)
-    let Some(server_confirmed_tick) = state_metadata.last_confirmed_tick() else {
-        return;
-    };
+    // The tick where ALL messages have been received, if known.
+    let server_confirmed_tick = state_metadata.last_confirmed_tick();
 
     for (
         entity,
         predicted_component,
         confirm_history,
         mut predicted_history,
+        mut confirmed_history,
         (predicted, _prespawned, _disable_state_rollback),
     ) in predicted_query.iter_mut()
     {
@@ -1001,6 +1009,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         if matches!(rollback, Rollback::FromState)
             && !matches!(manager.rollback_policy.state, RollbackMode::Disabled)
             && let Some(confirm_history) = confirm_history
+            && let Some(server_confirmed_tick) = server_confirmed_tick
+            && let Some(confirmed_history) = confirmed_history.as_mut()
         {
             let Some(confirm_tick) = resolve_confirm_history_tick(&checkpoints, confirm_history)
             else {
@@ -1015,36 +1025,51 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             // The authoritative unchanged checkpoint is `server_confirmed_tick`, not the
             // entity's older explicit confirm tick.
             if confirm_tick < server_confirmed_tick {
-                predicted_history.add_confirmed_unchanged(server_confirmed_tick);
+                confirmed_history.add_unchanged(server_confirmed_tick);
             }
         }
 
-        let restore_value = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
-            predicted_history
-                .pop_until_tick(server_confirmed_tick)
-                .and_then(|s| s.into_value())
+        let confirmed_restore = if matches!(rollback, Rollback::FromState)
+            && !matches!(manager.rollback_policy.state, RollbackMode::Disabled)
+        {
+            let primary_tick = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
+                server_confirmed_tick.unwrap_or(rollback_tick)
+            } else {
+                rollback_tick
+            };
+            confirmed_history
+                .as_ref()
+                .and_then(|history| history.state_at_or_before(primary_tick).cloned())
+                .or_else(|| {
+                    server_confirmed_tick.and_then(|server_tick| {
+                        confirmed_history
+                            .as_ref()
+                            .and_then(|history| history.state_at_or_before(server_tick).cloned())
+                    })
+                })
+        } else {
+            None
+        };
+
+        let restore_value = if let Some(confirmed_restore) = confirmed_restore {
+            confirmed_restore.into_value()
         } else {
             // Get the value at rollback_tick (predicted or confirmed).
             // It could be predicted if we received a partial update for an entity at tick T (triggering
             // a rollback), but we haven't received the full update yet, so we will still rollback
             // from that earliest mismatch tick.
-            let restore_value = predicted_history.get(rollback_tick).cloned();
-            // If state rollback is disabled, completed mutate ticks do not certify deterministic
-            // component values; they only say no replicated state update arrived. Keep enough
-            // predicted history to support later input rollbacks to the same window.
-            let clear_until_tick =
-                if matches!(manager.rollback_policy.state, RollbackMode::Disabled) {
-                    rollback_tick
-                } else {
-                    server_confirmed_tick
-                };
-            predicted_history.clear_until_tick(clear_until_tick);
-            // Clear all predicted values that are more recent than the rollback tick.
-            // (We keep the confirmed values that are more recent than the rollback tick, as we don't
-            // want to lose them when we re-simulate)
-            predicted_history.clear_predicted_from(rollback_tick);
-            restore_value
+            predicted_history.get(rollback_tick).cloned()
         };
+        // If state rollback is disabled, completed mutate ticks do not certify deterministic
+        // component values; they only say no replicated state update arrived. Keep enough
+        // predicted history to support later input rollbacks to the same window.
+        let clear_until_tick = if matches!(manager.rollback_policy.state, RollbackMode::Disabled) {
+            rollback_tick
+        } else {
+            server_confirmed_tick.unwrap_or(rollback_tick)
+        };
+        predicted_history.clear_until_tick(clear_until_tick);
+        predicted_history.clear_after_tick(rollback_tick);
         trace!(
             ?entity,
             ?rollback_tick,
@@ -1062,7 +1087,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             component = ?kind,
             local_tick = current_tick.0,
             rollback_tick = rollback_tick.0,
-            confirmed_tick = server_confirmed_tick.0,
+            confirmed_tick = server_confirmed_tick.map(|tick| tick.0),
             rollback = ?rollback,
             restore_value = ?restore_value,
             history_len = predicted_history.len(),

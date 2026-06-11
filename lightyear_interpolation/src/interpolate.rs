@@ -1,11 +1,13 @@
-use crate::interpolation_history::{ConfirmedHistory, ConfirmedHistorySample};
+use crate::interpolation_history::{
+    ConfirmedHistory, ConfirmedHistorySample, ConfirmedHistorySampleExt,
+};
 use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
-use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::prelude::{Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_sync::prelude::client::IsSynced;
@@ -27,7 +29,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
     interpolation_registry: Res<InterpolationRegistry>,
     interpolation: Single<&InterpolationTimeline>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>)>,
+    mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>), With<Interpolated>>,
     mut commands: Commands,
 ) {
     let timeline = interpolation.into_inner();
@@ -92,7 +94,7 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
 pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     interpolation_registry: Res<InterpolationRegistry>,
     timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
-    mut query: Query<(Entity, &mut C, &ConfirmedHistory<C>)>,
+    mut query: Query<(Entity, &mut C, &ConfirmedHistory<C>), With<Interpolated>>,
     mut commands: Commands,
 ) {
     let interpolation_tick = timeline.tick();
@@ -171,6 +173,16 @@ mod tests {
         timeline.set_now(TickInstant::from(tick));
     }
 
+    fn insert_interpolated_history(
+        app: &mut App,
+        entity: Entity,
+        history: ConfirmedHistory<TestComp>,
+    ) {
+        app.world_mut()
+            .entity_mut(entity)
+            .insert((Interpolated, history));
+    }
+
     #[test]
     fn update_confirmed_history_advances_to_latest_empty_mutate_tick_when_idle() {
         let mut app = setup_app(Tick(30), 40);
@@ -189,9 +201,9 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -207,7 +219,7 @@ mod tests {
             Some((Tick(20), TestComp(10.0)))
         );
         assert_eq!(
-            history.end().map(|(t, v)| (t, v.clone())),
+            history.get_nth(1).map(|(t, v)| (t, v.clone())),
             Some((Tick(30), TestComp(10.0)))
         );
     }
@@ -220,8 +232,8 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(20), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
         confirm_server_tick(&mut app, 2, Tick(31));
@@ -237,7 +249,7 @@ mod tests {
             Some((Tick(20), TestComp(10.0)))
         );
         assert_eq!(
-            history.end().map(|(t, v)| (t, v.clone())),
+            history.get_nth(1).map(|(t, v)| (t, v.clone())),
             Some((Tick(31), TestComp(10.0)))
         );
     }
@@ -250,8 +262,8 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(120), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(120), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -275,8 +287,8 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -286,7 +298,7 @@ mod tests {
             .unwrap();
         assert_eq!(history.len(), 2);
         assert_eq!(
-            history.end().map(|(t, v)| (t, v.clone())),
+            history.get_nth(1).map(|(t, v)| (t, v.clone())),
             Some((Tick(30), TestComp(10.0)))
         );
     }
@@ -308,10 +320,10 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(999.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
-        history.push(Tick(30), TestComp(20.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        history.insert(Tick(30), Some(TestComp(20.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -326,7 +338,7 @@ mod tests {
             Some((Tick(20), TestComp(10.0)))
         );
         assert_eq!(
-            history.end().map(|(t, v)| (t, v.clone())),
+            history.get_nth(1).map(|(t, v)| (t, v.clone())),
             Some((Tick(30), TestComp(20.0)))
         );
         assert_eq!(component, &TestComp(15.0));
@@ -339,9 +351,9 @@ mod tests {
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -355,9 +367,9 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -381,9 +393,9 @@ mod tests {
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 
@@ -407,9 +419,9 @@ mod tests {
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(10.0));
-        history.push_remove(Tick(20));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(10.0)));
+        history.insert(Tick(20), None);
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
         assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(10.0)));
@@ -426,9 +438,9 @@ mod tests {
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push_remove(Tick(10));
-        history.push(Tick(20), TestComp(20.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), None);
+        history.insert(Tick(20), Some(TestComp(20.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
         assert!(!app.world().entity(entity).contains::<TestComp>());
@@ -448,9 +460,9 @@ mod tests {
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
-        history.push(Tick(10), TestComp(0.0));
-        history.push(Tick(20), TestComp(10.0));
-        app.world_mut().entity_mut(entity).insert(history);
+        history.insert(Tick(10), Some(TestComp(0.0)));
+        history.insert(Tick(20), Some(TestComp(10.0)));
+        insert_interpolated_history(&mut app, entity, history);
 
         app.update();
 

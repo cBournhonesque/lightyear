@@ -101,7 +101,7 @@ pub(crate) fn update_frame_interpolation_post_rollback<
     for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
         // update the FrameInterpolation with the last 2 history values
         interpolate.current_value = Some(component.clone());
-        interpolate.previous_value = history.second_most_recent(tick).cloned();
+        interpolate.previous_value = history.get(tick - 1).cloned();
         let Some(previous) = &interpolate.previous_value else {
             continue;
         };

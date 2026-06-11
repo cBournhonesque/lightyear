@@ -10,9 +10,9 @@ use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
-    add_prediction_history, apply_component_removal_predicted,
-    handle_tick_event_prediction_history, snap_to_confirmed_during_rollback,
-    update_prediction_history,
+    add_prediction_history, apply_component_removal_predicted, check_confirmed_at_current_tick,
+    handle_tick_event_confirmed_history, handle_tick_event_prediction_history,
+    snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
@@ -82,13 +82,19 @@ pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
     // history entries accumulated pre-sync would point to stale
     // (pre-sync) ticks after the client clock jumps forward.
     app.add_observer(handle_tick_event_prediction_history::<C>);
+    app.add_observer(handle_tick_event_confirmed_history::<C>);
     app.add_systems(
         PreUpdate,
         prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
     );
     app.add_systems(
         FixedPostUpdate,
-        update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+        (
+            update_prediction_history::<C>,
+            check_confirmed_at_current_tick::<C>,
+        )
+            .chain()
+            .in_set(PredictionSystems::UpdateHistory),
     );
 }
 
@@ -161,6 +167,7 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
 
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(handle_tick_event_prediction_history::<C>);
+    app.add_observer(handle_tick_event_confirmed_history::<C>);
     app.add_observer(add_prediction_history::<C>);
 
     app.add_systems(
@@ -181,8 +188,11 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         FixedPostUpdate,
         (
             // we need to run this during fixed update to know accurately the history for each tick
-            update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
-        ),
+            update_prediction_history::<C>,
+            check_confirmed_at_current_tick::<C>,
+        )
+            .chain()
+            .in_set(PredictionSystems::UpdateHistory),
     );
 }
 
