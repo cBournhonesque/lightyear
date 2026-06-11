@@ -43,7 +43,7 @@ impl<R> From<HistoryState<R>> for Option<R> {
 /// The values must always remain ordered from oldest (front) to most recent (back)
 #[derive(Resource, Component, Debug, Reflect)]
 #[reflect(Component, Resource)]
-pub struct HistoryBuffer<R> {
+pub struct HistoryBuffer<R, M = ()> {
     // Queue containing the history of the resource.
     // The front contains old elements, the back contains the more recent elements.
     // We will only store the history for the ticks where the resource got updated
@@ -54,10 +54,10 @@ pub struct HistoryBuffer<R> {
     //
     // Another option would be to store the tick difference between two updates, and only the first (most recent update)
     // gets updated in case of a TickEvent.
-    pub(crate) buffer: VecDeque<(Tick, HistoryState<R>)>,
+    pub(crate) buffer: VecDeque<((Tick, HistoryState<R>), M)>,
 }
 
-impl<R> Default for HistoryBuffer<R> {
+impl<R, M> Default for HistoryBuffer<R, M> {
     fn default() -> Self {
         Self {
             buffer: VecDeque::new(),
@@ -66,32 +66,39 @@ impl<R> Default for HistoryBuffer<R> {
 }
 
 // This is mostly present for testing, we only compare the buffer ticks, not the values
-impl<R> PartialEq for HistoryBuffer<R> {
+impl<R, M> PartialEq for HistoryBuffer<R, M> {
     fn eq(&self, other: &Self) -> bool {
-        let self_history: Vec<_> = self.buffer.iter().map(|(tick, _)| *tick).collect();
-        let other_history: Vec<_> = other.buffer.iter().map(|(tick, _)| *tick).collect();
+        let self_history: Vec<_> = self.buffer.iter().map(|((tick, _), _)| *tick).collect();
+        let other_history: Vec<_> = other.buffer.iter().map(|((tick, _), _)| *tick).collect();
         self_history.eq(&other_history)
     }
 }
 
-impl<R> HistoryBuffer<R> {
+impl<R, M> HistoryBuffer<R, M> {
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
 
     /// Oldest value in the buffer
     pub fn oldest(&self) -> Option<&(Tick, HistoryState<R>)> {
-        self.buffer.front()
+        self.buffer.front().map(|(entry, _)| entry)
     }
 
     /// Most recent value in the buffer
     pub fn most_recent(&self) -> Option<&(Tick, HistoryState<R>)> {
-        self.buffer.back()
+        self.buffer.back().map(|(entry, _)| entry)
     }
 
-    /// Get the n-th most recent value in the buffer (starts from n = 0)
+    /// Get the n-th value in the buffer, ordered from oldest to newest.
     pub fn get_nth(&self, n: usize) -> Option<&(Tick, HistoryState<R>)> {
-        self.buffer.get(n)
+        self.buffer.get(n).map(|(entry, _)| entry)
+    }
+
+    #[doc(hidden)]
+    pub fn most_recent_with_metadata(&self) -> Option<(Tick, &HistoryState<R>, &M)> {
+        self.buffer
+            .back()
+            .map(|((tick, state), metadata)| (*tick, state, metadata))
     }
 
     #[doc(hidden)]
@@ -107,7 +114,7 @@ impl<R> HistoryBuffer<R> {
         if len < 2 {
             return None;
         }
-        self.buffer.get(len - 2).and_then(|(_, x)| x.into())
+        self.buffer.get(len - 2).and_then(|((_, x), _)| x.into())
     }
 
     /// Get the value at the specified tick.
@@ -115,11 +122,24 @@ impl<R> HistoryBuffer<R> {
         // find first idx `partition` such that self.buffer[partition].0 > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+            .partition_point(|((buffer_tick, _), _)| *buffer_tick <= tick);
         if partition == 0 {
             return None;
         }
-        self.buffer.get(partition - 1).and_then(|(_, x)| x.into())
+        self.buffer
+            .get(partition - 1)
+            .and_then(|((_, x), _)| x.into())
+    }
+
+    pub fn get_with_metadata(&self, metadata: &M) -> Option<&R>
+    where
+        M: PartialEq,
+    {
+        self.buffer
+            .iter()
+            .rev()
+            .find(|(_, stored_metadata)| stored_metadata == metadata)
+            .and_then(|((_, state), _)| state.into())
     }
 
     /// Reset the history for this resource
@@ -127,12 +147,20 @@ impl<R> HistoryBuffer<R> {
         self.buffer.clear();
     }
 
+    pub fn retain<F>(&mut self, mut f: F)
+    where
+        F: FnMut(Tick, &HistoryState<R>, &M) -> bool,
+    {
+        self.buffer
+            .retain(|((tick, state), metadata)| f(*tick, state, metadata));
+    }
+
     /// Clear all the values in the history buffer that are older or equal than the specified tick
     pub fn clear_until_tick(&mut self, tick: Tick) {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|((buffer_tick, _), _)| buffer_tick <= &tick);
         // all elements are strictly more recent than the tick
         if partition == 0 {
             return;
@@ -141,45 +169,36 @@ impl<R> HistoryBuffer<R> {
         self.buffer.drain(0..partition);
     }
 
-    /// Add to the buffer that we received an update for the resource at the given tick
-    /// The tick must be more recent than the most recent update in the buffer
-    pub fn add_update(&mut self, tick: Tick, value: R) {
-        self.add(tick, Some(value));
-    }
-    /// Add to the buffer that the value got removed at the given tick
-    pub fn add_remove(&mut self, tick: Tick) {
-        self.add(tick, None);
-    }
+    /// Add a value to the history buffer, preserving tick order.
+    pub fn add_with_metadata(&mut self, tick: Tick, value: Option<R>, metadata: M) {
+        let state = (
+            (
+                tick,
+                match value {
+                    Some(value) => HistoryState::Updated(value),
+                    None => HistoryState::Removed,
+                },
+            ),
+            metadata,
+        );
 
-    /// Add a value to the history buffer
-    /// The tick must be strictly more recent than the most recent update in the buffer
-    pub fn add(&mut self, tick: Tick, value: Option<R>) {
-        if let Some(last_tick) = self.peek().map(|(tick, _)| tick) {
-            // assert!(
-            //     tick >= *last_tick,
-            //     "Tick must be more recent than the last update in the buffer"
-            // );
-            if *last_tick == tick {
-                debug!(
-                    "Adding update to history buffer for tick: {:?} but it already had a value for that tick!",
-                    tick
-                );
-                // in this case, let's pop back the update to replace it with the new value
-                self.buffer.pop_back();
-            }
+        let pos = self
+            .buffer
+            .partition_point(|((buffer_tick, _), _)| *buffer_tick < tick);
+        if pos < self.buffer.len() && self.buffer[pos].0.0 == tick {
+            debug!(
+                "Adding update to history buffer for tick: {:?} but it already had a value for that tick!",
+                tick
+            );
+            self.buffer[pos] = state;
+        } else {
+            self.buffer.insert(pos, state);
         }
-        self.buffer.push_back((
-            tick,
-            match value {
-                Some(value) => HistoryState::Updated(value),
-                None => HistoryState::Removed,
-            },
-        ));
     }
 
     /// Peek at the most recent value in the history buffer
     pub fn peek(&self) -> Option<&(Tick, HistoryState<R>)> {
-        self.buffer.back()
+        self.buffer.back().map(|(entry, _)| entry)
     }
 
     /// Update the tick of the most recent value in the history buffer.
@@ -187,7 +206,7 @@ impl<R> HistoryBuffer<R> {
     /// This is useful when a caller learns that the latest value is still valid at a newer tick
     /// and wants to advance that anchor without cloning the value again.
     pub fn set_most_recent_tick(&mut self, tick: Tick) {
-        if let Some((most_recent_tick, _)) = self.buffer.back_mut() {
+        if let Some(((most_recent_tick, _), _)) = self.buffer.back_mut() {
             debug_assert!(tick >= *most_recent_tick);
             *most_recent_tick = tick;
         }
@@ -195,59 +214,78 @@ impl<R> HistoryBuffer<R> {
 
     /// In case of a TickEvent where the client tick is changed, we need to update the ticks in the buffer
     pub fn update_ticks(&mut self, delta: i32) {
-        self.buffer.iter_mut().for_each(|(tick, _)| {
+        self.buffer.iter_mut().for_each(|((tick, _), _)| {
             *tick = *tick + delta;
         });
     }
 
     #[cfg(feature = "test_utils")]
-    pub fn buffer(&self) -> &VecDeque<(Tick, HistoryState<R>)> {
-        &self.buffer
+    pub fn buffer(&self) -> impl Iterator<Item = &(Tick, HistoryState<R>)> {
+        self.buffer.iter().map(|(entry, _)| entry)
     }
 
     /// Pop the oldest value in the history
     pub fn pop(&mut self) -> Option<(Tick, HistoryState<R>)> {
-        self.buffer.pop_front()
+        self.buffer.pop_front().map(|(entry, _)| entry)
+    }
+}
+
+impl<R, M: Default> HistoryBuffer<R, M> {
+    /// Add to the buffer that we received an update for the resource at the given tick.
+    pub fn add_update(&mut self, tick: Tick, value: R) {
+        self.add(tick, Some(value));
+    }
+
+    /// Add to the buffer that the value got removed at the given tick
+    pub fn add_remove(&mut self, tick: Tick) {
+        self.add(tick, None);
+    }
+
+    /// Add a value to the history buffer.
+    pub fn add(&mut self, tick: Tick, value: Option<R>) {
+        self.add_with_metadata(tick, value, M::default());
     }
 }
 
 /// The iterator contains the elements that are actually present in the history
 /// from the oldest to the most recent
-impl<'a, R> IntoIterator for &'a HistoryBuffer<R> {
+impl<'a, R, M> IntoIterator for &'a HistoryBuffer<R, M> {
     type Item = (Tick, &'a R);
     type IntoIter = FilterMap<
-        <&'a VecDeque<(Tick, HistoryState<R>)> as IntoIterator>::IntoIter,
-        fn(&(Tick, HistoryState<R>)) -> Option<(Tick, &R)>,
+        <&'a VecDeque<((Tick, HistoryState<R>), M)> as IntoIterator>::IntoIter,
+        fn(&((Tick, HistoryState<R>), M)) -> Option<(Tick, &R)>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
-        self.buffer.iter().filter_map(|(tick, state)| match state {
-            HistoryState::Updated(value) => Some((*tick, value)),
-            HistoryState::Removed => None,
-        })
+        self.buffer
+            .iter()
+            .filter_map(|((tick, state), _)| match state {
+                HistoryState::Updated(value) => Some((*tick, value)),
+                HistoryState::Removed => None,
+            })
     }
 }
 
 /// The iterator contains the elements that are actually present in the history
 /// from the oldest to the most recent
-impl<R> IntoIterator for HistoryBuffer<R> {
+impl<R, M> IntoIterator for HistoryBuffer<R, M> {
     type Item = (Tick, R);
     type IntoIter = FilterMap<
-        <VecDeque<(Tick, HistoryState<R>)> as IntoIterator>::IntoIter,
-        fn((Tick, HistoryState<R>)) -> Option<(Tick, R)>,
+        <VecDeque<((Tick, HistoryState<R>), M)> as IntoIterator>::IntoIter,
+        fn(((Tick, HistoryState<R>), M)) -> Option<(Tick, R)>,
     >;
 
     fn into_iter(self) -> Self::IntoIter {
         self.buffer
             .into_iter()
-            .filter_map(|(tick, state)| match state {
+            .filter_map(|((tick, state), _)| match state {
                 HistoryState::Updated(value) => Some((tick, value)),
                 HistoryState::Removed => None,
             })
     }
 }
 
-impl<R: Clone> HistoryBuffer<R> {
+impl<R: Clone, M: Clone> HistoryBuffer<R, M> {
     /// Clear the history of values strictly older than the specified tick,
     /// and return the value at the specified tick.
     ///
@@ -262,7 +300,7 @@ impl<R: Clone> HistoryBuffer<R> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|((buffer_tick, _), _)| buffer_tick <= &tick);
         // all elements are strictly more recent than the tick
         if partition == 0 {
             return None;
@@ -270,18 +308,14 @@ impl<R: Clone> HistoryBuffer<R> {
         // remove all elements strictly older than the tick. We need to keep the element at index `partition-1`
         // because that is the value at tick `tick`
         self.buffer.drain(0..(partition - 1));
-        let res = self.buffer.pop_front().map(|(_, state)| state);
+        let popped = self.buffer.pop_front();
+        let res = popped.as_ref().map(|((_, state), _)| state.clone());
 
         // if there is a value, re-add the value at tick `tick` to the buffer, to make sure that we have a value for ticks
         // (tick + 1)..(self.buffer[partition].0)
-        match res.as_ref() {
-            None => {}
-            Some(HistoryState::Removed) => {
-                // TODO: is this necessary? we treat None and Removed the same way anyway
-                self.buffer.push_front((tick, HistoryState::Removed))
-            }
-            Some(r) => self.buffer.push_front((tick, r.clone())),
-        };
+        if let Some(((_, state), metadata)) = popped {
+            self.buffer.push_front(((tick, state), metadata));
+        }
         res
     }
 
@@ -300,7 +334,7 @@ impl<R: Clone> HistoryBuffer<R> {
         // self.buffer[partition] is the first element where the buffer_tick > tick
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|((buffer_tick, _), _)| buffer_tick <= &tick);
         // all elements are strictly more recent than the tick
         if partition == 0 {
             self.clear();
@@ -309,19 +343,15 @@ impl<R: Clone> HistoryBuffer<R> {
         // remove all elements strictly older than the tick. We need to keep the element at index `partition-1`
         // because that is the value at tick `tick`
         self.buffer.drain(0..(partition - 1));
-        let res = self.buffer.pop_front().map(|(_, state)| state);
+        let popped = self.buffer.pop_front();
+        let res = popped.as_ref().map(|((_, state), _)| state.clone());
         self.clear();
 
         // if there is a value, re-add the value at tick `tick` to the buffer, to make sure that we have a value for ticks
         // (tick + 1)..(self.buffer[partition].0)
-        match res.as_ref() {
-            None => {}
-            Some(HistoryState::Removed) => {
-                // TODO: is this necessary? we treat None and Removed the same way anyway
-                self.buffer.push_front((tick, HistoryState::Removed))
-            }
-            Some(r) => self.buffer.push_front((tick, r.clone())),
-        };
+        if let Some(((_, state), metadata)) = popped {
+            self.buffer.push_front(((tick, state), metadata));
+        }
         res
     }
 }
@@ -354,7 +384,7 @@ mod tests {
         assert_eq!(history.buffer.len(), 1);
         assert_eq!(
             history.buffer,
-            VecDeque::from(vec![(Tick(2), HistoryState::Updated(TestValue(2.0)))])
+            VecDeque::from(vec![((Tick(2), HistoryState::Updated(TestValue(2.0))), ())])
         );
 
         // check when we try to access a value in-between ticks
@@ -369,8 +399,8 @@ mod tests {
         assert_eq!(
             history.buffer,
             VecDeque::from(vec![
-                (Tick(3), HistoryState::Updated(TestValue(2.0))),
-                (Tick(4), HistoryState::Updated(TestValue(4.0)))
+                ((Tick(3), HistoryState::Updated(TestValue(2.0))), ()),
+                ((Tick(4), HistoryState::Updated(TestValue(4.0))), ())
             ])
         );
 
@@ -386,8 +416,8 @@ mod tests {
         assert_eq!(
             history.buffer,
             VecDeque::from(vec![
-                (Tick(4), HistoryState::Updated(TestValue(4.0))),
-                (Tick(5), HistoryState::Removed)
+                ((Tick(4), HistoryState::Updated(TestValue(4.0))), ()),
+                ((Tick(5), HistoryState::Removed), ())
             ])
         );
 

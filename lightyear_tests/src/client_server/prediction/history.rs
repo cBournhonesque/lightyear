@@ -128,7 +128,7 @@ fn test_prediction_history_seeded_from_init_message() {
         "PredictionHistory should have a confirmed entry at server tick {:?}, \
          but found buffer contents: {:?}",
         s_tick,
-        history.buffer().iter().collect::<Vec<_>>()
+        history.buffer().collect::<Vec<_>>()
     );
 }
 
@@ -147,7 +147,7 @@ fn test_update_history() {
             .get::<PredictionHistory<CompFull>>(entity)
             .expect("Expected prediction history to be added");
         let mut last_tick: Option<Tick> = None;
-        for (tick, _) in history.buffer().iter() {
+        for (tick, _) in history.buffer() {
             if let Some(last) = last_tick {
                 assert_eq!(
                     tick.0,

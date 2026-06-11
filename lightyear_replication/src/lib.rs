@@ -90,7 +90,6 @@ extern crate alloc;
 extern crate std;
 
 use bevy_app::PluginGroupBuilder;
-use bevy_app::prelude::Plugin;
 use bevy_app::prelude::PluginGroup;
 use bevy_ecs::prelude::SystemSet;
 
@@ -121,7 +120,8 @@ mod impls;
 pub mod prelude {
     pub use bevy_replicon::client::confirm_history::ConfirmHistory;
     pub use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
-    pub use bevy_replicon::prelude::Replicated;
+    pub use bevy_replicon::prelude::Remote;
+    pub use bevy_replicon::prelude::Remote as Replicated;
 
     pub use crate::ReplicationSystems;
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
@@ -150,6 +150,7 @@ pub mod prelude {
     #[cfg(feature = "client")]
     pub mod client {
         pub use bevy_replicon::prelude::Remote;
+        pub use bevy_replicon::prelude::Remote as Replicated;
     }
 }
 
@@ -216,7 +217,7 @@ impl PluginGroup for LightyearRepliconBackend {
 pub struct LightyearRepliconServerBackend;
 
 #[cfg(feature = "server")]
-impl Plugin for LightyearRepliconServerBackend {
+impl bevy_app::prelude::Plugin for LightyearRepliconServerBackend {
     fn build(&self, app: &mut bevy_app::prelude::App) {
         app.add_plugins(bevy_replicon::server::ServerPlugin {
             tick_schedule: None,
@@ -236,7 +237,7 @@ impl Plugin for LightyearRepliconServerBackend {
 pub struct LightyearRepliconClientBackend;
 
 #[cfg(feature = "client")]
-impl Plugin for LightyearRepliconClientBackend {
+impl bevy_app::prelude::Plugin for LightyearRepliconClientBackend {
     fn build(&self, app: &mut bevy_app::prelude::App) {
         app.add_plugins(bevy_replicon::client::ClientPlugin);
         app.add_plugins(client::RepliconClientPlugin);

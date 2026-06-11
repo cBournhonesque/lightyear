@@ -42,6 +42,13 @@ bevy_reflect.workspace = true
 bevy_time.workspace = true
 bevy_utils.workspace = true
 
+[dev-dependencies]
+bevy_state.workspace = true
+lightyear_replication = { workspace = true, features = [
+  "interpolation",
+  "test_utils",
+] }
+
 [lints]
 workspace = true
 

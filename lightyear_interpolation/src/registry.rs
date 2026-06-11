@@ -1,7 +1,11 @@
 use crate::SyncComponent;
 use crate::interpolation_history::ConfirmedHistory;
-use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-use bevy_ecs::component::Mutable;
+use crate::plugin::{
+    add_interpolation_systems, add_prepare_interpolation_systems,
+    add_prepare_interpolation_systems_with_diff_metadata,
+    add_prepare_interpolation_systems_with_metadata,
+};
+use alloc::format;
 use bevy_ecs::{component::Component, resource::Resource};
 use bevy_math::{
     Curve,
@@ -10,17 +14,23 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::RepliconTick;
-use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
+use bevy_replicon::postcard_utils;
+use bevy_replicon::prelude::{
+    AppMarkerExt, Diffable as RepliconDiffable, PatchIndex, RepliconTick, RuleFns,
+};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::diff::{DiffReceiver, DiffWire};
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+use bevy_replicon::shared::replication::registry::receive_fns::{RemoveFn, WriteFn};
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prelude::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 use tracing::error;
+
+const DIFF_CURSOR_RETENTION: PatchIndex = 10;
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -85,6 +95,14 @@ impl InterpolationRegistry {
 }
 
 fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
+    register_interpolated_marker_fns_with::<C>(app, write_history::<C>, remove_history::<C, ()>);
+}
+
+fn register_interpolated_marker_fns_with<C: SyncComponent>(
+    app: &mut bevy_app::App,
+    write: WriteFn<C>,
+    remove: RemoveFn,
+) {
     if !app
         .world()
         .contains_resource::<InterpolatedMarkerFnRegistry>()
@@ -104,7 +122,7 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
         priority: 100,
         need_history: true,
     });
-    app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
+    app.set_marker_fns::<Interpolated, C>(write, remove);
     app.world_mut()
         .resource_mut::<InterpolatedMarkerFnRegistry>()
         .kinds
@@ -155,6 +173,11 @@ pub trait InterpolationRegistrationExt<C> {
     fn add_custom_interpolation(self) -> Self
     where
         C: SyncComponent;
+
+    /// Like [`Self::add_custom_interpolation`], but for components replicated with Replicon's patch-based diff mode.
+    fn add_custom_interpolation_diff(self) -> Self
+    where
+        C: SyncComponent + RepliconDiffable;
 }
 
 impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
@@ -215,50 +238,190 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        let kind = ComponentKind::of::<C>();
-        register_interpolated_marker_fns::<C>(self.app);
-        if !self
-            .app
-            .world()
-            .contains_resource::<InterpolationRegistry>()
-        {
-            self.app
-                .world_mut()
-                .insert_resource(InterpolationRegistry::default());
-        }
-        let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
-        registry
-            .interpolation_map
-            .entry(kind)
-            .and_modify(|r| r.custom_interpolation = true)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation: None,
-                custom_interpolation: true,
-            });
-        add_prepare_interpolation_systems::<C>(self.app);
-
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry
-            .component_metadata_map
-            .get_mut(&ComponentKind::of::<C>())
-            .unwrap()
-            .replication
-            .as_mut()
-            .unwrap()
-            .set_interpolated(true);
-        self
+        let registration = add_custom_interpolation_with_receive_fns::<C, ()>(
+            self,
+            write_history::<C>,
+            remove_history::<C, ()>,
+        );
+        add_prepare_interpolation_systems_with_metadata::<C, ()>(registration.app);
+        registration
     }
+
+    fn add_custom_interpolation_diff(self) -> Self
+    where
+        C: SyncComponent + RepliconDiffable,
+    {
+        let registration = add_custom_interpolation_with_receive_fns::<C, Option<PatchIndex>>(
+            self,
+            write_history_diff::<C>,
+            remove_history_diff::<C>,
+        );
+        add_prepare_interpolation_systems_with_diff_metadata::<C>(registration.app);
+        registration
+    }
+}
+
+fn add_custom_interpolation_with_receive_fns<'a, C, M>(
+    registration: ComponentRegistration<'a, C>,
+    write: WriteFn<C>,
+    remove: RemoveFn,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent,
+    M: Default + Clone + Send + Sync + 'static,
+{
+    let kind = ComponentKind::of::<C>();
+    register_interpolated_marker_fns_with::<C>(registration.app, write, remove);
+    if !registration
+        .app
+        .world()
+        .contains_resource::<InterpolationRegistry>()
+    {
+        registration
+            .app
+            .world_mut()
+            .insert_resource(InterpolationRegistry::default());
+    }
+    let mut registry = registration
+        .app
+        .world_mut()
+        .resource_mut::<InterpolationRegistry>();
+    registry
+        .interpolation_map
+        .entry(kind)
+        .and_modify(|r| r.custom_interpolation = true)
+        .or_insert_with(|| InterpolationMetadata {
+            interpolation: None,
+            custom_interpolation: true,
+        });
+    let mut registry = registration
+        .app
+        .world_mut()
+        .resource_mut::<ComponentRegistry>();
+    registry
+        .component_metadata_map
+        .get_mut(&ComponentKind::of::<C>())
+        .unwrap()
+        .replication
+        .as_mut()
+        .unwrap()
+        .set_interpolated(true);
+    registration
 }
 
 // TODO: ideally we would update the LastConfirmedTick at this point?
 /// Instead of writing into a component directly, it writes data into [`ConfirmedHistory<C>`].
-fn write_history<C: Component<Mutability = Mutable>>(
+fn write_history<C: SyncComponent>(
     ctx: &mut WriteCtx,
     rule_fns: &RuleFns<C>,
     entity: &mut DeferredEntity,
     message: &mut Bytes,
 ) -> bevy_ecs::error::Result<()> {
-    let component: C = rule_fns.deserialize(ctx, message)?;
+    let Some(component) = interpolation_history_component(ctx, rule_fns, entity, message)? else {
+        return Ok(());
+    };
+    push_confirmed_history(ctx, entity, component, ())
+}
+
+fn interpolation_history_component<C: SyncComponent>(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<Option<C>> {
+    rule_fns.deserialize(ctx, message).map(Some)
+}
+
+fn write_history_diff<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<()> {
+    let Some((cursor, component)) =
+        interpolation_history_component_diff::<C>(ctx, entity, message)?
+    else {
+        return Ok(());
+    };
+    push_confirmed_history(ctx, entity, component, cursor)
+}
+
+fn interpolation_history_component_diff<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut WriteCtx,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<Option<(Option<PatchIndex>, C)>> {
+    let wire: DiffWire<C, C::Patch> = postcard_utils::from_buf(message)?;
+    let (cursor, value) = match wire {
+        DiffWire::Snapshot { cursor, mut value } => {
+            C::map_entities(&mut value, ctx);
+            entity.insert(DiffReceiver::<C>::new(cursor));
+            (cursor, value)
+        }
+        DiffWire::Patches {
+            first_patch_index,
+            patches,
+        } => {
+            if patches.is_empty() {
+                return Ok(None);
+            }
+            let base_cursor = first_patch_index.checked_sub(1);
+            let cursor = Some(first_patch_index + patches.len() as PatchIndex - 1);
+            let live_receiver_cursor = entity
+                .get::<DiffReceiver<C>>()
+                .map(|receiver| receiver.last_applied());
+            let live_is_base = live_receiver_cursor == Some(base_cursor);
+            let has_history = entity
+                .get::<ConfirmedHistory<C, Option<PatchIndex>>>()
+                .is_some();
+            let has_live_component = entity.get::<C>().is_some();
+            let mut value = entity
+                .get::<ConfirmedHistory<C, Option<PatchIndex>>>()
+                .and_then(|history| history.value_with_metadata(&base_cursor).cloned())
+                .or_else(|| {
+                    live_is_base
+                        .then(|| entity.get::<C>().map(|value| value.clone()))
+                        .flatten()
+                })
+                .ok_or_else(|| {
+                    format!(
+                        "received diff patches for `{}` without a confirmed base: base_cursor={:?}, cursor={:?}, batch_count={}, live_receiver_cursor={:?}, has_history={}, has_live_component={}",
+                        core::any::type_name::<C>(),
+                        base_cursor,
+                        cursor,
+                        patches.len(),
+                        live_receiver_cursor,
+                        has_history,
+                        has_live_component,
+                    )
+                })?;
+            for batch in patches {
+                for patch in batch.iter() {
+                    value.apply_patch(patch)?;
+                }
+            }
+            if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C, Option<PatchIndex>>>() {
+                history.prune_metadata_before_cursor(
+                    first_patch_index.saturating_sub(DIFF_CURSOR_RETENTION),
+                );
+            }
+            (cursor, value)
+        }
+    };
+
+    Ok(Some((cursor, value)))
+}
+
+fn push_confirmed_history<C, M>(
+    ctx: &mut WriteCtx,
+    entity: &mut DeferredEntity,
+    component: C,
+    metadata: M,
+) -> bevy_ecs::error::Result<()>
+where
+    C: SyncComponent,
+    M: Default + Clone + Send + Sync + 'static,
+{
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     let checkpoints = {
         let world = unsafe { entity.world_mut() };
@@ -277,11 +440,11 @@ fn write_history<C: Component<Mutability = Mutable>>(
         );
         return Ok(());
     };
-    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.push(tick, component);
+    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C, M>>() {
+        history.push_with_metadata(tick, component, metadata);
     } else {
-        let mut history = ConfirmedHistory::<C>::default();
-        history.push(tick, component);
+        let mut history = ConfirmedHistory::<C, M>::default();
+        history.push_with_metadata(tick, component, metadata);
         entity.insert(history);
     }
     Ok(())
@@ -291,7 +454,11 @@ fn write_history<C: Component<Mutability = Mutable>>(
 ///
 /// The live component is removed later by interpolation systems once the interpolation timeline
 /// reaches the server tick that produced this removal.
-fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+fn remove_history<C, M>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity)
+where
+    C: Component,
+    M: Default + Send + Sync + 'static,
+{
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     let checkpoints = {
         let world = unsafe { entity.world_mut() };
@@ -310,18 +477,51 @@ fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity
         );
         return;
     };
-    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.push_remove(tick);
+    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C, M>>() {
+        history.push_remove_with_metadata(tick, M::default());
     } else {
-        let mut history = ConfirmedHistory::<C>::default();
-        history.push_remove(tick);
+        let mut history = ConfirmedHistory::<C, M>::default();
+        history.push_remove_with_metadata(tick, M::default());
         entity.insert(history);
     }
+}
+
+fn remove_history_diff<C: Component + RepliconDiffable>(
+    ctx: &mut RemoveCtx,
+    entity: &mut DeferredEntity,
+) {
+    entity.remove::<DiffReceiver<C>>();
+    remove_history::<C, Option<PatchIndex>>(ctx, entity);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
+    use alloc::vec::Vec;
+    use bevy_app::App;
+    use bevy_ecs::prelude::{Component, Entity, Mut};
+    use bevy_replicon::postcard_utils;
+    use bevy_replicon::prelude::{RepliconPlugins, RuleFns};
+    use bevy_replicon::shared::replication::diff::DiffWire;
+    use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
+    use bevy_replicon::shared::replication::registry::{
+        FnsId, ReplicationRegistry, test_fns::TestFnsEntityExt,
+    };
+    use bevy_state::app::StatesPlugin;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
+    struct DiffTestValue(u32);
+
+    impl RepliconDiffable for DiffTestValue {
+        type Patch = u32;
+
+        fn apply_patch(&mut self, patch: &Self::Patch) -> bevy_ecs::error::Result<()> {
+            self.0 = *patch;
+            Ok(())
+        }
+    }
 
     #[test]
     fn resolve_message_tick_uses_authoritative_tick_for_large_replicon_gap() {
@@ -348,5 +548,170 @@ mod tests {
             resolve_message_tick(&checkpoints, RepliconTick::new(101)),
             Some(Tick(20))
         );
+    }
+
+    #[test]
+    fn interpolation_diff_records_older_subset_after_cumulative_patch() {
+        let (mut app, fns_id) = setup_diff_interpolation_app();
+        record_checkpoints(&mut app);
+
+        let entity = app.world_mut().spawn(Interpolated).id();
+
+        apply_diff_write(
+            &mut app,
+            entity,
+            fns_id,
+            RepliconTick::new(10),
+            DiffWire::Snapshot {
+                cursor: None,
+                value: DiffTestValue(0),
+            },
+        );
+        apply_diff_write(
+            &mut app,
+            entity,
+            fns_id,
+            RepliconTick::new(12),
+            DiffWire::Patches {
+                first_patch_index: 0,
+                patches: vec![vec![1], vec![2]],
+            },
+        );
+        apply_diff_write(
+            &mut app,
+            entity,
+            fns_id,
+            RepliconTick::new(11),
+            DiffWire::Patches {
+                first_patch_index: 0,
+                patches: vec![vec![1]],
+            },
+        );
+
+        let history = app
+            .world()
+            .entity(entity)
+            .get::<ConfirmedHistory<DiffTestValue, Option<PatchIndex>>>()
+            .unwrap();
+        assert_eq!(
+            history
+                .get_nth(0)
+                .map(|(tick, value)| (tick, value.clone())),
+            Some((Tick(0), DiffTestValue(0)))
+        );
+        assert_eq!(
+            history
+                .get_nth(1)
+                .map(|(tick, value)| (tick, value.clone())),
+            Some((Tick(1), DiffTestValue(1)))
+        );
+        assert_eq!(
+            history
+                .get_nth(2)
+                .map(|(tick, value)| (tick, value.clone())),
+            Some((Tick(2), DiffTestValue(2)))
+        );
+        assert_eq!(
+            history.value_with_metadata(&Some(0)).cloned(),
+            Some(DiffTestValue(1))
+        );
+    }
+
+    #[test]
+    fn interpolation_diff_prunes_bases_older_than_cursor_window() {
+        let (mut app, fns_id) = setup_diff_interpolation_app();
+        {
+            let mut checkpoints = app.world_mut().resource_mut::<ReplicationCheckpointMap>();
+            for tick in 10..=37 {
+                checkpoints.record(RepliconTick::new(tick), Tick(tick - 10));
+            }
+        }
+
+        let entity = app.world_mut().spawn(Interpolated).id();
+        apply_diff_write(
+            &mut app,
+            entity,
+            fns_id,
+            RepliconTick::new(10),
+            DiffWire::Snapshot {
+                cursor: None,
+                value: DiffTestValue(0),
+            },
+        );
+        for patch_index in 0..=26 {
+            apply_diff_write(
+                &mut app,
+                entity,
+                fns_id,
+                RepliconTick::new(11 + patch_index),
+                DiffWire::Patches {
+                    first_patch_index: patch_index as PatchIndex,
+                    patches: vec![vec![patch_index + 1]],
+                },
+            );
+        }
+
+        let history = app
+            .world()
+            .entity(entity)
+            .get::<ConfirmedHistory<DiffTestValue, Option<PatchIndex>>>()
+            .unwrap();
+        assert!(
+            history.value_with_metadata(&None).is_none(),
+            "pre-patch base should be pruned once the received patch window starts at 26"
+        );
+        assert!(
+            history.value_with_metadata(&Some(0)).is_none(),
+            "cursor 0 is older than 26 - 10"
+        );
+        assert_eq!(
+            history.value_with_metadata(&Some(16)).cloned(),
+            Some(DiffTestValue(17))
+        );
+        assert_eq!(
+            history.value_with_metadata(&Some(26)).cloned(),
+            Some(DiffTestValue(27))
+        );
+    }
+
+    fn setup_diff_interpolation_app() -> (App, FnsId) {
+        let mut app = App::new();
+        app.add_plugins((StatesPlugin, RepliconPlugins));
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.register_marker_with::<Interpolated>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        app.set_marker_fns::<Interpolated, DiffTestValue>(
+            write_history_diff::<DiffTestValue>,
+            remove_history_diff::<DiffTestValue>,
+        );
+        let (_, fns_id) =
+            app.world_mut()
+                .resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
+                    registry.register_rule_fns(world, RuleFns::<DiffTestValue>::new_diff())
+                });
+        (app, fns_id)
+    }
+
+    fn record_checkpoints(app: &mut App) {
+        let mut checkpoints = app.world_mut().resource_mut::<ReplicationCheckpointMap>();
+        checkpoints.record(RepliconTick::new(10), Tick(0));
+        checkpoints.record(RepliconTick::new(11), Tick(1));
+        checkpoints.record(RepliconTick::new(12), Tick(2));
+    }
+
+    fn apply_diff_write(
+        app: &mut App,
+        entity: Entity,
+        fns_id: FnsId,
+        message_tick: RepliconTick,
+        wire: DiffWire<DiffTestValue, u32>,
+    ) {
+        let mut message = Vec::new();
+        postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
+        app.world_mut()
+            .entity_mut(entity)
+            .apply_write(message, fns_id, message_tick);
     }
 }

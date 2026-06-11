@@ -140,11 +140,70 @@ pub fn resolve_confirm_history_tick(
     resolve_message_tick(checkpoints, history.last_tick())
 }
 
-pub fn resolve_server_mutate_tick(
+/// Resolve Replicon's latest fully confirmed server mutation checkpoint into
+/// Lightyear simulation time.
+///
+/// `ServerMutateTicks::last_confirmed_tick` is a Replicon tick, not a
+/// Lightyear [`Tick`]. Use this helper before using the completed mutation
+/// tick for rollback, interpolation, or any other simulation-time logic.
+///
+/// Returns `None` if Replicon has not reported a fully received mutation tick
+/// yet, or if Lightyear has no checkpoint mapping for that Replicon tick.
+///
+/// In `test_utils` builds, this also supports tests that manually seed
+/// [`ServerMutateTicks`] with `confirm`, because Replicon only updates
+/// `last_confirmed_tick` from its private receive path.
+pub fn resolve_server_last_confirmed_tick(
     checkpoints: &ReplicationCheckpointMap,
     ticks: &ServerMutateTicks,
 ) -> Option<Tick> {
-    resolve_message_tick(checkpoints, ticks.last_tick())
+    #[cfg(feature = "test_utils")]
+    {
+        let replicon_tick = ticks
+            .last_confirmed_tick()
+            .and_then(|tick| resolve_message_tick(checkpoints, tick));
+        let seeded_tick = resolve_server_last_confirmed_tick_for_tests(checkpoints, ticks);
+
+        return match (replicon_tick, seeded_tick) {
+            (Some(replicon_tick), Some(seeded_tick)) => Some(replicon_tick.max(seeded_tick)),
+            (Some(tick), None) | (None, Some(tick)) => Some(tick),
+            (None, None) => None,
+        };
+    }
+
+    #[cfg(not(feature = "test_utils"))]
+    {
+        ticks
+            .last_confirmed_tick()
+            .and_then(|tick| resolve_message_tick(checkpoints, tick))
+    }
+}
+
+/// Test-only resolver for synthetic tests that manually seed
+/// `ServerMutateTicks` through `confirm`.
+///
+/// Production code uses [`resolve_server_last_confirmed_tick`], which relies on
+/// Replicon's `last_confirmed_tick`. The fallback here exists because
+/// Replicon's setter for that field is intentionally private and only the
+/// Replicon receive path can update it.
+#[cfg(feature = "test_utils")]
+pub fn resolve_server_last_confirmed_tick_for_tests(
+    checkpoints: &ReplicationCheckpointMap,
+    ticks: &ServerMutateTicks,
+) -> Option<Tick> {
+    let mut tick = ticks.last_tick();
+    for _ in 0..=u64::BITS {
+        if ticks.contains(tick)
+            && let Some(server_tick) = resolve_message_tick(checkpoints, tick)
+        {
+            return Some(server_tick);
+        }
+        if tick == RepliconTick::default() {
+            break;
+        }
+        tick = tick - 1;
+    }
+    None
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

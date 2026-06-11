@@ -450,9 +450,6 @@ fn test_completed_mutate_tick_checks_unchanged_entities() {
     world
         .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
         .record(previous_replicon_tick, previous_confirmed_tick);
-    world
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(completed_tick);
     {
         let mut server_mutate_ticks = world.resource_mut::<ServerMutateTicks>();
         assert!(server_mutate_ticks.confirm(updated_replicon_tick, 1));
@@ -497,11 +494,16 @@ fn test_future_completed_mutate_tick_is_not_marked_processed() {
 
     stepper.frame_step(3);
     let future_tick = stepper.client_tick(0) + 1_000;
-    stepper
-        .client_app()
-        .world_mut()
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(future_tick);
+    let future_replicon_tick = RepliconTick::new(900);
+    let world = stepper.client_app().world_mut();
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(future_replicon_tick, future_tick);
+    assert!(
+        world
+            .resource_mut::<ServerMutateTicks>()
+            .confirm(future_replicon_tick, 1)
+    );
 
     stepper.frame_step(1);
 
@@ -524,11 +526,16 @@ fn test_explicit_mismatch_newer_than_completed_tick_rolls_back_from_mismatch_tic
     stepper.frame_step(5);
     let completed_tick = stepper.client_tick(0) - 4;
     let mismatch_tick = stepper.client_tick(0) - 2;
-    stepper
-        .client_app()
-        .world_mut()
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(completed_tick);
+    let completed_replicon_tick = RepliconTick::new(901);
+    let world = stepper.client_app().world_mut();
+    world
+        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .record(completed_replicon_tick, completed_tick);
+    assert!(
+        world
+            .resource_mut::<ServerMutateTicks>()
+            .confirm(completed_replicon_tick, 1)
+    );
 
     trigger_rollback_check(&mut stepper, mismatch_tick);
     stepper.frame_step(1);
@@ -593,9 +600,11 @@ fn test_completed_mutate_tick_rollback_preserves_later_confirmed_values() {
     world
         .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
         .record(same_replicon_tick, rollback_tick);
-    world
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(rollback_tick);
+    assert!(
+        world
+            .resource_mut::<ServerMutateTicks>()
+            .confirm(same_replicon_tick, 1)
+    );
 
     world
         .entity_mut(predicted_a)

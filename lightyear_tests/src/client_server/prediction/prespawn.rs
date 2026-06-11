@@ -76,7 +76,7 @@ fn test_compute_hash() {
             .get::<PredictionHistory<CompFull>>()
             .unwrap()
             .most_recent(),
-        Some(&(current_tick, PredictionState::Predicted(CompFull(1.0)),))
+        Some(&(current_tick, PredictionState::Predicted(CompFull(1.0))))
     );
 }
 
@@ -516,9 +516,9 @@ fn test_prespawn_confirmed_init_goes_to_history_without_overwriting_live_value()
         .get::<PredictionHistory<CompFull>>(client_prespawn)
         .unwrap();
     assert!(
-        history.buffer().iter().any(
-            |(_, state)| matches!(state, PredictionState::Confirmed(value) if value == &CompFull(1.0))
-        ),
+        history.buffer().any(|(_, state)| {
+            matches!(state, PredictionState::Confirmed(value) if value == &CompFull(1.0))
+        }),
         "server init value should be recorded as confirmed history: {:?}",
         history
     );

@@ -7,10 +7,12 @@
 
 use crate::rollback::DeterministicPredicted;
 use crate::{Predicted, SyncComponent};
-use alloc::collections::VecDeque;
+use alloc::{collections::VecDeque, vec::Vec};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
+use bevy_replicon::prelude::{Diffable as RepliconDiffable, PatchIndex};
+use bevy_replicon::shared::replication::diff::DiffReceiver;
 use bevy_utils::prelude::DebugName;
 use core::fmt::{self, Debug, Display};
 use core::ops::Deref;
@@ -122,13 +124,13 @@ impl<R> From<PredictionState<R>> for Option<R> {
 /// 2. During re-simulation, snap to confirmed values when we reach their tick
 /// 3. Avoid re-predicting values we already know are correct from the server
 #[derive(Component, Debug, Reflect)]
-pub struct PredictionHistory<C> {
+pub struct PredictionHistory<C, M = ()> {
     /// Queue containing the history. Front = oldest, back = most recent.
     /// Only stores ticks where the value changed.
-    buffer: VecDeque<(Tick, PredictionState<C>)>,
+    buffer: VecDeque<((Tick, PredictionState<C>), M)>,
 }
 
-impl<C> Default for PredictionHistory<C> {
+impl<C, M> Default for PredictionHistory<C, M> {
     fn default() -> Self {
         Self {
             buffer: VecDeque::new(),
@@ -136,10 +138,10 @@ impl<C> Default for PredictionHistory<C> {
     }
 }
 
-impl<C: Debug> Display for PredictionHistory<C> {
+impl<C: Debug, M> Display for PredictionHistory<C, M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PredictionHistory[")?;
-        for (i, (tick, state)) in self.buffer.iter().enumerate() {
+        for (i, ((tick, state), _)) in self.buffer.iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
             }
@@ -155,7 +157,7 @@ impl<C: Debug> Display for PredictionHistory<C> {
     }
 }
 
-impl<C> PredictionHistory<C> {
+impl<C, M> PredictionHistory<C, M> {
     pub fn len(&self) -> usize {
         self.buffer.len()
     }
@@ -166,58 +168,58 @@ impl<C> PredictionHistory<C> {
 
     /// Oldest value in the buffer
     pub fn oldest(&self) -> Option<&(Tick, PredictionState<C>)> {
-        self.buffer.front()
+        self.buffer.front().map(|(entry, _)| entry)
     }
 
     /// Most recent value in the buffer
     pub fn most_recent(&self) -> Option<&(Tick, PredictionState<C>)> {
-        self.buffer.back()
+        self.buffer.back().map(|(entry, _)| entry)
     }
 
     /// For unit tests
     #[doc(hidden)]
-    pub fn buffer(&self) -> &VecDeque<(Tick, PredictionState<C>)> {
-        &self.buffer
+    pub fn buffer(&self) -> impl Iterator<Item = &(Tick, PredictionState<C>)> {
+        self.buffer.iter().map(|(entry, _)| entry)
     }
 
     /// Get the value at the specified tick (returns the most recent value <= tick)
     pub fn get(&self, tick: Tick) -> Option<&C> {
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+            .partition_point(|((buffer_tick, _), _)| *buffer_tick <= tick);
         if partition == 0 {
             return None;
         }
         self.buffer
             .get(partition - 1)
-            .and_then(|(_, state)| state.value())
+            .and_then(|((_, state), _)| state.value())
     }
 
     /// Get the full state at the specified tick
     pub fn get_state(&self, tick: Tick) -> Option<&PredictionState<C>> {
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+            .partition_point(|((buffer_tick, _), _)| *buffer_tick <= tick);
         if partition == 0 {
             return None;
         }
-        self.buffer.get(partition - 1).map(|(_, state)| state)
+        self.buffer.get(partition - 1).map(|((_, state), _)| state)
     }
 
     /// Get the confirmed value exactly at the given tick, if one exists.
     pub fn get_confirmed_at(&self, tick: Tick) -> Option<&PredictionState<C>> {
         self.buffer
             .iter()
-            .find(|(t, state)| *t == tick && state.is_confirmed())
-            .map(|(_, state)| state)
+            .find(|((t, state), _)| *t == tick && state.is_confirmed())
+            .map(|((_, state), _)| state)
     }
 
     /// Get the first confirmed value at or after the given tick.
     pub fn get_confirmed_at_or_after(&self, tick: Tick) -> Option<(Tick, &PredictionState<C>)> {
         self.buffer
             .iter()
-            .find(|(t, state)| *t >= tick && state.is_confirmed())
-            .map(|(t, state)| (*t, state))
+            .find(|((t, state), _)| *t >= tick && state.is_confirmed())
+            .map(|((t, state), _)| (*t, state))
     }
 
     /// Get the last confirmed value in the history (most recent confirmed value).
@@ -225,8 +227,8 @@ impl<C> PredictionHistory<C> {
         self.buffer
             .iter()
             .rev()
-            .find(|(_, state)| state.is_confirmed())
-            .map(|(_, state)| state)
+            .find(|((_, state), _)| state.is_confirmed())
+            .map(|((_, state), _)| state)
     }
 
     /// Clear the entire history
@@ -235,17 +237,52 @@ impl<C> PredictionHistory<C> {
     }
 
     /// Add a predicted value (computed locally)
-    pub fn add_predicted(&mut self, tick: Tick, value: Option<C>) {
-        self.add_state(
+    pub fn add_predicted_with_metadata(&mut self, tick: Tick, value: Option<C>, metadata: M) {
+        self.add_state_with_metadata(
             tick,
             match value {
                 Some(value) => PredictionState::Predicted(value),
                 None => PredictionState::Removed,
             },
+            metadata,
         );
     }
 
-    /// Add a confirmed value at the given tick
+    /// Add a confirmed value (received from the server)
+    pub fn add_confirmed_with_metadata(&mut self, tick: Tick, value: Option<C>, metadata: M) {
+        let state = match value {
+            Some(value) => PredictionState::Confirmed(value),
+            None => PredictionState::ConfirmedRemoved,
+        };
+        self.insert_at_tick_with_metadata(tick, state, metadata);
+    }
+
+    pub fn last_confirmed_value_with_metadata(&self, metadata: &M) -> Option<(Tick, &C, &M)>
+    where
+        M: PartialEq,
+    {
+        self.buffer
+            .iter()
+            .rev()
+            .find(|((_, state), stored_metadata)| {
+                state.is_confirmed() && stored_metadata == metadata
+            })
+            .and_then(|((tick, state), stored_metadata)| {
+                state.value().map(|value| (*tick, value, stored_metadata))
+            })
+    }
+
+    pub fn metadata_at(&self, tick: Tick) -> Option<&M> {
+        let partition = self
+            .buffer
+            .partition_point(|((buffer_tick, _), _)| *buffer_tick <= tick);
+        if partition == 0 {
+            return None;
+        }
+        self.buffer.get(partition - 1).map(|(_, metadata)| metadata)
+    }
+
+    /// Add a confirmed value at the given tick using the previous confirmed metadata.
     ///
     /// This is used in situations where we know the value is unchanged (e.g., a completed
     /// mutate tick confirms no mutation).
@@ -253,12 +290,19 @@ impl<C> PredictionHistory<C> {
     pub fn add_confirmed_unchanged(&mut self, tick: Tick) -> bool
     where
         C: Clone,
+        M: Clone,
     {
-        let Some((existing_tick, existing_state)) = self
-            .buffer
-            .iter()
-            .rev()
-            .find(|(buffer_tick, state)| *buffer_tick <= tick && state.is_confirmed())
+        let Some((existing_tick, existing_state, metadata)) =
+            self.buffer
+                .iter()
+                .rev()
+                .find_map(|((buffer_tick, state), metadata)| {
+                    (*buffer_tick <= tick && state.is_confirmed()).then_some((
+                        buffer_tick,
+                        state,
+                        metadata,
+                    ))
+                })
         else {
             return false;
         };
@@ -267,17 +311,8 @@ impl<C> PredictionHistory<C> {
             return false;
         }
 
-        self.insert_at_tick(tick, existing_state.clone());
+        self.insert_at_tick_with_metadata(tick, existing_state.clone(), metadata.clone());
         true
-    }
-
-    /// Add a confirmed value (received from the server)
-    pub fn add_confirmed(&mut self, tick: Tick, value: Option<C>) {
-        let state = match value {
-            Some(value) => PredictionState::Confirmed(value),
-            None => PredictionState::ConfirmedRemoved,
-        };
-        self.insert_at_tick(tick, state);
     }
 
     #[doc(hidden)]
@@ -293,61 +328,134 @@ impl<C> PredictionHistory<C> {
         if len < 2 {
             return None;
         }
-        self.buffer.get(len - 2).and_then(|(_, x)| x.into())
+        self.buffer.get(len - 2).and_then(|((_, x), _)| x.into())
     }
 
     /// Add a value with a specific state (for predicted values, appends to end)
-    fn add_state(&mut self, tick: Tick, state: PredictionState<C>) {
-        if let Some((last_tick, _)) = self.buffer.back()
+    fn add_state_with_metadata(&mut self, tick: Tick, state: PredictionState<C>, metadata: M) {
+        if let Some(((last_tick, _), _)) = self.buffer.back()
             && *last_tick == tick
         {
             // Replace the existing value at this tick
             self.buffer.pop_back();
         }
-        self.buffer.push_back((tick, state));
+        self.buffer.push_back(((tick, state), metadata));
     }
 
     /// Insert a value at the correct position in the buffer (maintaining tick order).
     /// This is used for confirmed values which might arrive out of order.
     /// If a value already exists at this tick, it will be replaced.
-    fn insert_at_tick(&mut self, tick: Tick, state: PredictionState<C>) {
+    fn insert_at_tick_with_metadata(&mut self, tick: Tick, state: PredictionState<C>, metadata: M) {
         // Find the position where this tick should be inserted
-        let pos = self.buffer.partition_point(|(t, _)| *t < tick);
+        let pos = self.buffer.partition_point(|((t, _), _)| *t < tick);
 
         // Check if there's already a value at this exact tick
-        if pos < self.buffer.len() && self.buffer[pos].0 == tick {
+        if pos < self.buffer.len() && self.buffer[pos].0.0 == tick {
             // Replace the existing value
-            self.buffer[pos] = (tick, state);
+            self.buffer[pos] = ((tick, state), metadata);
         } else {
             // Insert at the correct position
-            self.buffer.insert(pos, (tick, state));
+            self.buffer.insert(pos, ((tick, state), metadata));
         }
     }
 
     /// Update ticks in case of a TickEvent (client tick changed)
     pub fn update_ticks(&mut self, delta: i32) {
-        self.buffer.iter_mut().for_each(|(tick, _)| {
+        self.buffer.iter_mut().for_each(|((tick, _), _)| {
             *tick = *tick + delta;
         });
     }
 
     /// Pop the oldest value in the history
     pub fn pop(&mut self) -> Option<(Tick, PredictionState<C>)> {
-        self.buffer.pop_front()
+        self.buffer.pop_front().map(|(entry, _)| entry)
     }
 
     /// Clear all values strictly older than the specified tick
     pub fn clear_until_tick(&mut self, tick: Tick) {
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick < &tick);
+            .partition_point(|((buffer_tick, _), _)| buffer_tick < &tick);
         if partition > 0 {
             self.buffer.drain(0..partition);
         }
     }
+
+    /// Clear old values while retaining confirmed metadata anchors.
+    ///
+    /// Diff receive paths prune stale cursor anchors when patches arrive, so this only needs to
+    /// preserve the remaining distinct confirmed anchors while normal rollback pruning runs.
+    pub fn clear_until_tick_retaining_confirmed_metadata(&mut self, tick: Tick)
+    where
+        C: Clone,
+        M: Clone + PartialEq,
+    {
+        let partition = self
+            .buffer
+            .partition_point(|((buffer_tick, _), _)| buffer_tick < &tick);
+        if partition == 0 {
+            return;
+        }
+
+        let retained = self.confirmed_entries_with_distinct_metadata(partition);
+        self.buffer.drain(0..partition);
+        for entry in retained.into_iter().rev() {
+            self.buffer.push_front(entry);
+        }
+    }
+
+    fn confirmed_entries_with_distinct_metadata(
+        &self,
+        end: usize,
+    ) -> Vec<((Tick, PredictionState<C>), M)>
+    where
+        C: Clone,
+        M: Clone + PartialEq,
+    {
+        let mut retained = Vec::new();
+        let mut retained_metadata = Vec::new();
+        for ((tick, state), metadata) in self.buffer.iter().take(end).rev() {
+            if !matches!(state, PredictionState::Confirmed(_)) {
+                continue;
+            }
+            if retained_metadata.iter().any(|stored| stored == metadata) {
+                continue;
+            }
+            retained_metadata.push(metadata.clone());
+            retained.push(((*tick, state.clone()), metadata.clone()));
+        }
+        retained
+    }
 }
 
-impl<C: Clone> PredictionHistory<C> {
+impl<C> PredictionHistory<C, Option<PatchIndex>> {
+    pub(crate) fn prune_confirmed_metadata_before_cursor(&mut self, min_cursor: PatchIndex) {
+        self.buffer.retain(|((_, state), metadata)| {
+            !state.is_confirmed() || retain_diff_metadata_anchor(metadata, min_cursor)
+        });
+    }
+}
+
+impl<C, M: Default> PredictionHistory<C, M> {
+    /// Add a predicted value (computed locally)
+    pub fn add_predicted(&mut self, tick: Tick, value: Option<C>) {
+        self.add_state_with_metadata(
+            tick,
+            match value {
+                Some(value) => PredictionState::Predicted(value),
+                None => PredictionState::Removed,
+            },
+            M::default(),
+        );
+    }
+
+    /// Add a confirmed value (received from the server)
+    pub fn add_confirmed(&mut self, tick: Tick, value: Option<C>) {
+        self.add_confirmed_with_metadata(tick, value, M::default());
+    }
+}
+
+impl<C: Clone, M: Clone> PredictionHistory<C, M> {
     /// Clear the history of values strictly older than the specified tick,
     /// and return the value at the specified tick.
     ///
@@ -355,7 +463,7 @@ impl<C: Clone> PredictionHistory<C> {
     pub fn pop_until_tick(&mut self, tick: Tick) -> Option<PredictionState<C>> {
         let partition = self
             .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+            .partition_point(|((buffer_tick, _), _)| buffer_tick <= &tick);
 
         if partition == 0 {
             return None;
@@ -363,11 +471,44 @@ impl<C: Clone> PredictionHistory<C> {
 
         // Drain all elements strictly older than the tick
         self.buffer.drain(0..(partition - 1));
-        let res = self.buffer.pop_front().map(|(_, state)| state);
+        let popped = self.buffer.pop_front();
+        let res = popped.as_ref().map(|((_, state), _)| state.clone());
 
         // Re-add the value at tick to the buffer
-        if let Some(ref state) = res {
-            self.buffer.push_front((tick, state.clone()));
+        if let Some(((_, state), metadata)) = popped {
+            self.buffer.push_front(((tick, state), metadata));
+        }
+
+        res
+    }
+
+    /// Like [`Self::pop_until_tick`], but retains confirmed metadata anchors.
+    pub fn pop_until_tick_retaining_confirmed_metadata(
+        &mut self,
+        tick: Tick,
+    ) -> Option<PredictionState<C>>
+    where
+        M: PartialEq,
+    {
+        let partition = self
+            .buffer
+            .partition_point(|((buffer_tick, _), _)| buffer_tick <= &tick);
+
+        if partition == 0 {
+            return None;
+        }
+
+        let retained = self.confirmed_entries_with_distinct_metadata(partition.saturating_sub(1));
+
+        self.buffer.drain(0..(partition - 1));
+        let popped = self.buffer.pop_front();
+        let res = popped.as_ref().map(|((_, state), _)| state.clone());
+
+        if let Some(((_, state), metadata)) = popped {
+            self.buffer.push_front(((tick, state), metadata));
+        }
+        for entry in retained.into_iter().rev() {
+            self.buffer.push_front(entry);
         }
 
         res
@@ -377,7 +518,14 @@ impl<C: Clone> PredictionHistory<C> {
     /// while preserving confirmed values.
     pub fn clear_predicted_from(&mut self, rollback_tick: Tick) {
         self.buffer
-            .retain(|(tick, state)| *tick <= rollback_tick || state.is_confirmed());
+            .retain(|((tick, state), _)| *tick <= rollback_tick || state.is_confirmed());
+    }
+}
+
+fn retain_diff_metadata_anchor(metadata: &Option<PatchIndex>, min_cursor: PatchIndex) -> bool {
+    match metadata {
+        Some(cursor) => *cursor >= min_cursor,
+        None => min_cursor == 0,
     }
 }
 
@@ -388,10 +536,13 @@ impl<C: Clone> PredictionHistory<C> {
 /// We store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
-pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
-    mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
+pub(crate) fn update_prediction_history<T, M>(
+    mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T, M>)>,
     timeline: Res<LocalTimeline>,
-) {
+) where
+    T: Component + Clone + Debug,
+    M: Default + Send + Sync + 'static,
+{
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
 
@@ -422,10 +573,13 @@ pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
 
 /// If there is a TickEvent and the client tick suddenly changes, we need
 /// to update the ticks in the history buffer.
-pub(crate) fn handle_tick_event_prediction_history<C: Component>(
+pub(crate) fn handle_tick_event_prediction_history<C, M>(
     trigger: On<SyncEvent<InputTimelineConfig>>,
-    mut query: Query<&mut PredictionHistory<C>>,
-) {
+    mut query: Query<&mut PredictionHistory<C, M>>,
+) where
+    C: Component,
+    M: Send + Sync + 'static,
+{
     for mut history in query.iter_mut() {
         trace!(
             "Prediction history updated for {:?} with tick delta {:?}",
@@ -448,11 +602,14 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 }
 
 /// If a predicted component is removed on the [`Predicted`] entity, add the removal to the history.
-pub(crate) fn apply_component_removal_predicted<C: Component>(
+pub(crate) fn apply_component_removal_predicted<C, M>(
     trigger: On<Remove, C>,
-    mut predicted_query: Query<&mut PredictionHistory<C>>,
+    mut predicted_query: Query<&mut PredictionHistory<C, M>>,
     timeline: Res<LocalTimeline>,
-) {
+) where
+    C: Component,
+    M: Default + Send + Sync + 'static,
+{
     let tick = timeline.tick();
     if let Ok(mut history) = predicted_query.get_mut(trigger.entity) {
         history.add_predicted(tick, None);
@@ -490,7 +647,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// in a different order (e.g. after the component was first added and then
 /// mutated by local prediction) and we must not overwrite those predicted
 /// values with a stale confirmed snapshot.
-pub(crate) fn add_prediction_history<C: SyncComponent>(
+pub(crate) fn add_prediction_history<C, M>(
     trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
     query: Query<
         (),
@@ -504,7 +661,10 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
         ),
     >,
     mut commands: Commands,
-) {
+) where
+    C: SyncComponent,
+    M: Default + Send + Sync + 'static,
+{
     if query.get(trigger.entity).is_err() {
         return;
     }
@@ -528,7 +688,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
         // Skip if history already exists — either another observer run
         // created it, or local prediction already populated it and we
         // must not overwrite predicted values.
-        if entity_mut.contains::<PredictionHistory<C>>() {
+        if entity_mut.contains::<PredictionHistory<C, M>>() {
             return;
         }
         // Try to capture a confirmed entry from the current C value + the
@@ -552,7 +712,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
         let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
             return;
         };
-        let mut history = PredictionHistory::<C>::default();
+        let mut history = PredictionHistory::<C, M>::default();
         if let Some((tick, component)) = seed {
             trace!(
                 ?entity,
@@ -566,16 +726,85 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
     });
 }
 
+pub(crate) fn add_prediction_history_diff<C>(
+    trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
+    query: Query<
+        (),
+        (
+            With<C>,
+            Or<(
+                With<Predicted>,
+                With<PreSpawned>,
+                With<DeterministicPredicted>,
+            )>,
+        ),
+    >,
+    mut commands: Commands,
+) where
+    C: SyncComponent + RepliconDiffable,
+{
+    if query.get(trigger.entity).is_err() {
+        return;
+    }
+    trace!(
+        "Add diff prediction history for {:?} on entity {:?}",
+        DebugName::type_name::<C>(),
+        trigger.entity
+    );
+    let entity = trigger.entity;
+    commands.queue(move |world: &mut World| {
+        let Ok(entity_mut) = world.get_entity_mut(entity) else {
+            return;
+        };
+        if entity_mut.contains::<PredictionHistory<C, Option<PatchIndex>>>() {
+            return;
+        }
+        let seed: Option<(Tick, C, Option<PatchIndex>)> = {
+            let component = entity_mut.get::<C>().cloned();
+            let cursor = entity_mut
+                .get::<DiffReceiver<C>>()
+                .map(DiffReceiver::last_applied)
+                .unwrap_or(None);
+            let confirm_last = entity_mut
+                .get::<lightyear_replication::prelude::ConfirmHistory>()
+                .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
+            match (component, confirm_last) {
+                (Some(component), Some(confirm_tick)) => world
+                    .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+                    .get(confirm_tick)
+                    .map(|tick| (tick, component, cursor)),
+                _ => None,
+            }
+        };
+        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            return;
+        };
+        let mut history = PredictionHistory::<C, Option<PatchIndex>>::default();
+        if let Some((tick, component, cursor)) = seed {
+            trace!(
+                ?entity,
+                ?tick,
+                cursor,
+                component = ?DebugName::type_name::<C>(),
+                "seeding diff PredictionHistory with confirmed value from init message"
+            );
+            history.add_confirmed_with_metadata(tick, Some(component), cursor);
+        }
+        entity_mut.insert(history);
+    });
+}
+
 /// During rollback re-simulation, check if we have a confirmed value for this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
 pub(crate) fn snap_to_confirmed_during_rollback<
     C: Component<Mutability = Mutable> + Clone + PartialEq + Debug,
+    M: Send + Sync + 'static,
 >(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
     // Only run during rollback
     rollback: Single<&Rollback>,
-    mut query: Query<(Entity, Option<&mut C>, &PredictionHistory<C>), With<Predicted>>,
+    mut query: Query<(Entity, Option<&mut C>, &PredictionHistory<C, M>), With<Predicted>>,
 ) {
     let tick = timeline.tick();
     query.iter_mut().for_each(|(entity, component, history)| {
@@ -700,8 +929,8 @@ mod tests {
 
         // Predicted values at tick 5 and 9 should be removed
         // (we can check by seeing the buffer doesn't have them)
-        let has_tick_5 = history.buffer.iter().any(|(t, _)| *t == Tick(5));
-        let has_tick_9 = history.buffer.iter().any(|(t, _)| *t == Tick(9));
+        let has_tick_5 = history.buffer.iter().any(|((t, _), _)| *t == Tick(5));
+        let has_tick_9 = history.buffer.iter().any(|((t, _), _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
     }

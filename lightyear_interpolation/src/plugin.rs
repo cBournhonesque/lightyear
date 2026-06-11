@@ -1,7 +1,9 @@
 use crate::SyncComponent;
 use crate::despawn::configure_delayed_interpolated_despawn;
-use crate::interpolate::{interpolate, update_confirmed_history};
-use crate::interpolation_history::insert_confirmed_history_on_interpolated;
+use crate::interpolate::{interpolate, update_confirmed_history, update_confirmed_history_diff};
+use crate::interpolation_history::{
+    insert_confirmed_history_on_interpolated, insert_confirmed_history_on_interpolated_diff,
+};
 use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, PreUpdate, Update};
@@ -10,6 +12,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
+use bevy_replicon::prelude::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
@@ -98,11 +101,32 @@ pub enum InterpolationSystems {
 
 /// Add per-component systems related to interpolation
 pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut App) {
+    add_prepare_interpolation_systems_with_metadata::<C, ()>(app);
+}
+
+pub(crate) fn add_prepare_interpolation_systems_with_metadata<C, M>(app: &mut App)
+where
+    C: Component + Clone,
+    M: Default + Clone + Send + Sync + 'static,
+{
     // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_observer(insert_confirmed_history_on_interpolated::<C>);
+    app.add_observer(insert_confirmed_history_on_interpolated::<C, M>);
     app.add_systems(
         Update,
-        update_confirmed_history::<C>
+        update_confirmed_history::<C, M>
+            .chain()
+            .in_set(InterpolationSystems::Prepare),
+    );
+}
+
+pub(crate) fn add_prepare_interpolation_systems_with_diff_metadata<C>(app: &mut App)
+where
+    C: Component + Clone + RepliconDiffable,
+{
+    app.add_observer(insert_confirmed_history_on_interpolated_diff::<C>);
+    app.add_systems(
+        Update,
+        update_confirmed_history_diff::<C>
             .chain()
             .in_set(InterpolationSystems::Prepare),
     );
@@ -111,9 +135,17 @@ pub(crate) fn add_prepare_interpolation_systems<C: Component + Clone>(app: &mut 
 // We add the interpolate system in different function because we might not want to add them
 // in case there is custom interpolation logic.
 pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
+    add_interpolation_systems_with_metadata::<C, ()>(app);
+}
+
+pub fn add_interpolation_systems_with_metadata<C, M>(app: &mut App)
+where
+    C: SyncComponent,
+    M: Send + Sync + 'static,
+{
     app.add_systems(
         Update,
-        interpolate::<C>.in_set(InterpolationSystems::Interpolate),
+        interpolate::<C, M>.in_set(InterpolationSystems::Interpolate),
     );
 }
 
