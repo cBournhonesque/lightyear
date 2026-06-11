@@ -93,6 +93,7 @@ impl ReplicationCheckpointHeader {
 pub struct ReplicationCheckpointMap {
     entries: HashMap<RepliconTick, Tick>,
     order: VecDeque<RepliconTick>,
+    last_confirmed_tick: Option<Tick>,
 }
 
 impl ReplicationCheckpointMap {
@@ -120,9 +121,28 @@ impl ReplicationCheckpointMap {
         self.entries.get(&replicon_tick).copied()
     }
 
+    /// Latest authoritative tick for which Replicon completed all mutate messages.
+    pub fn last_confirmed_tick(&self) -> Option<Tick> {
+        self.last_confirmed_tick
+    }
+
+    /// Resolve a completed Replicon mutate checkpoint and cache the authoritative tick.
+    ///
+    /// Returns `None` if the checkpoint mapping has not been received yet.
+    pub fn record_last_confirmed_tick(&mut self, replicon_tick: RepliconTick) -> Option<Tick> {
+        let tick = self.get(replicon_tick)?;
+        match self.last_confirmed_tick {
+            None => self.last_confirmed_tick = Some(tick),
+            Some(existing) if tick > existing => self.last_confirmed_tick = Some(tick),
+            _ => {}
+        }
+        Some(tick)
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
         self.order.clear();
+        self.last_confirmed_tick = None;
     }
 }
 
@@ -253,6 +273,43 @@ mod tests {
             map.get(RepliconTick::new(MAX_STORED_CHECKPOINTS as u32)),
             Some(Tick::from(MAX_STORED_CHECKPOINTS as u32))
         );
+    }
+
+    #[test]
+    fn checkpoint_map_records_latest_confirmed_tick() {
+        let mut map = ReplicationCheckpointMap::default();
+        map.record(RepliconTick::new(9), Tick(90));
+        map.record(RepliconTick::new(10), Tick(100));
+
+        assert_eq!(
+            map.record_last_confirmed_tick(RepliconTick::new(10)),
+            Some(Tick(100))
+        );
+        assert_eq!(
+            map.record_last_confirmed_tick(RepliconTick::new(9)),
+            Some(Tick(90))
+        );
+        assert_eq!(map.last_confirmed_tick(), Some(Tick(100)));
+    }
+
+    #[test]
+    fn checkpoint_map_missing_confirmed_tick_does_not_update_cache() {
+        let mut map = ReplicationCheckpointMap::default();
+
+        assert_eq!(map.record_last_confirmed_tick(RepliconTick::new(10)), None);
+        assert_eq!(map.last_confirmed_tick(), None);
+    }
+
+    #[test]
+    fn checkpoint_map_clear_resets_confirmed_tick_cache() {
+        let mut map = ReplicationCheckpointMap::default();
+        map.record(RepliconTick::new(10), Tick(100));
+        map.record_last_confirmed_tick(RepliconTick::new(10));
+
+        map.clear();
+
+        assert_eq!(map.get(RepliconTick::new(10)), None);
+        assert_eq!(map.last_confirmed_tick(), None);
     }
 
     #[test]

@@ -169,7 +169,7 @@ pub enum ReplicationSystems {
 /// on both sides, which is required for correct deserialization.
 struct SharedComponentRegistrationPlugin;
 
-impl bevy_app::prelude::Plugin for SharedComponentRegistrationPlugin {
+impl Plugin for SharedComponentRegistrationPlugin {
     fn build(&self, app: &mut bevy_app::prelude::App) {
         use bevy_replicon::prelude::AppRuleExt;
         // The order of app.replicate() calls must be identical on client and server.

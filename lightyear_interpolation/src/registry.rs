@@ -10,14 +10,12 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::RepliconTick;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_core::interpolation::Interpolated;
-use lightyear_core::prelude::Tick;
-use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 use tracing::error;
@@ -109,13 +107,6 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
         .resource_mut::<InterpolatedMarkerFnRegistry>()
         .kinds
         .insert(kind);
-}
-
-fn resolve_message_tick(
-    checkpoints: &ReplicationCheckpointMap,
-    tick: RepliconTick,
-) -> Option<Tick> {
-    checkpoints.get(tick)
 }
 
 pub trait InterpolationRegistrationExt<C> {
@@ -316,37 +307,5 @@ fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity
         let mut history = ConfirmedHistory::<C>::default();
         history.push_remove(tick);
         entity.insert(history);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn resolve_message_tick_uses_authoritative_tick_for_large_replicon_gap() {
-        let mut checkpoints = ReplicationCheckpointMap::default();
-        checkpoints.record(RepliconTick::new(200), Tick(20));
-
-        assert_eq!(
-            resolve_message_tick(&checkpoints, RepliconTick::new(200)),
-            Some(Tick(20))
-        );
-    }
-
-    #[test]
-    fn resolve_message_tick_collapses_multiple_replicon_ticks_for_same_authoritative_tick() {
-        let mut checkpoints = ReplicationCheckpointMap::default();
-        checkpoints.record(RepliconTick::new(100), Tick(20));
-        checkpoints.record(RepliconTick::new(101), Tick(20));
-
-        assert_eq!(
-            resolve_message_tick(&checkpoints, RepliconTick::new(100)),
-            Some(Tick(20))
-        );
-        assert_eq!(
-            resolve_message_tick(&checkpoints, RepliconTick::new(101)),
-            Some(Tick(20))
-        );
     }
 }

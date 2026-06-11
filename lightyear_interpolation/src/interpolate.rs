@@ -7,8 +7,7 @@ use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::NetworkTimeline;
 use lightyear_core::tick::Tick;
-use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_server_mutate_tick};
-use lightyear_replication::prelude::ServerMutateTicks;
+use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_sync::prelude::client::IsSynced;
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -28,17 +27,20 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
     interpolation_registry: Res<InterpolationRegistry>,
     interpolation: Single<&InterpolationTimeline>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    server_mutate_ticks: Res<ServerMutateTicks>,
     mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>)>,
     mut commands: Commands,
 ) {
     let timeline = interpolation.into_inner();
-    let server_complete_tick = resolve_server_mutate_tick(&checkpoints, &server_mutate_ticks);
+    let server_complete_tick = checkpoints.last_confirmed_tick();
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
-        // ServerMutateTicks is the global completeness signal for mutate messages. If it confirms
-        // tick T and this component did not receive an explicit update at T, then the component was
-        // unchanged through T, even though the entity's ConfirmHistory may not advance.
+        // Replicon's marker fns already ran before this system. If this component received an
+        // explicit update or removal at the completed server tick T, `write_history` /
+        // `remove_history` already recorded that exact tick and `push_unchanged(T)` returns None.
+        //
+        // Therefore, when the newest confirmed state is still an Updated value older than T,
+        // mutate-message completeness tells us no update/removal for this component occurred
+        // through T, so we can carry the newest value forward as unchanged.
         if let Some(server_complete_tick) = server_complete_tick
             && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
         {
@@ -67,6 +69,9 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             history.pop();
         }
 
+        // Apply the history state for the current interpolation time to the live component set:
+        // insert once the add/update tick becomes visible, remove once a removal tick is reached,
+        // and otherwise leave the current component value alone.
         match history.sample(
             current_interpolate_tick,
             timeline.overstep().to_f32(),
@@ -130,7 +135,6 @@ mod tests {
     use bevy_replicon::prelude::RepliconTick;
     use lightyear_core::time::TickInstant;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-    use lightyear_replication::prelude::ServerMutateTicks;
 
     #[derive(Component, Clone, Debug, PartialEq)]
     struct TestComp(f32);
@@ -141,8 +145,6 @@ mod tests {
 
     fn setup_app(current_tick: Tick, send_interval_ms: u64) -> App {
         let mut app = App::new();
-        app.world_mut()
-            .insert_resource(ServerMutateTicks::default());
         app.world_mut()
             .insert_resource(ReplicationCheckpointMap::default());
         app.world_mut()
@@ -158,12 +160,9 @@ mod tests {
 
     fn confirm_server_tick(app: &mut App, replicon_tick: u32, server_tick: Tick) {
         let replicon_tick = RepliconTick::new(replicon_tick);
-        app.world_mut()
-            .resource_mut::<ReplicationCheckpointMap>()
-            .record(replicon_tick, server_tick);
-        app.world_mut()
-            .resource_mut::<ServerMutateTicks>()
-            .confirm(replicon_tick, 1);
+        let mut checkpoints = app.world_mut().resource_mut::<ReplicationCheckpointMap>();
+        checkpoints.record(replicon_tick, server_tick);
+        checkpoints.record_last_confirmed_tick(replicon_tick);
     }
 
     fn set_interpolation_tick(app: &mut App, tick: Tick) {

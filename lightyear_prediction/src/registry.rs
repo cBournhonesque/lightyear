@@ -1,5 +1,4 @@
 use crate::SyncComponent;
-use crate::checkpoint_ticks::resolve_message_tick;
 use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
 use crate::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
@@ -26,6 +25,7 @@ use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::tick::Tick;
+use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_replication::registry::replication::ComponentRegistration;

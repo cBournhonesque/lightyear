@@ -10,7 +10,6 @@ use core::fmt::Debug;
 
 #[allow(unused)]
 pub(crate) mod archetypes;
-pub(crate) mod checkpoint_ticks;
 pub mod correction;
 pub mod despawn;
 pub mod diagnostics;
