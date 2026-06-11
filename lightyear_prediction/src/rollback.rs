@@ -35,7 +35,6 @@ We need:
 use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, SyncComponent};
-use crate::checkpoint_ticks::{resolve_confirm_history_tick, resolve_message_tick};
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
@@ -53,7 +52,6 @@ use bevy_ecs::schedule::ScheduleLabel;
 use bevy_ecs::system::{ParamBuilder, QueryParamBuilder};
 use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy_reflect::Reflect;
-use bevy_replicon::client::server_mutate_ticks::MutateTickReceived;
 use bevy_replicon::prelude::{ClientMessages, ClientSystems};
 use bevy_replicon::shared::backend::channels::ServerChannel;
 use bevy_time::{Fixed, Time};
@@ -66,6 +64,7 @@ use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
+use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_confirm_history_tick};
 use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
 use lightyear_replication::registry::ComponentRegistry;
@@ -360,22 +359,22 @@ fn check_received_replication_messages(
 
 /// Cache the latest authoritative tick for which Replicon completed all mutate messages.
 fn update_last_confirmed_tick(
-    mut received_mutate_ticks: MessageReader<MutateTickReceived>,
-    checkpoints: Res<lightyear_replication::checkpoint::ReplicationCheckpointMap>,
+    query: Query<
+        (),
+        (
+            With<PredictionManager>,
+            With<Client>,
+            With<Connected>,
+            Without<HostClient>,
+        ),
+    >,
+    checkpoints: Res<ReplicationCheckpointMap>,
     mut metadata: ResMut<StateRollbackMetadata>,
 ) {
-    for event in received_mutate_ticks.read() {
-        let Some(authoritative_tick) = resolve_message_tick(&checkpoints, event.tick) else {
-            error!(
-                replicon_tick = ?event.tick,
-                "missing authoritative checkpoint mapping for completed mutate tick"
-            );
-            debug_assert!(
-                false,
-                "missing authoritative checkpoint mapping for completed mutate tick"
-            );
-            continue;
-        };
+    if query.single().is_err() {
+        return;
+    }
+    if let Some(authoritative_tick) = checkpoints.last_confirmed_tick() {
         metadata.record_last_confirmed_tick(authoritative_tick);
     }
 }
@@ -401,31 +400,32 @@ fn reset_state_rollback_metadata_if_disconnected(
 mod tests {
     use super::*;
     use bevy_replicon::prelude::RepliconTick;
-    use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+    use lightyear_core::id::{PeerId, RemoteId};
 
     #[test]
-    fn update_last_confirmed_tick_tracks_latest_completed_mutate_message() {
+    fn update_last_confirmed_tick_syncs_from_checkpoint_map() {
         let older_replicon_tick = RepliconTick::new(9);
         let newer_replicon_tick = RepliconTick::new(10);
 
         let mut app = App::new();
-        app.add_message::<MutateTickReceived>();
         app.init_resource::<ReplicationCheckpointMap>();
         app.init_resource::<StateRollbackMetadata>();
         app.add_systems(Update, update_last_confirmed_tick);
+        app.world_mut().spawn((
+            RemoteId(PeerId::Netcode(1)),
+            PredictionManager::default(),
+            Client::default(),
+            Connected,
+        ));
 
         {
             let mut checkpoints = app.world_mut().resource_mut::<ReplicationCheckpointMap>();
             checkpoints.record(older_replicon_tick, Tick(90));
             checkpoints.record(newer_replicon_tick, Tick(100));
+            checkpoints.record_last_confirmed_tick(newer_replicon_tick);
+            checkpoints.record_last_confirmed_tick(older_replicon_tick);
         }
 
-        app.world_mut().write_message(MutateTickReceived {
-            tick: newer_replicon_tick,
-        });
-        app.world_mut().write_message(MutateTickReceived {
-            tick: older_replicon_tick,
-        });
         app.update();
 
         assert_eq!(
@@ -439,7 +439,6 @@ mod tests {
     #[test]
     fn update_last_confirmed_tick_without_messages_leaves_tick_unset() {
         let mut app = App::new();
-        app.add_message::<MutateTickReceived>();
         app.init_resource::<ReplicationCheckpointMap>();
         app.init_resource::<StateRollbackMetadata>();
         app.add_systems(Update, update_last_confirmed_tick);

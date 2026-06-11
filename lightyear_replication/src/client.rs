@@ -2,6 +2,8 @@ use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_state::prelude::*;
 
+#[cfg(any(feature = "prediction", feature = "interpolation"))]
+use bevy_replicon::client::server_mutate_ticks::MutateTickReceived;
 use bevy_replicon::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::{Client, Connected};
@@ -11,6 +13,8 @@ use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
+#[cfg(any(feature = "prediction", feature = "interpolation"))]
+use crate::ReplicationSystems;
 use crate::channels::RepliconChannelMap;
 use crate::checkpoint::{
     ReplicationCheckpointMap, extract_server_replicon_tick, unwrap_server_payload,
@@ -30,6 +34,12 @@ pub struct RepliconClientPlugin;
 
 impl Plugin for RepliconClientPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(any(feature = "prediction", feature = "interpolation"))]
+        {
+            use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
+            app.track_mutate_messages();
+        }
+
         // State management
         app.add_systems(
             PreUpdate,
@@ -40,6 +50,13 @@ impl Plugin for RepliconClientPlugin {
         app.add_systems(
             PreUpdate,
             receive_client_packets.in_set(ClientSystems::ReceivePackets),
+        );
+        #[cfg(any(feature = "prediction", feature = "interpolation"))]
+        app.add_systems(
+            PreUpdate,
+            update_checkpoint_last_confirmed_tick
+                .after(ClientSystems::Receive)
+                .in_set(ReplicationSystems::Receive),
         );
         app.add_systems(
             PostUpdate,
@@ -59,7 +76,10 @@ impl Plugin for RepliconClientPlugin {
         // clean up the actual entities.
         app.add_systems(
             OnExit(ClientState::Connected),
-            despawn_replicated_on_disconnect.after(ClientSystems::Reset),
+            (
+                clear_checkpoint_map_on_disconnect,
+                despawn_replicated_on_disconnect.after(ClientSystems::Reset),
+            ),
         );
 
         app.configure_sets(
@@ -73,6 +93,29 @@ impl Plugin for RepliconClientPlugin {
             ClientSystems::SendPackets.before(TransportSystems::Send),
         );
     }
+}
+
+#[cfg(any(feature = "prediction", feature = "interpolation"))]
+fn update_checkpoint_last_confirmed_tick(
+    mut received_mutate_ticks: MessageReader<MutateTickReceived>,
+    mut checkpoints: ResMut<ReplicationCheckpointMap>,
+) {
+    for event in received_mutate_ticks.read() {
+        if checkpoints.record_last_confirmed_tick(event.tick).is_none() {
+            error!(
+                replicon_tick = ?event.tick,
+                "missing authoritative checkpoint mapping for completed mutate tick"
+            );
+            debug_assert!(
+                false,
+                "missing authoritative checkpoint mapping for completed mutate tick"
+            );
+        }
+    }
+}
+
+fn clear_checkpoint_map_on_disconnect(mut checkpoints: ResMut<ReplicationCheckpointMap>) {
+    checkpoints.clear();
 }
 
 /// Sync replicon's `ClientState` with lightyear lifecycle.
