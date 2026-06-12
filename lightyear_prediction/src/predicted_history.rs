@@ -8,6 +8,7 @@
 use crate::rollback::DeterministicPredicted;
 use crate::{Predicted, SyncComponent};
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -123,23 +124,27 @@ impl<R> From<PredictionState<R>> for Option<R> {
 /// 3. Avoid re-predicting values we already know are correct from the server
 #[derive(Component, Debug, Reflect)]
 pub struct PredictionHistory<C> {
-    /// Queue containing the history. Front = oldest, back = most recent.
-    /// Only stores ticks where the value changed.
-    buffer: VecDeque<(Tick, PredictionState<C>)>,
+    /// Locally computed values. Front = oldest, back = most recent.
+    /// These are cleared and rebuilt during rollback.
+    predicted: VecDeque<(Tick, PredictionState<C>)>,
+    /// Server-authoritative values. Front = oldest, back = most recent.
+    /// These are preserved during rollback and can arrive out of order.
+    confirmed: VecDeque<(Tick, PredictionState<C>)>,
 }
 
 impl<C> Default for PredictionHistory<C> {
     fn default() -> Self {
         Self {
-            buffer: VecDeque::new(),
+            predicted: VecDeque::new(),
+            confirmed: VecDeque::new(),
         }
     }
 }
 
-impl<C: Debug> Display for PredictionHistory<C> {
+impl<C: Debug + Clone> Display for PredictionHistory<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PredictionHistory[")?;
-        for (i, (tick, state)) in self.buffer.iter().enumerate() {
+        for (i, (tick, state)) in self.merged_entries().iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
             }
@@ -157,86 +162,112 @@ impl<C: Debug> Display for PredictionHistory<C> {
 
 impl<C> PredictionHistory<C> {
     pub fn len(&self) -> usize {
-        self.buffer.len()
+        self.predicted.len() + self.confirmed.len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
+        self.predicted.is_empty() && self.confirmed.is_empty()
     }
 
     /// Oldest value in the buffer
     pub fn oldest(&self) -> Option<&(Tick, PredictionState<C>)> {
-        self.buffer.front()
+        match (self.predicted.front(), self.confirmed.front()) {
+            (Some(predicted), Some(confirmed)) => {
+                if predicted.0 <= confirmed.0 {
+                    Some(predicted)
+                } else {
+                    Some(confirmed)
+                }
+            }
+            (Some(predicted), None) => Some(predicted),
+            (None, Some(confirmed)) => Some(confirmed),
+            (None, None) => None,
+        }
+    }
+
+    /// Oldest locally predicted value in the buffer.
+    pub fn oldest_predicted(&self) -> Option<&(Tick, PredictionState<C>)> {
+        self.predicted.front()
     }
 
     /// Most recent value in the buffer
     pub fn most_recent(&self) -> Option<&(Tick, PredictionState<C>)> {
-        self.buffer.back()
+        match (self.predicted.back(), self.confirmed.back()) {
+            (Some(predicted), Some(confirmed)) => {
+                if confirmed.0 >= predicted.0 {
+                    Some(confirmed)
+                } else {
+                    Some(predicted)
+                }
+            }
+            (Some(predicted), None) => Some(predicted),
+            (None, Some(confirmed)) => Some(confirmed),
+            (None, None) => None,
+        }
     }
 
     /// For unit tests
     #[doc(hidden)]
-    pub fn buffer(&self) -> &VecDeque<(Tick, PredictionState<C>)> {
-        &self.buffer
+    pub fn buffer(&self) -> Vec<(Tick, PredictionState<C>)>
+    where
+        C: Clone,
+    {
+        self.merged_entries()
     }
 
     /// Get the value at the specified tick (returns the most recent value <= tick)
     pub fn get(&self, tick: Tick) -> Option<&C> {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
-        if partition == 0 {
-            return None;
-        }
-        self.buffer
-            .get(partition - 1)
-            .and_then(|(_, state)| state.value())
+        self.get_state(tick).and_then(PredictionState::value)
     }
 
     /// Get the full state at the specified tick
     pub fn get_state(&self, tick: Tick) -> Option<&PredictionState<C>> {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
-        if partition == 0 {
-            return None;
+        match (
+            Self::latest_at_or_before(&self.predicted, tick),
+            Self::latest_at_or_before(&self.confirmed, tick),
+        ) {
+            (Some((predicted_tick, predicted)), Some((confirmed_tick, confirmed))) => {
+                if confirmed_tick >= predicted_tick {
+                    Some(confirmed)
+                } else {
+                    Some(predicted)
+                }
+            }
+            (Some((_, predicted)), None) => Some(predicted),
+            (None, Some((_, confirmed))) => Some(confirmed),
+            (None, None) => None,
         }
-        self.buffer.get(partition - 1).map(|(_, state)| state)
     }
 
     /// Get the confirmed value exactly at the given tick, if one exists.
     pub fn get_confirmed_at(&self, tick: Tick) -> Option<&PredictionState<C>> {
-        self.buffer
-            .iter()
-            .find(|(t, state)| *t == tick && state.is_confirmed())
+        let partition = self.confirmed.partition_point(|(t, _)| *t < tick);
+        self.confirmed
+            .get(partition)
+            .filter(|(t, _)| *t == tick)
             .map(|(_, state)| state)
     }
 
     /// Get the first confirmed value at or after the given tick.
     pub fn get_confirmed_at_or_after(&self, tick: Tick) -> Option<(Tick, &PredictionState<C>)> {
-        self.buffer
-            .iter()
-            .find(|(t, state)| *t >= tick && state.is_confirmed())
-            .map(|(t, state)| (*t, state))
+        let partition = self.confirmed.partition_point(|(t, _)| *t < tick);
+        self.confirmed.get(partition).map(|(t, state)| (*t, state))
     }
 
     /// Get the last confirmed value in the history (most recent confirmed value).
     pub fn last_confirmed(&self) -> Option<&PredictionState<C>> {
-        self.buffer
-            .iter()
-            .rev()
-            .find(|(_, state)| state.is_confirmed())
-            .map(|(_, state)| state)
+        self.confirmed.back().map(|(_, state)| state)
     }
 
     /// Clear the entire history
     pub fn clear(&mut self) {
-        self.buffer.clear();
+        self.predicted.clear();
+        self.confirmed.clear();
     }
 
     /// Add a predicted value (computed locally)
     pub fn add_predicted(&mut self, tick: Tick, value: Option<C>) {
-        self.add_state(
+        self.add_predicted_state(
             tick,
             match value {
                 Some(value) => PredictionState::Predicted(value),
@@ -254,20 +285,17 @@ impl<C> PredictionHistory<C> {
     where
         C: Clone,
     {
-        let Some((existing_tick, existing_state)) = self
-            .buffer
-            .iter()
-            .rev()
-            .find(|(buffer_tick, state)| *buffer_tick <= tick && state.is_confirmed())
+        let Some((existing_tick, existing_state)) =
+            Self::latest_at_or_before(&self.confirmed, tick)
         else {
             return false;
         };
 
-        if *existing_tick == tick {
+        if existing_tick == tick {
             return false;
         }
 
-        self.insert_at_tick(tick, existing_state.clone());
+        self.insert_confirmed_at_tick(tick, existing_state.clone());
         true
     }
 
@@ -277,121 +305,192 @@ impl<C> PredictionHistory<C> {
             Some(value) => PredictionState::Confirmed(value),
             None => PredictionState::ConfirmedRemoved,
         };
-        self.insert_at_tick(tick, state);
+        self.insert_confirmed_at_tick(tick, state);
+    }
+
+    /// Get the value immediately before `tick`.
+    ///
+    /// Used to efficiently get the previous value when doing correction. Confirmed values sort
+    /// after predicted values at the same tick, so both states can coexist without overwriting.
+    pub fn previous_value_before_tick(&self, tick: Tick) -> Option<&C> {
+        let mut predicted_partition = self
+            .predicted
+            .partition_point(|(entry_tick, _)| *entry_tick <= tick);
+        let mut confirmed_partition = self
+            .confirmed
+            .partition_point(|(entry_tick, _)| *entry_tick <= tick);
+
+        let latest = self.take_latest_entry(&mut predicted_partition, &mut confirmed_partition);
+        match latest {
+            Some((entry_tick, state)) if entry_tick < tick => state.value(),
+            Some(_) => self
+                .take_latest_entry(&mut predicted_partition, &mut confirmed_partition)
+                .and_then(|(_, state)| state.value()),
+            None => None,
+        }
     }
 
     #[doc(hidden)]
-    /// Get the second most recent value in the buffer, knowing that tick is the current tick.
-    ///
-    /// Used to efficiently get the previous value when doing correction.
     pub fn second_most_recent(&self, tick: Tick) -> Option<&C> {
-        if let Some((most_recent_tick, most_recent)) = self.most_recent()
-            && *most_recent_tick < tick
-        {
-            return most_recent.value();
-        }
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
-        if partition == 0 {
-            return None;
-        }
-        let latest_at_or_before_tick = partition - 1;
-        if self.buffer[latest_at_or_before_tick].0 < tick {
-            return self.buffer[latest_at_or_before_tick].1.value();
-        }
-        if latest_at_or_before_tick == 0 {
-            return None;
-        }
-        self.buffer
-            .get(latest_at_or_before_tick - 1)
-            .and_then(|(_, state)| state.value())
+        self.previous_value_before_tick(tick)
     }
 
-    /// Add a value with a specific state.
-    fn add_state(&mut self, tick: Tick, state: PredictionState<C>) {
-        match self.buffer.back().map(|(last_tick, _)| *last_tick) {
-            None => self.buffer.push_back((tick, state)),
-            Some(last_tick) if last_tick < tick => self.buffer.push_back((tick, state)),
-            Some(last_tick) if last_tick == tick => {
-                self.buffer.pop_back();
-                self.buffer.push_back((tick, state));
-            }
-            Some(_) => self.insert_at_tick(tick, state),
+    /// Add a value with a specific state (for predicted values, appends to end)
+    fn add_predicted_state(&mut self, tick: Tick, state: PredictionState<C>) {
+        if let Some((last_tick, _)) = self.predicted.back()
+            && *last_tick == tick
+        {
+            // Replace the existing value at this tick
+            self.predicted.pop_back();
         }
+        self.predicted.push_back((tick, state));
     }
 
     /// Insert a value at the correct position in the buffer (maintaining tick order).
     /// This is used for values that might arrive out of order.
     /// If a value already exists at this tick, it will be replaced.
-    fn insert_at_tick(&mut self, tick: Tick, state: PredictionState<C>) {
+    fn insert_confirmed_at_tick(&mut self, tick: Tick, state: PredictionState<C>) {
         // Find the position where this tick should be inserted
-        let pos = self.buffer.partition_point(|(t, _)| *t < tick);
+        let pos = self.confirmed.partition_point(|(t, _)| *t < tick);
 
         // Check if there's already a value at this exact tick
-        if pos < self.buffer.len() && self.buffer[pos].0 == tick {
+        if pos < self.confirmed.len() && self.confirmed[pos].0 == tick {
             // Replace the existing value
-            self.buffer[pos] = (tick, state);
+            self.confirmed[pos] = (tick, state);
         } else {
             // Insert at the correct position
-            self.buffer.insert(pos, (tick, state));
+            self.confirmed.insert(pos, (tick, state));
         }
     }
 
     /// Update ticks in case of a TickEvent (client tick changed)
     pub fn update_ticks(&mut self, delta: i32) {
-        self.buffer.iter_mut().for_each(|(tick, _)| {
+        self.predicted.iter_mut().for_each(|(tick, _)| {
+            *tick = *tick + delta;
+        });
+        self.confirmed.iter_mut().for_each(|(tick, _)| {
             *tick = *tick + delta;
         });
     }
 
     /// Pop the oldest value in the history
     pub fn pop(&mut self) -> Option<(Tick, PredictionState<C>)> {
-        self.buffer.pop_front()
+        match (self.predicted.front(), self.confirmed.front()) {
+            (Some(predicted), Some(confirmed)) => {
+                if predicted.0 <= confirmed.0 {
+                    self.predicted.pop_front()
+                } else {
+                    self.confirmed.pop_front()
+                }
+            }
+            (Some(_), None) => self.predicted.pop_front(),
+            (None, Some(_)) => self.confirmed.pop_front(),
+            (None, None) => None,
+        }
     }
 
     /// Clear all values strictly older than the specified tick
     pub fn clear_until_tick(&mut self, tick: Tick) {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick < &tick);
+        Self::clear_queue_until_tick(&mut self.predicted, tick);
+        Self::clear_queue_until_tick(&mut self.confirmed, tick);
+    }
+
+    fn latest_at_or_before(
+        buffer: &VecDeque<(Tick, PredictionState<C>)>,
+        tick: Tick,
+    ) -> Option<(Tick, &PredictionState<C>)> {
+        let partition = buffer.partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
+        if partition == 0 {
+            return None;
+        }
+        buffer
+            .get(partition - 1)
+            .map(|(tick, state)| (*tick, state))
+    }
+
+    fn clear_queue_until_tick(buffer: &mut VecDeque<(Tick, PredictionState<C>)>, tick: Tick) {
+        let partition = buffer.partition_point(|(buffer_tick, _)| buffer_tick < &tick);
         if partition > 0 {
-            self.buffer.drain(0..partition);
+            buffer.drain(0..partition);
+        }
+    }
+
+    fn clear_queue_through_tick(buffer: &mut VecDeque<(Tick, PredictionState<C>)>, tick: Tick) {
+        let partition = buffer.partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
+        if partition > 0 {
+            buffer.drain(0..partition);
+        }
+    }
+
+    fn take_latest_entry(
+        &self,
+        predicted_partition: &mut usize,
+        confirmed_partition: &mut usize,
+    ) -> Option<(Tick, &PredictionState<C>)> {
+        match (
+            predicted_partition
+                .checked_sub(1)
+                .and_then(|index| self.predicted.get(index)),
+            confirmed_partition
+                .checked_sub(1)
+                .and_then(|index| self.confirmed.get(index)),
+        ) {
+            (Some((predicted_tick, predicted)), Some((confirmed_tick, confirmed))) => {
+                if confirmed_tick >= predicted_tick {
+                    *confirmed_partition -= 1;
+                    Some((*confirmed_tick, confirmed))
+                } else {
+                    *predicted_partition -= 1;
+                    Some((*predicted_tick, predicted))
+                }
+            }
+            (Some((predicted_tick, predicted)), None) => {
+                *predicted_partition -= 1;
+                Some((*predicted_tick, predicted))
+            }
+            (None, Some((confirmed_tick, confirmed))) => {
+                *confirmed_partition -= 1;
+                Some((*confirmed_tick, confirmed))
+            }
+            (None, None) => None,
         }
     }
 }
 
 impl<C: Clone> PredictionHistory<C> {
+    fn merged_entries(&self) -> Vec<(Tick, PredictionState<C>)> {
+        let mut entries = Vec::with_capacity(self.len());
+        entries.extend(self.predicted.iter().cloned());
+        entries.extend(self.confirmed.iter().cloned());
+        entries.sort_by_key(|(tick, state)| (*tick, state.is_confirmed()));
+        entries
+    }
+
     /// Clear the history of values strictly older than the specified tick,
     /// and return the value at the specified tick.
     ///
     /// This is similar to HistoryBuffer::pop_until_tick but for PredictionHistory.
     pub fn pop_until_tick(&mut self, tick: Tick) -> Option<PredictionState<C>> {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
-
-        if partition == 0 {
-            return None;
-        }
-
-        // Drain all elements strictly older than the tick
-        self.buffer.drain(0..(partition - 1));
-        let res = self.buffer.pop_front().map(|(_, state)| state);
-
-        // Re-add the value at tick to the buffer
+        let res = self.get_state(tick).cloned();
+        Self::clear_queue_through_tick(&mut self.predicted, tick);
+        Self::clear_queue_through_tick(&mut self.confirmed, tick);
         if let Some(ref state) = res {
-            self.buffer.push_front((tick, state.clone()));
+            if state.is_confirmed() {
+                self.confirmed.push_front((tick, state.clone()));
+            } else {
+                self.predicted.push_front((tick, state.clone()));
+            }
         }
-
         res
     }
 
     /// Clear all predicted values that are more recent than the rollback tick,
     /// while preserving confirmed values.
     pub fn clear_predicted_from(&mut self, rollback_tick: Tick) {
-        self.buffer
-            .retain(|(tick, state)| *tick <= rollback_tick || state.is_confirmed());
+        let partition = self
+            .predicted
+            .partition_point(|(tick, _)| *tick <= rollback_tick);
+        self.predicted.truncate(partition);
     }
 }
 
@@ -714,8 +813,9 @@ mod tests {
 
         // Predicted values at tick 5 and 9 should be removed
         // (we can check by seeing the buffer doesn't have them)
-        let has_tick_5 = history.buffer.iter().any(|(t, _)| *t == Tick(5));
-        let has_tick_9 = history.buffer.iter().any(|(t, _)| *t == Tick(9));
+        let buffer = history.buffer();
+        let has_tick_5 = buffer.iter().any(|(t, _)| *t == Tick(5));
+        let has_tick_9 = buffer.iter().any(|(t, _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
     }

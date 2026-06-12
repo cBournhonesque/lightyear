@@ -105,7 +105,7 @@ pub struct PredictionRegistry {
 
 impl PredictionRegistry {
     fn oldest_retained_tick<C>(history: &PredictionHistory<C>) -> Option<Tick> {
-        history.oldest().map(|(tick, _)| *tick)
+        history.oldest_predicted().map(|(tick, _)| *tick)
     }
 
     fn register<C: SyncComponent>(&mut self, history_id: ComponentId) {
