@@ -337,13 +337,29 @@ impl PredictionRegistry {
         };
 
         let Some(prediction_history) = entity_mut.get::<PredictionHistory<C>>() else {
-            // No prediction history means no predicted value to compare against.
+            // No prediction history means no predicted state to compare against.
             return false;
         };
 
-        // The predicted value at confirmed_tick
-        let predicted_value = prediction_history.get(confirmed_tick);
-        self.should_rollback_check(confirmed_value.as_ref(), predicted_value)
+        // The unchanged-component path is a completion-time consistency check.
+        // If the prediction history has no retained state at this tick, we
+        // cannot prove a mismatch; this can happen for newly spawned predicted
+        // entities whose local history starts after the completed server tick.
+        //
+        // Do not use `PredictionHistory::get` here: `None` would conflate "no
+        // retained sample" with an explicit predicted removal. An explicit
+        // [`PredictionState::Removed`] must still be checked and can roll back
+        // against a present confirmed value.
+        let Some(predicted_state) = prediction_history.get_state(confirmed_tick) else {
+            trace!(
+                ?entity,
+                ?confirmed_tick,
+                component = ?name,
+                "No predicted state retained for unchanged rollback check"
+            );
+            return false;
+        };
+        self.should_rollback_check(confirmed_value.as_ref(), predicted_state.value())
     }
 
     /// Add the confirmed value to confirmed history, and optionally check for rollback.

@@ -14,7 +14,6 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client::PeerMetadata;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::core::tick::TickDuration;
-use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prediction::plugin::PredictionSystems;
 use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::*;

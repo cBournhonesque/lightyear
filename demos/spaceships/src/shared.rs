@@ -12,7 +12,6 @@ use avian2d::prelude::{forces::ForcesItem, *};
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian2d::plugin::AvianReplicationMode;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use tracing::Level;
@@ -122,10 +121,10 @@ fn emit_bullet_post_update_state(
         is_replicated,
     ) in &bullets
     {
-        let position_history_start_tick =
-            position_history.and_then(|history| history.start().map(|(tick, _)| tick.0 as i64));
-        let position_history_end_tick =
-            position_history.and_then(|history| history.get_nth(1).map(|(tick, _)| tick.0 as i64));
+        let position_history_start_tick = position_history
+            .and_then(|history| history.start_present().map(|(tick, _)| tick.0 as i64));
+        let position_history_end_tick = position_history
+            .and_then(|history| history.get_nth_present(1).map(|(tick, _)| tick.0 as i64));
         let position_visual_ready = position_history_end_tick.is_some()
             && position_history_start_tick
                 .zip(interpolation_tick)
@@ -437,7 +436,7 @@ fn effective_last_fire_tick(
     tick: Tick,
 ) -> Tick {
     let mut last_fire_tick = weapon.last_fire_tick;
-    if let Some(history_weapon) = weapon_history.and_then(|history| history.get(tick))
+    if let Some(history_weapon) = weapon_history.and_then(|history| history.get_present(tick))
         && history_weapon.last_fire_tick - last_fire_tick > 0
     {
         last_fire_tick = history_weapon.last_fire_tick;

@@ -227,17 +227,17 @@ pub(crate) fn interpolate(
         };
 
         // the ticks should be the same for both components
-        if let Some((start_tick, tail_start_value)) = tail_history.start() {
+        if let Some((start_tick, tail_start_value)) = tail_history.start_present() {
             // make sure to stop early if the interpolation_tick is too early
             if interpolation_tick < start_tick {
                 continue;
             };
-            let Some((_, pos_start)) = parent_history.start() else {
+            let Some((_, pos_start)) = parent_history.start_present() else {
                 // the parent component has not been confirmed yet, so we can't interpolate
                 continue;
             };
-            if let Some((end_tick, tail_end_value)) = tail_history.end() {
-                let Some((_, pos_end)) = parent_history.end() else {
+            if let Some((end_tick, tail_end_value)) = tail_history.newest_present() {
+                let Some((_, pos_end)) = parent_history.newest_present() else {
                     // the parent component has not been confirmed yet, so we can't interpolate
                     continue;
                 };

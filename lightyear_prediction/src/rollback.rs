@@ -938,8 +938,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         // For entities that didn't receive an explicit update but we know their value didn't change
         // (because a completed mutate tick confirms they weren't mutated), mark the latest completed
         // server checkpoint as confirmed using their last explicit confirmed value.
-        if matches!(rollback, Rollback::FromState)
-            && !matches!(manager.rollback_policy.state, RollbackMode::Disabled)
+        // Forced catch-up rollbacks also use `Rollback::FromState`, even when
+        // automatic state rollback checks are disabled by policy.
+        let is_state_rollback = matches!(rollback, Rollback::FromState);
+        if is_state_rollback
             && let Some(server_confirmed_tick) = server_confirmed_tick
             && let Some(confirmed_history) = confirmed_history.as_mut()
         {
@@ -951,9 +953,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             confirmed_history.add_unchanged(server_confirmed_tick);
         }
 
-        let confirmed_restore = if matches!(rollback, Rollback::FromState)
-            && !matches!(manager.rollback_policy.state, RollbackMode::Disabled)
-        {
+        let confirmed_restore = if is_state_rollback {
             let primary_tick = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
                 server_confirmed_tick.unwrap_or(rollback_tick)
             } else {
@@ -982,13 +982,15 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             // from that earliest mismatch tick.
             predicted_history.get(rollback_tick).cloned()
         };
-        // If state rollback is disabled, completed mutate ticks do not certify deterministic
-        // component values; they only say no replicated state update arrived. Keep enough
-        // predicted history to support later input rollbacks to the same window.
-        let clear_until_tick = if matches!(manager.rollback_policy.state, RollbackMode::Disabled) {
-            rollback_tick
-        } else {
+        // Only state rollbacks can prune up to the completed mutate tick: that
+        // checkpoint certifies the authoritative state used for replay. Input
+        // rollbacks are driven by local input divergence and still need the
+        // predicted state at their own rollback tick, even if Replicon has
+        // completed a later mutate tick.
+        let clear_until_tick = if is_state_rollback {
             server_confirmed_tick.unwrap_or(rollback_tick)
+        } else {
+            rollback_tick
         };
         predicted_history.clear_until_tick(clear_until_tick);
         predicted_history.clear_after_tick(rollback_tick);

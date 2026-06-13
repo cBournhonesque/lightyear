@@ -7,7 +7,6 @@ use leafwing_input_manager::prelude::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::host::HostServer;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
 use std::collections::HashMap;
@@ -312,10 +311,10 @@ fn emit_bullet_post_update_state(
         is_replicated,
     ) in &bullets
     {
-        let position_history_start_tick =
-            position_history.and_then(|history| history.start().map(|(tick, _)| tick.0 as i64));
-        let position_history_end_tick =
-            position_history.and_then(|history| history.end().map(|(tick, _)| tick.0 as i64));
+        let position_history_start_tick = position_history
+            .and_then(|history| history.start_present().map(|(tick, _)| tick.0 as i64));
+        let position_history_end_tick = position_history
+            .and_then(|history| history.newest_present().map(|(tick, _)| tick.0 as i64));
         let position_visual_ready = position_history_end_tick.is_some()
             && position_history_start_tick
                 .zip(interpolation_tick)

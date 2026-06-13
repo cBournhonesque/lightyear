@@ -36,8 +36,8 @@
 //! - When code receives a tick from Replicon state, resolve it through
 //!   [`ReplicationCheckpointMap`] before using it in prediction or rollback logic.
 //!
-//! [`ConfirmHistory`]: bevy_replicon::prelude::ConfirmHistory
-//! [`ServerMutateTicks`]: bevy_replicon::prelude::ServerMutateTicks
+//! [`ConfirmHistory`]: bevy_replicon::client::confirm_history::ConfirmHistory
+//! [`ServerMutateTicks`]: bevy_replicon::client::server_mutate_ticks::ServerMutateTicks
 use alloc::collections::VecDeque;
 use bytes::{Buf, Bytes, BytesMut};
 
@@ -84,7 +84,9 @@ impl ReplicationCheckpointHeader {
 /// 3. records the association here before handing the original bytes to Replicon
 ///
 /// Prediction and rollback code should use this resource whenever they need to interpret
-/// [`ConfirmHistory`] or [`ServerMutateTicks`] in simulation time.
+/// [`ConfirmHistory`] or
+/// [`ServerMutateTicks`](bevy_replicon::client::server_mutate_ticks::ServerMutateTicks) in
+/// simulation time.
 ///
 /// This mapping is intentionally bounded because it is only needed for recent rollback /
 /// prediction windows.
@@ -233,7 +235,8 @@ pub fn unwrap_server_payload(
 ///
 /// - channel `0` carries update packets whose leading Replicon tick is the checkpoint id
 /// - channel `1` carries mutation packets with both `update_tick` and `message_tick`; the latter
-///   is the completeness checkpoint used by [`ConfirmHistory`] / [`ServerMutateTicks`]
+///   is the completeness checkpoint used by [`ConfirmHistory`] /
+///   [`ServerMutateTicks`](bevy_replicon::client::server_mutate_ticks::ServerMutateTicks)
 ///
 /// The returned [`RepliconTick`] should not be used directly for rollback or prediction. It is
 /// only the lookup key into [`ReplicationCheckpointMap`].

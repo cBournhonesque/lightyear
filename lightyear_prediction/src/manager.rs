@@ -102,9 +102,12 @@ pub struct PredictionManager {
 /// Store the most recent confirmed input across all remote clients.
 #[derive(Component, Debug, Default, Reflect)]
 pub struct LastConfirmedInput {
-    /// Updated via [`set_if_lower`] to track the minimum last-confirmed tick
+    /// Updated via [`AtomicTick::set_if_lower`] to track the minimum last-confirmed tick
     /// across all remote clients. Reset to a high value each frame by
     /// [`reset_input_rollback_tracker`] so the minimum is computed correctly.
+    ///
+    /// [`AtomicTick::set_if_lower`]: lightyear_core::tick::AtomicTick::set_if_lower
+    /// [`reset_input_rollback_tracker`]: crate::rollback::reset_input_rollback_tracker
     pub tick: lightyear_core::tick::AtomicTick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
 }
@@ -399,9 +402,11 @@ mod tests {
 /// Store the earliest mismatched input across all remote clients.
 #[derive(Debug, Reflect)]
 pub struct EarliestMismatchedInput {
-    /// Initialized to `Tick::MAX` so the first [`set_if_lower`] call wins.
-    /// Updated via [`set_if_lower`] to track the minimum mismatch tick
+    /// Initialized to `Tick::MAX` so the first [`AtomicTick::set_if_lower`] call wins.
+    /// Updated via [`AtomicTick::set_if_lower`] to track the minimum mismatch tick
     /// across all remote clients.
+    ///
+    /// [`AtomicTick::set_if_lower`]: lightyear_core::tick::AtomicTick::set_if_lower
     pub tick: lightyear_core::tick::AtomicTick,
     pub has_mismatches: bevy_platform::sync::atomic::AtomicBool,
 }

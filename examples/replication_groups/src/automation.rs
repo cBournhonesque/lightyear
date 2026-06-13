@@ -228,8 +228,8 @@ mod client {
     ) -> Option<(Option<Tick>, Option<Tick>)> {
         history.map(|history| {
             (
-                history.start().map(|(tick, _)| tick),
-                history.end().map(|(tick, _)| tick),
+                history.start_present().map(|(tick, _)| tick),
+                history.newest_present().map(|(tick, _)| tick),
             )
         })
     }
