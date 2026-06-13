@@ -10,8 +10,10 @@ use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
-    add_prediction_history, apply_component_removal_predicted, handle_tick_event_confirmed_history,
-    handle_tick_event_prediction_history, snap_to_confirmed_during_rollback,
+    add_confirmed_history_patch_receiver, add_prediction_history,
+    apply_component_removal_predicted, handle_tick_event_confirmed_history,
+    handle_tick_event_confirmed_history_patch_receiver, handle_tick_event_prediction_history,
+    prune_confirmed_history_patch_receiver, snap_to_confirmed_during_rollback,
     update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
@@ -22,6 +24,7 @@ use bevy_app::FixedPreUpdate;
 use bevy_app::prelude::*;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
+use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 #[cfg(feature = "metrics")]
 use bevy_utils::prelude::DebugName;
@@ -183,6 +186,15 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
         FixedPostUpdate,
         // we need to run this during fixed update to know accurately the history for each tick
         update_prediction_history::<C>.in_set(PredictionSystems::UpdateHistory),
+    );
+}
+
+pub(crate) fn add_prediction_diff_systems<C: SyncComponent + RepliconDiffable>(app: &mut App) {
+    app.add_observer(add_confirmed_history_patch_receiver::<C>);
+    app.add_observer(handle_tick_event_confirmed_history_patch_receiver::<C>);
+    app.add_systems(
+        PreUpdate,
+        prune_confirmed_history_patch_receiver::<C>.in_set(RollbackSystems::Prepare),
     );
 }
 

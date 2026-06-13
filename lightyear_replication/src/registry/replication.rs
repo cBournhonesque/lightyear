@@ -3,6 +3,7 @@ use bevy_app::App;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
 use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
+use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use bevy_replicon::shared::replication::registry::rule_fns::{DeserializeFn, SerializeFn};
 use serde::{Serialize, de::DeserializeOwned};
@@ -14,6 +15,15 @@ pub trait AppComponentExt {
     fn register_component<C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned>(
         &mut self,
     ) -> ComponentRegistration<'_, C>;
+
+    /// Registers the component using Replicon's patch-based diff replication.
+    ///
+    /// Mutations must be recorded with
+    /// [`DiffEntityExt::apply_patch`](bevy_replicon::shared::replication::diff::DiffEntityExt::apply_patch)
+    /// so Replicon can create patch messages. This registers Lightyear
+    /// component metadata and Replicon's `replicate_diff` rule, but does not
+    /// also register the normal full-component replication rule.
+    fn register_component_diff<C: RepliconDiffable>(&mut self) -> ComponentRegistration<'_, C>;
 
     /// Registers the component in the Registry with `ReplicationMode::Once`.
     ///
@@ -58,6 +68,12 @@ impl AppComponentExt for App {
     ) -> ComponentRegistration<'_, C> {
         register_component_metadata::<C>(self);
         self.replicate::<C>();
+        ComponentRegistration::new(self)
+    }
+
+    fn register_component_diff<C: RepliconDiffable>(&mut self) -> ComponentRegistration<'_, C> {
+        register_component_metadata::<C>(self);
+        self.replicate_diff::<C>();
         ComponentRegistration::new(self)
     }
 

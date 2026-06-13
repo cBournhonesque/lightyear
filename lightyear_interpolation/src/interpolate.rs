@@ -3,10 +3,12 @@ use crate::timeline::InterpolationTimeline;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::prelude::*;
+use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
 use lightyear_sync::prelude::client::IsSynced;
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -71,6 +73,72 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
         // Apply the history state for the current interpolation time to the live component set:
         // insert once the add/update tick becomes visible, remove once a removal tick is reached,
         // and otherwise leave the current component value alone.
+        match interpolation_registry.sample(
+            &history,
+            current_interpolate_tick,
+            timeline.overstep().to_f32(),
+        ) {
+            None | Some(ConfirmedState::Removed) if present => {
+                commands.entity(entity).try_remove::<C>();
+            }
+            Some(ConfirmedState::Confirmed(value)) if !present => {
+                commands.entity(entity).try_insert(value);
+            }
+            _ => {}
+        }
+    }
+}
+
+pub(crate) fn update_confirmed_history_diff<C>(
+    interpolation_registry: Res<InterpolationRegistry>,
+    interpolation: Single<&InterpolationTimeline>,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    mut query: Query<
+        (
+            Entity,
+            &mut ConfirmedHistory<C>,
+            &mut ConfirmedHistoryPatchReceiver<C>,
+            Has<C>,
+        ),
+        With<Interpolated>,
+    >,
+    mut commands: Commands,
+) where
+    C: Component + Clone + RepliconDiffable,
+{
+    let timeline = interpolation.into_inner();
+    let server_complete_tick = checkpoints.last_confirmed_tick();
+    let current_interpolate_tick = timeline.now().tick();
+    for (entity, mut history, mut patch_receiver, present) in query.iter_mut() {
+        if let Some(server_complete_tick) = server_complete_tick
+            && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
+        {
+            trace!(
+                target: "lightyear_debug::interpolation",
+                kind = "confirmed_history_unchanged_advance",
+                schedule = "Update",
+                sample_point = "Update",
+                entity = ?entity,
+                component = ?DebugName::type_name::<C>(),
+                previous_newest_tick = previous_newest_tick.0,
+                server_complete_tick = server_complete_tick.0,
+                history_len = history.len(),
+                "advanced unchanged diff interpolation history"
+            );
+        }
+
+        while history.len() >= 3
+            && history
+                .get_nth_tick(1)
+                .is_some_and(|tick| tick <= current_interpolate_tick)
+        {
+            history.pop_present();
+        }
+
+        if let Some(server_complete_tick) = server_complete_tick {
+            patch_receiver.clear_before_tick(server_complete_tick, &history);
+        }
+
         match interpolation_registry.sample(
             &history,
             current_interpolate_tick,

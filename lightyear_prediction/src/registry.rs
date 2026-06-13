@@ -17,8 +17,10 @@ use bevy_math::{
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use bevy_replicon::bytes::Bytes;
+use bevy_replicon::postcard_utils;
 use bevy_replicon::prelude::{AppMarkerExt, RepliconTick, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::diff::{DiffWire, Diffable as RepliconDiffable};
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
@@ -28,6 +30,7 @@ use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
+use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
@@ -501,6 +504,11 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
+    /// Enable prediction for a component replicated with Replicon's patch-based diff mode.
+    fn add_prediction_diff(self) -> Self
+    where
+        C: SyncComponent + RepliconDiffable;
+
     /// Register `write_history` as the default replicon receive function for
     /// this component, so that replicated values are stored in
     /// `ConfirmedHistory<C>` as authoritative state (and optionally trigger a
@@ -658,6 +666,58 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self
     }
 
+    fn add_prediction_diff(self) -> Self
+    where
+        C: SyncComponent + RepliconDiffable,
+    {
+        if !self.app.world().contains_resource::<PredictionRegistry>() {
+            trace!(
+                "Skipping diff prediction registration for component {:?} because PredictionPlugin is not present",
+                DebugName::type_name::<C>()
+            );
+            return self;
+        }
+        self.app.register_marker_with::<Predicted>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app
+            .set_marker_fns::<Predicted, C>(write_history_diff::<C>, remove_history_diff::<C>);
+        self.app.register_marker_with::<PreSpawned>(MarkerConfig {
+            priority: 100,
+            need_history: true,
+        });
+        self.app
+            .set_marker_fns::<PreSpawned, C>(write_history_diff::<C>, remove_history_diff::<C>);
+        let prediction_history_id = self
+            .app
+            .world_mut()
+            .register_component::<PredictionHistory<C>>();
+        let confirmed_history_id = self
+            .app
+            .world_mut()
+            .register_component::<ConfirmedHistory<C>>();
+        self.app
+            .world_mut()
+            .register_component::<ConfirmedHistoryPatchReceiver<C>>();
+        let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
+        trace!(
+            "Adding diff prediction for component {:?}",
+            DebugName::type_name::<C>()
+        );
+        registry.register::<C>(prediction_history_id, confirmed_history_id);
+        add_prediction_systems::<C>(self.app);
+        crate::plugin::add_prediction_diff_systems::<C>(self.app);
+
+        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
+        let metadata = registry
+            .component_metadata_map
+            .get_mut(&ComponentKind::of::<C>())
+            .unwrap();
+        metadata.replication.as_mut().unwrap().set_predicted(true);
+        self
+    }
+
     fn enable_correction(self) -> Self
     where
         C: SyncComponent,
@@ -787,35 +847,95 @@ fn write_history<C: SyncComponent>(
     Ok(())
 }
 
+fn write_history_diff<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<C>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<()> {
+    let Some((tick, wire)) = diff_wire_and_tick::<C>(ctx, entity, message)? else {
+        return Ok(());
+    };
+    let mut receiver = entity
+        .get::<ConfirmedHistoryPatchReceiver<C>>()
+        .cloned()
+        .unwrap_or_default();
+    if let DiffWire::Snapshot { cursor, mut value } = wire {
+        C::map_entities(&mut value, ctx);
+        receiver.record_cursor(tick, cursor);
+        let should_rollback = add_resolved_confirmed_to_history(tick, Some(value), entity, true);
+        if should_rollback {
+            // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
+            unsafe { entity.world_mut() }
+                .resource_mut::<StateRollbackMetadata>()
+                .record_mismatch(tick);
+        }
+    } else if let DiffWire::Patches {
+        first_patch_index,
+        patches,
+    } = wire
+    {
+        receiver.queue_patches(tick, first_patch_index, patches)?;
+    }
+
+    while let Some((tick, value)) = entity
+        .get::<ConfirmedHistory<C>>()
+        .map(|history| receiver.take_ready_update(&history))
+        .transpose()?
+        .flatten()
+    {
+        let should_rollback = add_resolved_confirmed_to_history(tick, Some(value), entity, true);
+        if should_rollback {
+            // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
+            unsafe { entity.world_mut() }
+                .resource_mut::<StateRollbackMetadata>()
+                .record_mismatch(tick);
+        }
+    }
+    entity.insert(receiver);
+    Ok(())
+}
+
+fn diff_wire_and_tick<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut WriteCtx,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> Result<Option<(Tick, DiffWire<C, C::Patch>)>> {
+    let wire: DiffWire<C, C::Patch> = postcard_utils::from_buf(message)?;
+    let checkpoints = {
+        // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+        let world = unsafe { entity.world_mut() };
+        let checkpoints = world
+            .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+            as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
+        unsafe { &*checkpoints }
+    };
+    let Some(tick) = resolve_message_tick(checkpoints, ctx.message_tick) else {
+        error!(
+            message_tick = ?ctx.message_tick,
+            "missing authoritative checkpoint mapping while writing diff prediction history"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while writing diff prediction history"
+        );
+        return Ok(None);
+    };
+    Ok(Some((tick, wire)))
+}
+
 fn add_confirmed_to_history<C: SyncComponent>(
     message_tick: RepliconTick,
     confirmed_component: Option<C>,
     entity: &mut DeferredEntity,
     check_state_rollback: bool,
 ) -> Result<(Tick, bool)> {
-    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
-    // We extract all needed values and drop the world borrow before using `entity` again.
-    let (registry, checkpoints, should_check, current_tick, state_metadata) = {
+    let checkpoints = {
         let world = unsafe { entity.world_mut() };
-        let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
         let checkpoints = world
             .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
             as *const lightyear_replication::checkpoint::ReplicationCheckpointMap;
-        let state_metadata =
-            world.resource::<StateRollbackMetadata>() as *const StateRollbackMetadata;
-        let current_tick = world.resource::<LocalTimeline>().tick();
-        let prediction_link = world.resource::<PredictionResource>().link_entity;
-        let should_check = world
-            .get::<PredictionManager>(prediction_link)
-            .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
-        // SAFETY: registry lives in the World and won't be moved/dropped during this function
-        (
-            unsafe { &*registry },
-            unsafe { &*checkpoints },
-            should_check,
-            current_tick,
-            unsafe { &*state_metadata },
-        )
+        unsafe { &*checkpoints }
     };
     let Some(tick) = resolve_message_tick(checkpoints, message_tick) else {
         error!(
@@ -828,20 +948,45 @@ fn add_confirmed_to_history<C: SyncComponent>(
         );
         return Ok((Tick(0), false));
     };
+    let should_rollback =
+        add_resolved_confirmed_to_history(tick, confirmed_component, entity, check_state_rollback);
+    Ok((tick, should_rollback))
+}
 
+fn add_resolved_confirmed_to_history<C: SyncComponent>(
+    tick: Tick,
+    confirmed_component: Option<C>,
+    entity: &mut DeferredEntity,
+    check_state_rollback: bool,
+) -> bool {
+    // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
+    // We extract all needed values and drop the world borrow before using `entity` again.
+    let (registry, should_check, current_tick, state_metadata) = {
+        let world = unsafe { entity.world_mut() };
+        let registry = world.resource::<PredictionRegistry>() as *const PredictionRegistry;
+        let state_metadata =
+            world.resource::<StateRollbackMetadata>() as *const StateRollbackMetadata;
+        let current_tick = world.resource::<LocalTimeline>().tick();
+        let prediction_link = world.resource::<PredictionResource>().link_entity;
+        let should_check = world
+            .get::<PredictionManager>(prediction_link)
+            .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
+        (unsafe { &*registry }, should_check, current_tick, unsafe {
+            &*state_metadata
+        })
+    };
     // Always add confirmed values to history (needed for rollback in any mode).
     // If RollbackMode::Check, also check for mismatch unless this tick is
     // already processed or already known mismatched.
     let check_state_rollback =
         check_state_rollback && state_metadata.should_check_mismatch_at(tick);
-    let should_rollback = registry.record_confirmed_and_maybe_check(
+    registry.record_confirmed_and_maybe_check(
         tick,
         confirmed_component,
         entity,
         check_state_rollback && should_check,
         current_tick,
-    );
-    Ok((tick, should_rollback))
+    )
 }
 
 /// Removes component `C` and records the removal in history.
@@ -903,6 +1048,13 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
             .resource_mut::<StateRollbackMetadata>()
             .record_mismatch(tick);
     }
+}
+
+fn remove_history_diff<C: SyncComponent + RepliconDiffable>(
+    ctx: &mut RemoveCtx,
+    entity: &mut DeferredEntity,
+) {
+    remove_history::<C>(ctx, entity);
 }
 
 /// Variant of [`write_history`] used by `add_confirmed_write`.
@@ -969,13 +1121,70 @@ fn remove_history_gated_by_catchup<C: SyncComponent>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::manager::PredictionManager;
+    use crate::plugin::PredictionPlugin;
+    use alloc::{vec, vec::Vec};
+    use bevy_replicon::postcard_utils;
+    use bevy_replicon::prelude::{RepliconPlugins, RepliconTick, RuleFns};
+    use bevy_replicon::shared::replication::registry::ReplicationRegistry;
+    use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
+    use bevy_state::app::StatesPlugin;
     use core::hash::Hasher;
+    use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+    use lightyear_replication::registry::replication::AppComponentExt;
+    use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
     struct TestComponent(u32);
 
     fn hash_test_component(value: &TestComponent, hasher: &mut seahash::SeaHasher) {
         hasher.write_u32(value.0);
+    }
+
+    #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
+    struct TestDiffComponent(u32);
+
+    impl RepliconDiffable for TestDiffComponent {
+        type Patch = u32;
+
+        fn apply_patch(&mut self, patch: &Self::Patch) -> bevy_ecs::error::Result<()> {
+            self.0 = *patch;
+            Ok(())
+        }
+    }
+
+    fn diff_wire(wire: DiffWire<TestDiffComponent, u32>) -> Bytes {
+        let mut message = Vec::new();
+        postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
+        message.into()
+    }
+
+    fn setup_prediction_diff_app() -> (App, bevy_replicon::shared::replication::registry::FnsId) {
+        let mut app = App::new();
+        app.add_plugins((StatesPlugin, RepliconPlugins, PredictionPlugin));
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.world_mut().spawn(PredictionManager::default());
+        app.world_mut().flush();
+        app.register_component::<TestDiffComponent>()
+            .add_prediction_diff();
+
+        let fns_id =
+            app.world_mut()
+                .resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
+                    let (_, fns_id) =
+                        registry.register_rule_fns(world, RuleFns::<TestDiffComponent>::new_diff());
+                    fns_id
+                });
+        (app, fns_id)
+    }
+
+    fn record_checkpoint(app: &mut App, tick: u32) -> RepliconTick {
+        let replicon_tick = RepliconTick::new(tick);
+        app.world_mut()
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(replicon_tick, Tick(tick));
+        replicon_tick
     }
 
     #[test]
@@ -1023,5 +1232,66 @@ mod tests {
         assert_eq!(history.get(Tick(10)).unwrap().0, 10);
         assert_eq!(history.get(Tick(11)).unwrap().0, 11);
         assert_eq!(history.get(Tick(12)).unwrap().0, 12);
+    }
+
+    #[test]
+    fn diff_prediction_buffers_newer_patch_until_older_base_arrives() {
+        let (mut app, fns_id) = setup_prediction_diff_app();
+        let tick0 = record_checkpoint(&mut app, 0);
+        let tick3 = record_checkpoint(&mut app, 3);
+        let tick5 = record_checkpoint(&mut app, 5);
+
+        let entity = app.world_mut().spawn(Predicted).id();
+
+        app.world_mut().entity_mut(entity).apply_write(
+            diff_wire(DiffWire::Snapshot {
+                cursor: Some(0),
+                value: TestDiffComponent(0),
+            }),
+            fns_id,
+            tick0,
+        );
+
+        app.world_mut().entity_mut(entity).apply_write(
+            diff_wire(DiffWire::Patches {
+                first_patch_index: 4,
+                patches: vec![vec![4], vec![5]],
+            }),
+            fns_id,
+            tick5,
+        );
+        {
+            let entity_ref = app.world().entity(entity);
+            let history = entity_ref
+                .get::<ConfirmedHistory<TestDiffComponent>>()
+                .unwrap();
+            assert!(history.get_state_at(Tick(5)).is_none());
+        }
+
+        app.world_mut().entity_mut(entity).apply_write(
+            diff_wire(DiffWire::Patches {
+                first_patch_index: 1,
+                patches: vec![vec![1], vec![2], vec![3]],
+            }),
+            fns_id,
+            tick3,
+        );
+
+        let entity_ref = app.world().entity(entity);
+        let history = entity_ref
+            .get::<ConfirmedHistory<TestDiffComponent>>()
+            .unwrap();
+        assert_eq!(
+            history
+                .get_state_at(Tick(3))
+                .and_then(ConfirmedState::value),
+            Some(&TestDiffComponent(3))
+        );
+        assert_eq!(
+            history
+                .get_state_at(Tick(5))
+                .and_then(ConfirmedState::value),
+            Some(&TestDiffComponent(5))
+        );
     }
 }
