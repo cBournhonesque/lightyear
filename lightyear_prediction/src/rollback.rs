@@ -952,7 +952,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 confirmed_history.add_unchanged(rollback_tick);
             }
             debug_assert!(
-                confirmed_history.get_state_at(rollback_tick).is_some()
+                confirmed_history.get_state_at(rollback_tick).is_some(),
                 "state-rollback should use the confirmed state at the rollback tick"
             );
         }
@@ -965,7 +965,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     // missing explicit/unchanged confirmed sample.
                     let confirmed_state = history.get_state_at(rollback_tick).cloned();
                     debug_assert!(
-                        confirmed_state.is_some()
+                        confirmed_state.is_some(),
                         "confirmed state should be present at the rollback tick"
                     );
                     confirmed_state
@@ -1036,11 +1036,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                         // Keep track of the current visual value so we can smooth the correction
                         if prediction_registry.has_correction::<C>() {
                             entity_mut.insert(PreviousVisual(predicted_component.clone()));
-                            trace!(
-                                ?entity,
-                                previous_visual = ?predicted_component,
-                                "Storing PreviousVisual for correction"
-                            );
                             trace!(
                                 target: "lightyear_debug::prediction",
                                 kind = "previous_visual_stored",

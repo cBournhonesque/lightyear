@@ -292,11 +292,6 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
-        trace!(
-            "Prediction history updated for {:?} with tick delta {:?}",
-            DebugName::type_name::<C>(),
-            trigger.tick_delta
-        );
         history.update_ticks(trigger.tick_delta);
         trace!(
             target: "lightyear_debug::prediction",
@@ -318,11 +313,6 @@ pub(crate) fn handle_tick_event_confirmed_history<C: Component>(
     mut query: Query<&mut ConfirmedHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
-        trace!(
-            "Confirmed history updated for {:?} with tick delta {:?}",
-            DebugName::type_name::<C>(),
-            trigger.tick_delta
-        );
         history.update_ticks(trigger.tick_delta);
         trace!(
             target: "lightyear_debug::prediction",
@@ -398,11 +388,6 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
     if query.get(trigger.entity).is_err() {
         return;
     }
-    trace!(
-        "Add prediction history for {:?} on entity {:?}",
-        DebugName::type_name::<C>(),
-        trigger.entity
-    );
     trace!(
         target: "lightyear_debug::prediction",
         kind = "prediction_history_insert",
@@ -481,12 +466,6 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                     // Snap to the confirmed value
                     if let Some(mut comp) = component {
                         if comp.deref() != confirmed_value {
-                            trace!(
-                                ?entity,
-                                ?tick,
-                                "Snapping to confirmed value during rollback for {:?}",
-                                DebugName::type_name::<C>()
-                            );
                             trace!(
                                 target: "lightyear_debug::prediction",
                                 kind = "snap_to_confirmed",
