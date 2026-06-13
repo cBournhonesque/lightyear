@@ -20,6 +20,8 @@ pub mod tick;
 /// Provides core network-related types and traits.
 pub mod network;
 
+/// Provides `ConfirmedHistory` for authoritative remote component states.
+pub mod confirmed_history;
 /// Provides `HistoryBuffer` for storing and managing historical state.
 pub mod history_buffer;
 /// Provides types for network identifiers, such as `PeerId` and `NetId`.
@@ -40,6 +42,8 @@ pub mod test;
 
 /// Commonly used items from the `lightyear_core` crate.
 pub mod prelude {
+    pub use crate::confirmed_history::{ConfirmedHistory, ConfirmedState};
+
     pub use crate::interpolation::Interpolated;
 
     pub use crate::prediction::Predicted;

@@ -50,7 +50,7 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 | `lightyear_core/src/interpolation.rs` | Added `Serialize`/`Deserialize` to `Interpolated` |
 | `lightyear_prediction/src/registry.rs` | `write_history` / `remove_history` marker functions using replicon's `WriteCtx` / `RemoveCtx` |
 | `lightyear_prediction/src/predicted_history.rs` | `PredictionHistory<C>` with `Predicted`/`Confirmed` state tracking, `add_confirmed`, `clear_predicted_from` |
-| `lightyear_prediction/src/rollback.rs` | `check_rollback` uses `ConfirmHistory`, `ServerMutateTicks`, `StateRollbackMetadata` |
+| `lightyear_prediction/src/rollback.rs` | `check_rollback` uses `ConfirmHistory`, `ReplicationCheckpointMap`, `StateRollbackMetadata` |
 | `lightyear_prediction/src/manager.rs` | `PredictionManager`, `StateRollbackMetadata`, `RollbackMode` |
 | `lightyear_transport/src/channel/builder.rs` | Added `send_mut_erased()` method for type-erased channel sends |
 | `Cargo.toml` | Added local `bevy_replicon` dependency |

@@ -35,9 +35,8 @@ fn test_history_added_when_prespawned_added() {
 
 /// When a server spawns an entity with Replicate + PredictionTarget + component C
 /// where C has `add_prediction()`, the client receives `Predicted` and C at the
-/// same time via the init message. We expect that `PredictionHistory<C>` on the
-/// client contains the confirmed server value at the server tick S (not just
-/// an empty history).
+/// same time via the init message. We expect that `ConfirmedHistory<C>` on the
+/// client contains the confirmed server value at the server tick S.
 ///
 /// This is non-trivial because marker-gated replicon write functions are
 /// checked BEFORE any component is applied on a freshly-spawned client entity.
@@ -47,9 +46,9 @@ fn test_history_added_when_prespawned_added() {
 ///
 /// The fix: `add_prediction_history` fires on
 /// `Add<(C, Predicted, PreSpawned, DeterministicPredicted)>` and, when it
-/// creates the history for the first time, reads C and the resolved server
-/// tick from `ConfirmHistory + ReplicationCheckpointMap` and seeds
-/// `PredictionHistory<C>` with a confirmed entry before inserting it.
+/// creates confirmed history for the first time, reads C and the resolved
+/// server tick from `ConfirmHistory + ReplicationCheckpointMap` and seeds
+/// `ConfirmedHistory<C>` with a confirmed entry before inserting it.
 #[test]
 fn test_prediction_history_seeded_from_init_message() {
     use crate::stepper::*;
@@ -104,11 +103,14 @@ fn test_prediction_history_seeded_from_init_message() {
     );
 
     // Resolve the server tick that produced the init message and check
-    // the prediction history in the same scope.
+    // the confirmed history in the same scope.
     let world = stepper.client_app().world();
-    let history = world
+    let prediction_history = world
         .get::<PredictionHistory<CompFull>>(predicted_entity)
         .expect("client entity should have PredictionHistory<CompFull>");
+    let confirmed_history = world
+        .get::<ConfirmedHistory<CompFull>>(predicted_entity)
+        .expect("client entity should have ConfirmedHistory<CompFull>");
     let confirm = world
         .get::<ConfirmHistory>(predicted_entity)
         .expect("client entity should have ConfirmHistory");
@@ -117,18 +119,27 @@ fn test_prediction_history_seeded_from_init_message() {
         .get(confirm.last_tick())
         .expect("checkpoint map should resolve the last confirm tick");
 
-    // Core assertion: the history should contain a CONFIRMED entry at tick S
+    // Core assertion: the confirmed history should contain an entry at tick S
     // with the value received from the server (CompFull(42.0)).
     // If write_history didn't fire at init time (because Predicted wasn't
-    // visible when markers were checked), the history would be empty or
-    // contain only predicted entries.
-    let confirmed_at_s = history.get_confirmed_at(s_tick);
+    // visible when markers were checked), the confirmed history would be empty.
+    let confirmed_at_s = confirmed_history.get_state_at(s_tick);
     assert!(
         confirmed_at_s.is_some(),
-        "PredictionHistory should have a confirmed entry at server tick {:?}, \
-         but found buffer contents: {:?}",
+        "ConfirmedHistory should have a confirmed entry at server tick {:?}, \
+         but found history: {:?}",
         s_tick,
-        history.buffer().iter().collect::<Vec<_>>()
+        confirmed_history
+    );
+    assert!(
+        prediction_history.buffer().iter().all(|(_, state)| {
+            matches!(
+                state,
+                PredictionState::Predicted(_) | PredictionState::Removed
+            )
+        }),
+        "PredictionHistory should contain only local predicted states: {:?}",
+        prediction_history
     );
 }
 

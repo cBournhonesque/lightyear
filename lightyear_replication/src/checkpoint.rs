@@ -36,15 +36,14 @@
 //! - When code receives a tick from Replicon state, resolve it through
 //!   [`ReplicationCheckpointMap`] before using it in prediction or rollback logic.
 //!
-//! [`ConfirmHistory`]: bevy_replicon::prelude::ConfirmHistory
-//! [`ServerMutateTicks`]: bevy_replicon::prelude::ServerMutateTicks
+//! [`ConfirmHistory`]: bevy_replicon::client::confirm_history::ConfirmHistory
+//! [`ServerMutateTicks`]: bevy_replicon::client::server_mutate_ticks::ServerMutateTicks
 use alloc::collections::VecDeque;
 use bytes::{Buf, Bytes, BytesMut};
 
 use bevy_ecs::prelude::Resource;
 use bevy_platform::collections::HashMap;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
-use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::RepliconTick;
 use lightyear_core::tick::Tick;
 
@@ -85,7 +84,9 @@ impl ReplicationCheckpointHeader {
 /// 3. records the association here before handing the original bytes to Replicon
 ///
 /// Prediction and rollback code should use this resource whenever they need to interpret
-/// [`ConfirmHistory`] or [`ServerMutateTicks`] in simulation time.
+/// [`ConfirmHistory`] or
+/// [`ServerMutateTicks`](bevy_replicon::client::server_mutate_ticks::ServerMutateTicks) in
+/// simulation time.
 ///
 /// This mapping is intentionally bounded because it is only needed for recent rollback /
 /// prediction windows.
@@ -93,6 +94,7 @@ impl ReplicationCheckpointHeader {
 pub struct ReplicationCheckpointMap {
     entries: HashMap<RepliconTick, Tick>,
     order: VecDeque<RepliconTick>,
+    last_confirmed_replicon_tick: Option<RepliconTick>,
     last_confirmed_tick: Option<Tick>,
 }
 
@@ -126,45 +128,54 @@ impl ReplicationCheckpointMap {
         self.last_confirmed_tick
     }
 
+    /// Latest Replicon mutate checkpoint for which all mutate messages completed.
+    pub fn last_confirmed_replicon_tick(&self) -> Option<RepliconTick> {
+        self.last_confirmed_replicon_tick
+    }
+
     /// Resolve a completed Replicon mutate checkpoint and cache the authoritative tick.
     ///
     /// Returns `None` if the checkpoint mapping has not been received yet.
     pub fn record_last_confirmed_tick(&mut self, replicon_tick: RepliconTick) -> Option<Tick> {
-        let tick = self.get(replicon_tick)?;
-        match self.last_confirmed_tick {
-            None => self.last_confirmed_tick = Some(tick),
-            Some(existing) if tick > existing => self.last_confirmed_tick = Some(tick),
-            _ => {}
+        if let Some(tick) = self.get(replicon_tick) {
+            match self.last_confirmed_tick {
+                None => {
+                    self.last_confirmed_replicon_tick = Some(replicon_tick);
+                    self.last_confirmed_tick = Some(tick);
+                }
+                Some(existing) if tick >= existing => {
+                    self.last_confirmed_replicon_tick = Some(replicon_tick);
+                    self.last_confirmed_tick = Some(tick);
+                }
+                _ => {}
+            }
+            return Some(tick);
         }
-        Some(tick)
+        None
     }
 
     pub fn clear(&mut self) {
         self.entries.clear();
         self.order.clear();
+        self.last_confirmed_replicon_tick = None;
         self.last_confirmed_tick = None;
     }
 }
 
+/// Resolve a Replicon message tick into authoritative server simulation time.
 pub fn resolve_message_tick(
     checkpoints: &ReplicationCheckpointMap,
-    tick: RepliconTick,
+    message_tick: RepliconTick,
 ) -> Option<Tick> {
-    checkpoints.get(tick)
+    checkpoints.get(message_tick)
 }
 
+/// Resolve an entity's latest Replicon confirmation into authoritative server simulation time.
 pub fn resolve_confirm_history_tick(
     checkpoints: &ReplicationCheckpointMap,
-    history: &ConfirmHistory,
+    confirm_history: &ConfirmHistory,
 ) -> Option<Tick> {
-    resolve_message_tick(checkpoints, history.last_tick())
-}
-
-pub fn resolve_server_mutate_tick(
-    checkpoints: &ReplicationCheckpointMap,
-    ticks: &ServerMutateTicks,
-) -> Option<Tick> {
-    resolve_message_tick(checkpoints, ticks.last_tick())
+    checkpoints.get(confirm_history.last_tick())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -224,7 +235,8 @@ pub fn unwrap_server_payload(
 ///
 /// - channel `0` carries update packets whose leading Replicon tick is the checkpoint id
 /// - channel `1` carries mutation packets with both `update_tick` and `message_tick`; the latter
-///   is the completeness checkpoint used by [`ConfirmHistory`] / [`ServerMutateTicks`]
+///   is the completeness checkpoint used by [`ConfirmHistory`] /
+///   [`ServerMutateTicks`](bevy_replicon::client::server_mutate_ticks::ServerMutateTicks)
 ///
 /// The returned [`RepliconTick`] should not be used directly for rollback or prediction. It is
 /// only the lookup key into [`ReplicationCheckpointMap`].
@@ -290,6 +302,10 @@ mod tests {
             Some(Tick(90))
         );
         assert_eq!(map.last_confirmed_tick(), Some(Tick(100)));
+        assert_eq!(
+            map.last_confirmed_replicon_tick(),
+            Some(RepliconTick::new(10))
+        );
     }
 
     #[test]
@@ -298,6 +314,7 @@ mod tests {
 
         assert_eq!(map.record_last_confirmed_tick(RepliconTick::new(10)), None);
         assert_eq!(map.last_confirmed_tick(), None);
+        assert_eq!(map.last_confirmed_replicon_tick(), None);
     }
 
     #[test]
@@ -310,6 +327,7 @@ mod tests {
 
         assert_eq!(map.get(RepliconTick::new(10)), None);
         assert_eq!(map.last_confirmed_tick(), None);
+        assert_eq!(map.last_confirmed_replicon_tick(), None);
     }
 
     #[test]

@@ -1,8 +1,6 @@
 use crate::SyncComponent;
-use crate::interpolation_history::ConfirmedHistory;
 use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
-use bevy_ecs::component::Mutable;
-use bevy_ecs::{component::Component, resource::Resource};
+use bevy_ecs::prelude::*;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -10,15 +8,17 @@ use bevy_math::{
 use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
+use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
-use lightyear_core::interpolation::Interpolated;
+use bevy_utils::prelude::DebugName;
+use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
-use tracing::error;
+use tracing::{error, trace};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
@@ -80,6 +80,69 @@ impl InterpolationRegistry {
             unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
         interpolation_fn(start, end, t)
     }
+
+    /// Sample `history` at `interpolation_tick`.
+    ///
+    /// Returns `None` when no authoritative state exists at or before the
+    /// interpolation tick. Otherwise returns the resolved authoritative state:
+    /// either a removal, the latest present value, or an interpolated value
+    /// between the bracketing present samples.
+    ///
+    /// If there is no next present sample, sampling returns the resolved start
+    /// value instead of extrapolating.
+    pub(crate) fn sample<C: Component + Clone>(
+        &self,
+        history: &ConfirmedHistory<C>,
+        interpolation_tick: Tick,
+        interpolation_overstep: f32,
+    ) -> Option<ConfirmedState<C>> {
+        let previous_index = (0..history.len())
+            .take_while(|i| {
+                history
+                    .get_nth_tick(*i)
+                    .is_some_and(|tick| tick <= interpolation_tick)
+            })
+            .last()?;
+
+        let (start_tick, start_state) = history.get_nth_state(previous_index)?;
+        let ConfirmedState::Confirmed(start) = start_state else {
+            return Some(ConfirmedState::Removed);
+        };
+
+        let Some((end_tick, ConfirmedState::Confirmed(end))) =
+            history.get_nth_state(previous_index + 1)
+        else {
+            return Some(ConfirmedState::Confirmed(start.clone()));
+        };
+
+        if !self.has_interpolation_fn::<C>() {
+            return Some(ConfirmedState::Confirmed(start.clone()));
+        }
+
+        // Clamp rather than extrapolate beyond the newest confirmed value. This
+        // makes late packets converge to the freshest server state instead of
+        // overshooting when motion changes direction.
+        let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+            / (end_tick - start_tick) as f32)
+            .clamp(0.0, 1.0);
+        trace!(
+            target: "lightyear_debug::interpolation",
+            kind = "confirmed_history_sample",
+            component = ?DebugName::type_name::<C>(),
+            interpolation_tick = interpolation_tick.0,
+            start_tick = start_tick.0,
+            end_tick = end_tick.0,
+            interpolation_overstep,
+            fraction,
+            history_len = history.len(),
+            "sampled confirmed history for interpolation"
+        );
+        Some(ConfirmedState::Confirmed(self.interpolate(
+            start.clone(),
+            end.clone(),
+            fraction,
+        )))
+    }
 }
 
 fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
@@ -107,6 +170,39 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
         .resource_mut::<InterpolatedMarkerFnRegistry>()
         .kinds
         .insert(kind);
+}
+
+/// When `Interpolated` is added after component `C` was already replicated onto the entity,
+/// seed `ConfirmedHistory<C>` from the current value so interpolation has an anchor immediately.
+///
+/// Component updates for interpolated entities are normally captured by `write_history::<C>`, but
+/// that only runs on future network updates. If `Interpolated` arrives after `C`, synthesize the
+/// initial history entry from the existing component value and the entity's latest confirmed
+/// Replicon tick.
+pub(crate) fn insert_confirmed_history_on_interpolated<C: SyncComponent>(
+    trigger: On<Add, Interpolated>,
+    mut commands: Commands,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    query: Query<(&C, &ConfirmHistory), Without<ConfirmedHistory<C>>>,
+) {
+    let Ok((component, confirm_history)) = query.get(trigger.entity) else {
+        return;
+    };
+
+    let Some(tick) = checkpoints.get(confirm_history.last_tick()) else {
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping while backfilling ConfirmedHistory"
+        );
+        return;
+    };
+
+    let mut history = ConfirmedHistory::<C>::default();
+    history.insert_present(tick, component.clone());
+    commands
+        .entity(trigger.entity)
+        .try_insert(history)
+        .try_remove::<C>();
 }
 
 pub trait InterpolationRegistrationExt<C> {
@@ -140,7 +236,7 @@ pub trait InterpolationRegistrationExt<C> {
     where
         C: SyncComponent + Ease;
 
-    /// The remote updates will be stored in a [`ConfirmedHistory<C>`](crate::interpolation_history::ConfirmedHistory) component
+    /// The remote updates will be stored in a [`ConfirmedHistory<C>`] component
     /// but the user has to define the interpolation logic themselves
     /// (`lightyear` won't perform any kind of interpolation)
     fn add_custom_interpolation(self) -> Self
@@ -241,9 +337,8 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     }
 }
 
-// TODO: ideally we would update the LastConfirmedTick at this point?
 /// Instead of writing into a component directly, it writes data into [`ConfirmedHistory<C>`].
-fn write_history<C: Component<Mutability = Mutable>>(
+fn write_history<C: SyncComponent>(
     ctx: &mut WriteCtx,
     rule_fns: &RuleFns<C>,
     entity: &mut DeferredEntity,
@@ -269,10 +364,10 @@ fn write_history<C: Component<Mutability = Mutable>>(
         return Ok(());
     };
     if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.push(tick, component);
+        history.insert_present(tick, component);
     } else {
         let mut history = ConfirmedHistory::<C>::default();
-        history.push(tick, component);
+        history.insert_present(tick, component);
         entity.insert(history);
     }
     Ok(())
@@ -282,7 +377,7 @@ fn write_history<C: Component<Mutability = Mutable>>(
 ///
 /// The live component is removed later by interpolation systems once the interpolation timeline
 /// reaches the server tick that produced this removal.
-fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
     // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
     let checkpoints = {
         let world = unsafe { entity.world_mut() };
@@ -302,10 +397,101 @@ fn remove_history<C: Component>(ctx: &mut RemoveCtx, entity: &mut DeferredEntity
         return;
     };
     if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.push_remove(tick);
+        history.insert_removed(tick);
     } else {
         let mut history = ConfirmedHistory::<C>::default();
-        history.push_remove(tick);
+        history.insert_removed(tick);
         entity.insert(history);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_app::App;
+    use bevy_ecs::component::Component;
+    use bevy_replicon::prelude::RepliconTick;
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct TestComp(f32);
+
+    fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
+        TestComp(start.0 + (end.0 - start.0) * t)
+    }
+
+    fn registry() -> InterpolationRegistry {
+        let mut registry = InterpolationRegistry::default();
+        registry.set_interpolation::<TestComp>(lerp);
+        registry
+    }
+
+    #[test]
+    fn sample_clamps_to_newest_value_when_tick_is_past_end() {
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(10), TestComp(0.0));
+        history.insert_present(Tick(20), TestComp(10.0));
+
+        let registry = registry();
+        assert_eq!(
+            registry.sample(&history, Tick(30), 0.0),
+            Some(ConfirmedState::Confirmed(TestComp(10.0)))
+        );
+        assert_eq!(
+            registry.sample(&history, Tick(20), 0.5),
+            Some(ConfirmedState::Confirmed(TestComp(10.0)))
+        );
+    }
+
+    #[test]
+    fn sample_returns_start_value_with_single_keyframe() {
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(10), TestComp(42.0));
+
+        let registry = registry();
+        assert_eq!(registry.sample(&history, Tick(5), 0.0), None);
+        assert_eq!(
+            registry.sample(&history, Tick(10), 0.0),
+            Some(ConfirmedState::Confirmed(TestComp(42.0)))
+        );
+        assert_eq!(
+            registry.sample(&history, Tick(50), 0.5),
+            Some(ConfirmedState::Confirmed(TestComp(42.0)))
+        );
+    }
+
+    #[test]
+    fn inserts_history_when_interpolated_added_after_component_is_already_replicated() {
+        let mut app = App::new();
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+
+        let replicon_tick = RepliconTick::new(11);
+        app.world_mut()
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(replicon_tick, Tick(42));
+
+        let entity = app
+            .world_mut()
+            .spawn((TestComp(2.0), ConfirmHistory::new(replicon_tick)))
+            .id();
+        app.update();
+        app.world_mut().entity_mut(entity).insert(Interpolated);
+        app.update();
+
+        let history = app
+            .world()
+            .entity(entity)
+            .get::<ConfirmedHistory<TestComp>>()
+            .unwrap();
+        assert_eq!(
+            history
+                .start_present()
+                .map(|(tick, value)| (tick, value.clone())),
+            Some((Tick(42), TestComp(2.0)))
+        );
+        assert!(
+            !app.world().entity(entity).contains::<TestComp>(),
+            "live interpolated component should be removed until the interpolation timeline reaches the history start tick"
+        );
     }
 }

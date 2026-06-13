@@ -101,7 +101,7 @@ pub(crate) fn update_frame_interpolation_post_rollback<
     for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
         // update the FrameInterpolation with the last 2 history values
         interpolate.current_value = Some(component.clone());
-        interpolate.previous_value = history.second_most_recent(tick).cloned();
+        interpolate.previous_value = history.get(tick - 1).cloned();
         let Some(previous) = &interpolate.previous_value else {
             continue;
         };
@@ -112,17 +112,6 @@ pub(crate) fn update_frame_interpolation_post_rollback<
                 registry.interpolate(previous.clone(), component.clone(), overstep);
             // error = previous_visual - current_visual
             let error = current_visual.diff(&previous_visual.0);
-            trace!(
-                ?tick,
-                ?entity,
-                ?current_visual,
-                ?previous_visual,
-                ?error,
-                // two_previous_values = ?interpolate,
-                // ?history,
-                "Updating VisualCorrection post rollback for {:?}",
-                DebugName::type_name::<C>()
-            );
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "visual_correction_created",
@@ -169,11 +158,6 @@ pub(crate) fn add_visual_correction<
             error_as_transform.apply_diff(&visual_correction.error);
             if !prediction.should_rollback(&C::base_value(), &error_as_transform) {
                 trace!(
-                    ?visual_correction,
-                    "Removing visual correction error {:?} since it is already small enough",
-                    DebugName::type_name::<C>()
-                );
-                trace!(
                     target: "lightyear_debug::prediction",
                     kind = "visual_correction_removed",
                     schedule = "PostUpdate",
@@ -191,15 +175,6 @@ pub(crate) fn add_visual_correction<
                 .apply_correction::<C, D>(previous_error.clone(), r)
                 .expect("No correction fn was found");
             component.bypass_change_detection().apply_diff(&new_error);
-            trace!(
-                ?entity,
-                ?component,
-                ?previous_error,
-                ?new_error,
-                ?r,
-                "Applied visual correction and decaying error for {:?}",
-                DebugName::type_name::<C>()
-            );
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "visual_correction_apply",

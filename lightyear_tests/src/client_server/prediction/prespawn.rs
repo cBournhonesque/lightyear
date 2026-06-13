@@ -10,6 +10,7 @@ use bevy_replicon::prelude::Signature;
 use lightyear::prelude::LocalTimeline;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_core::prelude::Tick;
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_messages::MessageManager;
@@ -510,17 +511,17 @@ fn test_prespawn_confirmed_init_goes_to_history_without_overwriting_live_value()
         &CompFull(2.0)
     );
 
-    let history = stepper
+    let confirmed_history = stepper
         .client_app()
         .world()
-        .get::<PredictionHistory<CompFull>>(client_prespawn)
+        .get::<ConfirmedHistory<CompFull>>(client_prespawn)
         .unwrap();
     assert!(
-        history.buffer().iter().any(
-            |(_, state)| matches!(state, PredictionState::Confirmed(value) if value == &CompFull(1.0))
-        ),
+        confirmed_history
+            .into_iter()
+            .any(|(_, value)| value == &CompFull(1.0)),
         "server init value should be recorded as confirmed history: {:?}",
-        history
+        confirmed_history
     );
 }
 

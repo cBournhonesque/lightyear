@@ -16,7 +16,6 @@ use leafwing_input_manager::action_state::ActionState;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::identity::is_server;
 use lightyear::input::leafwing::prelude::{LeafwingBuffer, LeafwingSnapshot};
-use lightyear::interpolation::interpolation_history::ConfirmedHistory;
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -172,15 +171,21 @@ pub(crate) fn draw_confirmed_shadows(
     >,
 ) {
     for (pred_pos, collider, color, pos_history, rot_history, vel_history) in query.iter() {
-        let Some((_, confirmed_pos)) = pos_history.end().or_else(|| pos_history.start()) else {
+        let Some((_, confirmed_pos)) = pos_history
+            .get_nth_present(1)
+            .or_else(|| pos_history.start_present())
+        else {
             continue;
         };
-        let Some((_, confirmed_rot)) = rot_history.end().or_else(|| rot_history.start()) else {
+        let Some((_, confirmed_rot)) = rot_history
+            .get_nth_present(1)
+            .or_else(|| rot_history.start_present())
+        else {
             continue;
         };
         let confirmed_speed = vel_history
-            .end()
-            .or_else(|| vel_history.start())
+            .get_nth_present(1)
+            .or_else(|| vel_history.start_present())
             .map(|(_, v)| v.length())
             .unwrap_or(0.0);
         let speed = confirmed_speed / MAX_VELOCITY;

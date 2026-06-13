@@ -102,9 +102,12 @@ pub struct PredictionManager {
 /// Store the most recent confirmed input across all remote clients.
 #[derive(Component, Debug, Default, Reflect)]
 pub struct LastConfirmedInput {
-    /// Updated via [`set_if_lower`] to track the minimum last-confirmed tick
+    /// Updated via [`AtomicTick::set_if_lower`] to track the minimum last-confirmed tick
     /// across all remote clients. Reset to a high value each frame by
     /// [`reset_input_rollback_tracker`] so the minimum is computed correctly.
+    ///
+    /// [`AtomicTick::set_if_lower`]: lightyear_core::tick::AtomicTick::set_if_lower
+    /// [`reset_input_rollback_tracker`]: crate::rollback::reset_input_rollback_tracker
     pub tick: lightyear_core::tick::AtomicTick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
 }
@@ -117,36 +120,34 @@ impl LastConfirmedInput {
 }
 
 /// Stores metadata related to state-based prediction.
-///
-/// Key invariant: `last_confirmed_tick = T` guarantees that for all entities,
-/// we have complete information at tick T:
-/// - Entities that received an update at T: their confirmed value is in the message
-/// - Entities that didn't receive an update: their value at T = their last confirmed value
-///   (because if a message was lost/in-flight, the server would resend on the next tick)
 #[derive(Resource, Clone, Copy, Debug, Default, Reflect)]
 pub struct StateRollbackMetadata {
-    /// The latest authoritative tick for which all mutate messages were received.
-    last_confirmed_tick: Option<Tick>,
-
     /// The last confirmed tick where we checked unchanged entities.
     ///
-    /// This is separate from `last_confirmed_tick`: a confirmed tick can stay
-    /// unchanged across many frames, and `check_rollback` only needs to scan
-    /// unchanged entities once per completed tick. If the confirmed tick is in
-    /// the client's future, it is not marked processed yet so the check can be
-    /// retried once local prediction history reaches that tick.
+    /// The latest confirmed tick itself is stored in
+    /// [`ReplicationCheckpointMap`](lightyear_replication::checkpoint::ReplicationCheckpointMap).
+    /// This field only records which completed tick prediction has already
+    /// scanned for unchanged-entity rollback checks.
     last_processed_tick: Option<Tick>,
 
-    /// The earliest tick where we detected a mismatch this frame.
-    /// If set, we will trigger a rollback from this tick.
-    pub(crate) earliest_mismatch_tick: Option<Tick>,
+    /// Earliest tick represented by [`Self::mismatch_mask`].
+    ///
+    /// Once a completed server tick has been processed this is kept equal to
+    /// [`Self::last_processed_tick`]. Before that, the first recorded mismatch
+    /// anchors the mask so early explicit mismatches are not lost.
+    mismatch_history_start: Option<Tick>,
+
+    /// Mismatch bits for the 64 ticks starting at [`Self::mismatch_history_start`].
+    ///
+    /// Bit 0 corresponds to `mismatch_history_start`, bit 1 to the next tick,
+    /// and so on. A set bit means a receive-time confirmed update already
+    /// proved that tick mismatched, so we do not need to run another mismatch
+    /// comparison for that same tick.
+    mismatch_mask: u64,
 
     /// Set to true if we received any replication message this frame.
     /// Used to trigger `RollbackMode::Always`.
     pub(crate) received_messages_this_frame: bool,
-
-    /// Set to true if we detected a mismatch and should rollback (for RollbackMode::Check)
-    pub(crate) should_rollback: bool,
 
     /// Tick at which an external caller has requested a one-shot rollback.
     ///
@@ -158,15 +159,62 @@ pub struct StateRollbackMetadata {
 }
 
 impl StateRollbackMetadata {
-    /// Record a mismatch at the given tick.
-    /// The rollback will start from the earliest mismatch tick.
-    pub fn record_mismatch(&mut self, tick: Tick) {
-        self.should_rollback = true;
-        match self.earliest_mismatch_tick {
-            None => self.earliest_mismatch_tick = Some(tick),
-            Some(existing) if tick < existing => self.earliest_mismatch_tick = Some(tick),
-            _ => {}
+    fn mismatch_offset(start: Tick, tick: Tick) -> Option<u32> {
+        let delta = tick - start;
+        if (0..u64::BITS as i32).contains(&delta) {
+            Some(delta as u32)
+        } else {
+            None
         }
+    }
+
+    fn ensure_mismatch_history_start(&mut self, tick: Tick) -> Tick {
+        if let Some(start) = self.mismatch_history_start {
+            return start;
+        }
+        let start = self.last_processed_tick.unwrap_or(tick);
+        self.mismatch_history_start = Some(start);
+        start
+    }
+
+    /// Record a receive-time mismatch at `tick`.
+    ///
+    /// Returns `false` if `tick` is older than the retained mismatch window or
+    /// too far ahead to fit in the 64-bit mask.
+    pub fn record_mismatch(&mut self, tick: Tick) -> bool {
+        let start = self.ensure_mismatch_history_start(tick);
+        let Some(offset) = Self::mismatch_offset(start, tick) else {
+            return false;
+        };
+        self.mismatch_mask |= 1_u64 << offset;
+        true
+    }
+
+    /// Return whether a mismatch has already been recorded for exactly `tick`.
+    pub(crate) fn has_mismatch(&self, tick: Tick) -> bool {
+        let Some(start) = self.mismatch_history_start else {
+            return false;
+        };
+        let Some(offset) = Self::mismatch_offset(start, tick) else {
+            return false;
+        };
+        self.mismatch_mask & (1_u64 << offset) != 0
+    }
+
+    /// Return whether receive-time prediction checks should run for `tick`.
+    pub(crate) fn should_check_mismatch_at(&self, tick: Tick) -> bool {
+        if self
+            .last_processed_tick
+            .is_some_and(|last_processed| tick < last_processed)
+        {
+            return false;
+        }
+        if let Some(start) = self.mismatch_history_start
+            && Self::mismatch_offset(start, tick).is_none()
+        {
+            return false;
+        }
+        !self.has_mismatch(tick)
     }
 
     /// Request a one-shot rollback from `tick`, regardless of the
@@ -197,65 +245,21 @@ impl StateRollbackMetadata {
         self.forced_rollback_tick
     }
 
-    /// Latest authoritative tick for which all mutate messages were received.
-    pub fn last_confirmed_tick(&self) -> Option<Tick> {
-        self.last_confirmed_tick
-    }
-
-    /// Record a newly completed mutate tick.
-    pub fn record_last_confirmed_tick(&mut self, tick: Tick) {
-        match self.last_confirmed_tick {
-            None => self.last_confirmed_tick = Some(tick),
-            Some(existing) if tick > existing => self.last_confirmed_tick = Some(tick),
-            _ => {}
-        }
-    }
-
     /// Reset all connection-scoped rollback metadata.
     pub(crate) fn reset_connection_state(&mut self) {
         *self = Self::default();
     }
 
     /// Reset the per-frame state tracking.
-    /// Note: `should_rollback` and `earliest_mismatch_tick` are NOT reset here
-    /// because they need to persist until consumed by `check_rollback`.
-    /// A mismatch can be detected for the current/future local tick; in that
-    /// case `check_rollback` defers rollback until the tick is in the local
-    /// past and predicted history can be restored.
+    /// Note: the mismatch mask is NOT reset here because receive-time mismatch
+    /// evidence persists until the completed server tick is processed.
     pub(crate) fn reset_frame_state(&mut self) {
         self.received_messages_this_frame = false;
     }
 
-    /// Reset the mismatch state after it has been consumed by check_rollback.
-    pub(crate) fn reset_mismatch_state(&mut self) {
-        self.earliest_mismatch_tick = None;
-        self.should_rollback = false;
-    }
-
-    /// Return the pending mismatch if rollback must wait for more local
-    /// prediction history. `check_rollback` runs in PreUpdate, before the
-    /// current tick's FixedUpdate prediction has been recorded, so the current
-    /// tick is not rollback-ready yet.
-    pub(crate) fn not_ready_mismatch_tick(&self, current_tick: Tick) -> Option<Tick> {
-        if !self.should_rollback {
-            return None;
-        }
-        self.earliest_mismatch_tick
-            .filter(|mismatch_tick| *mismatch_tick >= current_tick)
-    }
-
-    /// Consume the pending mismatch only once its tick is strictly in the
-    /// client's past and the predicted history for that tick can exist.
-    pub(crate) fn take_ready_mismatch_tick(&mut self, current_tick: Tick) -> Option<Tick> {
-        if !self.should_rollback {
-            return None;
-        }
-        let mismatch_tick = self.earliest_mismatch_tick?;
-        if mismatch_tick >= current_tick {
-            return None;
-        }
-        self.reset_mismatch_state();
-        Some(mismatch_tick)
+    /// Clear all retained mismatch evidence.
+    pub(crate) fn clear_mismatch_history(&mut self) {
+        self.mismatch_mask = 0;
     }
 
     /// Returns the last confirmed tick that was processed for unchanged entities.
@@ -271,6 +275,28 @@ impl StateRollbackMetadata {
     /// Call this only after the unchanged-entity rollback check has actually run
     /// for the tick, not while the confirmed tick is still in the client's future.
     pub fn set_last_processed_tick(&mut self, tick: Tick) {
+        match self.mismatch_history_start {
+            None => self.mismatch_history_start = Some(tick),
+            Some(start) => {
+                let delta = tick - start;
+                if delta > 0 {
+                    if delta >= u64::BITS as i32 {
+                        self.mismatch_mask = 0;
+                    } else {
+                        self.mismatch_mask >>= delta as u32;
+                    }
+                    self.mismatch_history_start = Some(tick);
+                } else if delta < 0 {
+                    let delta = -delta;
+                    if delta >= u64::BITS as i32 {
+                        self.mismatch_mask = 0;
+                    } else {
+                        self.mismatch_mask <<= delta as u32;
+                    }
+                    self.mismatch_history_start = Some(tick);
+                }
+            }
+        }
         self.last_processed_tick = Some(tick);
     }
 
@@ -292,35 +318,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mismatch_is_deferred_until_tick_is_in_local_past() {
+    fn mismatch_history_tracks_exact_ticks() {
         let mut metadata = StateRollbackMetadata::default();
+        metadata.set_last_processed_tick(Tick(10));
         metadata.record_mismatch(Tick(12));
 
-        assert_eq!(metadata.not_ready_mismatch_tick(Tick(10)), Some(Tick(12)));
-        assert_eq!(metadata.take_ready_mismatch_tick(Tick(10)), None);
-        assert!(metadata.should_rollback);
-        assert_eq!(metadata.earliest_mismatch_tick, Some(Tick(12)));
+        assert!(!metadata.has_mismatch(Tick(11)));
+        assert!(metadata.has_mismatch(Tick(12)));
+        assert!(!metadata.should_check_mismatch_at(Tick(9)));
+        assert!(!metadata.should_check_mismatch_at(Tick(12)));
+        assert!(metadata.should_check_mismatch_at(Tick(13)));
 
-        assert_eq!(metadata.not_ready_mismatch_tick(Tick(12)), Some(Tick(12)));
-        assert_eq!(metadata.take_ready_mismatch_tick(Tick(12)), None);
-        assert!(metadata.should_rollback);
-        assert_eq!(metadata.earliest_mismatch_tick, Some(Tick(12)));
+        metadata.set_last_processed_tick(Tick(11));
+        assert!(metadata.has_mismatch(Tick(12)));
 
-        assert_eq!(metadata.not_ready_mismatch_tick(Tick(13)), None);
-        assert_eq!(metadata.take_ready_mismatch_tick(Tick(13)), Some(Tick(12)));
-        assert!(!metadata.should_rollback);
-        assert_eq!(metadata.earliest_mismatch_tick, None);
-    }
+        metadata.set_last_processed_tick(Tick(12));
+        assert!(metadata.has_mismatch(Tick(12)));
 
-    #[test]
-    fn record_last_confirmed_tick_keeps_latest_tick() {
-        let mut metadata = StateRollbackMetadata::default();
-
-        metadata.record_last_confirmed_tick(Tick(12));
-        metadata.record_last_confirmed_tick(Tick(10));
-        metadata.record_last_confirmed_tick(Tick(14));
-
-        assert_eq!(metadata.last_confirmed_tick(), Some(Tick(14)));
+        metadata.clear_mismatch_history();
+        assert!(!metadata.has_mismatch(Tick(12)));
     }
 
     #[test]
@@ -349,32 +365,48 @@ mod tests {
         assert_eq!(server_mutate_ticks.last_tick(), incomplete_tick);
         assert!(server_mutate_ticks.contains(complete_tick));
         assert!(!server_mutate_ticks.contains(incomplete_tick));
-
-        let mut metadata = StateRollbackMetadata::default();
-        metadata.record_last_confirmed_tick(Tick(900));
-        assert_eq!(metadata.last_confirmed_tick(), Some(Tick(900)));
     }
 
     #[test]
-    fn explicit_state_mismatches_keep_earliest_ready_tick() {
+    fn mismatch_history_keeps_multiple_exact_ticks() {
         let mut metadata = StateRollbackMetadata::default();
+        metadata.set_last_processed_tick(Tick(10));
 
         metadata.record_mismatch(Tick(12));
         metadata.record_mismatch(Tick(14));
         metadata.record_mismatch(Tick(10));
 
-        assert_eq!(metadata.not_ready_mismatch_tick(Tick(10)), Some(Tick(10)));
-        assert_eq!(metadata.take_ready_mismatch_tick(Tick(10)), None);
-        assert_eq!(metadata.take_ready_mismatch_tick(Tick(11)), Some(Tick(10)));
+        assert!(metadata.has_mismatch(Tick(10)));
+        assert!(!metadata.has_mismatch(Tick(11)));
+        assert!(metadata.has_mismatch(Tick(12)));
+        assert!(!metadata.has_mismatch(Tick(13)));
+        assert!(metadata.has_mismatch(Tick(14)));
+
+        metadata.set_last_processed_tick(Tick(13));
+        assert!(!metadata.has_mismatch(Tick(12)));
+        assert!(metadata.has_mismatch(Tick(14)));
+    }
+
+    #[test]
+    fn mismatch_history_reanchors_to_first_processed_tick() {
+        let mut metadata = StateRollbackMetadata::default();
+
+        metadata.record_mismatch(Tick(12));
+        metadata.set_last_processed_tick(Tick(10));
+
+        assert_eq!(metadata.mismatch_history_start, Some(Tick(10)));
+        assert!(metadata.has_mismatch(Tick(12)));
     }
 }
 
 /// Store the earliest mismatched input across all remote clients.
 #[derive(Debug, Reflect)]
 pub struct EarliestMismatchedInput {
-    /// Initialized to `Tick::MAX` so the first [`set_if_lower`] call wins.
-    /// Updated via [`set_if_lower`] to track the minimum mismatch tick
+    /// Initialized to `Tick::MAX` so the first [`AtomicTick::set_if_lower`] call wins.
+    /// Updated via [`AtomicTick::set_if_lower`] to track the minimum mismatch tick
     /// across all remote clients.
+    ///
+    /// [`AtomicTick::set_if_lower`]: lightyear_core::tick::AtomicTick::set_if_lower
     pub tick: lightyear_core::tick::AtomicTick,
     pub has_mismatches: bevy_platform::sync::atomic::AtomicBool,
 }

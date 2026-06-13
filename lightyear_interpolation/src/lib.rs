@@ -11,8 +11,6 @@ use bevy_ecs::component::{Component, Mutable};
 pub mod despawn;
 /// Contains interpolation logic.
 pub mod interpolate;
-/// Defines `ConfirmedHistory` for storing historical states of confirmed entities.
-pub mod interpolation_history;
 /// Provides the `InterpolationPlugin` and related systems for Bevy integration.
 pub mod plugin;
 pub mod registry;
@@ -22,7 +20,6 @@ pub mod timeline;
 pub mod prelude {
     pub use crate::Interpolated;
     pub use crate::interpolate::interpolation_fraction;
-    pub use crate::interpolation_history::ConfirmedHistory;
     pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSystems};
     pub use crate::registry::{InterpolationRegistrationExt, InterpolationRegistry};
     pub use crate::timeline::InterpolationTimeline;

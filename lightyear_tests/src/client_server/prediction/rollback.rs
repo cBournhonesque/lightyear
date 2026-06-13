@@ -1,5 +1,6 @@
 use crate::client_server::prediction::{
-    register_rollback_check_helper, trigger_rollback_check, trigger_state_rollback,
+    register_rollback_check_helper, trigger_rollback_check,
+    trigger_rollback_check_without_completed_tick, trigger_state_rollback,
 };
 use crate::protocol::{CompFull, CompNotNetworked, NativeInput};
 use crate::stepper::*;
@@ -14,7 +15,7 @@ use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
-use lightyear_core::prelude::{LocalTimeline, Tick};
+use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline, Tick};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode, StateRollbackMetadata};
@@ -36,6 +37,32 @@ fn setup() -> (ClientServerStepper, Entity) {
     // run one frame to initialize prediction history for the entity
     stepper.frame_step(1);
     (stepper, predicted)
+}
+
+fn insert_confirmed<C: Component + PartialEq>(
+    world: &mut World,
+    entity: Entity,
+    tick: Tick,
+    value: Option<C>,
+) {
+    let state = match value {
+        Some(value) => ConfirmedState::Confirmed(value),
+        None => ConfirmedState::Removed,
+    };
+    let mut entity_mut = world.entity_mut(entity);
+    if let Some(mut history) = entity_mut.get_mut::<ConfirmedHistory<C>>() {
+        history.insert(tick, state);
+    } else {
+        let mut history = ConfirmedHistory::<C>::default();
+        history.insert(tick, state);
+        entity_mut.insert(history);
+    }
+}
+
+fn record_completed_mutate_tick(world: &mut World, replicon_tick: RepliconTick, tick: Tick) {
+    let mut checkpoints = world.resource_mut::<ReplicationCheckpointMap>();
+    checkpoints.record(replicon_tick, tick);
+    checkpoints.record_last_confirmed_tick(replicon_tick);
 }
 
 #[derive(Resource, Default)]
@@ -82,13 +109,12 @@ fn test_predicted_insert_reverted_on_rollback() {
         .insert(CompNotNetworked(1.0));
 
     // Simulate confirmed state at rollback_tick: CompFull still 1.0 (no change from server)
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(rollback_tick, Some(CompFull(1.0)));
+    insert_confirmed(
+        stepper.client_app().world_mut(),
+        predicted,
+        rollback_tick,
+        Some(CompFull(1.0)),
+    );
 
     trigger_rollback_check(&mut stepper, rollback_tick);
     stepper.frame_step(1);
@@ -147,13 +173,12 @@ fn test_predicted_remove_restored_on_rollback() {
         .world_mut()
         .entity_mut(predicted)
         .insert(CompFull(-10.0));
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(tick - 3, Some(CompFull(-10.0)));
+    insert_confirmed(
+        stepper.client_app().world_mut(),
+        predicted,
+        tick - 3,
+        Some(CompFull(-10.0)),
+    );
 
     trigger_rollback_check(&mut stepper, tick - 3);
     stepper.frame_step(1);
@@ -300,13 +325,12 @@ fn test_predicted_modify_corrected_on_rollback() {
 
     let tick = stepper.client_tick(0);
     // Server says CompFull was actually 10.0 at tick-2 (different from predicted 2.0)
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(tick - 2, Some(CompFull(10.0)));
+    insert_confirmed(
+        stepper.client_app().world_mut(),
+        predicted,
+        tick - 2,
+        Some(CompFull(10.0)),
+    );
 
     trigger_rollback_check(&mut stepper, tick - 2);
     stepper.frame_step(1);
@@ -367,20 +391,17 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
     world
         .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
         .record(later_replicon_tick, later_confirmed_tick);
-    world
-        .entity_mut(predicted_a)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(rollback_tick, Some(CompFull(100.0)));
+    insert_confirmed(world, predicted_a, rollback_tick, Some(CompFull(100.0)));
     world
         .entity_mut(predicted_a)
         .insert(ConfirmHistory::new(rollback_replicon_tick));
 
-    world
-        .entity_mut(predicted_b)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(later_confirmed_tick, Some(CompFull(200.0)));
+    insert_confirmed(
+        world,
+        predicted_b,
+        later_confirmed_tick,
+        Some(CompFull(200.0)),
+    );
     world
         .entity_mut(predicted_b)
         .insert(ConfirmHistory::new(later_replicon_tick));
@@ -407,6 +428,126 @@ fn test_rollback_preserves_later_confirmed_values_on_other_entities() {
             .0,
         203.0,
         "Later confirmed value on another entity should be preserved and replayed across the remaining rollback ticks and the current frame tick"
+    );
+}
+
+/// Multiple explicit confirmed samples for the same component should survive an
+/// older rollback. The rollback starts at the older mismatch, then replay still
+/// snaps to the later confirmed sample.
+#[test]
+fn test_batched_confirmed_values_survive_older_rollback() {
+    fn increment_component(mut query: Query<&mut CompFull, With<Predicted>>) {
+        for mut comp in query.iter_mut() {
+            comp.0 += 1.0;
+        }
+    }
+
+    let (mut stepper, predicted) = setup();
+    stepper
+        .client_app()
+        .add_systems(FixedUpdate, increment_component);
+
+    stepper.frame_step(4);
+    let current_tick = stepper.client_tick(0);
+    let rollback_tick = current_tick - 3;
+    let later_confirmed_tick = current_tick - 1;
+
+    let world = stepper.client_app().world_mut();
+    insert_confirmed(world, predicted, rollback_tick, Some(CompFull(100.0)));
+    insert_confirmed(
+        world,
+        predicted,
+        later_confirmed_tick,
+        Some(CompFull(200.0)),
+    );
+
+    trigger_rollback_check(&mut stepper, rollback_tick);
+    stepper.frame_step(1);
+
+    let confirmed_history = stepper
+        .client_app()
+        .world()
+        .get::<ConfirmedHistory<CompFull>>(predicted)
+        .unwrap();
+    assert!(
+        confirmed_history
+            .get_state_at(later_confirmed_tick)
+            .is_some(),
+        "later confirmed sample should survive rollback preparation"
+    );
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .unwrap()
+            .0,
+        203.0,
+        "rollback replay should still snap to the later confirmed sample"
+    );
+}
+
+#[test]
+fn test_future_confirmed_value_is_not_checked_by_unchanged_completed_tick() {
+    let (mut stepper, predicted) = setup();
+    observe_rollback_start(stepper.client_app());
+
+    let future_tick = stepper.client_tick(0) + 2;
+    let future_replicon_tick = RepliconTick::new(future_tick.0);
+    let world = stepper.client_app().world_mut();
+    record_completed_mutate_tick(world, future_replicon_tick, future_tick);
+    world
+        .entity_mut(predicted)
+        .insert(ConfirmHistory::new(future_replicon_tick));
+    insert_confirmed(world, predicted, future_tick, Some(CompFull(10.0)));
+
+    stepper.frame_step(1);
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        None,
+        "future confirmed sample should not rollback before local prediction reaches its tick"
+    );
+
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        None,
+        "explicitly confirmed samples are skipped by the unchanged completed-tick scan"
+    );
+}
+
+#[test]
+fn test_future_confirmed_insert_is_not_checked_by_unchanged_completed_tick() {
+    let (mut stepper, predicted) = setup();
+    observe_rollback_start(stepper.client_app());
+
+    let future_tick = stepper.client_tick(0) + 2;
+    let future_replicon_tick = RepliconTick::new(future_tick.0);
+    let world = stepper.client_app().world_mut();
+    world.entity_mut(predicted).remove::<CompFull>();
+    record_completed_mutate_tick(world, future_replicon_tick, future_tick);
+    world
+        .entity_mut(predicted)
+        .insert(ConfirmHistory::new(future_replicon_tick));
+    insert_confirmed(world, predicted, future_tick, Some(CompFull(10.0)));
+
+    stepper.frame_step(3);
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        None,
+        "explicitly confirmed inserts are skipped by the unchanged completed-tick scan"
     );
 }
 
@@ -441,39 +582,24 @@ fn test_completed_mutate_tick_checks_unchanged_entities() {
 
     let updated_replicon_tick = RepliconTick::new(700);
     let previous_replicon_tick = RepliconTick::new(699);
-    let incomplete_replicon_tick = RepliconTick::new(701);
 
     let world = stepper.client_app().world_mut();
+    record_completed_mutate_tick(world, updated_replicon_tick, completed_tick);
     world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-        .record(updated_replicon_tick, completed_tick);
-    world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+        .resource_mut::<ReplicationCheckpointMap>()
         .record(previous_replicon_tick, previous_confirmed_tick);
-    world
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(completed_tick);
-    {
-        let mut server_mutate_ticks = world.resource_mut::<ServerMutateTicks>();
-        assert!(server_mutate_ticks.confirm(updated_replicon_tick, 1));
-        assert!(!server_mutate_ticks.confirm(incomplete_replicon_tick, 2));
-        assert_eq!(server_mutate_ticks.last_tick(), incomplete_replicon_tick);
-    }
 
-    world
-        .entity_mut(updated)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(completed_tick, Some(CompFull(1.0)));
+    insert_confirmed(world, updated, completed_tick, Some(CompFull(1.0)));
     world
         .entity_mut(updated)
         .insert(ConfirmHistory::new(updated_replicon_tick));
 
-    world
-        .entity_mut(unchanged)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(previous_confirmed_tick, Some(CompFull(20.0)));
+    insert_confirmed(
+        world,
+        unchanged,
+        previous_confirmed_tick,
+        Some(CompFull(20.0)),
+    );
     world
         .entity_mut(unchanged)
         .insert(ConfirmHistory::new(previous_replicon_tick));
@@ -497,11 +623,12 @@ fn test_future_completed_mutate_tick_is_not_marked_processed() {
 
     stepper.frame_step(3);
     let future_tick = stepper.client_tick(0) + 1_000;
-    stepper
-        .client_app()
-        .world_mut()
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(future_tick);
+    let future_replicon_tick = RepliconTick::new(920);
+    record_completed_mutate_tick(
+        stepper.client_app().world_mut(),
+        future_replicon_tick,
+        future_tick,
+    );
 
     stepper.frame_step(1);
 
@@ -517,20 +644,38 @@ fn test_future_completed_mutate_tick_is_not_marked_processed() {
 }
 
 #[test]
-fn test_explicit_mismatch_newer_than_completed_tick_rolls_back_from_mismatch_tick() {
+fn test_explicit_mismatch_waits_for_completed_mutate_tick() {
     let (mut stepper, _) = setup();
     observe_rollback_start(stepper.client_app());
 
     stepper.frame_step(5);
     let completed_tick = stepper.client_tick(0) - 4;
     let mismatch_tick = stepper.client_tick(0) - 2;
-    stepper
-        .client_app()
-        .world_mut()
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(completed_tick);
+    let completed_replicon_tick = RepliconTick::new(930);
+    record_completed_mutate_tick(
+        stepper.client_app().world_mut(),
+        completed_replicon_tick,
+        completed_tick,
+    );
 
-    trigger_rollback_check(&mut stepper, mismatch_tick);
+    trigger_rollback_check_without_completed_tick(&mut stepper, mismatch_tick);
+    stepper.frame_step(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        None,
+        "Explicit mismatch should wait until a completed mutate tick reaches the mismatch"
+    );
+
+    record_completed_mutate_tick(
+        stepper.client_app().world_mut(),
+        RepliconTick::new(931),
+        mismatch_tick,
+    );
     stepper.frame_step(1);
 
     assert_eq!(
@@ -540,7 +685,7 @@ fn test_explicit_mismatch_newer_than_completed_tick_rolls_back_from_mismatch_tic
             .resource::<ObservedRollbackStart>()
             .0,
         Some(mismatch_tick),
-        "Current policy consumes the earliest ready explicit mismatch even when the completed mutate tick is older"
+        "Explicit mismatch should rollback once that exact tick is the completed mutate tick"
     );
 }
 
@@ -579,47 +724,39 @@ fn test_completed_mutate_tick_rollback_preserves_later_confirmed_values() {
     let previous_confirmed_tick = rollback_tick - 1;
     let later_confirmed_tick = current_tick - 1;
 
-    let previous_replicon_tick = RepliconTick::new(800);
-    let later_replicon_tick = RepliconTick::new(801);
-    let same_replicon_tick = RepliconTick::new(802);
+    let previous_replicon_tick = RepliconTick::new(previous_confirmed_tick.0);
+    let later_replicon_tick = RepliconTick::new(later_confirmed_tick.0);
+    let same_replicon_tick = RepliconTick::new(rollback_tick.0);
 
     let world = stepper.client_app().world_mut();
-    world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-        .record(previous_replicon_tick, previous_confirmed_tick);
-    world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-        .record(later_replicon_tick, later_confirmed_tick);
-    world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-        .record(same_replicon_tick, rollback_tick);
-    world
-        .resource_mut::<StateRollbackMetadata>()
-        .record_last_confirmed_tick(rollback_tick);
+    record_completed_mutate_tick(world, same_replicon_tick, rollback_tick);
+    {
+        let mut checkpoints = world.resource_mut::<ReplicationCheckpointMap>();
+        checkpoints.record(previous_replicon_tick, previous_confirmed_tick);
+        checkpoints.record(later_replicon_tick, later_confirmed_tick);
+    }
 
-    world
-        .entity_mut(predicted_a)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(previous_confirmed_tick, Some(CompFull(100.0)));
+    insert_confirmed(
+        world,
+        predicted_a,
+        previous_confirmed_tick,
+        Some(CompFull(100.0)),
+    );
     world
         .entity_mut(predicted_a)
         .insert(ConfirmHistory::new(previous_replicon_tick));
 
-    world
-        .entity_mut(predicted_b)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(later_confirmed_tick, Some(CompFull(200.0)));
+    insert_confirmed(
+        world,
+        predicted_b,
+        later_confirmed_tick,
+        Some(CompFull(200.0)),
+    );
     world
         .entity_mut(predicted_b)
         .insert(ConfirmHistory::new(later_replicon_tick));
 
-    world
-        .entity_mut(predicted_c)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(rollback_tick, Some(CompFull(300.0)));
+    insert_confirmed(world, predicted_c, rollback_tick, Some(CompFull(300.0)));
     world
         .entity_mut(predicted_c)
         .insert(ConfirmHistory::new(same_replicon_tick));
@@ -681,12 +818,7 @@ fn test_stale_confirm_history_without_prediction_history_is_ignored() {
 
     let world = stepper.client_app().world_mut();
     world.spawn((Predicted, ConfirmHistory::new(stale_replicon_tick)));
-    world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-        .record(current_replicon_tick, server_confirmed_tick);
-    world
-        .resource_mut::<ServerMutateTicks>()
-        .confirm(current_replicon_tick, 1);
+    record_completed_mutate_tick(world, current_replicon_tick, server_confirmed_tick);
 
     stepper.frame_step(1);
 }
@@ -724,12 +856,7 @@ fn test_missing_confirm_history_checkpoint_mapping_does_not_request_rollback() {
     world
         .entity_mut(predicted)
         .insert(ConfirmHistory::new(stale_replicon_tick));
-    world
-        .resource_mut::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-        .record(current_replicon_tick, server_confirmed_tick);
-    world
-        .resource_mut::<ServerMutateTicks>()
-        .confirm(current_replicon_tick, 1);
+    record_completed_mutate_tick(world, current_replicon_tick, server_confirmed_tick);
 
     stepper.frame_step(1);
 
@@ -762,14 +889,17 @@ fn test_remote_insert_applied_on_rollback() {
         .world_mut()
         .entity_mut(predicted)
         .insert(CompNotNetworked(5.0));
-    // Create prediction history for CompNotNetworked with confirmed value
-    let mut history = PredictionHistory::<CompNotNetworked>::default();
-    history.add_confirmed(tick, Some(CompNotNetworked(5.0)));
+    // Create histories for CompNotNetworked with confirmed value
+    let mut confirmed_history = ConfirmedHistory::<CompNotNetworked>::default();
+    confirmed_history.insert_present(tick, CompNotNetworked(5.0));
     stepper
         .client_app()
         .world_mut()
         .entity_mut(predicted)
-        .insert(history);
+        .insert((
+            PredictionHistory::<CompNotNetworked>::default(),
+            confirmed_history,
+        ));
 
     trigger_rollback_check(&mut stepper, tick);
     stepper.frame_step(1);
@@ -801,13 +931,12 @@ fn test_remote_remove_applied_on_rollback() {
     stepper.frame_step(1);
 
     // Simulate server removing CompFull at rollback_tick
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(rollback_tick, None);
+    insert_confirmed::<CompFull>(
+        stepper.client_app().world_mut(),
+        predicted,
+        rollback_tick,
+        None,
+    );
     stepper
         .client_app()
         .world_mut()
@@ -854,22 +983,20 @@ fn test_disable_rollback() {
     let tick = stepper.client_tick(0);
 
     // Set up history for predicted_a with a known confirmed value
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_a)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(tick, Some(CompFull(10.0)));
+    insert_confirmed(
+        stepper.client_app().world_mut(),
+        predicted_a,
+        tick,
+        Some(CompFull(10.0)),
+    );
 
     // Simulate confirmed update for predicted_b with a different value to trigger mismatch
-    stepper
-        .client_app()
-        .world_mut()
-        .entity_mut(predicted_b)
-        .get_mut::<PredictionHistory<CompFull>>()
-        .unwrap()
-        .add_confirmed(tick, Some(CompFull(3.0)));
+    insert_confirmed(
+        stepper.client_app().world_mut(),
+        predicted_b,
+        tick,
+        Some(CompFull(3.0)),
+    );
     stepper
         .client_app()
         .world_mut()

@@ -3,7 +3,7 @@
 use crate::protocol::{CompA, CompCustomInterp, CompCustomReplicateOnce, CompReplicateOnce};
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
-use bevy_replicon::prelude::Replicated;
+use bevy_replicon::prelude::Replicated as RepliconReplicated;
 use lightyear::prelude::ConfirmedHistory;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::interpolation::Interpolated;
@@ -388,7 +388,7 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
             "custom-interpolated components should get ConfirmedHistory on interpolated entities",
         );
     assert!(
-        history.start().is_some(),
+        history.start_present().is_some(),
         "custom-interpolated history should contain at least one confirmed update"
     );
 }
@@ -627,7 +627,7 @@ fn test_component_remove_not_replicating() {
         .world_mut()
         .entity_mut(client_entity)
         // TODO: removing Replicated will pause the replication instead of sending a despawn
-        .remove::<Replicated>();
+        .remove::<RepliconReplicated>();
     stepper
         .client_app()
         .world_mut()

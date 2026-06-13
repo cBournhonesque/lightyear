@@ -86,8 +86,8 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         // -> We want the error between the two. + we also override the FrameInterpolate with the new correct values post-rollback
         let last_correct_transform = to_transform(position, rotation);
         let (Some(before_last_pos), Some(before_last_rot)) = (
-            position_history.second_most_recent(tick),
-            rotation_history.second_most_recent(tick),
+            position_history.get(tick - 1),
+            rotation_history.get(tick - 1),
         ) else {
             continue;
         };

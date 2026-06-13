@@ -1,9 +1,11 @@
 use crate::stepper::*;
 use bevy::prelude::*;
 use bevy_replicon::client::ClientSystems;
+use bevy_replicon::prelude::RepliconTick;
 use lightyear_core::prelude::{Rollback, Tick};
 use lightyear_prediction::manager::StateRollbackMetadata;
 use lightyear_prediction::prelude::*;
+use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 
 mod correction;
 mod despawn;
@@ -51,10 +53,31 @@ pub(crate) fn register_rollback_check_helper(app: &mut App) {
     );
 }
 
+fn record_completed_mutate_tick_for_rollback_check(world: &mut World, tick: Tick) {
+    let replicon_tick = RepliconTick::new(tick.0);
+    let mut checkpoints = world.resource_mut::<ReplicationCheckpointMap>();
+    checkpoints.record(replicon_tick, tick);
+    checkpoints.record_last_confirmed_tick(replicon_tick);
+}
+
 /// Helper function to simulate that we received a server message and trigger a rollback check.
 /// Sets a pending rollback check that will be applied during the next frame_step,
 /// after the per-frame state reset but before the rollback check.
+///
+/// State rollbacks are only consumed once a completed mutate tick reaches the mismatch, so this
+/// helper also records `tick` as completed.
 pub(crate) fn trigger_rollback_check(stepper: &mut ClientServerStepper, tick: Tick) {
+    record_completed_mutate_tick_for_rollback_check(stepper.client_app().world_mut(), tick);
+    trigger_rollback_check_without_completed_tick(stepper, tick);
+}
+
+/// Same as [`trigger_rollback_check`], but leaves the completed mutate tick unchanged.
+///
+/// Use this when testing that explicit mismatches wait for global mutate completion.
+pub(crate) fn trigger_rollback_check_without_completed_tick(
+    stepper: &mut ClientServerStepper,
+    tick: Tick,
+) {
     stepper
         .client_app()
         .world_mut()
