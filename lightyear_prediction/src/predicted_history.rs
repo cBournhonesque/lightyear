@@ -4,8 +4,6 @@
 //! 1. Compare local predicted values with confirmed values from the server to detect mismatches
 //! 2. Rollback to a past local state and replay the simulation
 
-use crate::manager::{PredictionManager, PredictionResource, RollbackMode, StateRollbackMetadata};
-use crate::registry::PredictionRegistry;
 use crate::rollback::DeterministicPredicted;
 use crate::{Predicted, SyncComponent};
 use alloc::collections::VecDeque;
@@ -287,108 +285,6 @@ pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
     }
 }
 
-#[derive(Debug, PartialEq)]
-enum RetainedPredictionValue<'a, C> {
-    /// Prediction history was already pruned past the requested tick, so the
-    /// live component must not be used as a proxy for that older prediction.
-    Pruned,
-    /// Prediction history can answer the tick. `None` means the component was
-    /// predicted absent at that tick.
-    Retained(Option<&'a C>),
-}
-
-fn retained_prediction_value_for_check<'a, C>(
-    component: Option<&'a C>,
-    history: Option<&'a PredictionHistory<C>>,
-    tick: Tick,
-) -> RetainedPredictionValue<'a, C> {
-    if let Some(history) = history {
-        if history
-            .oldest()
-            .is_some_and(|(oldest_tick, _)| *oldest_tick > tick)
-        {
-            return RetainedPredictionValue::Pruned;
-        }
-        if let Some(state) = history.get_state(tick) {
-            return RetainedPredictionValue::Retained(state.value());
-        }
-    }
-    RetainedPredictionValue::Retained(component)
-}
-
-/// Check exact confirmed samples once local prediction processing reaches or passes their tick.
-pub(crate) fn check_confirmed_at_current_tick<C: SyncComponent>(
-    timeline: Res<LocalTimeline>,
-    prediction_resource: Option<Res<PredictionResource>>,
-    manager_query: Query<&PredictionManager>,
-    prediction_registry: Res<PredictionRegistry>,
-    mut state_metadata: ResMut<StateRollbackMetadata>,
-    query: Query<
-        (
-            Entity,
-            Option<&C>,
-            Option<&PredictionHistory<C>>,
-            &ConfirmedHistory<C>,
-        ),
-        Or<(
-            With<Predicted>,
-            With<PreSpawned>,
-            With<DeterministicPredicted>,
-        )>,
-    >,
-) {
-    let Some(prediction_resource) = prediction_resource else {
-        return;
-    };
-    let Ok(manager) = manager_query.get(prediction_resource.link_entity) else {
-        return;
-    };
-    if !matches!(manager.rollback_policy.state, RollbackMode::Check) {
-        return;
-    }
-
-    let current_tick = timeline.tick();
-    if state_metadata.has_mismatch_before(current_tick) {
-        return;
-    }
-
-    for (entity, component, prediction_history, confirmed_history) in query.iter() {
-        for (confirmed_tick, confirmed_state) in confirmed_history.buffer().iter() {
-            if *confirmed_tick > current_tick {
-                break;
-            }
-            if state_metadata.has_mismatch_before(*confirmed_tick) {
-                return;
-            }
-            let predicted_value = match retained_prediction_value_for_check(
-                component,
-                prediction_history,
-                *confirmed_tick,
-            ) {
-                RetainedPredictionValue::Pruned => continue,
-                RetainedPredictionValue::Retained(value) => value,
-            };
-            if !prediction_registry.should_rollback_check(confirmed_state.value(), predicted_value)
-            {
-                continue;
-            }
-            trace!(
-                target: "lightyear_debug::prediction",
-                kind = "exact_confirmed_tick_mismatch",
-                schedule = "FixedPostUpdate",
-                sample_point = "FixedPostUpdate",
-                entity = ?entity,
-                component = ?DebugName::type_name::<C>(),
-                local_tick = current_tick.0,
-                confirmed_tick = confirmed_tick.0,
-                "recorded rollback mismatch for exact confirmed tick"
-            );
-            state_metadata.record_mismatch(*confirmed_tick);
-            return;
-        }
-    }
-}
-
 /// If there is a TickEvent and the client tick suddenly changes, we need
 /// to update the ticks in the history buffer.
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
@@ -559,7 +455,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
                 component = ?DebugName::type_name::<C>(),
                 "seeding ConfirmedHistory with confirmed value from init message"
             );
-            history.insert(tick, Some(component));
+            history.insert_present(tick, component);
             entity_mut.insert(history);
         }
     });
@@ -680,38 +576,5 @@ mod tests {
         let has_tick_9 = history.buffer.iter().any(|(t, _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
-    }
-
-    #[test]
-    fn retained_prediction_value_for_check_skips_ticks_older_than_retained_history() {
-        let mut history = PredictionHistory::<TestValue>::default();
-        history.add_predicted(Tick(10), Some(TestValue(10.0)));
-        history.add_predicted(Tick(11), Some(TestValue(11.0)));
-        history.clear_until_tick(Tick(11));
-
-        let live_component = TestValue(99.0);
-
-        assert!(matches!(
-            retained_prediction_value_for_check(Some(&live_component), Some(&history), Tick(10)),
-            RetainedPredictionValue::Pruned
-        ));
-        assert!(matches!(
-            retained_prediction_value_for_check(Some(&live_component), Some(&history), Tick(11)),
-            RetainedPredictionValue::Retained(Some(value)) if value.0 == 11.0
-        ));
-    }
-
-    #[test]
-    fn retained_prediction_value_for_check_distinguishes_absent_from_pruned() {
-        let mut history = PredictionHistory::<TestValue>::default();
-        history.add_predicted(Tick(10), Some(TestValue(10.0)));
-        history.add_predicted(Tick(11), None);
-
-        let live_component = TestValue(99.0);
-
-        assert!(matches!(
-            retained_prediction_value_for_check(Some(&live_component), Some(&history), Tick(11)),
-            RetainedPredictionValue::Retained(None)
-        ));
     }
 }

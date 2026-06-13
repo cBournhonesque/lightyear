@@ -121,7 +121,8 @@ mod impls;
 pub mod prelude {
     pub use bevy_replicon::client::confirm_history::ConfirmHistory;
     pub use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
-    pub use bevy_replicon::prelude::Replicated;
+    pub use bevy_replicon::prelude::Remote;
+    pub use bevy_replicon::prelude::Remote as Replicated;
 
     pub use crate::ReplicationSystems;
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
@@ -150,6 +151,7 @@ pub mod prelude {
     #[cfg(feature = "client")]
     pub mod client {
         pub use bevy_replicon::prelude::Remote;
+        pub use bevy_replicon::prelude::Remote as Replicated;
     }
 }
 

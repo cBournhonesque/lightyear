@@ -24,7 +24,7 @@ use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_core::prediction::Predicted;
-use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
@@ -67,8 +67,11 @@ impl PredictionMetadata {
 
 /// Function that will check if we should do a rollback by comparing the confirmed component value
 /// with the predicted component's history.
-type CheckRollbackFn =
-    fn(&PredictionRegistry, confirmed_tick: Tick, entity_mut: &mut FilteredEntityMut) -> bool;
+type CheckRollbackFn = unsafe fn(
+    &PredictionRegistry,
+    confirmed_tick: Tick,
+    entity_mut: &mut FilteredEntityMut,
+) -> bool;
 
 /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
 /// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
@@ -91,7 +94,7 @@ impl PredictionMetadata {
                     should_rollback,
                 )
             },
-            check_rollback: PredictionRegistry::check_rollback_empty_mutate::<C>,
+            check_rollback: PredictionRegistry::check_rollback_for_unchanged_component::<C>,
             #[cfg(feature = "deterministic")]
             pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
         }
@@ -274,20 +277,27 @@ impl PredictionRegistry {
         }
     }
 
-    /// Check for rollback on entities that didn't receive an explicit update.
+    /// Check rollback for a component that was unchanged at a completed server mutate tick.
     ///
-    /// This is called when the completed mutate tick advances and an entity didn't
-    /// receive a mutation. Since completed mutate tick T guarantees we have
-    /// complete information for all entities at tick T, we know this entity's value at T
-    /// equals its last confirmed value.
+    /// A completed mutate tick T guarantees complete information for all replicated
+    /// components at T. The caller must already have ruled out entities whose Replicon
+    /// [`ConfirmHistory`](lightyear_replication::prelude::ConfirmHistory) contains T,
+    /// so this component did not change at T and its state equals its last confirmed
+    /// value before T.
     ///
     /// This function:
-    /// 1. Compares the last confirmed value with what we predicted at `confirmed_tick`
-    /// 2. Marks the last confirmed value as confirmed at `confirmed_tick` in the history
+    /// 1. Compares the authoritative value with what we predicted at `confirmed_tick`.
+    /// 2. Materializes an unchanged sample at `confirmed_tick`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must know that this entity was not explicitly updated at `confirmed_tick`.
+    /// In practice, `confirmed_tick` must be the latest server-completed mutate tick and the
+    /// entity's Replicon `ConfirmHistory` must not contain the corresponding Replicon tick.
     ///
     /// # Arguments
     /// * `confirmed_tick` - Latest authoritative tick with complete mutate messages.
-    fn check_rollback_empty_mutate<C: SyncComponent>(
+    unsafe fn check_rollback_for_unchanged_component<C: SyncComponent>(
         &self,
         confirmed_tick: Tick,
         entity_mut: &mut FilteredEntityMut,
@@ -295,7 +305,7 @@ impl PredictionRegistry {
         let entity = entity_mut.id();
         let name = DebugName::type_name::<C>();
         let _span = trace_span!(
-            "check_rollback_empty_mutate",
+            "check_rollback_for_unchanged_component",
             ?name,
             %entity,
             ?confirmed_tick
@@ -308,7 +318,7 @@ impl PredictionRegistry {
             };
 
             let Some(last_confirmed_state) = confirmed_history
-                .state_at_or_before(confirmed_tick)
+                .get_state_at_or_before(confirmed_tick)
                 .cloned()
             else {
                 // No confirmed value in history - we can't check for rollback.
@@ -349,7 +359,6 @@ impl PredictionRegistry {
         entity_mut: &mut DeferredEntity,
         check_mismatch: bool,
         current_tick: Tick,
-        has_earlier_mismatch: bool,
     ) -> bool {
         let entity = entity_mut.id();
         let name = DebugName::type_name::<C>();
@@ -385,7 +394,6 @@ impl PredictionRegistry {
             oldest_retained_tick.is_some_and(|oldest_tick| oldest_tick > confirmed_tick);
         let should_rollback = if check_mismatch
             && confirmed_tick < current_tick
-            && !has_earlier_mismatch
             && !history_was_pruned_past_confirmed
         {
             let history_value = predicted_history
@@ -417,17 +425,6 @@ impl PredictionRegistry {
                 "skipping rollback check until local prediction reaches confirmed tick"
             );
         }
-        if check_mismatch && has_earlier_mismatch {
-            trace!(
-                target: "lightyear_debug::prediction",
-                kind = "confirmed_history_earlier_mismatch_skip",
-                entity = ?entity,
-                component = ?name,
-                confirmed_tick = confirmed_tick.0,
-                "skipping rollback check because an earlier mismatch is already pending"
-            );
-        }
-
         // Always add confirmed value to confirmed history - this value will be preserved during rollback
         trace!(
             target: "lightyear_debug::prediction",
@@ -440,11 +437,16 @@ impl PredictionRegistry {
             value = ?confirmed_component.as_ref(),
             "recorded confirmed value in confirmed history"
         );
+        let confirmed_state = match confirmed_component {
+            Some(component) => ConfirmedState::Confirmed(component),
+            None => ConfirmedState::Removed,
+        };
+
         if let Some(mut confirmed_history) = entity_mut.get_mut::<ConfirmedHistory<C>>() {
-            confirmed_history.insert(confirmed_tick, confirmed_component);
+            confirmed_history.insert(confirmed_tick, confirmed_state);
         } else {
             let mut history = ConfirmedHistory::<C>::default();
-            history.insert(confirmed_tick, confirmed_component);
+            history.insert(confirmed_tick, confirmed_state);
             entity_mut.insert(history);
         }
         should_rollback
@@ -813,14 +815,16 @@ fn add_confirmed_to_history<C: SyncComponent>(
     };
 
     // Always add confirmed values to history (needed for rollback in any mode).
-    // If RollbackMode::Check, also check for mismatch.
+    // If RollbackMode::Check, also check for mismatch unless this tick is
+    // already processed or already known mismatched.
+    let check_state_rollback =
+        check_state_rollback && state_metadata.should_check_mismatch_at(tick);
     let should_rollback = registry.record_confirmed_and_maybe_check(
         tick,
         confirmed_component,
         entity,
         check_state_rollback && should_check,
         current_tick,
-        state_metadata.has_mismatch_before(tick),
     );
     Ok((tick, should_rollback))
 }
@@ -868,14 +872,15 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
     };
 
     // Always add confirmed removal to history (needed for rollback in any mode).
-    // If RollbackMode::Check, also check for mismatch.
+    // If RollbackMode::Check, also check for mismatch unless this tick is
+    // already processed or already known mismatched.
+    let should_check = should_check && state_metadata.should_check_mismatch_at(tick);
     let should_rollback = registry.record_confirmed_and_maybe_check::<C>(
         tick,
         None,
         entity,
         should_check,
         current_tick,
-        state_metadata.has_mismatch_before(tick),
     );
     if should_rollback {
         // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access

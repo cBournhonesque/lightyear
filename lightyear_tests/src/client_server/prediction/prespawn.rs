@@ -518,9 +518,8 @@ fn test_prespawn_confirmed_init_goes_to_history_without_overwriting_live_value()
         .unwrap();
     assert!(
         confirmed_history
-            .buffer()
-            .iter()
-            .any(|(_, state)| state.value() == Some(&CompFull(1.0))),
+            .into_iter()
+            .any(|(_, value)| value == &CompFull(1.0)),
         "server init value should be recorded as confirmed history: {:?}",
         confirmed_history
     );

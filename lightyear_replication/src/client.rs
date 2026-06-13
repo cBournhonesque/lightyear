@@ -3,7 +3,7 @@ use bevy_ecs::prelude::*;
 use bevy_state::prelude::*;
 
 #[cfg(any(feature = "prediction", feature = "interpolation"))]
-use bevy_replicon::client::server_mutate_ticks::MutateTickReceived;
+use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
 use bevy_replicon::prelude::*;
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::{Client, Connected};
@@ -19,6 +19,7 @@ use crate::channels::RepliconChannelMap;
 use crate::checkpoint::{
     ReplicationCheckpointMap, extract_server_replicon_tick, unwrap_server_payload,
 };
+use crate::prelude::Replicated;
 use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::{debug, error};
@@ -54,7 +55,7 @@ impl Plugin for RepliconClientPlugin {
         #[cfg(any(feature = "prediction", feature = "interpolation"))]
         app.add_systems(
             PreUpdate,
-            update_checkpoint_last_confirmed_tick
+            sync_checkpoint_last_confirmed_tick
                 .after(ClientSystems::Receive)
                 .in_set(ReplicationSystems::Receive),
         );
@@ -96,21 +97,25 @@ impl Plugin for RepliconClientPlugin {
 }
 
 #[cfg(any(feature = "prediction", feature = "interpolation"))]
-fn update_checkpoint_last_confirmed_tick(
-    mut received_mutate_ticks: MessageReader<MutateTickReceived>,
+fn sync_checkpoint_last_confirmed_tick(
+    server_mutate_ticks: Res<ServerMutateTicks>,
     mut checkpoints: ResMut<ReplicationCheckpointMap>,
 ) {
-    for event in received_mutate_ticks.read() {
-        if checkpoints.record_last_confirmed_tick(event.tick).is_none() {
-            error!(
-                replicon_tick = ?event.tick,
-                "missing authoritative checkpoint mapping for completed mutate tick"
-            );
-            debug_assert!(
-                false,
-                "missing authoritative checkpoint mapping for completed mutate tick"
-            );
-        }
+    let Some(replicon_tick) = server_mutate_ticks.last_confirmed_tick() else {
+        return;
+    };
+    if checkpoints
+        .record_last_confirmed_tick(replicon_tick)
+        .is_none()
+    {
+        error!(
+            ?replicon_tick,
+            "missing authoritative checkpoint mapping for completed mutate tick"
+        );
+        debug_assert!(
+            false,
+            "missing authoritative checkpoint mapping for completed mutate tick"
+        );
     }
 }
 
@@ -203,8 +208,8 @@ fn send_client_packets(
 ///
 /// This matches the old `ReplicationReceivePlugin::handle_disconnection` behavior:
 /// all entities that were spawned from replication are despawned on disconnect.
-/// In the new replicon flow, predicted and interpolated entities also have `Replicated`
-/// since they arrive as replicated components.
+/// In the Replicon flow, received entities have `Remote`, which Lightyear exposes
+/// as its receiver-side `Replicated` marker.
 fn despawn_replicated_on_disconnect(
     mut commands: Commands,
     replicated: Query<Entity, (With<Replicated>, Without<Replicate>)>,

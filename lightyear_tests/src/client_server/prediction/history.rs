@@ -127,9 +127,9 @@ fn test_prediction_history_seeded_from_init_message() {
     assert!(
         confirmed_at_s.is_some(),
         "ConfirmedHistory should have a confirmed entry at server tick {:?}, \
-         but found buffer contents: {:?}",
+         but found history: {:?}",
         s_tick,
-        confirmed_history.buffer().iter().collect::<Vec<_>>()
+        confirmed_history
     );
     assert!(
         prediction_history.buffer().iter().all(|(_, state)| {
