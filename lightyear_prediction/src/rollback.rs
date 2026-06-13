@@ -935,40 +935,46 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         (predicted, _prespawned, _disable_state_rollback),
     ) in predicted_query.iter_mut()
     {
-        // For entities that didn't receive an explicit update but we know their value didn't change
-        // (because a completed mutate tick confirms they weren't mutated), mark the latest completed
-        // server checkpoint as confirmed using their last explicit confirmed value.
-        // Forced catch-up rollbacks also use `Rollback::FromState`, even when
-        // automatic state rollback checks are disabled by policy.
+        // State rollbacks normally start from the latest completed mutate tick.
+        // Forced catch-up rollbacks are the exception: they use `Rollback::FromState`
+        // to restore an older bundled snapshot even when automatic state rollback
+        // checks are disabled by policy.
         let is_state_rollback = matches!(rollback, Rollback::FromState);
-        if is_state_rollback
-            && let Some(server_confirmed_tick) = server_confirmed_tick
+        let is_latest_completed_state_rollback =
+            is_state_rollback && server_confirmed_tick == Some(rollback_tick);
+        if is_latest_completed_state_rollback
             && let Some(confirmed_history) = confirmed_history.as_mut()
         {
-            // If this component has an exact authoritative sample at
-            // `server_confirmed_tick`, rollback replay will use it directly.
-            // Otherwise the completed mutate tick proves the component was
-            // unchanged there, so materialize that unchanged authoritative sample
-            // from the last confirmed value before `server_confirmed_tick`.
-            confirmed_history.add_unchanged(server_confirmed_tick);
+            if confirmed_history.get_state_at(rollback_tick).is_none() {
+                // The completed mutate tick proves this component was unchanged,
+                // so materialize an exact authoritative sample from the last
+                // confirmed value before `rollback_tick`.
+                confirmed_history.add_unchanged(rollback_tick);
+            }
+            debug_assert!(
+                confirmed_history.get_state_at(rollback_tick).is_some()
+                "state-rollback should use the confirmed state at the rollback tick"
+            );
         }
 
         let confirmed_restore = if is_state_rollback {
-            let primary_tick = if matches!(manager.rollback_policy.state, RollbackMode::Always) {
-                server_confirmed_tick.unwrap_or(rollback_tick)
-            } else {
-                rollback_tick
-            };
-            confirmed_history
-                .as_ref()
-                .and_then(|history| history.get_state_at_or_before(primary_tick).cloned())
-                .or_else(|| {
-                    server_confirmed_tick.and_then(|server_tick| {
-                        confirmed_history.as_ref().and_then(|history| {
-                            history.get_state_at_or_before(server_tick).cloned()
-                        })
-                    })
-                })
+            confirmed_history.as_ref().and_then(|history| {
+                if is_latest_completed_state_rollback {
+                    // Ordinary state rollbacks should restore from the exact completed
+                    // mutate tick. Falling back to an older value here would hide a
+                    // missing explicit/unchanged confirmed sample.
+                    let confirmed_state = history.get_state_at(rollback_tick).cloned();
+                    debug_assert!(
+                        confirmed_state.is_some()
+                        "confirmed state should be present at the rollback tick"
+                    );
+                    confirmed_state
+                } else {
+                    // Forced state rollbacks can target an older catch-up snapshot
+                    // while the latest completed mutate tick has already advanced.
+                    history.get_state_at_or_before(rollback_tick).cloned()
+                }
+            })
         } else {
             None
         };
@@ -976,10 +982,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         let restore_value = if let Some(confirmed_restore) = confirmed_restore {
             confirmed_restore.into_value()
         } else {
-            // Get the value at rollback_tick (predicted or confirmed).
-            // It could be predicted if we received a partial update for an entity at tick T (triggering
-            // a rollback), but we haven't received the full update yet, so we will still rollback
-            // from that earliest mismatch tick.
+            // Input rollbacks restore from predicted history. State rollbacks
+            // only reach this fallback for components without an authoritative
+            // sample at `rollback_tick` (for example non-networked predicted
+            // components, or components with no confirmed state yet).
             predicted_history.get(rollback_tick).cloned()
         };
         // Only state rollbacks can prune up to the completed mutate tick: that
@@ -994,14 +1000,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         };
         predicted_history.clear_until_tick(clear_until_tick);
         predicted_history.clear_after_tick(rollback_tick);
-        trace!(
-            ?entity,
-            ?rollback_tick,
-            ?restore_value,
-            "Prepared rollback for component {:?}. History after clear: {:?}",
-            kind,
-            predicted_history.len()
-        );
         trace!(
             target: "lightyear_debug::prediction",
             kind = "prepare_rollback_component",

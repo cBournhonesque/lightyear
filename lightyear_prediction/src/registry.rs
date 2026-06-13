@@ -319,7 +319,6 @@ impl PredictionRegistry {
 
             let Some(last_confirmed_state) = confirmed_history
                 .get_state_at_or_before(confirmed_tick)
-                .cloned()
             else {
                 // No confirmed value in history - we can't check for rollback.
                 // This can happen for entities that were just spawned and haven't received
