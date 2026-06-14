@@ -4,7 +4,7 @@ use lightyear::input::native::prelude::{InputMarker, NativeBuffer};
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::{PredictionTarget, Replicate};
+use lightyear_replication::prelude::{ControlledBy, PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::client::IsSynced;
 use test_log::test;
@@ -26,10 +26,17 @@ fn test_remote_client_replicated_input() {
 
     // SETUP
     // entity controlled by the remote client
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
-        .spawn(Replicate::to_clients(NetworkTarget::All))
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
+        ))
         .id();
 
     stepper.frame_step(2);
@@ -92,12 +99,17 @@ fn test_remote_client_predicted_input() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     // SETUP
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
         .spawn((
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
         ))
         .id();
 

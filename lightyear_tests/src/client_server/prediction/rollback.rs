@@ -1124,19 +1124,29 @@ fn setup_stepper_for_input_rollback(
     prediction_manager.rollback_policy.input = mode;
     prediction_manager.rollback_policy.state = RollbackMode::Disabled;
 
+    let client_of_1 = stepper.client_of(1).id();
+    let client_of_2 = stepper.client_of(2).id();
     let server_entity_1 = stepper
         .server_app
         .world_mut()
-        .spawn(Replicate::to_clients(NetworkTarget::AllExceptSingle(
-            PeerId::Netcode(2),
-        )))
+        .spawn((
+            Replicate::to_clients(NetworkTarget::AllExceptSingle(PeerId::Netcode(2))),
+            ControlledBy {
+                owner: client_of_1,
+                lifetime: Default::default(),
+            },
+        ))
         .id();
     let server_entity_2 = stepper
         .server_app
         .world_mut()
-        .spawn(Replicate::to_clients(NetworkTarget::AllExceptSingle(
-            PeerId::Netcode(1),
-        )))
+        .spawn((
+            Replicate::to_clients(NetworkTarget::AllExceptSingle(PeerId::Netcode(1))),
+            ControlledBy {
+                owner: client_of_2,
+                lifetime: Default::default(),
+            },
+        ))
         .id();
     stepper.frame_step_server_first(1);
 

@@ -17,7 +17,7 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_replication::prelude::{PreSpawned, PredictionTarget, Replicate};
+use lightyear_replication::prelude::{ControlledBy, PreSpawned, PredictionTarget, Replicate};
 use lightyear_sync::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use test_log::test;
 use tracing::info;
@@ -645,6 +645,7 @@ fn test_input_broadcasting_prediction() {
     ));
 
     // SETUP - Create an entity controlled by client 0, predicted by all clients
+    let client_of_0 = stepper.client_of(0).id();
     let server_entity = stepper
         .server_app
         .world_mut()
@@ -652,6 +653,10 @@ fn test_input_broadcasting_prediction() {
             Replicate::to_clients(NetworkTarget::All),
             PredictionTarget::to_clients(NetworkTarget::All),
             BEIContext,
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
         ))
         .id();
 
@@ -664,6 +669,10 @@ fn test_input_broadcasting_prediction() {
             Action::<BEIAction1>::default(),
             PreSpawned::new(TEST_HASH),
             Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
         ))
         .id();
 
