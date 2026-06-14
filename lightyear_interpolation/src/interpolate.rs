@@ -218,8 +218,8 @@ mod tests {
     }
 
     #[test]
-    fn update_confirmed_history_coalesces_repeated_empty_mutate_ticks() {
-        let mut app = setup_app(Tick(30), 40);
+    fn update_confirmed_history_records_repeated_empty_mutate_ticks() {
+        let mut app = setup_app(Tick(25), 40);
         app.add_systems(Update, update_confirmed_history::<TestComp>);
         confirm_server_tick(&mut app, 1, Tick(30));
 
@@ -236,13 +236,17 @@ mod tests {
             .world()
             .get::<ConfirmedHistory<TestComp>>(entity)
             .unwrap();
-        assert_eq!(history.len(), 2);
+        assert_eq!(history.len(), 3);
         assert_eq!(
             history.start_present().map(|(t, v)| (t, v.clone())),
             Some((Tick(20), TestComp(10.0)))
         );
         assert_eq!(
             history.get_nth_present(1).map(|(t, v)| (t, v.clone())),
+            Some((Tick(30), TestComp(10.0)))
+        );
+        assert_eq!(
+            history.get_nth_present(2).map(|(t, v)| (t, v.clone())),
             Some((Tick(31), TestComp(10.0)))
         );
     }
