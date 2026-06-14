@@ -18,6 +18,7 @@ extern crate std;
 /// Server-side Aeronet lifecycle bridge for Lightyear server link entities.
 pub mod server;
 
+use crate::alloc::string::ToString;
 use aeronet_io::connection::{Disconnect, DisconnectReason, Disconnected, LocalAddr, PeerAddr};
 use aeronet_io::server::{Close, Server};
 use aeronet_io::{IoSystems, Session, SessionEndpoint};
@@ -27,7 +28,8 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
 use lightyear_link::{
-    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, Linked, Linking, Unlink, Unlinked,
+    Link, LinkPlugin, LinkReceiveSystems, LinkSystems, Linked, Linking, Unlink, UnlinkReason,
+    Unlinked,
 };
 use tracing::trace;
 
@@ -142,15 +144,9 @@ impl AeronetPlugin {
             && let Ok(mut c) = commands.get_entity(aeronet_io.0)
         {
             let reason = match &trigger.reason {
-                DisconnectReason::ByUser(reason) => {
-                    format!("Disconnected by user: {reason}")
-                }
-                DisconnectReason::ByPeer(reason) => {
-                    format!("Disconnected by remote: {reason}")
-                }
-                DisconnectReason::ByError(err) => {
-                    format!("Disconnected due to error: {err:?}")
-                }
+                DisconnectReason::ByUser(_) => UnlinkReason::UserRequested,
+                DisconnectReason::ByPeer(reason) => UnlinkReason::ByPeer(reason.to_string()),
+                DisconnectReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };
             trace!(
                 "Disconnected (reason: {reason:?}) triggered added on AeronetLink {:?}. Adding Unlinked on Link entity {:?}",
@@ -177,9 +173,9 @@ impl AeronetPlugin {
                 trigger.entity, aeronet_link.0
             );
             if is_server {
-                commands.trigger(Close::new(aeronet_link.0, reason));
+                commands.trigger(Close::new(aeronet_link.0, reason.to_string()));
             } else {
-                commands.trigger(Disconnect::new(aeronet_link.0, reason));
+                commands.trigger(Disconnect::new(aeronet_link.0, reason.to_string()));
             }
         }
     }

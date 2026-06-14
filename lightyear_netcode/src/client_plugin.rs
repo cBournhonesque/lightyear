@@ -1,9 +1,8 @@
-use alloc::{format, string::ToString};
-
 use crate::Error;
 use crate::auth::Authentication;
 use crate::client::{ClientConfig, ClientState};
 use aeronet_io::connection::PeerAddr;
+use alloc::format;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -12,14 +11,13 @@ use bevy_reflect::Reflect;
 use bevy_time::{Real, Time};
 use lightyear_connection::ConnectionSystems;
 use lightyear_connection::client::{
-    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected,
+    Connect, Connected, Connecting, ConnectionPlugin, Disconnect, Disconnected, DisconnectedReason,
 };
 use lightyear_connection::host::HostClient;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSystems, Linked};
 use lightyear_transport::plugin::TransportSystems;
 use tracing::{debug, error, info};
-
 pub struct NetcodeClientPlugin;
 
 /// Add this component on an entity to make it a netcode client.
@@ -182,7 +180,9 @@ impl NetcodeClientPlugin {
                         info!("Client {} disconnected. State: {state:?}", client.id());
                         parallel_commands.command_scope(|mut commands| {
                             commands.entity(entity).insert(Disconnected {
-                                reason: Some(format!("Client disconnected: {state:?}")),
+                                reason: Some(DisconnectedReason::TransportError(format!(
+                                    "{state:?}"
+                                ))),
                             });
                         });
                     }
@@ -210,7 +210,7 @@ impl NetcodeClientPlugin {
         if let Ok(mut client) = query.get_mut(trigger.entity) {
             client.inner.disconnect()?;
             commands.entity(trigger.entity).insert(Disconnected {
-                reason: Some("Client trigger".to_string()),
+                reason: Some(DisconnectedReason::UserRequested),
             });
         }
         Ok(())
