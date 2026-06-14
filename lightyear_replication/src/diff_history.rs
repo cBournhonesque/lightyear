@@ -223,6 +223,12 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         !self.pending.is_empty()
     }
 
+    /// Returns true when a patch message for `tick` is waiting for a base
+    /// cursor to be materialized in confirmed history.
+    pub fn has_pending_patch_at_tick(&self, tick: Tick) -> bool {
+        self.pending.iter().any(|pending| pending.tick == tick)
+    }
+
     /// Queues a patch message for historical materialization.
     ///
     /// `queue_patches` only records the patch message. It does not apply the
@@ -467,6 +473,39 @@ mod tests {
 
         let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
         assert_eq!((tick, value), (Tick(5), TestDiffValue(5)));
+    }
+
+    /// Unchanged anchors are same-as-precedent markers, so they can safely be
+    /// inserted beyond a pending older patch range. When that older range
+    /// materializes, later unchanged anchors inherit the newly inserted value.
+    #[test]
+    fn older_patch_range_updates_later_unchanged_anchor_when_materialized() {
+        let mut history = ConfirmedHistory::<TestDiffValue>::default();
+        history.insert_present(Tick(0), TestDiffValue(0));
+
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        receiver.record_cursor(Tick(0), Some(0));
+
+        receiver
+            .queue_patches(Tick(5), 4, vec![vec![4], vec![5]])
+            .unwrap();
+        assert_eq!(receiver.take_ready_update(&history).unwrap(), None);
+        assert_eq!(history.push_unchanged(Tick(6)), Some(Tick(0)));
+
+        receiver
+            .queue_patches(Tick(3), 1, vec![vec![1], vec![2], vec![3]])
+            .unwrap();
+        while let Some((tick, value)) = receiver.take_ready_update(&history).unwrap() {
+            history.insert_present(tick, value);
+        }
+
+        assert_eq!(
+            history
+                .get_state_at(Tick(6))
+                .and_then(ConfirmedState::value)
+                .cloned(),
+            Some(TestDiffValue(5))
+        );
     }
 
     /// Pruning promotes the newest known cursor at or before the processed tick

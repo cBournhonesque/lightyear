@@ -110,8 +110,8 @@ pub(crate) fn update_confirmed_history_diff<C>(
     let server_complete_tick = checkpoints.last_confirmed_tick();
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, mut patch_receiver, present) in query.iter_mut() {
-        if !patch_receiver.has_pending_patches()
-            && let Some(server_complete_tick) = server_complete_tick
+        if let Some(server_complete_tick) = server_complete_tick
+            && !patch_receiver.has_pending_patch_at_tick(server_complete_tick)
             && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
         {
             trace!(
@@ -335,10 +335,10 @@ mod tests {
     }
 
     #[test]
-    fn update_confirmed_history_diff_does_not_advance_unchanged_while_patches_are_pending() {
-        let mut app = setup_app(Tick(6), 40);
+    fn diff_history_waits_when_completed_tick_patch_is_pending() {
+        let mut app = setup_app(Tick(5), 40);
         app.add_systems(Update, update_confirmed_history_diff::<TestComp>);
-        confirm_server_tick(&mut app, 1, Tick(6));
+        confirm_server_tick(&mut app, 1, Tick(5));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.insert_present(Tick(0), TestComp(0.0));
@@ -363,6 +363,49 @@ mod tests {
         assert_eq!(
             history.start_present().map(|(t, v)| (t, v.clone())),
             Some((Tick(0), TestComp(0.0)))
+        );
+
+        let receiver = app
+            .world()
+            .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
+            .unwrap();
+        assert!(receiver.has_pending_patches());
+        assert_eq!(receiver.tick_for_cursor(Some(0)), Some(Tick(0)));
+    }
+
+    #[test]
+    fn update_confirmed_history_diff_advances_when_only_older_patch_is_pending() {
+        let mut app = setup_app(Tick(6), 40);
+        app.add_systems(Update, update_confirmed_history_diff::<TestComp>);
+        confirm_server_tick(&mut app, 1, Tick(6));
+
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(0), TestComp(0.0));
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestComp>::default();
+        receiver.record_cursor(Tick(0), Some(0));
+        receiver
+            .queue_patches(Tick(5), 4, vec![vec![4.0], vec![5.0]])
+            .unwrap();
+
+        let entity = app
+            .world_mut()
+            .spawn((Interpolated, history, receiver))
+            .id();
+
+        app.update();
+
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestComp>>(entity)
+            .unwrap();
+        assert_eq!(history.len(), 2);
+        assert_eq!(
+            history.start_present().map(|(t, v)| (t, v.clone())),
+            Some((Tick(0), TestComp(0.0)))
+        );
+        assert_eq!(
+            history.get_nth_present(1).map(|(t, v)| (t, v.clone())),
+            Some((Tick(6), TestComp(0.0)))
         );
 
         let receiver = app
