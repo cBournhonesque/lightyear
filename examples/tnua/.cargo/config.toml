@@ -1,0 +1,15 @@
+[build]
+# it is a good idea to specify your target here, to avoid losing incremental compilation when compiling to wasm
+# target = "aarch64-apple-darwin"
+rustflags = ["--cfg", "web_sys_unstable_apis"]
+
+[target.wasm32-unknown-unknown]
+runner = "wasm-server-runner"
+
+# Enable max optimizations for dependencies, but not for our code:
+[profile.dev.package."*"]
+opt-level = 3
+
+# Enable only a small amount of optimization in debug mode
+[profile.dev]
+opt-level = 1
