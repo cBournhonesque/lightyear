@@ -190,6 +190,9 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         if self.has_pending_patches() {
             return;
         }
+        if self.base_tick.is_some_and(|base_tick| tick < base_tick) {
+            return;
+        }
 
         let cursor_at_cut = self.cursor_at_or_before(tick).map(|(cursor, _)| cursor);
         if history
@@ -251,14 +254,36 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         if patches.is_empty() {
             return Ok(());
         }
-        let pending = PendingPatchMessage {
+        let mut pending = PendingPatchMessage {
             tick,
             first_patch_index,
             patches,
         };
         let cursor = pending.cursor()?;
-        if self.is_retired_cursor(cursor)
-            || self.tick_for_cursor(Some(cursor)).is_some()
+        if self.is_retired_cursor(cursor) || self.tick_for_cursor(Some(cursor)).is_some() {
+            return Ok(());
+        }
+
+        if let Some(base_cursor) = self.base_cursor
+            && pending
+                .base_cursor()
+                .is_none_or(|pending_base| pending_base < base_cursor)
+        {
+            let Some(retained_first_patch) = base_cursor.checked_add(1) else {
+                return Err(
+                    format!("patch cursor overflow while trimming to base {base_cursor}").into(),
+                );
+            };
+            let drop_count = retained_first_patch.saturating_sub(pending.first_patch_index);
+            if drop_count >= pending.patches.len() as PatchIndex {
+                return Ok(());
+            }
+            pending.patches.drain(0..drop_count as usize);
+            pending.first_patch_index = retained_first_patch;
+        }
+
+        let cursor = pending.cursor()?;
+        if self.tick_for_cursor(Some(cursor)).is_some()
             || self.pending.iter().any(|queued| {
                 queued.tick == pending.tick
                     && queued.first_patch_index == pending.first_patch_index
@@ -508,6 +533,38 @@ mod tests {
         );
     }
 
+    /// If a late message overlaps the retained base cursor, the receiver can
+    /// apply the suffix of that message from the retained base instead of
+    /// waiting forever for a retired cursor.
+    #[test]
+    fn overlapping_patch_range_is_trimmed_to_retained_base() {
+        let mut history = ConfirmedHistory::<TestDiffValue>::default();
+        history.insert_present(Tick(0), TestDiffValue(0));
+        history.insert_present(Tick(3), TestDiffValue(3));
+
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        receiver.record_cursor(Tick(0), Some(0));
+        receiver.record_cursor(Tick(3), Some(3));
+        receiver.clear_before_tick(Tick(3), &history);
+
+        receiver
+            .queue_patches(
+                Tick(5),
+                1,
+                vec![vec![1], vec![2], vec![3], vec![4], vec![5]],
+            )
+            .unwrap();
+
+        assert_eq!(receiver.pending.len(), 1);
+        assert_eq!(receiver.pending[0].first_patch_index, 4);
+        assert_eq!(receiver.pending[0].base_cursor(), Some(3));
+
+        let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
+        assert_eq!((tick, value), (Tick(5), TestDiffValue(5)));
+        assert!(receiver.pending.is_empty());
+        assert_eq!(receiver.tick_for_cursor(Some(5)), Some(Tick(5)));
+    }
+
     /// Pruning promotes the newest known cursor at or before the processed tick
     /// to the retained base. `base_tick` becomes the lowest retained tick, and
     /// `patch_ticks` only keeps newer cursors that may still be useful.
@@ -536,5 +593,32 @@ mod tests {
                 .values()
                 .all(|tick| *tick >= receiver.base_tick.unwrap())
         );
+    }
+
+    /// Cleanup can be called with an older completed tick after a newer
+    /// snapshot was written in the same frame. That must not wipe the retained
+    /// base cursor, or the next patch range will be unable to find its base.
+    #[test]
+    fn pruning_older_than_retained_base_is_noop() {
+        let mut history = ConfirmedHistory::<TestDiffValue>::default();
+        history.insert_present(Tick(126), TestDiffValue(0));
+        history.insert_present(Tick(128), TestDiffValue(0));
+
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        receiver.record_cursor(Tick(128), Some(0));
+        receiver.clear_before_tick(Tick(128), &history);
+
+        assert_eq!(
+            (receiver.base_cursor, receiver.base_tick),
+            (Some(0), Some(Tick(128)))
+        );
+
+        receiver.clear_before_tick(Tick(126), &history);
+
+        assert_eq!(
+            (receiver.base_cursor, receiver.base_tick),
+            (Some(0), Some(Tick(128)))
+        );
+        assert_eq!(receiver.tick_for_cursor(Some(0)), Some(Tick(128)));
     }
 }
