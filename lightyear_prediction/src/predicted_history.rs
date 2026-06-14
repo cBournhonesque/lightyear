@@ -374,7 +374,9 @@ pub(crate) fn prune_confirmed_history_patch_receiver<C: RepliconDiffable>(
     };
     let prune_tick = last_processed_tick - PATCH_HISTORY_TICK_MARGIN;
     for (history, mut receiver) in query.iter_mut() {
-        receiver.clear_before_tick(prune_tick, history);
+        if !receiver.has_pending_patches() {
+            receiver.clear_before_tick(prune_tick, history);
+        }
     }
 }
 

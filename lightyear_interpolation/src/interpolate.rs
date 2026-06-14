@@ -110,7 +110,8 @@ pub(crate) fn update_confirmed_history_diff<C>(
     let server_complete_tick = checkpoints.last_confirmed_tick();
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, mut patch_receiver, present) in query.iter_mut() {
-        if let Some(server_complete_tick) = server_complete_tick
+        if !patch_receiver.has_pending_patches()
+            && let Some(server_complete_tick) = server_complete_tick
             && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
         {
             trace!(
@@ -127,16 +128,18 @@ pub(crate) fn update_confirmed_history_diff<C>(
             );
         }
 
-        while history.len() >= 3
-            && history
-                .get_nth_tick(1)
-                .is_some_and(|tick| tick <= current_interpolate_tick)
-        {
-            history.pop_present();
-        }
+        if !patch_receiver.has_pending_patches() {
+            while history.len() >= 3
+                && history
+                    .get_nth_tick(1)
+                    .is_some_and(|tick| tick <= current_interpolate_tick)
+            {
+                history.pop_present();
+            }
 
-        if let Some(server_complete_tick) = server_complete_tick {
-            patch_receiver.clear_before_tick(server_complete_tick, &history);
+            if let Some(server_complete_tick) = server_complete_tick {
+                patch_receiver.clear_before_tick(server_complete_tick, &history);
+            }
         }
 
         match interpolation_registry.sample(
@@ -193,14 +196,26 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
 mod tests {
     use super::*;
     use crate::registry::InterpolationRegistry;
+    use alloc::vec;
     use bevy_app::{App, Update};
     use bevy_ecs::component::Component;
-    use bevy_replicon::prelude::RepliconTick;
+    use bevy_replicon::prelude::{Diffable as RepliconDiffable, RepliconTick};
     use lightyear_core::time::TickInstant;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+    use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Component, Clone, Debug, PartialEq)]
+    #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct TestComp(f32);
+
+    impl RepliconDiffable for TestComp {
+        type Patch = f32;
+
+        fn apply_patch(&mut self, patch: &Self::Patch) -> bevy_ecs::error::Result<()> {
+            self.0 = *patch;
+            Ok(())
+        }
+    }
 
     fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
         TestComp(start.0 + (end.0 - start.0) * t)
@@ -286,8 +301,8 @@ mod tests {
     }
 
     #[test]
-    fn update_confirmed_history_coalesces_repeated_empty_mutate_ticks() {
-        let mut app = setup_app(Tick(30), 40);
+    fn update_confirmed_history_records_repeated_empty_mutate_ticks() {
+        let mut app = setup_app(Tick(25), 40);
         app.add_systems(Update, update_confirmed_history::<TestComp>);
         confirm_server_tick(&mut app, 1, Tick(30));
 
@@ -304,15 +319,58 @@ mod tests {
             .world()
             .get::<ConfirmedHistory<TestComp>>(entity)
             .unwrap();
-        assert_eq!(history.len(), 2);
+        assert_eq!(history.len(), 3);
         assert_eq!(
             history.start_present().map(|(t, v)| (t, v.clone())),
             Some((Tick(20), TestComp(10.0)))
         );
         assert_eq!(
             history.get_nth_present(1).map(|(t, v)| (t, v.clone())),
+            Some((Tick(30), TestComp(10.0)))
+        );
+        assert_eq!(
+            history.get_nth_present(2).map(|(t, v)| (t, v.clone())),
             Some((Tick(31), TestComp(10.0)))
         );
+    }
+
+    #[test]
+    fn update_confirmed_history_diff_does_not_advance_unchanged_while_patches_are_pending() {
+        let mut app = setup_app(Tick(6), 40);
+        app.add_systems(Update, update_confirmed_history_diff::<TestComp>);
+        confirm_server_tick(&mut app, 1, Tick(6));
+
+        let mut history = ConfirmedHistory::<TestComp>::default();
+        history.insert_present(Tick(0), TestComp(0.0));
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestComp>::default();
+        receiver.record_cursor(Tick(0), Some(0));
+        receiver
+            .queue_patches(Tick(5), 4, vec![vec![4.0], vec![5.0]])
+            .unwrap();
+
+        let entity = app
+            .world_mut()
+            .spawn((Interpolated, history, receiver))
+            .id();
+
+        app.update();
+
+        let history = app
+            .world()
+            .get::<ConfirmedHistory<TestComp>>(entity)
+            .unwrap();
+        assert_eq!(history.len(), 1);
+        assert_eq!(
+            history.start_present().map(|(t, v)| (t, v.clone())),
+            Some((Tick(0), TestComp(0.0)))
+        );
+
+        let receiver = app
+            .world()
+            .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
+            .unwrap();
+        assert!(receiver.has_pending_patches());
+        assert_eq!(receiver.tick_for_cursor(Some(0)), Some(Tick(0)));
     }
 
     #[test]

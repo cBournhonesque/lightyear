@@ -119,10 +119,20 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                             self.base_tick = Some(tick);
                         }
                         self.patch_ticks.retain(|index, _| *index > cursor);
+                        self.pending.retain(|pending| {
+                            pending
+                                .cursor()
+                                .is_ok_and(|pending_cursor| pending_cursor > cursor)
+                        });
                         return;
                     }
                 }
                 self.patch_ticks.insert(cursor, tick);
+                self.pending.retain(|pending| {
+                    pending
+                        .cursor()
+                        .is_ok_and(|pending_cursor| pending_cursor > cursor)
+                });
             }
             None => {
                 if self.base_tick.is_some_and(|base_tick| tick < base_tick) {
@@ -131,6 +141,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                 self.base_cursor = None;
                 self.base_tick = Some(tick);
                 self.patch_ticks.clear();
+                self.pending.clear();
             }
         }
     }
@@ -176,6 +187,10 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     /// This keeps one usable base for future patch messages without storing
     /// per-unchanged-tick cursor entries.
     pub fn clear_before_tick(&mut self, tick: Tick, history: &ConfirmedHistory<C>) {
+        if self.has_pending_patches() {
+            return;
+        }
+
         let cursor_at_cut = self.cursor_at_or_before(tick).map(|(cursor, _)| cursor);
         if history
             .get_state_at_or_before(tick)
@@ -196,11 +211,16 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
             .retain(|_, cursor_tick| *cursor_tick >= tick);
         let base_cursor = self.base_cursor;
         self.pending.retain(|pending| {
-            pending.tick >= tick
-                && pending
-                    .cursor()
-                    .is_ok_and(|cursor| base_cursor.is_none_or(|base_cursor| cursor > base_cursor))
+            pending
+                .cursor()
+                .is_ok_and(|cursor| base_cursor.is_none_or(|base_cursor| cursor > base_cursor))
         });
+    }
+
+    /// Returns true while one or more patch messages are waiting for a base
+    /// cursor to be materialized in confirmed history.
+    pub fn has_pending_patches(&self) -> bool {
+        !self.pending.is_empty()
     }
 
     /// Queues a patch message for historical materialization.
@@ -416,6 +436,37 @@ mod tests {
         );
         assert_eq!(receiver.tick_for_cursor(Some(3)), Some(Tick(3)));
         assert_eq!(receiver.tick_for_cursor(Some(5)), Some(Tick(5)));
+    }
+
+    /// Receiver cleanup must not retire bases or discard pending patch messages
+    /// while a newer patch range is waiting for an older base. Otherwise an
+    /// unchanged history anchor can be carried forward and the later base
+    /// message can no longer materialize the missing historical state.
+    #[test]
+    fn pending_patch_range_blocks_receiver_cleanup_until_materialized() {
+        let mut history = ConfirmedHistory::<TestDiffValue>::default();
+        history.insert_present(Tick(0), TestDiffValue(0));
+
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        receiver.record_cursor(Tick(0), Some(0));
+
+        receiver
+            .queue_patches(Tick(5), 4, vec![vec![4], vec![5]])
+            .unwrap();
+        receiver.clear_before_tick(Tick(6), &history);
+
+        assert_eq!(receiver.pending.len(), 1);
+        assert_eq!(receiver.tick_for_cursor(Some(0)), Some(Tick(0)));
+
+        receiver
+            .queue_patches(Tick(3), 1, vec![vec![1], vec![2], vec![3]])
+            .unwrap();
+        let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
+        assert_eq!((tick, value.clone()), (Tick(3), TestDiffValue(3)));
+        history.insert_present(tick, value);
+
+        let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
+        assert_eq!((tick, value), (Tick(5), TestDiffValue(5)));
     }
 
     /// Pruning promotes the newest known cursor at or before the processed tick
