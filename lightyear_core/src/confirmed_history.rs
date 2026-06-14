@@ -320,11 +320,11 @@ impl<C> ConfirmedHistory<C> {
     ///
     /// Use this only when `tick` comes from a monotonic completeness signal,
     /// such as the latest completed mutate tick. Consecutive unchanged ticks
-    /// update the same unchanged newest anchor instead of appending another
-    /// marker.
+    /// are stored as separate anchors so custom interpolation systems can
+    /// align multiple component histories at the same confirmed tick.
     pub fn push_unchanged(&mut self, tick: Tick) -> Option<Tick> {
         let newest_index = self.buffer.len().checked_sub(1)?;
-        let (newest_tick, newest_state) = self.buffer.get(newest_index)?;
+        let (newest_tick, _) = self.buffer.get(newest_index)?;
         let newest_tick = *newest_tick;
         if tick <= newest_tick
             || self
@@ -335,9 +335,7 @@ impl<C> ConfirmedHistory<C> {
             return None;
         }
 
-        if newest_state.is_same_as_precedent() {
-            self.buffer.back_mut().unwrap().0 = tick;
-        } else if !self.add_unchanged(tick) {
+        if !self.add_unchanged(tick) {
             return None;
         }
         Some(newest_tick)
@@ -623,7 +621,7 @@ mod tests {
     }
 
     #[test]
-    fn push_unchanged_slides_newest_anchor() {
+    fn push_unchanged_appends_newest_anchor() {
         let mut history = ConfirmedHistory::<TestValue>::default();
         history.insert_present(Tick(2), TestValue(2.0));
 
@@ -631,7 +629,11 @@ mod tests {
         assert_eq!(history.push_unchanged(Tick(8)), Some(Tick(5)));
         assert_eq!(
             history.buffer_raw(),
-            &VecDeque::from(vec![(Tick(2), explicit(2.0)), (Tick(8), same()),])
+            &VecDeque::from(vec![
+                (Tick(2), explicit(2.0)),
+                (Tick(5), same()),
+                (Tick(8), same()),
+            ])
         );
         assert_eq!(effective_value_at(&history, Tick(8)), Some(2.0));
     }
@@ -660,6 +662,7 @@ mod tests {
             &VecDeque::from(vec![
                 (Tick(1), explicit(1.0)),
                 (Tick(2), explicit(2.0)),
+                (Tick(5), same()),
                 (Tick(8), same()),
             ])
         );
@@ -690,6 +693,7 @@ mod tests {
             &VecDeque::from(vec![
                 (Tick(2), explicit(2.0)),
                 (Tick(3), explicit(3.0)),
+                (Tick(5), same()),
                 (Tick(8), same()),
             ])
         );
