@@ -9,9 +9,9 @@ use avian2d::math::{AsF32, Quaternion};
 use avian2d::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_math::curve::{EaseFunction, EasingCurve};
-use bevy_math::{Curve, Isometry2d, Vec3};
+use bevy_math::{Curve, Isometry2d};
 use bevy_time::{Fixed, Time, Virtual};
-use bevy_transform::prelude::Transform;
+use bevy_transform::components::{GlobalTransform, Transform};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_frame_interpolation::{FrameInterpolate, SkipFrameInterpolation};
 use lightyear_interpolation::prelude::InterpolationRegistry;
@@ -22,6 +22,26 @@ use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_replication::delta::Diffable;
 #[allow(unused_imports)]
 use tracing::{info, trace};
+
+type CorrectionTransformComponents = (
+    Entity,
+    &'static Position,
+    &'static PreviousVisual<Position>,
+    &'static PredictionHistory<Position>,
+    &'static Rotation,
+    &'static PreviousVisual<Rotation>,
+    &'static PredictionHistory<Rotation>,
+    &'static mut FrameInterpolate<Transform>,
+    Option<&'static SkipFrameInterpolation>,
+    Option<&'static ChildOf>,
+    &'static Transform,
+);
+
+type ParentComponents = (
+    Option<&'static GlobalTransform>,
+    Option<&'static Position>,
+    Option<&'static Rotation>,
+);
 
 /// We want to support replicating/predicting Position/Rotation but applying FrameInterpolation on Transform.
 /// The benefits are:
@@ -36,17 +56,8 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     local_timeline: Res<LocalTimeline>,
     predicted: Single<(), With<PredictionManager>>,
     registry: Res<InterpolationRegistry>,
-    mut query: Query<(
-        Entity,
-        &Position,
-        &PreviousVisual<Position>,
-        &PredictionHistory<Position>,
-        &Rotation,
-        &PreviousVisual<Rotation>,
-        &PredictionHistory<Rotation>,
-        &mut FrameInterpolate<Transform>,
-        Option<&SkipFrameInterpolation>,
-    )>,
+    mut query: Query<CorrectionTransformComponents>,
+    parents: Query<ParentComponents>,
     mut commands: Commands,
 ) {
     // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
@@ -62,10 +73,12 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         rotation_history,
         mut interpolate,
         skip,
+        parent,
+        transform,
     ) in query.iter_mut()
     {
         if skip.is_some() {
-            let current_transform = to_transform(position, rotation);
+            let current_transform = to_transform(transform, position, rotation, parent, &parents);
 
             interpolate.current_value = Some(current_transform);
             interpolate.previous_value = Some(current_transform);
@@ -81,15 +94,20 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         // - the new corrected visual value that we would have displayed with the Rollback
         // is the interpolation between the last 2 states of the PredictionHistory
         // -> We want the error between the two. + we also override the FrameInterpolate with the new correct values post-rollback
-        let last_correct_transform = to_transform(position, rotation);
+        let last_correct_transform = to_transform(transform, position, rotation, parent, &parents);
         let (Some(before_last_pos), Some(before_last_rot)) = (
             position_history.get(tick - 1),
             rotation_history.get(tick - 1),
         ) else {
             continue;
         };
-        let before_last_correct_transform = to_transform(before_last_pos, before_last_rot);
-        // TODO: here we might need the Parent to correctly get the Transform! What we have is actually the GlobalTransform!
+        let before_last_correct_transform = to_transform(
+            transform,
+            before_last_pos,
+            before_last_rot,
+            parent,
+            &parents,
+        );
         interpolate.current_value = Some(last_correct_transform);
         interpolate.previous_value = Some(before_last_correct_transform);
         let current_visual = registry.interpolate(
@@ -99,8 +117,13 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         );
         // error = previous_visual - current_visual
 
-        let previous_visual =
-            to_transform(&previous_visual_position.0, &previous_visual_rotation.0);
+        let previous_visual = to_transform(
+            transform,
+            &previous_visual_position.0,
+            &previous_visual_rotation.0,
+            parent,
+            &parents,
+        );
         let error = current_visual.diff(&previous_visual);
         trace!(
             ?tick,
@@ -169,11 +192,96 @@ pub(crate) fn add_visual_correction(
         });
 }
 
-fn to_transform(pos: &Position, rot: &Rotation) -> Transform {
-    Transform {
-        translation: pos.f32().extend(0.0),
-        rotation: Quaternion::from(*rot).f32(),
-        // TODO: handle scale ?
-        scale: Vec3::ONE,
+fn to_transform(
+    transform: &Transform,
+    pos: &Position,
+    rot: &Rotation,
+    parent: Option<&ChildOf>,
+    parents: &Query<ParentComponents>,
+) -> Transform {
+    let mut transform = *transform;
+    if let Some(&ChildOf(parent)) = parent
+        && let Ok((parent_global_transform, parent_pos, parent_rot)) = parents.get(parent)
+    {
+        let parent_transform = parent_global_transform
+            .unwrap_or(&GlobalTransform::IDENTITY)
+            .compute_transform();
+        let parent_pos = parent_pos.map_or(parent_transform.translation, |pos| {
+            pos.f32().extend(parent_transform.translation.z)
+        });
+        let parent_rot = parent_rot.map_or(parent_transform.rotation, |rot| {
+            Quaternion::from(*rot).f32()
+        });
+        let parent_scale = parent_transform.scale;
+        let parent_transform = Transform::from_translation(parent_pos)
+            .with_rotation(parent_rot)
+            .with_scale(parent_scale);
+
+        let new_transform = GlobalTransform::from(
+            Transform::from_translation(
+                pos.f32()
+                    .extend(parent_pos.z + transform.translation.z * parent_scale.z),
+            )
+            .with_rotation(Quaternion::from(*rot).f32()),
+        )
+        .reparented_to(&GlobalTransform::from(parent_transform));
+
+        transform.translation = new_transform.translation;
+        transform.rotation = new_transform.rotation;
+    } else {
+        transform.translation = pos.f32().extend(transform.translation.z);
+        transform.rotation = Quaternion::from(*rot).f32();
+    }
+
+    transform
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::system::RunSystemOnce;
+
+    #[derive(Resource, Default)]
+    struct OutputTransform(Option<Transform>);
+
+    #[test]
+    fn child_global_pose_converts_to_local_transform() {
+        fn system(
+            mut output: ResMut<OutputTransform>,
+            query: Single<(&Transform, &Position, &Rotation, &ChildOf)>,
+            parents: Query<ParentComponents>,
+        ) {
+            let (transform, position, rotation, child_of) = *query;
+            output.0 = Some(to_transform(
+                transform,
+                position,
+                rotation,
+                Some(child_of),
+                &parents,
+            ));
+        }
+
+        let mut world = World::new();
+        world.init_resource::<OutputTransform>();
+        let parent = world
+            .spawn((
+                GlobalTransform::from(Transform::from_xyz(1.0, 1.0, 0.0)),
+                Position::from_xy(1.0, 1.0),
+                Rotation::default(),
+            ))
+            .id();
+        world.spawn((
+            ChildOf(parent),
+            Transform::from_scale(bevy_math::Vec3::splat(2.0)),
+            Position::from_xy(3.0, 4.0),
+            Rotation::default(),
+        ));
+
+        world.run_system_once(system).unwrap();
+
+        let child_local_transform = world.resource::<OutputTransform>().0.unwrap();
+        assert_eq!(child_local_transform.scale, bevy_math::Vec3::splat(2.0));
+        assert!((child_local_transform.translation.x - 2.0).abs() < 0.0001);
+        assert!((child_local_transform.translation.y - 3.0).abs() < 0.0001);
     }
 }
