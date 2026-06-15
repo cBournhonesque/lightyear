@@ -35,38 +35,38 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 
 | File | Purpose |
 |------|---------|
-| `lightyear_replication/src/send.rs` | Core replication logic: `Replicate`, `PredictionTarget`, `InterpolationTarget` with on_insert/on_replace hooks, visibility management, `SendPlugin` |
-| `lightyear_replication/src/server.rs` | Server-side replicon bridge: `receive_server_packets`, `send_server_packets`, `sync_entity_map`, `sync_server_state`, `on_client_connected` |
-| `lightyear_replication/src/client.rs` | Client-side replicon bridge: `receive_client_packets`, `send_client_packets`, `sync_entity_map`, `sync_client_state` |
-| `lightyear_replication/src/metadata.rs` | `ReplicationMetadata` and `SenderMetadata` types extracted from old code |
-| `lightyear_replication/src/channels.rs` | `RepliconChannelMap`, channel marker types, `RepliconChannelRegistrationPlugin` |
+| `crates/replication/replication/src/send.rs` | Core replication logic: `Replicate`, `PredictionTarget`, `InterpolationTarget` with on_insert/on_replace hooks, visibility management, `SendPlugin` |
+| `crates/replication/replication/src/server.rs` | Server-side replicon bridge: `receive_server_packets`, `send_server_packets`, `sync_entity_map`, `sync_server_state`, `on_client_connected` |
+| `crates/replication/replication/src/client.rs` | Client-side replicon bridge: `receive_client_packets`, `send_client_packets`, `sync_entity_map`, `sync_client_state` |
+| `crates/replication/replication/src/metadata.rs` | `ReplicationMetadata` and `SenderMetadata` types extracted from old code |
+| `crates/replication/replication/src/channels.rs` | `RepliconChannelMap`, channel marker types, `RepliconChannelRegistrationPlugin` |
 
 ### Modified Files
 
 | File | Changes |
 |------|---------|
-| `lightyear_replication/src/lib.rs` | `LightyearRepliconBackend` PluginGroup adding replicon plugins with `AuthMethod::None` |
-| `lightyear_core/src/prediction.rs` | Added `Serialize`/`Deserialize` to `Predicted` |
-| `lightyear_core/src/interpolation.rs` | Added `Serialize`/`Deserialize` to `Interpolated` |
-| `lightyear_prediction/src/registry.rs` | `write_history` / `remove_history` marker functions using replicon's `WriteCtx` / `RemoveCtx` |
-| `lightyear_prediction/src/predicted_history.rs` | `PredictionHistory<C>` with `Predicted`/`Confirmed` state tracking, `add_confirmed`, `clear_predicted_from` |
-| `lightyear_prediction/src/rollback.rs` | `check_rollback` uses `ConfirmHistory`, `ReplicationCheckpointMap`, `StateRollbackMetadata` |
-| `lightyear_prediction/src/manager.rs` | `PredictionManager`, `StateRollbackMetadata`, `RollbackMode` |
-| `lightyear_transport/src/channel/builder.rs` | Added `send_mut_erased()` method for type-erased channel sends |
+| `crates/replication/replication/src/lib.rs` | `LightyearRepliconBackend` PluginGroup adding replicon plugins with `AuthMethod::None` |
+| `crates/core/core/src/prediction.rs` | Added `Serialize`/`Deserialize` to `Predicted` |
+| `crates/core/core/src/interpolation.rs` | Added `Serialize`/`Deserialize` to `Interpolated` |
+| `crates/replication/prediction/src/registry.rs` | `write_history` / `remove_history` marker functions using replicon's `WriteCtx` / `RemoveCtx` |
+| `crates/replication/prediction/src/predicted_history.rs` | `PredictionHistory<C>` with `Predicted`/`Confirmed` state tracking, `add_confirmed`, `clear_predicted_from` |
+| `crates/replication/prediction/src/rollback.rs` | `check_rollback` uses `ConfirmHistory`, `ReplicationCheckpointMap`, `StateRollbackMetadata` |
+| `crates/replication/prediction/src/manager.rs` | `PredictionManager`, `StateRollbackMetadata`, `RollbackMode` |
+| `crates/transport/transport/src/channel/builder.rs` | Added `send_mut_erased()` method for type-erased channel sends |
 | `Cargo.toml` | Added local `bevy_replicon` dependency |
 
 ### Removed Files
 
 | File | Reason |
 |------|--------|
-| `lightyear_replication/src/send/buffer.rs` | Replaced by replicon's internal replication |
-| `lightyear_replication/src/send/sender.rs` | Replaced by replicon's internal replication |
-| `lightyear_replication/src/send/components.rs` | Replaced by replicon's component rules |
-| `lightyear_replication/src/send/plugin.rs` | Replaced by `send.rs` |
-| `lightyear_replication/src/message.rs` | Replaced by replicon's message format |
-| `lightyear_replication/src/registry/registry.rs` | Simplified; replicon handles serialization |
-| `lightyear_replication/src/registry/delta.rs` | Delta compression removed (replicon has its own) |
-| `lightyear_replication/src/host.rs` | Host-server logic moved/simplified |
+| `crates/replication/replication/src/send/buffer.rs` | Replaced by replicon's internal replication |
+| `crates/replication/replication/src/send/sender.rs` | Replaced by replicon's internal replication |
+| `crates/replication/replication/src/send/components.rs` | Replaced by replicon's component rules |
+| `crates/replication/replication/src/send/plugin.rs` | Replaced by `send.rs` |
+| `crates/replication/replication/src/message.rs` | Replaced by replicon's message format |
+| `crates/replication/replication/src/registry/registry.rs` | Simplified; replicon handles serialization |
+| `crates/replication/replication/src/registry/delta.rs` | Delta compression removed (replicon has its own) |
+| `crates/replication/replication/src/host.rs` | Host-server logic moved/simplified |
 
 ### Specific Fixes Applied
 

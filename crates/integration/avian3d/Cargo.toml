@@ -5,7 +5,7 @@ authors.workspace = true
 rust-version.workspace = true
 edition.workspace = true
 description = "Helper library to use Lightyear with Avian3d"
-readme = "../README.md"
+readme = "../../../README.md"
 repository = "https://github.com/cBournhonesque/lightyear"
 keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
 categories = ["game-development", "network-programming"]
@@ -14,7 +14,7 @@ publish = true
 
 [lib]
 name = "lightyear_avian3d"
-path = "../lightyear_avian/src/lib.rs"
+path = "../avian/src/lib.rs"
 required-features = ["3d"]
 bench = false
 

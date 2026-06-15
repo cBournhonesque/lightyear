@@ -517,28 +517,28 @@ lightyear_webtransport:
 add_avian_symlinks:
     #!/usr/bin/env bash
     set -euo pipefail
-    for crate in lightyear_avian2d lightyear_avian3d; do
+    for crate in crates/integration/avian2d crates/integration/avian3d; do
         src="$crate/src"
         if [ -e "$src" ] && [ ! -L "$src" ]; then
             echo "$src exists and is not a symlink" >&2
             exit 1
         fi
         rm -f "$src"
-        perl -0pi -e 's@(?m)^path = "\.\./lightyear_avian/src/lib\.rs"$@#path = "../lightyear_avian/src/lib.rs"@' "$crate/Cargo.toml"
-        ln -s ../lightyear_avian/src "$src"
+        perl -0pi -e 's@(?m)^path = "\.\./avian/src/lib\.rs"$@#path = "../avian/src/lib.rs"@' "$crate/Cargo.toml"
+        ln -s ../avian/src "$src"
     done
 
 remove_avian_symlinks:
     #!/usr/bin/env bash
     set -euo pipefail
-    for crate in lightyear_avian2d lightyear_avian3d; do
+    for crate in crates/integration/avian2d crates/integration/avian3d; do
         src="$crate/src"
         if [ -L "$src" ]; then
             rm "$src"
         elif [ -e "$src" ]; then
             echo "$src exists and is not a symlink; leaving it in place" >&2
         fi
-        perl -0pi -e 's@(?m)^#path = "\.\./lightyear_avian/src/lib\.rs"$@path = "../lightyear_avian/src/lib.rs"@' "$crate/Cargo.toml"
+        perl -0pi -e 's@(?m)^#path = "\.\./avian/src/lib\.rs"$@path = "../avian/src/lib.rs"@' "$crate/Cargo.toml"
     done
 
 release_dryrun version:

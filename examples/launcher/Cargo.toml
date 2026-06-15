@@ -16,7 +16,7 @@ bevy = { workspace = true, default-features = false, features = [
   "wayland",
 ] }
 bevy_egui = { workspace = true }
-lightyear = { path = "../../lightyear", features = [
+lightyear = { path = "../../crates/core/lightyear", features = [
   "client",
   "server",
   "prediction",

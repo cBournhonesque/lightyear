@@ -148,7 +148,7 @@ impl Plugin for DetProtocolPlugin {
         // shared code so that `FrameInterpolationSystems::Restore` runs in
         // `RunFixedMainLoop` before Avian's transform→position sync,
         // preserving post-rollback Position. See the TODO in
-        // `lightyear_avian/src/plugin.rs::LightyearAvianPlugin::build`.
+        // `crates/integration/avian/src/plugin.rs::LightyearAvianPlugin::build`.
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
         app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
         app.add_observer(add_frame_interpolation);

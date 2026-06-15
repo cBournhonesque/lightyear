@@ -1,6 +1,6 @@
 # General architecture
 
-`lightyear` is split up into multiple crates that each provide a facet of networking.
+`lightyear` is split up into multiple workspace crates under the repository's `crates/` directory, grouped by the networking facet they provide.
 The main crate `lightyear` provides an easy way of importing all the other crates and settings up the necessary plugins.
 In particular it provides 2 plugin groups that set up the various systems needed for multiplayer app: [`ClientPlugins`](https://docs.rs/lightyear/latest/lightyear/prelude/client/struct.ClientPlugins.html) and [`ServerPlugins`](https://docs.rs/lightyear/latest/lightyear/prelude/server/struct.ServerPlugins.html).
 

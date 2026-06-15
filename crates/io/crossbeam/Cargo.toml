@@ -31,11 +31,11 @@ bytes.workspace = true
 [dev-dependencies]
 # Used by integration tests that exercise the documented pairing with
 # `RawConnectionPlugin` (server-side mirror flow).
-lightyear_raw_connection = { path = "../lightyear_raw_connection", default-features = false, features = [
+lightyear_raw_connection = { path = "../../connection/raw_connection", default-features = false, features = [
   "client",
   "server",
 ] }
-lightyear_connection = { path = "../lightyear_connection", default-features = false, features = [
+lightyear_connection = { path = "../../connection/connection", default-features = false, features = [
   "client",
   "server",
 ] }
