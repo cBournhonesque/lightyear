@@ -32,7 +32,7 @@ impl Plugin for SharedPlugin {
         // run in `RunFixedMainLoop` BEFORE Avian's `transform_to_position`
         // sync — otherwise the post-rollback Position gets overwritten by
         // the (stale) Transform at the start of each FixedUpdate. See the
-        // TODO in `lightyear_avian/src/plugin.rs::AvianReplicationMode::Position`.
+        // TODO in `crates/integration/avian/src/plugin.rs::AvianReplicationMode::Position`.
         app.add_plugins(FrameInterpolationPlugin::<Position>::default());
         app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
         app.add_observer(add_frame_interpolation_components);

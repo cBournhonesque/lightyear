@@ -23,6 +23,19 @@ the [simple_box](https://github.com/cBournhonesque/lightyear/tree/main/examples/
 
 You can also find more information in this WIP [book](https://cbournhonesque.github.io/lightyear/book/).
 
+## Repository layout
+
+Workspace crate sources live under `crates/`, grouped by role. Directory names drop the `lightyear_` prefix, but Cargo package names keep it.
+
+- `crates/io`: low-level IO links and backends such as `aeronet`, `link`, `udp`, `crossbeam`, `websocket`, and `webtransport`
+- `crates/connection`: connection abstractions and adapters such as `connection`, `raw_connection`, `netcode`, and `steam`
+- `crates/core`: the top-level `lightyear` crate plus shared core, sync, utils, and frame interpolation crates
+- `crates/inputs`: input crates such as `inputs`, `inputs_native`, `input_bei`, and `inputs_leafwing`
+- `crates/replication`: replication, prediction, and interpolation crates
+- `crates/transport`: serialization, transport, and message crates
+- `crates/integration`: Bevy ecosystem integrations such as Avian
+- `crates/platform`, `crates/deterministic`, `crates/tools`, and `crates/tests`: platform support, deterministic replication, tooling, and test support
+
 ## Related projects
 
 - [lightyear-template](https://github.com/Piefayth/lightyear-template/tree/main): opiniated template for a bevy + lightyear starter project

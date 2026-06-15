@@ -1,4 +1,4 @@
-// lightyear_inputs/src/input_message.rs
+// crates/inputs/inputs/src/input_message.rs
 #![allow(type_alias_bounds)]
 #![allow(clippy::module_inception)]
 use crate::input_buffer::{Compressed, InputBuffer};
