@@ -1,0 +1,60 @@
+[package]
+name = "lightyear_ahoy"
+version = "0.26.4"
+authors.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+description = "Helper library to use Lightyear with bevy_ahoy"
+readme = "../../../README.md"
+repository = "https://github.com/cBournhonesque/lightyear"
+keywords = ["bevy", "multiplayer", "networking", "netcode", "gamedev"]
+categories = ["game-development", "network-programming"]
+license.workspace = true
+publish = true
+
+[features]
+default = ["std", "native"]
+std = [
+  "lightyear_inputs/std",
+  "lightyear_inputs_native?/std",
+  "lightyear_prediction/std",
+]
+client = [
+  "lightyear_inputs/client",
+  "lightyear_inputs_native?/client",
+]
+server = [
+  "lightyear_inputs/server",
+  "lightyear_inputs_native?/server",
+]
+native = ["dep:lightyear_inputs_native"]
+bei = ["native"]
+
+[dependencies]
+lightyear_inputs.workspace = true
+lightyear_prediction.workspace = true
+lightyear_inputs_native = { workspace = true, optional = true }
+
+avian3d.workspace = true
+bevy_ahoy.workspace = true
+
+# bevy
+bevy_app.workspace = true
+bevy_ecs.workspace = true
+bevy_enhanced_input.workspace = true
+bevy_math.workspace = true
+bevy_reflect.workspace = true
+bevy_time.workspace = true
+bevy_transform.workspace = true
+
+# serde
+serde.workspace = true
+
+# utils
+tracing.workspace = true
+
+[lints]
+workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

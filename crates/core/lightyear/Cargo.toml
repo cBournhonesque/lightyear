@@ -25,6 +25,7 @@ default = [
 std = [
   # needed for bevy_transform parallel
   "lightyear_aeronet?/std",
+  "lightyear_ahoy?/std",
   "lightyear_avian2d?/std",
   "lightyear_avian3d?/std",
   "lightyear_frame_interpolation?/std",
@@ -49,6 +50,7 @@ std = [
 ## enable client plugins
 client = [
   "lightyear_connection/client",
+  "lightyear_ahoy?/client",
   "lightyear_inputs?/client",
   "lightyear_inputs_bei?/client",
   "lightyear_inputs_leafwing?/client",
@@ -66,6 +68,7 @@ client = [
 ## enable server plugins and server-only features
 server = [
   "lightyear_connection/server",
+  "lightyear_ahoy?/server",
   "lightyear_inputs?/server",
   "lightyear_inputs_bei?/server",
   "lightyear_inputs_leafwing?/server",
@@ -139,6 +142,13 @@ input_native = ["dep:lightyear_inputs", "dep:lightyear_inputs_native"]
 leafwing = ["dep:lightyear_inputs", "dep:lightyear_inputs_leafwing"]
 input_bei = ["dep:lightyear_inputs", "dep:lightyear_inputs_bei"]
 
+## Adds support for bevy_ahoy character controllers.
+ahoy = ["dep:lightyear_ahoy"]
+## Adds support for the conservative native-command bevy_ahoy adapter.
+ahoy_native = ["ahoy", "lightyear_ahoy/native", "input_native"]
+## Adds support for sampling bevy_enhanced_input Ahoy actions into native Ahoy commands.
+ahoy_bei = ["ahoy_native", "lightyear_ahoy/bei"]
+
 ## Adds support for Avian
 ##
 ## NOTE: because lightyear doesn't enable any features of avian by default, your crate must
@@ -177,6 +187,7 @@ raw_connection = ["dep:lightyear_raw_connection"]
 [dependencies]
 # local crates
 lightyear_aeronet = { workspace = true, optional = true }
+lightyear_ahoy = { workspace = true, optional = true }
 lightyear_avian2d = { workspace = true, optional = true, features = ["2d"] }
 lightyear_avian3d = { workspace = true, optional = true, features = ["3d"] }
 lightyear_connection.workspace = true

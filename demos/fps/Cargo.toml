@@ -1,0 +1,61 @@
+[package]
+name = "fps_demo"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+publish = false
+
+[features]
+default = ["client", "gui", "server", "netcode", "udp"]
+client = [
+  "lightyear/client",
+  "lightyear/input_native",
+  "lightyear_ahoy/client",
+  "lightyear_examples_common/client",
+]
+gui = ["lightyear_examples_common/gui3d"]
+server = [
+  "lightyear/server",
+  "lightyear/input_native",
+  "lightyear_ahoy/server",
+  "lightyear_examples_common/server",
+]
+netcode = ["lightyear_examples_common/netcode"]
+udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
+
+[dependencies]
+avian3d = { workspace = true, features = [
+  "3d",
+  "debug-plugin",
+  "f32",
+  "parry-f32",
+  "parallel",
+  "serialize",
+] }
+bevy.workspace = true
+bevy_ahoy.workspace = true
+bevy_enhanced_input.workspace = true
+lightyear = { workspace = true, features = [
+  "interpolation",
+  "prediction",
+  "replication",
+  "avian3d",
+] }
+lightyear_ahoy = { workspace = true, features = ["std", "bei"] }
+lightyear_examples_common = { workspace = true, features = [
+  "structured-debug",
+] }
+lightyear_frame_interpolation.workspace = true
+serde.workspace = true
+
+[package.metadata.bevy_cli.web]
+rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
+default-features = false
+features = ["client", "netcode"]
+
+[lints]
+workspace = true
+
+[[bin]]
+name = "fps_demo"
+doc = false

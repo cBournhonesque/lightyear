@@ -1,0 +1,54 @@
+#![allow(unused_imports)]
+#![allow(unused_variables)]
+#![allow(dead_code)]
+
+use bevy::prelude::*;
+use core::time::Duration;
+use lightyear_examples_common::{
+    cli::{Cli, Mode},
+    shared::FIXED_TIMESTEP_HZ,
+};
+
+#[cfg(feature = "client")]
+use crate::client::ExampleClientPlugin;
+#[cfg(feature = "server")]
+use crate::server::ExampleServerPlugin;
+use crate::shared::SharedPlugin;
+
+#[cfg(feature = "client")]
+mod client;
+mod protocol;
+#[cfg(feature = "gui")]
+mod renderer;
+#[cfg(feature = "server")]
+mod server;
+mod shared;
+
+fn main() {
+    let cli = Cli::default();
+    let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
+
+    app.add_plugins(SharedPlugin);
+    cli.spawn_connections(&mut app);
+
+    match cli.mode {
+        #[cfg(feature = "client")]
+        Some(Mode::Client { .. }) => {
+            app.add_plugins(ExampleClientPlugin);
+        }
+        #[cfg(feature = "server")]
+        Some(Mode::Server) => {
+            app.add_plugins(ExampleServerPlugin);
+        }
+        #[cfg(all(feature = "client", feature = "server"))]
+        Some(Mode::HostClient { .. }) => {
+            app.add_plugins((ExampleClientPlugin, ExampleServerPlugin));
+        }
+        _ => {}
+    }
+
+    #[cfg(feature = "gui")]
+    app.add_plugins(renderer::ExampleRendererPlugin);
+
+    app.run();
+}

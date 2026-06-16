@@ -257,6 +257,11 @@ pub mod frame_interpolation {
     pub use lightyear_frame_interpolation::*;
 }
 
+#[cfg(feature = "ahoy")]
+pub mod ahoy {
+    pub use lightyear_ahoy::*;
+}
+
 #[cfg(feature = "metrics")]
 pub mod metrics {
     pub use lightyear_metrics::*;

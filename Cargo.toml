@@ -19,6 +19,7 @@ members = [
   "crates/inputs/inputs",
   "crates/inputs/inputs_native",
   "crates/platform/web",
+  "crates/integration/ahoy",
   "crates/integration/avian2d",
   "crates/integration/avian3d",
   "crates/inputs/input_bei",
@@ -72,6 +73,7 @@ debug = false
 
 [workspace.dependencies]
 lightyear_aeronet = { path = "crates/io/aeronet", version = "0.26.4", default-features = false }
+lightyear_ahoy = { path = "crates/integration/ahoy", version = "0.26.4", default-features = false }
 lightyear_avian2d = { path = "crates/integration/avian2d", version = "0.26.4", default-features = false, features = [
   "2d",
 ] }
@@ -243,6 +245,9 @@ bevy_replicon = { version = "=0.40.3" }
 # physics
 avian2d = { version = "0.6", default-features = false }
 avian3d = { version = "0.6", default-features = false }
+bevy_ahoy = { git = "https://github.com/smoked-dev/bevy_ahoy.git", rev = "f0daec463c7974a03392497f4ff58f8481ba9491", default-features = false, features = [
+  "serialize",
+] }
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.36", default-features = false, features = [
