@@ -315,11 +315,10 @@ impl DeterministicPredicted {
 /// - **StateBasedCatchUp**: the client inserts `AwaitingCatchUpSnapshot`
 ///   when it's expecting a bundled snapshot. While the marker is present,
 ///   replicated Position/Rotation/etc. go into `ConfirmedHistory` as
-///   confirmed values at the snapshot tick. User code then inserts
-///   `DeterministicPredicted` + activates physics, removes this marker,
-///   and calls `request_forced_rollback_to_catch_up_tick` to reconcile.
-///   The forced-rollback `prepare_rollback` reads confirmed history to
-///   restore the live component.
+///   confirmed values at the snapshot tick. The late-join catch-up plugin
+///   removes this marker when it schedules the forced rollback. The
+///   forced-rollback `prepare_rollback` reads confirmed history to restore
+///   the live component.
 ///
 /// - **InputOnly** (no catch-up snapshot): the entity is
 ///   `DeterministicPredicted` from the start, but there's no catch-up

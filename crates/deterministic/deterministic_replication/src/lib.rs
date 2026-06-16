@@ -34,17 +34,17 @@ mod plugin;
 
 /// Commonly used items from the `lightyear_deterministic_replication` crate.
 pub mod prelude {
-    pub use crate::checksum::{
-        ChecksumHistory, ChecksumMessage, ChecksumReceivePlugin, ChecksumSendPlugin,
-    };
+    pub use crate::checksum::ChecksumMessage;
+    #[cfg(feature = "client")]
+    pub use crate::checksum::ChecksumSendPlugin;
+    #[cfg(feature = "server")]
+    pub use crate::checksum::{ChecksumHistory, ChecksumReceivePlugin};
     pub use crate::late_join::{
-        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpClientReadiness, CatchUpClientTimeout,
-        CatchUpGated, CatchUpRegistry, CatchUpRequest, CatchUpRequestReceived, CatchUpRequestSent,
-        CatchUpServerReadiness, CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp,
-        LateJoinCatchUpPlugin, request_forced_rollback_to_catch_up_server_tick_with_commands,
-        request_forced_rollback_to_catch_up_tick,
-        request_forced_rollback_to_catch_up_tick_with_commands,
+        AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpRegistry, CatchUpRequest,
+        CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp, LateJoinCatchUpPlugin,
     };
+    #[cfg(feature = "client")]
+    pub use crate::late_join::{CatchUpClientTimeout, CatchUpManager};
     pub use crate::mode::CatchUpMode;
     pub use crate::plugin::DeterministicReplicationPlugin;
 }

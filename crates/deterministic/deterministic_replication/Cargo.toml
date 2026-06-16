@@ -15,15 +15,29 @@ std = [
   "lightyear_messages/std",
   "lightyear_prediction/std",
 ]
-default = ["std"]
+client = [
+  "lightyear_connection/client",
+  "lightyear_inputs/client",
+  "lightyear_messages/client",
+  "lightyear_sync/client",
+  "lightyear_transport/client",
+]
+server = [
+  "lightyear_connection/server",
+  "lightyear_inputs/server",
+  "lightyear_messages/server",
+  "lightyear_sync/server",
+  "lightyear_transport/server",
+]
+default = ["std", "client", "server"]
 
 [dependencies]
 lightyear_utils.workspace = true
 lightyear_core.workspace = true
-lightyear_inputs = { workspace = true, features = ["client", "server"] }
+lightyear_inputs.workspace = true
 lightyear_link.workspace = true
 lightyear_messages.workspace = true
-lightyear_connection = { workspace = true, features = ["server"] }
+lightyear_connection.workspace = true
 lightyear_sync.workspace = true
 lightyear_prediction = { workspace = true, features = ["deterministic"] }
 lightyear_replication = { workspace = true, features = ["deterministic"] }

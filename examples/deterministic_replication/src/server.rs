@@ -1,16 +1,13 @@
 use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared::player_bundle;
-use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::server::input::InputSystems as ServerInputSystems;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, CatchUpGated, CatchUpMode, CatchUpServerReadiness, CatchUpSystems, HasCaughtUp,
-};
+use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
 #[derive(Clone)]
@@ -25,27 +22,11 @@ impl Plugin for ExampleServerPlugin {
         {
             app.add_plugins(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
         }
-        // The LateJoinCatchUpPlugin itself is added by ProtocolPlugin
-        // (in SharedPlugin) so it runs before `cli.spawn_connections`.
-        // Register which components are catch-up-gated: they are hidden
-        // from each client by default and only sent once after the
-        // client explicitly requests catch-up (see
-        // `lightyear_deterministic_replication::late_join`).
-        app.register_catchup_components::<(Position, Rotation, LinearVelocity, AngularVelocity)>();
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);
         app.add_observer(handle_disconnected);
-        app.add_systems(
-            PreUpdate,
-            update_player_activation_ticks
-                .before(update_catch_up_server_readiness)
-                .before(CatchUpSystems::UpdateReadiness),
-        );
-        app.add_systems(
-            PreUpdate,
-            update_catch_up_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
-        );
+        app.add_systems(PreUpdate, update_player_activation_ticks);
         app.add_systems(
             FixedPreUpdate,
             log_active_player_input_gaps.after(ServerInputSystems::UpdateActionState),
@@ -54,9 +35,7 @@ impl Plugin for ExampleServerPlugin {
 }
 
 fn log_active_player_input_gaps(
-    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
-    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     players: Query<(
         Entity,
         &PlayerId,
@@ -66,9 +45,6 @@ fn log_active_player_input_gaps(
 ) {
     let current_tick = timeline.tick();
     for (entity, player_id, activation_tick, buffer) in &players {
-        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
-            continue;
-        }
         if activation_tick.is_pending() || current_tick < activation_tick.0 {
             continue;
         }
@@ -97,9 +73,7 @@ fn log_active_player_input_gaps(
 }
 
 fn update_player_activation_ticks(
-    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
-    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     mut players: Query<(
         &PlayerId,
         &mut PlayerActivationTick,
@@ -109,9 +83,6 @@ fn update_player_activation_ticks(
     let current_tick = timeline.tick();
     for (player_id, mut activation_tick, buffer) in &mut players {
         if !activation_tick.is_pending() {
-            continue;
-        }
-        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
             continue;
         }
         let Some(buffer) = buffer else {
@@ -127,133 +98,6 @@ fn update_player_activation_ticks(
             activation_tick = ?activation_tick.0,
             "Activating deterministic player after input rebroadcast warmup"
         );
-    }
-}
-
-/// Update [`CatchUpServerReadiness`] so the late-join catch-up plugin
-/// knows when it's safe to send a bundled snapshot.
-///
-/// The snapshot computed at server tick `T` is only usable by the
-/// requesting client if every other client's inputs have been received by
-/// the server up through `T`. Otherwise the server simulated `T` using
-/// extrapolated/decayed input for lagging clients, and the snapshot diverges
-/// from what the clients' own input buffers say.
-///
-/// Concretely: `all_clients_ready` is true when every already-caught-up,
-/// currently active player entity on the server has a
-/// `LeafwingBuffer<PlayerActions>` whose `last_remote_tick` is `Some(tick)`
-/// with `tick >= server_current_tick`.
-///
-/// Players owned by a client that has not yet been admitted through the
-/// server-side catch-up gate are deliberately ignored here. Their
-/// `PlayerActivationTick` remains pending, so the snapshot contains an inert
-/// player that can become active only after the catch-up snapshot is revealed
-/// and input rebroadcast has warmed up.
-///
-/// Checking only `start_tick` is not sufficient: that proves a client sent
-/// at least one input packet, but not that the server has real inputs for
-/// the tick it is about to snapshot. A catch-up snapshot emitted while the
-/// server is still extrapolating a client's input will diverge when the
-/// joining client rolls forward with the real rebroadcast input stream.
-fn update_catch_up_server_readiness(
-    mode: Res<CatchUpMode>,
-    timeline: Res<LocalTimeline>,
-    players: Query<
-        (
-            &PlayerId,
-            Option<&LeafwingBuffer<PlayerActions>>,
-            &PlayerActivationTick,
-        ),
-        With<PlayerId>,
-    >,
-    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
-    mut readiness: ResMut<CatchUpServerReadiness>,
-) {
-    let current_tick = timeline.tick();
-    let mut any = false;
-    let ready = players.iter().all(|(player_id, buffer, activation_tick)| {
-        any = true;
-        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
-            return true;
-        }
-        if activation_tick.is_pending() || current_tick < activation_tick.0 {
-            return true;
-        }
-        match buffer {
-            Some(b) => matches!(b.last_remote_tick, Some(t) if t >= current_tick),
-            None => false,
-        }
-    });
-    readiness.all_clients_ready = any && ready;
-}
-
-fn owner_is_waiting_for_catch_up<'a>(
-    mode: &CatchUpMode,
-    player_id: PeerId,
-    mut client_links: impl Iterator<Item = (&'a RemoteId, bool)>,
-) -> bool {
-    if *mode != CatchUpMode::StateBasedCatchUp {
-        return false;
-    }
-    client_links
-        .find(|(remote_id, _)| remote_id.0 == player_id)
-        .is_none_or(|(_, caught_up)| !caught_up)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn owner_without_completed_catch_up_is_not_active_in_state_based_mode() {
-        let links = [(RemoteId(PeerId::Netcode(2)), false)];
-
-        assert!(owner_is_waiting_for_catch_up(
-            &CatchUpMode::StateBasedCatchUp,
-            PeerId::Netcode(2),
-            links
-                .iter()
-                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
-        ));
-    }
-
-    #[test]
-    fn caught_up_owner_is_active_in_state_based_mode() {
-        let links = [(RemoteId(PeerId::Netcode(2)), true)];
-
-        assert!(!owner_is_waiting_for_catch_up(
-            &CatchUpMode::StateBasedCatchUp,
-            PeerId::Netcode(2),
-            links
-                .iter()
-                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
-        ));
-    }
-
-    #[test]
-    fn catch_up_gate_does_not_apply_in_input_only_mode() {
-        let links = [(RemoteId(PeerId::Netcode(2)), false)];
-
-        assert!(!owner_is_waiting_for_catch_up(
-            &CatchUpMode::InputOnly,
-            PeerId::Netcode(2),
-            links
-                .iter()
-                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
-        ));
-    }
-
-    #[test]
-    fn missing_owner_link_is_treated_as_not_ready_for_state_catch_up() {
-        let links: [(RemoteId, bool); 0] = [];
-
-        assert!(owner_is_waiting_for_catch_up(
-            &CatchUpMode::StateBasedCatchUp,
-            PeerId::Netcode(2),
-            links
-                .iter()
-                .map(|(remote_id, caught_up)| (remote_id, *caught_up)),
-        ));
     }
 }
 
@@ -305,10 +149,11 @@ pub(crate) fn handle_connected(
     if *mode == CatchUpMode::StateBasedCatchUp {
         // `CatchUpGated` hides the registered physics components
         // (Position, Rotation, LinearVelocity, AngularVelocity) from
-        // every client. Each client sends a bodyless `CatchUpRequest`
-        // when it has a pending catch-up marker, and the server flips
-        // visibility to *visible* for every `CatchUpGated` entity at once
-        // — producing a single coherent bundled snapshot.
+        // every client. Each client sends `CatchUpRequest` once it has
+        // enough rebroadcast input to replay from the reveal tick, and
+        // the server flips visibility to *visible* for every
+        // `CatchUpGated` entity at once — producing a single coherent
+        // bundled snapshot.
         // Structural components (`PlayerId`, etc.) still replicate
         // immediately, so clients see the entity + marker and can
         // subscribe to rebroadcast inputs right away.

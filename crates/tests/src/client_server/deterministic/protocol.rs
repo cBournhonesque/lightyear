@@ -12,15 +12,13 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use lightyear::frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
-use lightyear::input::bei::prelude::BEIBuffer;
+use lightyear::input::bei::prelude::{BEIBuffer, BEIStateSequence};
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::InputRegistryExt;
 use lightyear::prelude::input::bei;
-use lightyear::prelude::server::ClientOf;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode, HasCaughtUp,
-    LateJoinCatchUpPlugin,
+    AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode, LateJoinCatchUpPlugin,
 };
 use lightyear_prediction::rollback::DeterministicPredicted;
 use serde::{Deserialize, Serialize};
@@ -65,9 +63,6 @@ pub struct Player;
 #[derive(Debug, InputAction)]
 #[action_output(Vec2)]
 pub struct DetMovement;
-
-#[derive(Reflect)]
-pub struct DetChannel;
 
 #[derive(Bundle)]
 pub struct DetPhysicsBundle {
@@ -114,18 +109,15 @@ impl Plugin for DetProtocolPlugin {
         }));
         app.register_input_action::<DetMovement>();
 
-        app.add_channel::<DetChannel>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        })
-        .add_direction(NetworkDirection::ClientToServer);
-
-        app.add_plugins(LateJoinCatchUpPlugin::<DetChannel>::default());
+        app.add_plugins(LateJoinCatchUpPlugin::default());
         // `FilterRegistry` is auto-initialised in the server-side replication
         // pipeline, but on a pure-client app we need to bring it in explicitly
-        // so `register_catchup_components` can allocate a bit.
+        // so `register_catchup` can allocate a bit.
         app.init_resource::<FilterRegistry>();
-        app.register_catchup_components::<(Position, Rotation, LinearVelocity, AngularVelocity)>();
+        app.register_catchup::<
+            (Position, Rotation, LinearVelocity, AngularVelocity),
+            BEIStateSequence<Player>,
+        >();
 
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
             replication_mode: lightyear_avian2d::plugin::AvianReplicationMode::Position,
@@ -186,9 +178,7 @@ impl Plugin for DetProtocolPlugin {
 
 fn update_player_activation_ticks(
     server: Option<Single<(), With<Server>>>,
-    mode: Res<CatchUpMode>,
     timeline: Res<LocalTimeline>,
-    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
     mut players: Query<(Entity, &DetPlayerId, &mut DetPlayerActivationTick)>,
     actions: Query<(&ActionOf<Player>, &DetBuffer)>,
 ) {
@@ -200,9 +190,6 @@ fn update_player_activation_ticks(
     let current_tick = timeline.tick();
     for (player_entity, player_id, mut activation_tick) in &mut players {
         if !activation_tick.is_pending() {
-            continue;
-        }
-        if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
             continue;
         }
         let ready = actions.iter().any(|(action_of, buffer)| {
@@ -220,19 +207,6 @@ fn update_player_activation_ticks(
             "Activating deterministic test player after input rebroadcast warmup"
         );
     }
-}
-
-pub fn owner_is_waiting_for_catch_up<'a>(
-    mode: &CatchUpMode,
-    player_id: PeerId,
-    mut client_links: impl Iterator<Item = (&'a RemoteId, bool)>,
-) -> bool {
-    if *mode != CatchUpMode::StateBasedCatchUp {
-        return false;
-    }
-    client_links
-        .find(|(remote_id, _)| remote_id.0 == player_id)
-        .is_none_or(|(_, caught_up)| !caught_up)
 }
 
 /// Spawn the ball + walls on every peer. These are NOT replicated —

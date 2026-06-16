@@ -568,9 +568,9 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         // is inserted by user code.
         //
         // - StateBasedCatchUp: while the client is expecting the bundled
-        //   snapshot, user code inserts `AwaitingCatchUpSnapshot` on the
-        //   catch-up-gated entity. Writes land in `ConfirmedHistory<C>`.
-        //   `request_forced_rollback_to_catch_up_tick` removes the marker
+        //   snapshot, the late-join catch-up plugin inserts
+        //   `AwaitingCatchUpSnapshot` on catch-up-gated entities. Writes
+        //   land in `ConfirmedHistory<C>`. The plugin removes the marker
         //   once the forced rollback is scheduled.
         //
         // - InputOnly: `DeterministicPredicted` is present from spawn but
