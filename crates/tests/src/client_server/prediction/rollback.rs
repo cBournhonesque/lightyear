@@ -15,7 +15,7 @@ use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline, Tick};
+use lightyear_core::prelude::{ConfirmedHistory, HistoryState, LocalTimeline, Tick};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode, StateRollbackMetadata};
@@ -46,8 +46,8 @@ fn insert_confirmed<C: Component + PartialEq>(
     value: Option<C>,
 ) {
     let state = match value {
-        Some(value) => ConfirmedState::Confirmed(value),
-        None => ConfirmedState::Removed,
+        Some(value) => HistoryState::Updated(value),
+        None => HistoryState::Removed,
     };
     let mut entity_mut = world.entity_mut(entity);
     if let Some(mut history) = entity_mut.get_mut::<ConfirmedHistory<C>>() {

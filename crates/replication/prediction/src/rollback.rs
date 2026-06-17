@@ -31,7 +31,7 @@ We need:
 
  */
 
-use super::predicted_history::{PredictionHistory, PredictionState};
+use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, SyncComponent};
 use crate::correction::PreviousVisual;
@@ -59,7 +59,7 @@ use core::fmt::Debug;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
@@ -962,20 +962,16 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         } else {
             // Input rollbacks restore from predicted history. State rollbacks
             // use confirmed history instead.
-            predicted_history
-                .get_state(rollback_tick)
-                .cloned()
-                .map(|state| match state {
-                    PredictionState::Removed => ConfirmedState::Removed,
-                    PredictionState::Predicted(value) => ConfirmedState::Confirmed(value),
-                })
+            predicted_history.get_state(rollback_tick).cloned()
         };
         // Keep the prediction history anchored at the actual rollback target.
         // For completed state rollbacks this is the completed mutate tick; for
         // forced state and input rollbacks it may be older than the latest
         // completed mutate tick.
-        predicted_history.clear_until_tick(rollback_tick);
-        predicted_history.clear_after_tick(rollback_tick);
+        predicted_history.clear();
+        if let Some(state) = restore_state.clone() {
+            predicted_history.add_state(rollback_tick, state);
+        }
         trace!(
             target: "lightyear_debug::prediction",
             kind = "prepare_rollback_component",
@@ -1006,13 +1002,17 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     "No history entry for component at rollback tick; leaving current value in place"
                 );
             }
+            None => {
+                entity_mut.try_remove::<C>();
+                trace!("Removing component from predicted entity for rollback");
+            }
             // An explicit removal means the component was authoritatively removed at rollback_tick.
-            Some(ConfirmedState::Removed) => {
+            Some(HistoryState::Removed) => {
                 entity_mut.try_remove::<C>();
                 trace!("Removing component from predicted entity for rollback");
             }
             // Value exists at rollback_tick (either predicted or confirmed)
-            Some(ConfirmedState::Confirmed(correct)) => {
+            Some(HistoryState::Updated(correct)) => {
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted component to predicted");

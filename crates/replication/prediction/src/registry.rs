@@ -23,8 +23,9 @@ use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
+use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prediction::Predicted;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
@@ -347,7 +348,7 @@ impl PredictionRegistry {
         //
         // Do not use `PredictionHistory::get` here: `None` would conflate "no
         // retained sample" with an explicit predicted removal. An explicit
-        // [`PredictionState::Removed`] must still be checked and can roll back
+        // [`HistoryState::Removed`] must still be checked and can roll back
         // against a present confirmed value.
         let Some(predicted_state) = prediction_history.get_state(confirmed_tick) else {
             trace!(
@@ -453,8 +454,8 @@ impl PredictionRegistry {
             "recorded confirmed value in confirmed history"
         );
         let confirmed_state = match confirmed_component {
-            Some(component) => ConfirmedState::Confirmed(component),
-            None => ConfirmedState::Removed,
+            Some(component) => HistoryState::Updated(component),
+            None => HistoryState::Removed,
         };
 
         if let Some(mut confirmed_history) = entity_mut.get_mut::<ConfirmedHistory<C>>() {

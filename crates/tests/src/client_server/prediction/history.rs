@@ -2,8 +2,9 @@ use super::*;
 use crate::protocol::CompFull;
 use bevy::prelude::Entity;
 use lightyear::prelude::*;
+use lightyear_core::history_buffer::HistoryState;
 use lightyear_prediction::Predicted;
-use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
+use lightyear_prediction::predicted_history::PredictionHistory;
 use test_log::test;
 
 #[test]
@@ -133,10 +134,7 @@ fn test_prediction_history_seeded_from_init_message() {
     );
     assert!(
         prediction_history.buffer().iter().all(|(_, state)| {
-            matches!(
-                state,
-                PredictionState::Predicted(_) | PredictionState::Removed
-            )
+            matches!(state, HistoryState::Updated(_) | HistoryState::Removed)
         }),
         "PredictionHistory should contain only local predicted states: {:?}",
         prediction_history
@@ -202,7 +200,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(tick),
-        Some(PredictionState::Predicted(CompFull(2.0))),
+        Some(HistoryState::Updated(CompFull(2.0))),
         "Expected component value to be updated in prediction history"
     );
 
@@ -222,7 +220,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(tick),
-        Some(PredictionState::Removed),
+        Some(HistoryState::Removed),
         "Expected component value to be removed in prediction history"
     );
 
@@ -246,7 +244,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(rollback_tick),
-        Some(PredictionState::Predicted(CompFull(3.0))),
+        Some(HistoryState::Updated(CompFull(3.0))),
         "Expected component value to be restored from history during rollback"
     );
     check_history_consecutive_ticks(&stepper, predicted);
@@ -272,7 +270,7 @@ fn test_update_history() {
             .get_mut::<PredictionHistory<CompFull>>()
             .expect("Expected prediction history to be added")
             .pop_until_tick(mid_tick),
-        Some(PredictionState::Predicted(CompFull(4.0))),
+        Some(HistoryState::Updated(CompFull(4.0))),
         "Expected component value preserved during mid-history rollback"
     );
     check_history_consecutive_ticks(&stepper, predicted);

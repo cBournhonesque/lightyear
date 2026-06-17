@@ -1,59 +1,15 @@
+use crate::history_buffer::HistoryState;
 use crate::tick::Tick;
 use alloc::collections::{VecDeque, vec_deque};
 use alloc::vec::Vec;
 use bevy_ecs::component::Component;
 use bevy_reflect::Reflect;
 
-/// Authoritative state received from the remote for a component.
-#[derive(Debug, PartialEq, Clone, Default, Reflect)]
-pub enum ConfirmedState<C> {
-    #[default]
-    /// The authoritative component state is absent.
-    Removed,
-    /// The authoritative component state is present.
-    Confirmed(C),
-}
-
-impl<C> ConfirmedState<C> {
-    /// Returns true if the component exists in this state.
-    pub fn is_present(&self) -> bool {
-        matches!(self, Self::Confirmed(_))
-    }
-
-    /// Get the inner value if present.
-    pub fn value(&self) -> Option<&C> {
-        match self {
-            Self::Confirmed(value) => Some(value),
-            Self::Removed => None,
-        }
-    }
-
-    /// Get the inner value if present.
-    pub fn into_value(self) -> Option<C> {
-        match self {
-            Self::Confirmed(value) => Some(value),
-            Self::Removed => None,
-        }
-    }
-}
-
-impl<'w, C> From<&'w ConfirmedState<C>> for Option<&'w C> {
-    fn from(value: &'w ConfirmedState<C>) -> Self {
-        value.value()
-    }
-}
-
-impl<C> From<ConfirmedState<C>> for Option<C> {
-    fn from(value: ConfirmedState<C>) -> Self {
-        value.into_value()
-    }
-}
-
 /// A raw entry stored in [`ConfirmedHistory`].
 #[derive(Debug, PartialEq, Clone, Reflect)]
 pub(crate) enum ConfirmedHistoryState<C> {
     /// An explicit authoritative component state received from replication.
-    Explicit(ConfirmedState<C>),
+    Explicit(HistoryState<C>),
     /// The authoritative state is unchanged from the closest preceding entry.
     ///
     /// This is resolved dynamically. If a late explicit update is inserted before
@@ -64,7 +20,7 @@ pub(crate) enum ConfirmedHistoryState<C> {
 
 impl<C> ConfirmedHistoryState<C> {
     /// Return the explicit state stored in this raw entry.
-    fn explicit_state(&self) -> Option<&ConfirmedState<C>> {
+    fn explicit_state(&self) -> Option<&HistoryState<C>> {
         match self {
             Self::Explicit(state) => Some(state),
             Self::SameAsPrecedent => None,
@@ -132,7 +88,7 @@ impl<C> ConfirmedHistory<C> {
     }
 
     /// Get the n-th oldest resolved state in the buffer.
-    pub fn get_nth_state(&self, n: usize) -> Option<(Tick, &ConfirmedState<C>)> {
+    pub fn get_nth_state(&self, n: usize) -> Option<(Tick, &HistoryState<C>)> {
         self.buffer
             .get(n)
             .and_then(|(tick, _)| self.resolve_state_at_index(n).map(|state| (*tick, state)))
@@ -148,7 +104,7 @@ impl<C> ConfirmedHistory<C> {
         let index = self.buffer.len().checked_sub(1)?;
         let (tick, _) = self.buffer.get(index)?;
         self.resolve_state_at_index(index)
-            .and_then(ConfirmedState::value)
+            .and_then(HistoryState::value)
             .map(|value| (*tick, value))
     }
 
@@ -161,17 +117,17 @@ impl<C> ConfirmedHistory<C> {
     /// Get the latest present value at or before `tick`.
     pub fn get_present(&self, tick: Tick) -> Option<&C> {
         self.get_state_at_or_before(tick)
-            .and_then(ConfirmedState::value)
+            .and_then(HistoryState::value)
     }
 
     /// Get the latest authoritative state at or before `tick`.
-    pub fn get_state_at_or_before(&self, tick: Tick) -> Option<&ConfirmedState<C>> {
+    pub fn get_state_at_or_before(&self, tick: Tick) -> Option<&HistoryState<C>> {
         let index = self.index_at_or_before(tick)?;
         self.resolve_state_at_index(index)
     }
 
     /// Get the authoritative state exactly at `tick`.
-    pub fn get_state_at(&self, tick: Tick) -> Option<&ConfirmedState<C>> {
+    pub fn get_state_at(&self, tick: Tick) -> Option<&HistoryState<C>> {
         let pos = self
             .buffer
             .partition_point(|(buffer_tick, _)| *buffer_tick < tick);
@@ -195,7 +151,7 @@ impl<C> ConfirmedHistory<C> {
         partition.checked_sub(1)
     }
 
-    fn resolve_state_at_index(&self, index: usize) -> Option<&ConfirmedState<C>> {
+    fn resolve_state_at_index(&self, index: usize) -> Option<&HistoryState<C>> {
         (0..=index).rev().find_map(|i| {
             self.buffer
                 .get(i)
@@ -203,7 +159,7 @@ impl<C> ConfirmedHistory<C> {
         })
     }
 
-    fn state_before(&self, tick: Tick) -> Option<&ConfirmedState<C>> {
+    fn state_before(&self, tick: Tick) -> Option<&HistoryState<C>> {
         let index = self.index_before(tick)?;
         self.resolve_state_at_index(index)
     }
@@ -237,7 +193,7 @@ impl<C: PartialEq> ConfirmedHistory<C> {
     /// If the state is equal to the effective authoritative state immediately
     /// before `tick`, the raw entry is stored as
     /// an internal unchanged marker.
-    pub fn insert(&mut self, tick: Tick, state: ConfirmedState<C>) {
+    pub fn insert(&mut self, tick: Tick, state: HistoryState<C>) {
         let entry = if self.state_before(tick).is_some_and(|prev| prev == &state) {
             ConfirmedHistoryState::SameAsPrecedent
         } else {
@@ -248,12 +204,12 @@ impl<C: PartialEq> ConfirmedHistory<C> {
 
     /// Insert a present authoritative value while preserving tick order.
     pub fn insert_present(&mut self, tick: Tick, value: C) {
-        self.insert(tick, ConfirmedState::Confirmed(value));
+        self.insert(tick, HistoryState::Updated(value));
     }
 
     /// Insert an authoritative removal while preserving tick order.
     pub fn insert_removed(&mut self, tick: Tick) {
-        self.insert(tick, ConfirmedState::Removed);
+        self.insert(tick, HistoryState::Removed);
     }
 
     /// Insert an authoritative state assuming `tick` is not older than the
@@ -270,7 +226,7 @@ impl<C: PartialEq> ConfirmedHistory<C> {
     /// lookup methods that rely on sorted ticks.
     ///
     /// [`insert`]: ConfirmedHistory::insert
-    pub unsafe fn insert_assume_sorted(&mut self, tick: Tick, state: ConfirmedState<C>) {
+    pub unsafe fn insert_assume_sorted(&mut self, tick: Tick, state: HistoryState<C>) {
         debug_assert!(
             self.buffer
                 .back()
@@ -298,7 +254,7 @@ impl<C: PartialEq> ConfirmedHistory<C> {
     /// The caller must ensure `tick` is not older than the current newest tick.
     pub unsafe fn insert_present_assume_sorted(&mut self, tick: Tick, value: C) {
         // SAFETY: This method's caller must uphold the sorted insertion precondition.
-        unsafe { self.insert_assume_sorted(tick, ConfirmedState::Confirmed(value)) };
+        unsafe { self.insert_assume_sorted(tick, HistoryState::Updated(value)) };
     }
 }
 
@@ -329,7 +285,7 @@ impl<C> ConfirmedHistory<C> {
         if tick <= newest_tick
             || self
                 .resolve_state_at_index(newest_index)
-                .and_then(ConfirmedState::value)
+                .and_then(HistoryState::value)
                 .is_none()
         {
             return None;
@@ -343,7 +299,7 @@ impl<C> ConfirmedHistory<C> {
 }
 
 impl<C: Clone> ConfirmedHistory<C> {
-    fn materialize_front_if_same_as_precedent(&mut self, state: ConfirmedState<C>) {
+    fn materialize_front_if_same_as_precedent(&mut self, state: HistoryState<C>) {
         if let Some((_, raw_state)) = self.buffer.front_mut()
             && raw_state.is_same_as_precedent()
         {
@@ -359,10 +315,10 @@ impl<C: Clone> ConfirmedHistory<C> {
             .and_then(|(_, state)| state.explicit_state())
             .cloned();
         let popped = match self.buffer.pop_front() {
-            Some((tick, ConfirmedHistoryState::Explicit(ConfirmedState::Confirmed(value)))) => {
+            Some((tick, ConfirmedHistoryState::Explicit(HistoryState::Updated(value)))) => {
                 Some((tick, value))
             }
-            Some((_, ConfirmedHistoryState::Explicit(ConfirmedState::Removed)))
+            Some((_, ConfirmedHistoryState::Explicit(HistoryState::Removed)))
             | Some((_, ConfirmedHistoryState::SameAsPrecedent))
             | None => None,
         };
@@ -386,13 +342,21 @@ impl<C: Clone> ConfirmedHistory<C> {
         if partition > 0 {
             self.buffer.drain(0..partition);
         }
-        if let Some(state) = state_at_cut
-            && self
-                .buffer
-                .front()
-                .is_some_and(|(_, state)| state.is_same_as_precedent())
-        {
-            self.materialize_front_if_same_as_precedent(state);
+        if let Some(state) = state_at_cut {
+            match self.buffer.front() {
+                Some((front_tick, _)) if *front_tick == tick => {
+                    self.materialize_front_if_same_as_precedent(state);
+                }
+                Some((front_tick, _)) if *front_tick > tick => {
+                    self.buffer
+                        .push_front((tick, ConfirmedHistoryState::Explicit(state)));
+                }
+                None => {
+                    self.buffer
+                        .push_front((tick, ConfirmedHistoryState::Explicit(state)));
+                }
+                _ => {}
+            }
         }
     }
 }
@@ -412,7 +376,7 @@ impl<'a, C> IntoIterator for &'a ConfirmedHistory<C> {
 
 pub struct ConfirmedHistoryIter<'a, C> {
     iter: vec_deque::Iter<'a, (Tick, ConfirmedHistoryState<C>)>,
-    current_state: Option<&'a ConfirmedState<C>>,
+    current_state: Option<&'a HistoryState<C>>,
 }
 
 impl<'a, C> Iterator for ConfirmedHistoryIter<'a, C> {
@@ -423,7 +387,7 @@ impl<'a, C> Iterator for ConfirmedHistoryIter<'a, C> {
             if let Some(explicit_state) = state.explicit_state() {
                 self.current_state = Some(explicit_state);
             }
-            if let Some(ConfirmedState::Confirmed(value)) = self.current_state {
+            if let Some(HistoryState::Updated(value)) = self.current_state {
                 return Some((*tick, value));
             }
         }
@@ -446,7 +410,7 @@ impl<C: Clone> IntoIterator for ConfirmedHistory<C> {
 
 pub struct ConfirmedHistoryIntoIter<C> {
     iter: vec_deque::IntoIter<(Tick, ConfirmedHistoryState<C>)>,
-    current_state: Option<ConfirmedState<C>>,
+    current_state: Option<HistoryState<C>>,
 }
 
 impl<C: Clone> Iterator for ConfirmedHistoryIntoIter<C> {
@@ -457,7 +421,7 @@ impl<C: Clone> Iterator for ConfirmedHistoryIntoIter<C> {
             if let ConfirmedHistoryState::Explicit(explicit_state) = state {
                 self.current_state = Some(explicit_state);
             }
-            if let Some(ConfirmedState::Confirmed(value)) = self.current_state.as_ref() {
+            if let Some(HistoryState::Updated(value)) = self.current_state.as_ref() {
                 return Some((tick, value.clone()));
             }
         }
@@ -475,11 +439,11 @@ mod tests {
     struct TestValue(f32);
 
     fn explicit(value: f32) -> ConfirmedHistoryState<TestValue> {
-        ConfirmedHistoryState::Explicit(ConfirmedState::Confirmed(TestValue(value)))
+        ConfirmedHistoryState::Explicit(HistoryState::Updated(TestValue(value)))
     }
 
     fn removed() -> ConfirmedHistoryState<TestValue> {
-        ConfirmedHistoryState::Explicit(ConfirmedState::Removed)
+        ConfirmedHistoryState::Explicit(HistoryState::Removed)
     }
 
     fn same() -> ConfirmedHistoryState<TestValue> {
@@ -754,5 +718,21 @@ mod tests {
             &VecDeque::from(vec![(Tick(3), explicit(1.0)), (Tick(7), same())])
         );
         assert_eq!(effective_value_at(&history, Tick(7)), Some(1.0));
+    }
+
+    #[test]
+    fn clear_until_tick_keeps_effective_state_when_all_entries_are_older() {
+        let mut history = ConfirmedHistory::<TestValue>::default();
+        history.insert_present(Tick(1), TestValue(1.0));
+        history.insert_present(Tick(4), TestValue(4.0));
+
+        history.clear_until_tick(Tick(6));
+
+        assert_eq!(
+            history.buffer_raw(),
+            &VecDeque::from(vec![(Tick(6), explicit(4.0))])
+        );
+        assert_eq!(effective_value_at(&history, Tick(6)), Some(4.0));
+        assert_eq!(effective_value_at(&history, Tick(9)), Some(4.0));
     }
 }
