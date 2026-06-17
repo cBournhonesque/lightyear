@@ -26,6 +26,7 @@ server = [
   "lightyear_connection/server",
   "lightyear_inputs/server",
   "lightyear_messages/server",
+  "lightyear_replication/server",
   "lightyear_sync/server",
   "lightyear_transport/server",
 ]

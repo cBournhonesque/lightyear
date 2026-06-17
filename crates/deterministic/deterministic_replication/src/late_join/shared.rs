@@ -46,7 +46,8 @@ pub struct CatchUpRegistry {
 }
 
 impl CatchUpRegistry {
-    /// Returns true if [`AppCatchUpExt::register_catchup`] has been called.
+    /// Returns true if the server-side catch-up visibility scope has been
+    /// registered.
     pub fn is_initialized(&self) -> bool {
         self.initialized
     }
@@ -56,7 +57,7 @@ impl CatchUpRegistry {
 pub trait AppCatchUpExt {
     /// Register the deterministic catch-up component scope and input type.
     ///
-    /// On servers, `T` (typically a tuple of physics components, e.g.
+    /// On server apps, `T` (typically a tuple of physics components, e.g.
     /// `(Position, Rotation, LinearVelocity, AngularVelocity)`) becomes the
     /// Replicon visibility scope hidden behind [`CatchUpGated`].
     ///

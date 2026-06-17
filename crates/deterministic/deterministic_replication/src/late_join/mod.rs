@@ -84,6 +84,7 @@ pub(crate) use client::{
 pub(crate) use server::CatchUpVisibility;
 
 use bevy_app::{App, Plugin};
+use bevy_replicon::shared::{AuthMethod, RepliconSharedPlugin};
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_inputs::input_message::ActionStateSequence;
 use lightyear_messages::prelude::{AppMessageExt, AppTriggerExt};
@@ -129,6 +130,12 @@ impl AppCatchUpExt for App {
 
 impl Plugin for LateJoinCatchUpPlugin {
     fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<RepliconSharedPlugin>() {
+            app.add_plugins(RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            });
+        }
+
         app.add_channel::<MetadataChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             ..Default::default()

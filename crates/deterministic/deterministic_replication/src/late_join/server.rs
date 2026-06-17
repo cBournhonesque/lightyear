@@ -6,6 +6,7 @@ use bevy_ecs::prelude::*;
 use bevy_ecs::system::Commands;
 use bevy_replicon::prelude::{AppVisibilityExt, FilterScope, RepliconTick, VisibilityFilter};
 use bevy_replicon::server::server_tick::ServerTick;
+use bevy_replicon::shared::{AuthMethod, RepliconSharedPlugin};
 use core::marker::PhantomData;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
@@ -14,6 +15,7 @@ use lightyear_link::server::LinkOf;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::EventSender;
 use lightyear_messages::receive::MessageReceiver;
+use lightyear_replication::LightyearRepliconServerBackend;
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::prelude::ReplicationSystems;
 use tracing::debug;
@@ -76,6 +78,15 @@ pub(crate) fn register_catchup<T: FilterScope + Send + Sync + 'static>(app: &mut
 }
 
 pub(crate) fn build(app: &mut App) {
+    if !app.is_plugin_added::<RepliconSharedPlugin>() {
+        app.add_plugins(RepliconSharedPlugin {
+            auth_method: AuthMethod::None,
+        });
+    }
+    if !app.is_plugin_added::<LightyearRepliconServerBackend>() {
+        app.add_plugins(LightyearRepliconServerBackend);
+    }
+
     app.add_observer(mark_client_caught_up_if_no_gated_on_connect);
     app.add_systems(
         PostUpdate,
