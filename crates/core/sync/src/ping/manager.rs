@@ -45,13 +45,14 @@ pub struct PingManager {
     /// (when the connection's send_timer is ready)
     pongs_to_send: Vec<(Pong, Instant)>,
 
-    // TODO: we could actually compute stats from every single packet, not just pings/pongs
-    /// Estimator used to compute RTT/Jitter from the pongs received
+    /// Estimator used to compute RTT/Jitter from pongs and packet acknowledgements.
     pub rtt_estimator_ewma: RttEstimatorEwma,
     /// The number of pings we have sent
     pub(crate) pings_sent: u32,
     /// The number of pongs we have received
     pub pongs_recv: u32,
+    /// The number of latency samples received from pongs or packet acknowledgements.
+    latency_samples_recv: u32,
 }
 
 impl Default for PingManager {
@@ -65,6 +66,7 @@ impl Default for PingManager {
             rtt_estimator_ewma: RttEstimatorEwma::default(),
             pings_sent: 0,
             pongs_recv: 0,
+            latency_samples_recv: 0,
         }
     }
 }
@@ -78,6 +80,7 @@ impl PingManager {
         self.rtt_estimator_ewma.reset();
         self.pings_sent = 0;
         self.pongs_recv = 0;
+        self.latency_samples_recv = 0;
     }
 }
 
@@ -94,6 +97,7 @@ impl PingManager {
             rtt_estimator_ewma: RttEstimatorEwma::default(),
             pings_sent: 0,
             pongs_recv: 0,
+            latency_samples_recv: 0,
         }
     }
 
@@ -107,9 +111,35 @@ impl PingManager {
         self.rtt_estimator_ewma.final_stats.jitter
     }
 
+    /// Return the number of RTT samples used to estimate latency.
+    pub fn latency_samples_recv(&self) -> u32 {
+        self.latency_samples_recv
+    }
+
     /// Update the ping manager after a delta update
     pub(crate) fn update(&mut self, time: &Time<Real>) {
         self.ping_timer.tick(time.delta());
+    }
+
+    fn record_rtt_sample(&mut self, rtt_sample: Duration) {
+        self.latency_samples_recv += 1;
+        self.rtt_estimator_ewma.update_with_new_sample(rtt_sample);
+    }
+
+    /// Process an RTT sample measured from an ordinary packet acknowledgement.
+    pub fn process_packet_rtt_sample(&mut self, rtt_sample: Duration) {
+        self.record_rtt_sample(rtt_sample);
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "packet_ack_rtt_sample",
+            schedule = "PreUpdate",
+            sample_point = "PreUpdate",
+            rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
+            latency_samples_recv = self.latency_samples_recv,
+            estimated_rtt_ms = self.rtt().as_secs_f64() * 1000.0,
+            jitter_ms = self.jitter().as_secs_f64() * 1000.0,
+            "processed packet ack RTT sample"
+        );
     }
 
     /// Check if we are ready to send a ping to the remote
@@ -160,8 +190,7 @@ impl PingManager {
             let round_trip_delay = rtt.saturating_sub(server_process_time);
 
             // recompute stats whenever we get a new pong
-            self.rtt_estimator_ewma
-                .update_with_new_sample(round_trip_delay);
+            self.record_rtt_sample(round_trip_delay);
             trace!(
                 target: "lightyear_debug::sync",
                 kind = "pong_recv",
@@ -169,6 +198,7 @@ impl PingManager {
                 sample_point = "PreUpdate",
                 ping_id = pong.ping_id.0,
                 pongs_recv = self.pongs_recv,
+                latency_samples_recv = self.latency_samples_recv,
                 rtt_ms = rtt.as_secs_f64() * 1000.0,
                 server_process_ms = server_process_time.as_secs_f64() * 1000.0,
                 round_trip_delay_ms = round_trip_delay.as_secs_f64() * 1000.0,
@@ -208,6 +238,22 @@ impl PingManager {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[test]
+    fn packet_ack_rtt_samples_update_latency_stats_without_pongs() {
+        let mut ping_manager = PingManager::default();
+
+        ping_manager.process_packet_rtt_sample(Duration::from_millis(50));
+
+        assert_eq!(ping_manager.pongs_recv, 0);
+        assert_eq!(ping_manager.latency_samples_recv(), 1);
+        assert_eq!(ping_manager.rtt(), Duration::from_millis(50));
+        assert_eq!(
+            ping_manager.jitter(),
+            Duration::from_millis(12) + Duration::from_micros(500)
+        );
+    }
 
     // #[test]
     // fn test_send_pings() {

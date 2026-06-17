@@ -1,7 +1,7 @@
 use alloc::{vec, vec::Vec};
 use bevy_platform::hash::FixedHasher;
 use core::time::Duration;
-use indexmap::{IndexMap, IndexSet};
+use indexmap::IndexMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -112,7 +112,7 @@ pub struct PacketHeaderManager {
     sent_packets_not_acked: IndexMap<PacketId, Duration, FixedHasher>,
     stats_manager: PacketStatsManager,
     pub(crate) lost_packets: Vec<PacketId>,
-    pub(crate) newly_acked_packets: IndexSet<PacketId, FixedHasher>,
+    pub(crate) newly_acked_packets: IndexMap<PacketId, Duration, FixedHasher>,
 
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
@@ -137,7 +137,7 @@ impl PacketHeaderManager {
             stats_manager: PacketStatsManager::default(),
             sent_packets_not_acked: IndexMap::default(),
             lost_packets: vec![],
-            newly_acked_packets: IndexSet::default(),
+            newly_acked_packets: IndexMap::default(),
             recv_buffer: ReceiveBuffer::new(),
             nack_rtt_multiple,
         }
@@ -169,41 +169,58 @@ impl PacketHeaderManager {
     /// Process the header of a received packet (update ack metadata)
     ///
     /// Returns the list of packets that have been newly acked by the remote
-    pub(crate) fn process_recv_packet_header(&mut self, header: &PacketHeader) {
+    pub(crate) fn process_recv_packet_header(
+        &mut self,
+        header: &PacketHeader,
+        real: Duration,
+    ) -> Vec<(PacketId, Duration)> {
+        let mut newly_acked_packets = vec![];
         // update the receive buffer
         self.stats_manager.received_packet();
         self.recv_buffer.recv_packet(header.packet_id);
 
         // read the ack information (ack id + ack bitfield) from the received header, and update
         // the list of our sent packets that have not been acked yet
-        if let Some(packet) = self.update_sent_packets_not_acked(&header.last_ack_packet_id) {
-            self.stats_manager.sent_packet_acked();
-            self.newly_acked_packets.insert(packet);
+        if let Some((packet, time_sent)) =
+            self.update_sent_packets_not_acked(&header.last_ack_packet_id)
+        {
+            self.record_newly_acked_packet(packet, real, time_sent, &mut newly_acked_packets);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u32));
             if header.get_bitfield_bit(i - 1)
-                && let Some(packet) = self.update_sent_packets_not_acked(&packet_id)
+                && let Some((packet, time_sent)) = self.update_sent_packets_not_acked(&packet_id)
             {
-                self.stats_manager.sent_packet_acked();
-                self.newly_acked_packets.insert(packet);
+                self.record_newly_acked_packet(packet, real, time_sent, &mut newly_acked_packets);
             }
         }
+        newly_acked_packets
+    }
+
+    fn record_newly_acked_packet(
+        &mut self,
+        packet: PacketId,
+        real: Duration,
+        time_sent: Duration,
+        newly_acked_packets: &mut Vec<(PacketId, Duration)>,
+    ) {
+        self.stats_manager.sent_packet_acked();
+        let rtt_sample = real.saturating_sub(time_sent);
+        self.newly_acked_packets.insert(packet, rtt_sample);
+        newly_acked_packets.push((packet, rtt_sample));
     }
 
     /// Update the list of sent packets that have not been acked yet
     /// when we receive confirmation that packet_id was delivered
     ///
     /// Also potentially notify the channels/etc. that the packet was delivered.
-    fn update_sent_packets_not_acked(&mut self, packet_id: &PacketId) -> Option<PacketId> {
+    fn update_sent_packets_not_acked(
+        &mut self,
+        packet_id: &PacketId,
+    ) -> Option<(PacketId, Duration)> {
         if self.sent_packets_not_acked.contains_key(packet_id) {
-            // TODO: make this non-blocking, but keep trying until it works?
-            // notify that one of the packets we sent got acked
-            // TODO: important to compute RTT
-            // self.ack_notification_sender.send(*packet_id)?;
-
-            self.sent_packets_not_acked.swap_remove(packet_id);
-            return Some(*packet_id);
+            let time_sent = self.sent_packets_not_acked.swap_remove(packet_id)?;
+            return Some((*packet_id, time_sent));
         }
         None
     }
@@ -324,9 +341,10 @@ impl ReceiveBuffer {
     }
 }
 
-// TODO: add test for notification of packet delivered
 #[cfg(test)]
 mod tests {
+    use alloc::vec;
+    use core::time::Duration;
     use lightyear_serde::ToBytes;
 
     use super::*;
@@ -399,5 +417,69 @@ mod tests {
         let read_header = PacketHeader::from_bytes(&mut reader)?;
         assert_eq!(header, read_header);
         Ok(())
+    }
+
+    #[test]
+    fn packet_ack_produces_rtt_sample_from_latest_ack() {
+        let mut sender = PacketHeaderManager::new(1.5);
+        let mut receiver = PacketHeaderManager::new(1.5);
+
+        let sent_header =
+            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(10), Tick(1));
+        assert!(
+            receiver
+                .process_recv_packet_header(&sent_header, Duration::from_millis(25))
+                .is_empty()
+        );
+
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(25),
+            Tick(2),
+        );
+        let acked_packets =
+            sender.process_recv_packet_header(&ack_header, Duration::from_millis(60));
+
+        assert_eq!(
+            acked_packets,
+            vec![(PacketId(0), Duration::from_millis(50))]
+        );
+        assert_eq!(
+            sender.newly_acked_packets.get(&PacketId(0)),
+            Some(&Duration::from_millis(50))
+        );
+    }
+
+    #[test]
+    fn packet_ack_bitfield_produces_rtt_samples_for_older_packets() {
+        let mut sender = PacketHeaderManager::new(1.5);
+        let mut receiver = PacketHeaderManager::new(1.5);
+
+        let sent_0 =
+            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(10), Tick(1));
+        let _sent_1 =
+            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(20), Tick(2));
+        let sent_2 =
+            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(30), Tick(3));
+
+        receiver.process_recv_packet_header(&sent_0, Duration::from_millis(15));
+        receiver.process_recv_packet_header(&sent_2, Duration::from_millis(35));
+
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(40),
+            Tick(4),
+        );
+        let acked_packets =
+            sender.process_recv_packet_header(&ack_header, Duration::from_millis(80));
+
+        assert_eq!(
+            acked_packets,
+            vec![
+                (PacketId(2), Duration::from_millis(50)),
+                (PacketId(0), Duration::from_millis(70)),
+            ]
+        );
+        assert!(!sender.newly_acked_packets.contains_key(&PacketId(1)));
     }
 }
