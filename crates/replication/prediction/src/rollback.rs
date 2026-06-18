@@ -1006,6 +1006,10 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     "No history entry for component at rollback tick; leaving current value in place"
                 );
             }
+            None => {
+                entity_mut.try_remove::<C>();
+                trace!("Removing component from predicted entity for rollback");
+            }
             // An explicit removal means the component was authoritatively removed at rollback_tick.
             Some(ConfirmedState::Removed) => {
                 entity_mut.try_remove::<C>();
