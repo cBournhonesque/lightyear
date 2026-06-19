@@ -61,12 +61,12 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, is_in_rollback};
+use lightyear_core::timeline::{is_in_rollback, Rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
 use lightyear_replication::registry::ComponentRegistry;
-use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
+use lightyear_replication::{checkpoint::ReplicationCheckpointMap, ReplicationSystems};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;
@@ -300,39 +300,6 @@ impl DeterministicPredicted {
     }
 }
 
-/// Marker component indicating that an entity is currently awaiting a
-/// state-based catch-up snapshot from the server, and that any replicated
-/// component updates should be routed into `ConfirmedHistory<C>` via the
-/// marker-fn registered by `add_confirmed_write` rather than the live
-/// component.
-///
-/// ## Why this marker (and not [`DeterministicPredicted`])
-///
-/// We deliberately do NOT gate `add_confirmed_write` on
-/// [`DeterministicPredicted`] because that marker applies to *both*
-/// catch-up and input-only deterministic flows:
-///
-/// - **StateBasedCatchUp**: the client inserts `AwaitingCatchUpSnapshot`
-///   when it's expecting a bundled snapshot. While the marker is present,
-///   replicated Position/Rotation/etc. go into `ConfirmedHistory` as
-///   confirmed values at the snapshot tick. The late-join catch-up plugin
-///   removes this marker when it schedules the forced rollback. The
-///   forced-rollback `prepare_rollback` reads confirmed history to restore
-///   the live component.
-///
-/// - **InputOnly** (no catch-up snapshot): the entity is
-///   `DeterministicPredicted` from the start, but there's no catch-up
-///   phase. The initial `replicate_once` value should land directly on
-///   the live component (not in history), so simulation can proceed
-///   without a forced rollback. Gating on `DeterministicPredicted` would
-///   break this: Position would be trapped in history and the live
-///   component would stay at its default value.
-///
-/// In both flows, once catch-up is complete (or never needed), routine
-/// replicated updates behave as normal live writes.
-#[derive(Component, Debug, Default)]
-pub struct AwaitingCatchUpSnapshot;
-
 /// Marker component to indicate that the entity will be completely excluded from rollbacks.
 /// It won't be part of rollback checks, and it won't be rolled back to a past state if a rollback happens.
 #[derive(Component, Debug)]
@@ -403,7 +370,7 @@ fn check_rollback(
     >,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
-    awaiting_catchup: Query<(), With<AwaitingCatchUpSnapshot>>,
+    awaiting_catchup: Query<(), With<CatchUpGated>>,
     deterministic_predicted: Query<&DeterministicPredicted>,
     parallel_commands: ParallelCommands,
     mut commands: Commands,
@@ -1301,3 +1268,16 @@ pub enum RollbackState {
     /// i.e. the predicted component values will be reverted to this tick, and we will start running FixedUpdate from the next tick
     RollbackStart(Tick),
 }
+
+/// Marker component added by server-side user code to entities whose
+/// catch-up-gated components should be hidden from clients until the client
+/// has completed the initial bundled catch-up snapshot.
+///
+/// On [`Add`], the registered visibility filter is inserted on the same
+/// entity. Replicon hides the registered catch-up component scope from clients
+/// that do not yet have [`HasCaughtUp`] on their client link entity.
+///
+/// In the deterministic_replication example this is inserted on the player
+/// entity next to `Replicate::to_clients(NetworkTarget::All)`.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CatchUpGated;

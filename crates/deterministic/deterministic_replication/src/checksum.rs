@@ -6,7 +6,7 @@
 //! Because of this, we will compute an order-independent checksum by only hashing component data and then XOR-ing the results together.
 
 use crate::archetypes::ChecksumWorld;
-#[cfg(feature = "client")]
+#[cfg(all(feature = "client", feature = "replication"))]
 use crate::late_join::CatchUpManager;
 use crate::plugin::DeterministicReplicationPlugin;
 use alloc::collections::BTreeMap;
@@ -72,6 +72,7 @@ impl ChecksumSendPlugin {
             (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
+        #[cfg(feature = "replication")]
         catchup_manager: Option<Single<&CatchUpManager, With<Client>>>,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
@@ -83,6 +84,7 @@ impl ChecksumSendPlugin {
         if tick > current_tick {
             return;
         }
+        #[cfg(feature = "replication")]
         // Skip while catch-up is running. The client is intentionally hashing
         // pre-catch-up state until the bundled snapshot has been replayed.
         if catchup_manager.is_some_and(|manager| manager.suppresses_checksums()) {

@@ -1,13 +1,13 @@
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
-use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::color_from_id;
-use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpSnapshotReady};
+use lightyear_deterministic_replication::prelude::CatchUpSnapshotReady;
 
 pub struct ExampleClientPlugin;
 

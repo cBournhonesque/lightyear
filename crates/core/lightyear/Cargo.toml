@@ -94,7 +94,7 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables replicating entities between two peers
-replication = ["dep:lightyear_replication"]
+replication = ["dep:lightyear_replication", "lightyear_deterministic_replication?/replication"]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",

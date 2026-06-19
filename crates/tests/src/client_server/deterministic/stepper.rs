@@ -354,7 +354,7 @@ pub fn spawn_player_on_server(
         action_prespawn_hash,
     };
     use bevy_enhanced_input::prelude::{Action, ActionOf};
-    use lightyear_deterministic_replication::prelude::CatchUpGated;
+    use lightyear_prediction::rollback::CatchUpGated;
     use lightyear_prediction::rollback::DeterministicPredicted;
     use lightyear_replication::prelude::PreSpawned;
 

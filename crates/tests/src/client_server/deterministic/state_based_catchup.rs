@@ -17,7 +17,7 @@ use crate::client_server::deterministic::protocol::{
     Player,
 };
 use crate::client_server::deterministic::stepper::{
-    DetStepper, spawn_local_action_on_client, spawn_player_on_server,
+    spawn_local_action_on_client, spawn_player_on_server, DetStepper,
 };
 use approx::assert_relative_eq;
 use avian2d::prelude::*;
@@ -29,12 +29,13 @@ use lightyear::input::bei::input_message::ActionsSnapshot;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AwaitingCatchUpSnapshot, CatchUpGated, CatchUpSnapshotReady,
+    CatchUpSnapshotReady,
 };
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::PreSpawned;
 use std::collections::HashMap;
 use test_log::test;
+use lightyear_prediction::rollback::CatchUpGated;
 
 /// Resource on each client driving a deterministic pseudo-random walk
 /// for its BEI action.
@@ -688,7 +689,7 @@ fn assert_single_ball_entity(world: &mut World, label: &str) -> Entity {
         Has<Position>,
         Has<LinearVelocity>,
         Has<DeterministicPredicted>,
-        Has<AwaitingCatchUpSnapshot>,
+        Has<CatchUpGated>,
     ), With<DetBallMarker>>();
     let rows = balls
         .iter(world)
@@ -733,15 +734,14 @@ fn assert_no_awaiting_catchup(world: &mut World, label: &str) {
         Entity,
         Option<&DetPlayerId>,
         Has<DetBallMarker>,
-        Has<CatchUpGated>,
-    ), With<AwaitingCatchUpSnapshot>>();
+    ), With<CatchUpGated>>();
     let rows = awaiting
         .iter(world)
-        .map(|(entity, player_id, ball, gated)| (entity, player_id.map(|id| id.0), ball, gated))
+        .map(|(entity, player_id, ball)| (entity, player_id.map(|id| id.0), ball))
         .collect::<Vec<_>>();
     assert!(
         rows.is_empty(),
-        "expected no AwaitingCatchUpSnapshot entities in {label}; rows={rows:?}"
+        "expected no CatchupGated entities in {label}; rows={rows:?}"
     );
 }
 
@@ -1196,7 +1196,7 @@ fn log_entity_availability(label: &str, world: &mut World, peers: &[PeerId]) {
         Option<&DetBallMarker>,
         Option<&Position>,
         Has<DeterministicPredicted>,
-        Has<AwaitingCatchUpSnapshot>,
+        Has<CatchUpGated>,
         Has<DisableRollback>,
     )>();
     let entities: Vec<_> = query
@@ -1483,8 +1483,3 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     );
     compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
 }
-
-// Suppress unused-import warnings when only some items of PreSpawned are
-// used via the stepper helpers.
-#[allow(dead_code)]
-fn _dummy(_: PreSpawned) {}

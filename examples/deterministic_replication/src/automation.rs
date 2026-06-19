@@ -5,7 +5,7 @@ use leafwing_input_manager::plugin::InputManagerSystem;
 use leafwing_input_manager::prelude::{ActionState, InputMap};
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{AwaitingCatchUpSnapshot, CatchUpMode};
+use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
 use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
@@ -204,7 +204,7 @@ mod client {
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             Option<&PlayerActivationTick>,
-            Has<AwaitingCatchUpSnapshot>,
+            Has<CatchUpGated>,
         )>,
         mut query: Query<&mut ActionState<PlayerActions>, With<InputMap<PlayerActions>>>,
     ) {

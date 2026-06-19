@@ -929,7 +929,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    last_confirmed_input: Single<(&LastConfirmedInput, &InputTimelineConfig), With<Client>>,
+    last_confirmed_input: Single<(&LastConfirmedInput, &InputTimelineConfig), (With<Client>, With<IsSynced<InputTimeline>>)>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot, S::Action>,
         (Without<S::Marker>, Allow<PredictionDisable>),
@@ -953,11 +953,6 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
             last_confirmed_input.tick.set_if_lower(end_tick);
         }
     });
-    trace!(
-        kind = ?DebugName::type_name::<S::Action>(),
-        "Updated LastConfirmedTick to tick {:?}",
-        last_confirmed_input.tick.get()
-    );
     trace!(
         target: "lightyear_debug::input",
         kind = "last_confirmed_input",

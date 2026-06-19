@@ -100,7 +100,7 @@ pub struct PredictionManager {
 }
 
 /// Store the most recent confirmed input across all remote clients.
-#[derive(Component, Debug, Default, Reflect)]
+#[derive(Component, Debug, Reflect)]
 pub struct LastConfirmedInput {
     /// Updated via [`AtomicTick::set_if_lower`] to track the minimum last-confirmed tick
     /// across all remote clients. Reset to a high value each frame by
@@ -112,10 +112,28 @@ pub struct LastConfirmedInput {
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
 }
 
+impl Default for LastConfirmedInput {
+    fn default() -> Self {
+        Self {
+            tick: lightyear_core::tick::AtomicTick::new_max(),
+            received_any_messages: bevy_platform::sync::atomic::AtomicBool::new(false),
+        }
+    }
+}
+
 impl LastConfirmedInput {
+    /// Returns true if we've received any confirmed input from remote clients this tick
     pub fn received_input(&self) -> bool {
         self.received_any_messages
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Return the last confirmed input tick, or None if we haven't received any confirmed input yet.
+    pub fn get(&self) -> Option<Tick> {
+        match self.tick.get() {
+            tick if tick == Tick(u32::MAX) => None,
+             tick => Some(tick),
+        }
     }
 }
 
@@ -316,6 +334,14 @@ impl StateRollbackMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn last_confirmed_input_default_starts_unset() {
+        let last_confirmed_input = LastConfirmedInput::default();
+
+        assert_eq!(last_confirmed_input.tick.get(), Tick(u32::MAX));
+        assert!(!last_confirmed_input.received_input());
+    }
 
     #[test]
     fn mismatch_history_tracks_exact_ticks() {

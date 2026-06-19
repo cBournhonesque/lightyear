@@ -18,6 +18,3 @@ mod protocol;
 mod state_based_catchup;
 mod stepper;
 
-// TODO: late_join will be enabled once input_only + state_based_catchup
-// pass under random inputs + collisions.
-// mod late_join;

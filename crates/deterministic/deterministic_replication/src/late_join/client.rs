@@ -1,5 +1,4 @@
-use alloc::vec::Vec;
-use bevy_app::{App, PostUpdate, PreUpdate};
+use bevy_app::{App, PreUpdate};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::*;
 use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
@@ -7,23 +6,20 @@ use bevy_replicon::prelude::RepliconTick;
 use core::time::Duration;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::tick::{Tick, TickDuration};
-use lightyear_inputs::client::InputSystems;
-use lightyear_inputs::input_buffer::InputBuffer;
-use lightyear_inputs::input_message::ActionStateSequence;
-use lightyear_messages::plugin::MessageSystems;
+use lightyear_core::tick::{Tick};
 use lightyear_messages::prelude::{MessageSender, RemoteEvent};
-use lightyear_prediction::prelude::{PredictionSystems, StateRollbackMetadata};
-use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+use lightyear_prediction::prelude::{
+    LastConfirmedInput, PredictionSystems, StateRollbackMetadata,
+};
 use lightyear_replication::metadata::MetadataChannel;
-use lightyear_replication::prelude::{ConfirmHistory, ReplicationSystems};
+use lightyear_replication::prelude::{ReplicationSystems};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
-use tracing::debug;
-
+use tracing::{debug, info};
+use lightyear_prediction::rollback::CatchUpGated;
 use crate::mode::CatchUpMode;
 
 use super::{
-    AwaitingCatchUpSnapshot, CatchUpGated, CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,
+    CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,
 };
 
 /// Client-side timeout for an in-flight catch-up request.
@@ -37,6 +33,7 @@ pub struct CatchUpClientTimeout {
 }
 
 const CATCH_UP_REQUEST_RETRY_TICKS: i32 = 8;
+const CATCH_UP_MAX_REQUESTS: u8 = 10;
 
 impl Default for CatchUpClientTimeout {
     fn default() -> Self {
@@ -61,8 +58,7 @@ pub(crate) struct PendingCatchUpSnapshot {
 pub struct CatchUpManager {
     pub(crate) completed: bool,
     pub(crate) pending_snapshot: Option<PendingCatchUpSnapshot>,
-    pub(crate) input_checks_this_frame: usize,
-    pub(crate) input_safe_tick: Option<Tick>,
+    pub(crate) requests_sent: u8,
     pub(crate) request_sent_at_tick: Option<Tick>,
     pub(crate) request_input_safe_tick: Option<Tick>,
     pub(crate) last_emitted_replicon_tick: Option<RepliconTick>,
@@ -74,8 +70,7 @@ impl Default for CatchUpManager {
         Self {
             completed: false,
             pending_snapshot: None,
-            input_checks_this_frame: 0,
-            input_safe_tick: Some(Tick(u32::MAX)),
+            requests_sent: 0,
             request_sent_at_tick: None,
             request_input_safe_tick: None,
             last_emitted_replicon_tick: None,
@@ -92,57 +87,28 @@ impl CatchUpManager {
     }
 }
 
-pub(crate) fn register_catchup<S: ActionStateSequence>(app: &mut App) {
-    app.add_systems(
-        PreUpdate,
-        update_client_catchup_input_readiness::<S>
-            .in_set(CatchUpSystems::CheckClientReplayReadiness)
-            .run_if(initial_catchup_is_active),
-    );
-}
 
 pub(crate) fn build(app: &mut App) {
     app.init_resource::<CatchUpClientTimeout>();
     app.register_required_components::<Client, CatchUpManager>();
+    app.add_observer(on_receive_catchup_gated);
     app.add_observer(receive_catch_up_snapshot_ready);
     app.configure_sets(
         PreUpdate,
-        CatchUpSystems::ResetReadiness
-            .after(MessageSystems::Receive)
-            .after(InputSystems::ReceiveInputMessages),
-    );
-    app.configure_sets(
-        PreUpdate,
         (
-            CatchUpSystems::DetectSnapshotReady,
-            CatchUpSystems::CheckClientReplayReadiness,
-            CatchUpSystems::FinalizeSnapshot,
+            CatchUpSystems::SendCatchUpRequest,
+            CatchUpSystems::TriggerCatchUpRollback,
         )
-            .chain()
+            .run_if(initial_catchup_is_active)
             .after(ReplicationSystems::Receive)
-            .after(CatchUpSystems::ResetReadiness)
             .before(PredictionSystems::Rollback),
     );
     app.add_systems(
         PreUpdate,
         (
-            reset_catchup_input_readiness.in_set(CatchUpSystems::ResetReadiness),
-            mark_awaiting_catchup_gated_entities.before(CatchUpSystems::DetectSnapshotReady),
-            finalize_catch_up_snapshot.in_set(CatchUpSystems::FinalizeSnapshot),
+            send_catchup_request.in_set(CatchUpSystems::SendCatchUpRequest),
+            trigger_snapshot_rollback.in_set(CatchUpSystems::TriggerCatchUpRollback),
         )
-            .run_if(initial_catchup_is_active),
-    );
-    app.add_systems(
-        PreUpdate,
-        detect_catch_up_snapshot_ready
-            .in_set(CatchUpSystems::DetectSnapshotReady)
-            .run_if(state_based_catchup_client_exists),
-    );
-    app.add_systems(
-        PostUpdate,
-        panic_if_catchup_request_stalled
-            .run_if(initial_catchup_is_active)
-            .before(MessageSystems::Send),
     );
 }
 
@@ -156,149 +122,73 @@ fn initial_catchup_is_active(
     *mode != CatchUpMode::InputOnly && manager.is_some_and(|manager| !manager.completed)
 }
 
-fn state_based_catchup_client_exists(
-    mode: Option<Res<CatchUpMode>>,
-    manager: Option<Single<&CatchUpManager, With<Client>>>,
-) -> bool {
-    let Some(mode) = mode else {
-        return false;
-    };
-    *mode != CatchUpMode::InputOnly && manager.is_some()
-}
-
-/// Client system: resets the accumulated input-safe tick before each
-/// registered input type contributes its buffer coverage.
-fn reset_catchup_input_readiness(mut managers: Query<&mut CatchUpManager, With<Client>>) {
-    for mut manager in &mut managers {
-        manager.input_checks_this_frame = 0;
-        manager.input_safe_tick = Some(Tick(u32::MAX));
-    }
-}
-
-/// Client system: contributes the replay-safe tick for one registered input
-/// sequence type and sends a [`CatchUpRequest`] once that tick is usable.
+/// Client system: sends a [`CatchUpRequest`] once replicated input state is
+/// synced and the input plugin has confirmed a rollback-safe tick across
+/// remote clients.
 ///
-/// Before a request is accepted, this computes the minimum tick covered by the
-/// local and rebroadcast buffers. After an accepted snapshot exists, it also
-/// pads missing buffer prefixes so rollback replay can start at the snapshot
-/// tick.
-pub(crate) fn update_client_catchup_input_readiness<S: ActionStateSequence>(
+/// [`LastConfirmedInput`] is updated by the input plugin from all registered
+/// remote input buffers. We use the previous frame's value here; being one
+/// frame conservative is preferable to duplicating that input coverage logic.
+pub(crate) fn send_catchup_request(
     timeline: Res<LocalTimeline>,
-    prediction_manager: Single<&lightyear_prediction::prelude::PredictionManager, With<Client>>,
-    client: Option<
-        Single<
+    client: Single<
             (
                 Entity,
                 &mut CatchUpManager,
-                Option<&mut MessageSender<CatchUpRequest>>,
+                &LastConfirmedInput,
+                &mut MessageSender<CatchUpRequest>,
                 Has<IsSynced<InputTimeline>>,
             ),
             With<Client>,
         >,
-    >,
-    awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
-    mut buffers: Query<(&mut InputBuffer<S::Snapshot, S::Action>, Has<S::Marker>)>,
+    awaiting: Query<(), With<CatchUpGated>>,
 ) {
-    let (client_entity, mut manager, mut sender, is_synced) = client.into_inner();
-    manager.input_checks_this_frame += 1;
+    let (
+        client_entity,
+        mut manager,
+        last_confirmed_input,
+        mut sender,
+        is_synced,
+    ) = client.into_inner();
+    if !is_synced {
+        return;
+    }
     let local_tick = timeline.tick();
-    let max_rollback_ticks = prediction_manager
-        .as_ref()
-        .map(|manager| manager.rollback_policy.max_rollback_ticks)
-        .unwrap_or(100);
-
-    let mut saw_buffer = false;
-    let mut safe_tick = Tick(u32::MAX);
-    let snapshot_tick = manager
-        .pending_snapshot
-        .as_ref()
-        .map(|snapshot| snapshot.server_tick);
-    for (mut buffer, is_local) in buffers.iter_mut() {
-        if buffer.start_tick.is_none() && buffer.last_remote_tick.is_none() {
-            continue;
-        }
-        saw_buffer = true;
-        let Some(buffer_safe_tick) = (if is_local {
-            buffer.end_tick()
-        } else {
-            buffer.last_remote_tick
-        }) else {
-            manager.input_safe_tick = None;
-            return;
-        };
-        if let Some(snapshot_tick) = snapshot_tick
-            && buffer_safe_tick >= snapshot_tick
-        {
-            pad_input_buffer_prefix::<S>(&mut buffer, snapshot_tick);
-        }
-        if buffer_safe_tick < safe_tick {
-            safe_tick = buffer_safe_tick;
-        }
-    }
-    if !saw_buffer || local_tick - safe_tick > i32::from(max_rollback_ticks) {
-        manager.input_safe_tick = None;
-        return;
-    }
-    if let Some(current) = manager.input_safe_tick
-        && safe_tick < current
-    {
-        manager.input_safe_tick = Some(safe_tick);
-    }
-    if awaiting.is_empty() || !is_synced || manager.pending_snapshot.is_some() {
-        return;
-    }
-    let Some(input_safe_tick) = catch_up_input_safe_tick(&manager) else {
+    let Some(mut input_safe_tick) = last_confirmed_input.get() else {
         return;
     };
-    let should_retry_same_tick = manager
-        .request_sent_at_tick
-        .is_some_and(|sent_at_tick| local_tick - sent_at_tick >= CATCH_UP_REQUEST_RETRY_TICKS);
+    if awaiting.is_empty() || manager.pending_snapshot.is_some() {
+        return;
+    }
     if manager
-        .request_input_safe_tick
-        .is_some_and(|previous_tick| {
-            previous_tick > input_safe_tick
-                || (previous_tick == input_safe_tick && !should_retry_same_tick)
-        })
-    {
+        .request_sent_at_tick
+        .is_some_and(|sent_at_tick| local_tick - sent_at_tick < CATCH_UP_REQUEST_RETRY_TICKS) {
         return;
     }
-    let Some(sender) = sender.as_deref_mut() else {
-        return;
-    };
+    info!(?manager.request_input_safe_tick, ?input_safe_tick, "checking if we can send");
+    // keep using the earliest input_safe_tick we have recorded
+    if let Some(previous_input_safe_tick) = manager.request_input_safe_tick {
+        input_safe_tick = core::cmp::min(input_safe_tick, previous_input_safe_tick);
+    }
     debug!(
         ?client_entity,
         ?input_safe_tick,
         previous_input_safe_tick = ?manager.request_input_safe_tick,
-        retry = should_retry_same_tick,
         "sending CatchUpRequest to server"
     );
     sender.send::<MetadataChannel>(CatchUpRequest { input_safe_tick });
+    manager.requests_sent += 1;
+    if manager.requests_sent > CATCH_UP_MAX_REQUESTS {
+        panic!(
+            "client {client_entity:?} has sent {} CatchUpRequests but still has no pending snapshot; \
+             this likely means the server is failing to respond to the request; \
+             check server logs for errors and verify that the server is configured to accept catch-up requests",
+            manager.requests_sent
+        );
+    }
     manager.request_sent_at_tick = Some(local_tick);
     manager.request_input_safe_tick = Some(input_safe_tick);
     manager.suppress_checksums = true;
-}
-
-/// Fills missing buffer ticks before the first real input with empty inputs so
-/// rollback replay can iterate from `reference_tick` without gaps.
-fn pad_input_buffer_prefix<S: ActionStateSequence>(
-    buffer: &mut InputBuffer<S::Snapshot, S::Action>,
-    reference_tick: Tick,
-) {
-    let Some(start_tick) = buffer.start_tick else {
-        return;
-    };
-    if start_tick <= reference_tick {
-        return;
-    }
-    let Some(end_tick) = buffer.end_tick() else {
-        return;
-    };
-    buffer.extend_to_range(reference_tick, end_tick);
-    let mut tick = reference_tick;
-    while tick < start_tick {
-        buffer.set_empty(tick);
-        tick = tick + 1;
-    }
 }
 
 /// Client observer: stores the replicated catch-up snapshot metadata sent by
@@ -317,69 +207,37 @@ fn receive_catch_up_snapshot_ready(
         ?event.replicon_tick,
         "received replicated CatchUpSnapshotReady"
     );
-    manager.pending_snapshot = Some(PendingCatchUpSnapshot {
-        server_tick: event.server_tick,
-        replicon_tick: event.replicon_tick,
-    });
-    manager.suppress_checksums = true;
+    if manager.pending_snapshot.as_mut().is_none_or(|pending| pending.server_tick < event.server_tick) {
+        manager.pending_snapshot = Some(PendingCatchUpSnapshot {
+            server_tick: event.server_tick,
+            replicon_tick: event.replicon_tick,
+        });
+    }
 }
 
-/// Client system: marks newly replicated gated entities as participating in
-/// the initial catch-up rollback.
-fn mark_awaiting_catchup_gated_entities(
-    manager: Option<Single<&mut CatchUpManager, With<Client>>>,
-    gated: Query<Entity, (With<CatchUpGated>, Without<AwaitingCatchUpSnapshot>)>,
-    mut commands: Commands,
+/// Client system: on receiving any CatchUpGated component, suppress checksums while
+/// we wait to complete the catchup process
+fn on_receive_catchup_gated(
+    _: On<Add, CatchUpGated>,
+    mut manager: Single<&mut CatchUpManager, With<Client>>,
 ) {
-    let Some(mut manager) = manager else {
-        return;
-    };
-    let mut marked_any = false;
-    for entity in &gated {
-        commands.entity(entity).insert(AwaitingCatchUpSnapshot);
-        marked_any = true;
-    }
-    if marked_any {
+    if !manager.completed {
         manager.suppress_checksums = true;
     }
 }
 
-/// Client system: emits [`CatchUpSnapshotReady`] after the accepted catch-up
-/// reveal checkpoint has been completely processed.
-pub(crate) fn detect_catch_up_snapshot_ready(
-    manager: Option<Single<&mut CatchUpManager, With<Client>>>,
+/// Client system: trigger the catchup rollback after we confirm the snapshot tick has been
+/// fully receive (by checking ServerMutateTicks)
+pub(crate) fn trigger_snapshot_rollback(
+    mut manager: Single<&mut CatchUpManager, With<Client>>,
     server_mutate_ticks: Res<ServerMutateTicks>,
-    checkpoints: Res<ReplicationCheckpointMap>,
-    gated: Query<(), With<CatchUpGated>>,
+    mut state_metadata: ResMut<StateRollbackMetadata>,
+    gated: Query<Entity, With<CatchUpGated>>,
     mut commands: Commands,
 ) {
-    let Some(mut manager) = manager else {
-        return;
-    };
     if manager.completed {
-        if gated.is_empty() {
-            return;
-        }
-        let replicon_tick = server_mutate_ticks
-            .last_confirmed_tick()
-            .unwrap_or_else(|| server_mutate_ticks.last_tick());
-        if manager.last_emitted_replicon_tick == Some(replicon_tick) {
-            return;
-        }
-        if !server_mutate_ticks.contains(replicon_tick) {
-            return;
-        }
-        let Some(server_tick) = checkpoints.get(replicon_tick) else {
-            return;
-        };
-        manager.last_emitted_replicon_tick = Some(replicon_tick);
-        commands.trigger(CatchUpSnapshotReady {
-            replicon_tick,
-            server_tick,
-        });
         return;
     }
-
     let Some(snapshot) = manager.pending_snapshot.as_ref() else {
         return;
     };
@@ -391,112 +249,15 @@ pub(crate) fn detect_catch_up_snapshot_ready(
     if !server_mutate_ticks.contains(snapshot_replicon_tick) {
         return;
     }
-    manager.last_emitted_replicon_tick = Some(snapshot_replicon_tick);
-    commands.trigger(CatchUpSnapshotReady {
-        replicon_tick: snapshot_replicon_tick,
-        server_tick: snapshot_server_tick,
-    });
-}
-
-/// Client system: after user snapshot hooks have run, requests the forced
-/// rollback and clears the internal pending markers.
-fn finalize_catch_up_snapshot(
-    manager: Option<Single<&mut CatchUpManager, With<Client>>>,
-    mut state_metadata: Option<ResMut<StateRollbackMetadata>>,
-    awaiting: Query<Entity, With<AwaitingCatchUpSnapshot>>,
-    mut commands: Commands,
-) {
-    let Some(mut manager) = manager else {
-        return;
-    };
-    let Some(snapshot) = manager.pending_snapshot.as_ref() else {
-        return;
-    };
-    let Some(input_safe_tick) = catch_up_input_safe_tick(&manager) else {
-        return;
-    };
-    if input_safe_tick < snapshot.server_tick {
-        return;
-    }
-    let awaiting_entities = awaiting.iter().collect::<Vec<_>>();
-    if awaiting_entities.is_empty() {
-        manager.completed = true;
-        manager.pending_snapshot = None;
-        manager.request_sent_at_tick = None;
-        manager.request_input_safe_tick = None;
-        manager.suppress_checksums = false;
-        return;
-    }
-    let Some(state_metadata) = state_metadata.as_deref_mut() else {
-        return;
-    };
-    debug!(
-        ?snapshot.server_tick,
-        "requesting bundled forced rollback to catch-up tick"
-    );
-    state_metadata.request_forced_rollback(snapshot.server_tick);
-    for entity in awaiting_entities {
-        commands.entity(entity).remove::<AwaitingCatchUpSnapshot>();
+    state_metadata.request_forced_rollback(snapshot_server_tick);
+    info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
+    for entity in gated.iter() {
+        commands.entity(entity).remove::<CatchUpGated>();
     }
     manager.completed = true;
     manager.pending_snapshot = None;
+    manager.requests_sent = 0;
     manager.request_sent_at_tick = None;
     manager.request_input_safe_tick = None;
     manager.suppress_checksums = false;
-}
-
-/// Returns the currently computed input-safe tick once at least one
-/// registered input type has contributed this frame.
-fn catch_up_input_safe_tick(manager: &CatchUpManager) -> Option<Tick> {
-    if manager.input_checks_this_frame == 0 {
-        return None;
-    }
-    manager.input_safe_tick
-}
-
-/// Client system: fails loudly if an accepted catch-up snapshot never becomes
-/// ready for rollback.
-pub(crate) fn panic_if_catchup_request_stalled(
-    timeout: Res<CatchUpClientTimeout>,
-    timeline: Res<LocalTimeline>,
-    tick_duration: Res<TickDuration>,
-    client: Single<(Entity, &CatchUpManager), With<Client>>,
-    awaiting: Query<
-        (Entity, Option<&ConfirmHistory>, Has<CatchUpGated>),
-        With<AwaitingCatchUpSnapshot>,
-    >,
-) {
-    if awaiting.is_empty() {
-        return;
-    }
-    let (client_entity, manager) = client.into_inner();
-    if manager.pending_snapshot.is_none() {
-        return;
-    }
-    let Some(sent_at_tick) = manager.request_sent_at_tick else {
-        return;
-    };
-    let now = timeline.tick();
-    let elapsed_ticks = now - sent_at_tick;
-    if elapsed_ticks <= 0 {
-        return;
-    }
-    let elapsed = tick_duration.0.mul_f32(elapsed_ticks as f32);
-    if elapsed > timeout.duration {
-        panic!(
-            "client {client_entity:?} requested deterministic catch-up at tick {sent_at_tick:?}, \
-             but still has {} AwaitingCatchUpSnapshot entities after {:?}: {:?}; \
-             catchup_manager={:?} (timeout {:?})",
-            awaiting.iter().count(),
-            elapsed,
-            awaiting
-                .iter()
-                .map(|(entity, confirm, gated)| {
-                    (entity, confirm.map(ConfirmHistory::last_tick), gated)
-                })
-                .collect::<Vec<_>>(),
-            *manager,
-            timeout.duration
-        );
-    }
 }

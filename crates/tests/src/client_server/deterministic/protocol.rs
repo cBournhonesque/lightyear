@@ -18,9 +18,9 @@ use lightyear::prelude::input::InputRegistryExt;
 use lightyear::prelude::input::bei;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode, LateJoinCatchUpPlugin,
+    AppCatchUpExt, CatchUpMode, LateJoinCatchUpPlugin,
 };
-use lightyear_prediction::rollback::DeterministicPredicted;
+use lightyear_prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use serde::{Deserialize, Serialize};
 
 pub const PLAYER_SIZE: f32 = 20.0;
@@ -236,7 +236,7 @@ fn init_shared(
         if is_server {
             ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
         } else if is_client {
-            ball.insert(AwaitingCatchUpSnapshot);
+            ball.insert(CatchUpGated);
         }
     }
 

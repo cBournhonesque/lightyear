@@ -3,11 +3,11 @@ use crate::protocol::*;
 use crate::shared::player_bundle;
 use bevy::prelude::*;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use lightyear::prelude::server::input::InputSystems as ServerInputSystems;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
 #[derive(Clone)]

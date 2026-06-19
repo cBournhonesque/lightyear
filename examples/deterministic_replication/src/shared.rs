@@ -4,12 +4,10 @@ use bevy::color::palettes::css;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
-use lightyear_deterministic_replication::prelude::{
-    AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode,
-};
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 const MAX_VELOCITY: f32 = 200.0;

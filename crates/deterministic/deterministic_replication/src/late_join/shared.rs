@@ -83,52 +83,21 @@ pub trait CatchUpComponentScope: FilterScope {}
 
 impl<T: FilterScope> CatchUpComponentScope for T {}
 
-/// Marker component added by server-side user code to entities whose
-/// catch-up-gated components should be hidden from clients until the client
-/// has completed the initial bundled catch-up snapshot.
-///
-/// On [`Add`], the registered visibility filter is inserted on the same
-/// entity. Replicon hides the registered catch-up component scope from clients
-/// that do not yet have [`HasCaughtUp`] on their client link entity.
-///
-/// In the deterministic_replication example this is inserted on the player
-/// entity next to `Replicate::to_clients(NetworkTarget::All)`.
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct CatchUpGated;
-
 /// Server-side marker inserted on a client's link entity once the client
 /// has received at least one bundled catch-up snapshot.
 #[derive(Component, Debug, Default)]
 #[component(immutable)]
 pub struct HasCaughtUp;
 
-/// Re-export of [`lightyear_prediction::rollback::AwaitingCatchUpSnapshot`]
-/// so user code can stay in the catch-up vocabulary.
-///
-/// This is a **per-entity marker component** (not a resource). The late-join
-/// plugin inserts it on catch-up-gated client entities while they are
-/// expecting the bundled snapshot, and removes it once the forced rollback is
-/// scheduled.
-///
-/// [`crate::late_join::CatchUpManager`] tracks when this internal catch-up
-/// state should suppress checksum computation.
-///
-pub use lightyear_prediction::rollback::AwaitingCatchUpSnapshot;
-
 /// System sets for the late-join catch-up plugin.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum CatchUpSystems {
-    /// Client-side: reset the accumulated per-input safe tick before
-    /// registered input buffer checks run.
-    ResetReadiness,
-    /// Server-side: accepts safe [`CatchUpRequest`] messages.
+    /// Server-side: accepts [`CatchUpRequest`] messages.
     HandleRequests,
-    /// Client-side: detect that the accepted reveal checkpoint is confirmed.
-    DetectSnapshotReady,
-    /// Client-side: internal registered-input checks that decide whether the
-    /// snapshot can be replayed from its server tick.
-    CheckClientReplayReadiness,
-    /// Client-side: automatically request the forced rollback after
-    /// [`CatchUpSnapshotReady`] observers have run.
-    FinalizeSnapshot,
+    /// Client-side: detect that we have received inputs from all clients so
+    /// we can start the catchup process
+    SendCatchUpRequest,
+    /// Client-side: after we receive the catchup tick from the server, trigger a forced
+    /// rollback to perform the catchup.
+    TriggerCatchUpRollback,
 }
