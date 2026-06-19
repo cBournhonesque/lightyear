@@ -150,10 +150,10 @@ pub(crate) fn handle_connected(
         // `CatchUpGated` hides the registered physics components
         // (Position, Rotation, LinearVelocity, AngularVelocity) from
         // every client. Each client sends `CatchUpRequest` once it has
-        // enough rebroadcast input to replay from the reveal tick, and
-        // the server flips visibility to *visible* for every
-        // `CatchUpGated` entity at once — producing a single coherent
-        // bundled snapshot.
+        // enough rebroadcast input to begin catch-up, and the server
+        // flips visibility to *visible* for every `CatchUpGated` entity
+        // at once — producing a single coherent bundled snapshot at the
+        // server's current tick.
         // Structural components (`PlayerId`, etc.) still replicate
         // immediately, so clients see the entity + marker and can
         // subscribe to rebroadcast inputs right away.

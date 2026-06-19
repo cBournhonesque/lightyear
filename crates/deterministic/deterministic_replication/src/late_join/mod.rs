@@ -30,11 +30,11 @@
 //!    synced and registered input buffers cover a replay-safe tick, the plugin
 //!    sends [`CatchUpRequest`] with that `input_safe_tick`.
 //!
-//! 3. On the server, the [`CatchUpRequest`] handler accepts the request only
-//!    when the server's reveal tick is no newer than `input_safe_tick`. It then
-//!    inserts [`HasCaughtUp`] on the client's link entity and sends a replicated
-//!    [`CatchUpSnapshotReady`] event with the authoritative rollback tick and
-//!    the Replicon checkpoint that contains the reveal.
+//! 3. On the server, the [`CatchUpRequest`] handler accepts the request at the
+//!    server's current authoritative tick. It then inserts [`HasCaughtUp`] on
+//!    the client's link entity and sends a replicated [`CatchUpSnapshotReady`]
+//!    event with the authoritative rollback tick and the Replicon checkpoint
+//!    that contains the reveal.
 //!
 //! 4. The client waits until Replicon's mutate completion state reports that
 //!    the accepted Replicon checkpoint is fully confirmed. At that point all
@@ -79,6 +79,7 @@ pub use shared::{
 #[cfg(all(test, feature = "client"))]
 pub(crate) use client::{
     PendingCatchUpSnapshot, detect_catch_up_snapshot_ready, panic_if_catchup_request_stalled,
+    update_client_catchup_input_readiness,
 };
 #[cfg(all(test, feature = "server"))]
 pub(crate) use server::CatchUpVisibility;
@@ -180,8 +181,10 @@ mod tests {
     use lightyear_core::tick::Tick;
     use lightyear_inputs::input_buffer::InputBuffer;
     use lightyear_inputs::input_message::ActionStateSequence;
+    use lightyear_messages::prelude::MessageSender;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::ServerMutateTicks;
+    use lightyear_sync::prelude::{InputTimeline, IsSynced};
     use serde::{Deserialize, Serialize};
 
     #[derive(Component, Default)]
@@ -492,8 +495,69 @@ mod tests {
     }
 
     #[test]
+    fn catch_up_request_retries_same_input_safe_tick_before_acceptance() {
+        let mut app = App::new();
+        let mut timeline = lightyear_core::prelude::LocalTimeline::default();
+        timeline.apply_delta(9);
+        app.insert_resource(timeline);
+        app.add_systems(
+            PreUpdate,
+            update_client_catchup_input_readiness::<TestSequence>,
+        );
+
+        let mut manager = CatchUpManager::default();
+        manager.request_sent_at_tick = Some(Tick(0));
+        manager.request_input_safe_tick = Some(Tick(5));
+        app.world_mut().spawn((
+            Client::default(),
+            manager,
+            MessageSender::<CatchUpRequest>::default(),
+            IsSynced::<InputTimeline>::default(),
+        ));
+        app.world_mut().spawn(AwaitingCatchUpSnapshot);
+
+        let mut input_buffer = InputBuffer::<TestSnapshot, TestAction>::default();
+        input_buffer.set_empty(Tick(5));
+        app.world_mut().spawn((input_buffer, TestInputMarker));
+
+        app.update();
+
+        let mut managers = app.world_mut().query::<&CatchUpManager>();
+        let manager = managers.single(app.world()).unwrap();
+        assert_eq!(manager.request_sent_at_tick, Some(Tick(9)));
+        assert_eq!(manager.request_input_safe_tick, Some(Tick(5)));
+    }
+
+    #[test]
     #[should_panic(expected = "requested deterministic catch-up")]
     fn stalled_catch_up_request_panics_after_timeout() {
+        let mut app = App::new();
+        let mut timeline = lightyear_core::prelude::LocalTimeline::default();
+        timeline.apply_delta(11);
+        app.insert_resource(timeline);
+        app.insert_resource(lightyear_core::tick::TickDuration(
+            core::time::Duration::from_millis(10),
+        ));
+        app.insert_resource(CatchUpClientTimeout {
+            duration: core::time::Duration::from_millis(100),
+        });
+        app.init_resource::<CatchUpMode>();
+        let mut manager = CatchUpManager::default();
+        manager.request_sent_at_tick = Some(Tick(0));
+        manager.request_input_safe_tick = Some(Tick(0));
+        manager.pending_snapshot = Some(PendingCatchUpSnapshot {
+            server_tick: Tick(0),
+            replicon_tick: RepliconTick::new(0),
+        });
+        app.world_mut().spawn((Client::default(), manager));
+        app.world_mut().spawn(AwaitingCatchUpSnapshot);
+        app.add_systems(PreUpdate, panic_if_catchup_request_stalled);
+
+        app.update();
+    }
+
+    #[test]
+    fn unaccepted_catch_up_request_does_not_panic_after_timeout() {
         let mut app = App::new();
         let mut timeline = lightyear_core::prelude::LocalTimeline::default();
         timeline.apply_delta(11);

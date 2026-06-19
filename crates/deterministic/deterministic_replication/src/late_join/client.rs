@@ -36,6 +36,8 @@ pub struct CatchUpClientTimeout {
     pub duration: Duration,
 }
 
+const CATCH_UP_REQUEST_RETRY_TICKS: i32 = 8;
+
 impl Default for CatchUpClientTimeout {
     fn default() -> Self {
         Self {
@@ -180,11 +182,9 @@ fn reset_catchup_input_readiness(mut managers: Query<&mut CatchUpManager, With<C
 /// local and rebroadcast buffers. After an accepted snapshot exists, it also
 /// pads missing buffer prefixes so rollback replay can start at the snapshot
 /// tick.
-fn update_client_catchup_input_readiness<S: ActionStateSequence>(
-    timeline: Option<Res<LocalTimeline>>,
-    prediction_manager: Option<
-        Single<&lightyear_prediction::prelude::PredictionManager, With<Client>>,
-    >,
+pub(crate) fn update_client_catchup_input_readiness<S: ActionStateSequence>(
+    timeline: Res<LocalTimeline>,
+    prediction_manager: Single<&lightyear_prediction::prelude::PredictionManager, With<Client>>,
     client: Option<
         Single<
             (
@@ -199,12 +199,6 @@ fn update_client_catchup_input_readiness<S: ActionStateSequence>(
     awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
     mut buffers: Query<(&mut InputBuffer<S::Snapshot, S::Action>, Has<S::Marker>)>,
 ) {
-    let Some(client) = client else {
-        return;
-    };
-    let Some(timeline) = timeline else {
-        return;
-    };
     let (client_entity, mut manager, mut sender, is_synced) = client.into_inner();
     manager.input_checks_this_frame += 1;
     let local_tick = timeline.tick();
@@ -256,9 +250,15 @@ fn update_client_catchup_input_readiness<S: ActionStateSequence>(
     let Some(input_safe_tick) = catch_up_input_safe_tick(&manager) else {
         return;
     };
+    let should_retry_same_tick = manager
+        .request_sent_at_tick
+        .is_some_and(|sent_at_tick| local_tick - sent_at_tick >= CATCH_UP_REQUEST_RETRY_TICKS);
     if manager
         .request_input_safe_tick
-        .is_some_and(|previous_tick| previous_tick >= input_safe_tick)
+        .is_some_and(|previous_tick| {
+            previous_tick > input_safe_tick
+                || (previous_tick == input_safe_tick && !should_retry_same_tick)
+        })
     {
         return;
     }
@@ -268,6 +268,8 @@ fn update_client_catchup_input_readiness<S: ActionStateSequence>(
     debug!(
         ?client_entity,
         ?input_safe_tick,
+        previous_input_safe_tick = ?manager.request_input_safe_tick,
+        retry = should_retry_same_tick,
         "sending CatchUpRequest to server"
     );
     sender.send::<MetadataChannel>(CatchUpRequest { input_safe_tick });
@@ -304,11 +306,8 @@ fn pad_input_buffer_prefix<S: ActionStateSequence>(
 /// Replicon checkpoint is confirmed.
 fn receive_catch_up_snapshot_ready(
     trigger: On<RemoteEvent<CatchUpSnapshotReady>>,
-    manager: Option<Single<&mut CatchUpManager, With<Client>>>,
+    mut manager: Single<&mut CatchUpManager, With<Client>>,
 ) {
-    let Some(mut manager) = manager else {
-        return;
-    };
     if manager.completed {
         return;
     }
@@ -461,7 +460,7 @@ pub(crate) fn panic_if_catchup_request_stalled(
     timeout: Res<CatchUpClientTimeout>,
     timeline: Res<LocalTimeline>,
     tick_duration: Res<TickDuration>,
-    client: Option<Single<(Entity, &CatchUpManager), With<Client>>>,
+    client: Single<(Entity, &CatchUpManager), With<Client>>,
     awaiting: Query<
         (Entity, Option<&ConfirmHistory>, Has<CatchUpGated>),
         With<AwaitingCatchUpSnapshot>,
@@ -470,10 +469,10 @@ pub(crate) fn panic_if_catchup_request_stalled(
     if awaiting.is_empty() {
         return;
     }
-    let Some(client) = client else {
-        return;
-    };
     let (client_entity, manager) = client.into_inner();
+    if manager.pending_snapshot.is_none() {
+        return;
+    }
     let Some(sent_at_tick) = manager.request_sent_at_tick else {
         return;
     };

@@ -9,10 +9,13 @@ use serde::{Deserialize, Serialize};
 /// one-time snapshot of catch-up-gated components for *every*
 /// [`CatchUpGated`] entity.
 ///
-/// The request carries the latest server tick for which the client has enough
-/// rebroadcast input to replay. The server accepts only when its reveal tick
-/// is no newer than this value, then sends [`CatchUpSnapshotReady`] as a
-/// replicated event carrying the accepted snapshot metadata.
+/// The request carries the latest server tick for which the client currently
+/// has enough rebroadcast input to replay. The server uses this as a readiness
+/// signal, accepts at its current authoritative tick, and sends
+/// [`CatchUpSnapshotReady`] as a replicated event carrying the accepted
+/// snapshot metadata. If the accepted tick is newer than `input_safe_tick`,
+/// the client waits for its input buffers to cover the accepted tick before
+/// replaying.
 #[derive(Event, Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CatchUpRequest {
     pub input_safe_tick: Tick,

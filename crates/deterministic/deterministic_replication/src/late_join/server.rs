@@ -3,6 +3,7 @@ use bevy_app::{App, PostUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::*;
+use bevy_ecs::schedule::ApplyDeferred;
 use bevy_ecs::system::Commands;
 use bevy_replicon::prelude::{AppVisibilityExt, FilterScope, RepliconTick, VisibilityFilter};
 use bevy_replicon::server::server_tick::ServerTick;
@@ -90,11 +91,24 @@ pub(crate) fn build(app: &mut App) {
     app.add_observer(mark_client_caught_up_if_no_gated_on_connect);
     app.add_systems(
         PostUpdate,
-        handle_catch_up_requests
+        (handle_catch_up_requests, ApplyDeferred)
+            .chain()
             .in_set(CatchUpSystems::HandleRequests)
             .before(ReplicationSystems::Send)
             .before(MessageSystems::Send),
     );
+    app.add_systems(
+        PostUpdate,
+        emit_catch_up_snapshot_ready
+            .after(ReplicationSystems::Send)
+            .before(MessageSystems::Send),
+    );
+}
+
+#[derive(Component, Debug, Clone, Copy)]
+struct PendingCatchUpSnapshotReady {
+    server_tick: lightyear_core::tick::Tick,
+    replicon_tick: RepliconTick,
 }
 
 /// When a user inserts [`CatchUpGated`] on a server entity, attach the
@@ -135,12 +149,13 @@ fn mark_client_caught_up_if_no_gated_on_connect(
     commands.entity(client).insert(HasCaughtUp);
 }
 
-/// Server system: accept safe catch-up requests and reveal the gated snapshot.
+/// Server system: accept catch-up requests and reveal the gated snapshot.
 ///
-/// The server accepts only when its current authoritative tick is no newer
-/// than the client's advertised input-safe tick. The accepted message carries
-/// the server tick used for rollback and the Replicon mutation checkpoint the
-/// client must wait to confirm before replaying.
+/// The request means the client is synced and has enough input history to
+/// begin catch-up. The accepted snapshot itself is always taken at the
+/// server's current authoritative tick; if that tick is newer than the
+/// request's input-safe tick, the client waits until its input buffers cover
+/// the accepted tick before replaying.
 fn handle_catch_up_requests(
     timeline: Res<LocalTimeline>,
     server_tick: Option<Res<ServerTick>>,
@@ -148,7 +163,7 @@ fn handle_catch_up_requests(
         (
             Entity,
             &mut MessageReceiver<CatchUpRequest>,
-            &mut EventSender<CatchUpSnapshotReady>,
+            &EventSender<CatchUpSnapshotReady>,
         ),
         (With<ClientOf>, Without<HasCaughtUp>),
     >,
@@ -162,29 +177,90 @@ fn handle_catch_up_requests(
     }
     let snapshot_server_tick = timeline.tick();
     let snapshot_replicon_tick = RepliconTick::new(server_tick.get());
-    for (client_link_entity, mut receiver, mut sender) in query.iter_mut() {
+    for (client_link_entity, mut receiver, _) in query.iter_mut() {
         for request in receiver.receive() {
-            if snapshot_server_tick > request.input_safe_tick {
-                debug!(
-                    ?client_link_entity,
-                    ?snapshot_server_tick,
-                    ?request.input_safe_tick,
-                    "ignoring stale CatchUpRequest"
-                );
-                continue;
-            }
+            let pending = pending_snapshot_for_request(
+                snapshot_server_tick,
+                snapshot_replicon_tick,
+                &request,
+            );
             debug!(
                 ?client_link_entity,
                 ?snapshot_server_tick,
                 ?snapshot_replicon_tick,
+                input_safe_tick = ?request.input_safe_tick,
                 "accepting CatchUpRequest"
             );
-            commands.entity(client_link_entity).insert(HasCaughtUp);
-            sender.trigger::<MetadataChannel>(CatchUpSnapshotReady {
-                replicon_tick: snapshot_replicon_tick,
-                server_tick: snapshot_server_tick,
-            });
+            commands
+                .entity(client_link_entity)
+                .insert((HasCaughtUp, pending));
             break;
         }
+    }
+}
+
+fn pending_snapshot_for_request(
+    snapshot_server_tick: lightyear_core::tick::Tick,
+    snapshot_replicon_tick: RepliconTick,
+    request: &CatchUpRequest,
+) -> PendingCatchUpSnapshotReady {
+    if snapshot_server_tick > request.input_safe_tick {
+        debug!(
+            ?snapshot_server_tick,
+            input_safe_tick = ?request.input_safe_tick,
+            "CatchUpRequest input coverage is behind the current server tick; accepting current snapshot tick and letting the client wait for input coverage"
+        );
+    }
+    PendingCatchUpSnapshotReady {
+        server_tick: snapshot_server_tick,
+        replicon_tick: snapshot_replicon_tick,
+    }
+}
+
+/// Send the metadata event only after the accepted visibility reveal has gone
+/// through Replicon's send set. This keeps the event's Replicon checkpoint
+/// causally tied to the snapshot data the client waits for.
+fn emit_catch_up_snapshot_ready(
+    mut query: Query<(
+        Entity,
+        &PendingCatchUpSnapshotReady,
+        &mut EventSender<CatchUpSnapshotReady>,
+    )>,
+    mut commands: Commands,
+) {
+    for (client_link_entity, pending, mut sender) in query.iter_mut() {
+        debug!(
+            ?client_link_entity,
+            snapshot_server_tick = ?pending.server_tick,
+            snapshot_replicon_tick = ?pending.replicon_tick,
+            "sending CatchUpSnapshotReady"
+        );
+        sender.trigger::<MetadataChannel>(CatchUpSnapshotReady {
+            replicon_tick: pending.replicon_tick,
+            server_tick: pending.server_tick,
+        });
+        commands
+            .entity(client_link_entity)
+            .remove::<PendingCatchUpSnapshotReady>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_core::tick::Tick;
+
+    #[test]
+    fn stale_request_uses_current_server_tick_for_snapshot() {
+        let pending = pending_snapshot_for_request(
+            Tick(1133),
+            RepliconTick::new(92),
+            &CatchUpRequest {
+                input_safe_tick: Tick(1126),
+            },
+        );
+
+        assert_eq!(pending.server_tick, Tick(1133));
+        assert_eq!(pending.replicon_tick, RepliconTick::new(92));
     }
 }

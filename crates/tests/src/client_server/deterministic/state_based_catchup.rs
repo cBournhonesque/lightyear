@@ -562,6 +562,20 @@ fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
         })
 }
 
+fn motion_sample_at(world: &World, subject: MotionSubject, tick: Tick) -> MotionSample {
+    world
+        .resource::<MotionSamples>()
+        .0
+        .get(&(tick.0, subject))
+        .copied()
+        .unwrap_or_else(|| {
+            let local_tick = world.resource::<LocalTimeline>().tick();
+            panic!(
+                "cannot compare deterministic motion for {subject:?} at tick {tick:?}; app is at local tick {local_tick:?}"
+            )
+        })
+}
+
 fn wait_for_client_mapping(
     stepper: &mut DetStepper,
     client_id: usize,
@@ -714,6 +728,30 @@ fn assert_clean_stepper_ball_entities(stepper: &mut DetStepper) {
     }
 }
 
+fn assert_no_awaiting_catchup(world: &mut World, label: &str) {
+    let mut awaiting = world.query_filtered::<(
+        Entity,
+        Option<&DetPlayerId>,
+        Has<DetBallMarker>,
+        Has<CatchUpGated>,
+    ), With<AwaitingCatchUpSnapshot>>();
+    let rows = awaiting
+        .iter(world)
+        .map(|(entity, player_id, ball, gated)| (entity, player_id.map(|id| id.0), ball, gated))
+        .collect::<Vec<_>>();
+    assert!(
+        rows.is_empty(),
+        "expected no AwaitingCatchUpSnapshot entities in {label}; rows={rows:?}"
+    );
+}
+
+fn assert_stepper_catchup_complete(stepper: &mut DetStepper) {
+    for client_id in 0..stepper.client_apps.len() {
+        let label = format!("client {client_id}");
+        assert_no_awaiting_catchup(stepper.client_app(client_id).world_mut(), &label);
+    }
+}
+
 fn compare_players_to_server(
     stepper: &mut DetStepper,
     server_players: &[Entity],
@@ -752,6 +790,61 @@ fn compare_players_to_server(
             );
             assert_relative_eq!(client_pos.x, server_pos.x, epsilon = 0.01);
             assert_relative_eq!(client_pos.y, server_pos.y, epsilon = 0.01);
+        }
+    }
+}
+
+fn compare_deterministic_motion_to_server(stepper: &mut DetStepper, peers: &[PeerId]) {
+    let subjects = peers
+        .iter()
+        .copied()
+        .map(MotionSubject::Player)
+        .chain([MotionSubject::Ball])
+        .collect::<Vec<_>>();
+    let latest_tick = stepper
+        .client_apps
+        .iter()
+        .enumerate()
+        .map(|(client_id, _)| stepper.client_tick(client_id))
+        .fold(stepper.server_tick(), |min_tick, tick| {
+            if tick.0 < min_tick.0 { tick } else { min_tick }
+        });
+    let compare_tick = latest_common_motion_sample_tick(stepper, &subjects, latest_tick);
+
+    for subject in subjects {
+        let server_sample = motion_sample_at(stepper.server_app.world(), subject, compare_tick);
+        for client_id in 0..stepper.client_apps.len() {
+            let client_sample =
+                motion_sample_at(stepper.client_app(client_id).world(), subject, compare_tick);
+            info!(
+                client_id,
+                ?subject,
+                server_tick = ?stepper.server_tick(),
+                ?compare_tick,
+                ?server_sample,
+                ?client_sample,
+                "comparing deterministic motion"
+            );
+            assert_relative_eq!(
+                client_sample.position.0.x,
+                server_sample.position.0.x,
+                epsilon = 0.01
+            );
+            assert_relative_eq!(
+                client_sample.position.0.y,
+                server_sample.position.0.y,
+                epsilon = 0.01
+            );
+            assert_relative_eq!(
+                client_sample.velocity.0.x,
+                server_sample.velocity.0.x,
+                epsilon = 0.01
+            );
+            assert_relative_eq!(
+                client_sample.velocity.0.y,
+                server_sample.velocity.0.y,
+                epsilon = 0.01
+            );
         }
     }
 }
@@ -1133,6 +1226,33 @@ fn has_position_samples(world: &World, peers: &[PeerId], tick: Tick) -> bool {
         .all(|peer| samples.0.contains_key(&(tick.0, *peer)))
 }
 
+fn has_motion_samples(world: &World, subjects: &[MotionSubject], tick: Tick) -> bool {
+    let samples = world.resource::<MotionSamples>();
+    subjects
+        .iter()
+        .all(|subject| samples.0.contains_key(&(tick.0, *subject)))
+}
+
+fn latest_common_motion_sample_tick(
+    stepper: &mut DetStepper,
+    subjects: &[MotionSubject],
+    latest_tick: Tick,
+) -> Tick {
+    let mut tick = latest_tick;
+    for _ in 0..300 {
+        if has_motion_samples(stepper.server_app.world(), subjects, tick)
+            && stepper
+                .client_apps
+                .iter()
+                .all(|app| has_motion_samples(app.world(), subjects, tick))
+        {
+            return tick;
+        }
+        tick = tick - 1;
+    }
+    panic!("no common deterministic motion sample found near {latest_tick:?} for {subjects:?}");
+}
+
 /// Exercises state-based deterministic catch-up, the bundled forced rollback,
 /// and sustained random inputs after catch-up has settled.
 #[test]
@@ -1259,6 +1379,49 @@ fn test_state_based_catchup_two_clients() {
 }
 
 /// Covers the example flow where an existing client has already moved and
+/// collided before a second client late-joins and catches up from state.
+#[test]
+fn test_state_based_catchup_late_join_after_movement() {
+    let mut stepper = DetStepper::new_server();
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper(&mut stepper, 50);
+
+    stepper.start();
+    stepper.connect_single(0);
+
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_player_a =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+
+    // Client 0 moves and collides with the deterministic ball/walls before
+    // client 1 exists.
+    stepper.frame_step(140);
+
+    stepper.connect_single(1);
+    let server_player_b =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+
+    // Let client 1 receive the state snapshot, activate physics, roll back,
+    // and replay from the catch-up tick while both clients keep sending input.
+    stepper.frame_step(220);
+
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+    compare_players_to_server(
+        &mut stepper,
+        &[server_player_a, server_player_b],
+        &[peer_a, peer_b],
+    );
+    compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
+}
+
+/// Covers the example flow where an existing client has already moved and
 /// collided before a second client late-joins, disconnects, then reconnects
 /// with the same peer id and catches up again.
 #[test]
@@ -1310,6 +1473,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
     assert_server_entity_unmapped(&mut stepper, server_player_b);
     assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
 
     dump_catchup_trace(&mut stepper, &[peer_a, peer_b]);
     compare_players_to_server(
@@ -1317,6 +1481,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
         &[server_player_a, server_player_b_reconnect],
         &[peer_a, peer_b],
     );
+    compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
 }
 
 // Suppress unused-import warnings when only some items of PreSpawned are
