@@ -110,6 +110,8 @@ pub struct LastConfirmedInput {
     /// [`reset_input_rollback_tracker`]: crate::rollback::reset_input_rollback_tracker
     pub tick: lightyear_core::tick::AtomicTick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
+    /// Set to true if we have received inputs from all remote clients.
+    pub received_for_all_clients: bool,
 }
 
 impl Default for LastConfirmedInput {
@@ -117,12 +119,13 @@ impl Default for LastConfirmedInput {
         Self {
             tick: lightyear_core::tick::AtomicTick::new_max(),
             received_any_messages: bevy_platform::sync::atomic::AtomicBool::new(false),
+            received_for_all_clients: false,
         }
     }
 }
 
 impl LastConfirmedInput {
-    /// Returns true if we've received any confirmed input from remote clients this tick
+    /// Returns true if we've received any confirmed input from remote clients this frame
     pub fn received_input(&self) -> bool {
         self.received_any_messages
             .load(bevy_platform::sync::atomic::Ordering::Relaxed)

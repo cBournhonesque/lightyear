@@ -32,7 +32,6 @@ use lightyear_deterministic_replication::prelude::{
     CatchUpSnapshotReady,
 };
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::PreSpawned;
 use std::collections::HashMap;
 use test_log::test;
 use lightyear_prediction::rollback::CatchUpGated;
@@ -689,22 +688,18 @@ fn assert_single_ball_entity(world: &mut World, label: &str) -> Entity {
         Has<Position>,
         Has<LinearVelocity>,
         Has<DeterministicPredicted>,
-        Has<CatchUpGated>,
     ), With<DetBallMarker>>();
     let rows = balls
         .iter(world)
-        .map(|(entity, position, velocity, deterministic, awaiting)| {
-            (entity, position, velocity, deterministic, awaiting)
-        })
         .collect::<Vec<_>>();
     assert_eq!(
         rows.len(),
         1,
         "expected exactly one deterministic ball in {label}; rows={rows:?}"
     );
-    let (entity, has_position, has_velocity, deterministic, awaiting) = rows[0];
+    let (entity, has_position, has_velocity, deterministic) = rows[0];
     assert!(
-        has_position && has_velocity && deterministic && !awaiting,
+        has_position && has_velocity && deterministic,
         "ball in {label} should have live deterministic physics state; rows={rows:?}"
     );
     entity

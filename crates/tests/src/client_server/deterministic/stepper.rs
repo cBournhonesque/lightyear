@@ -16,6 +16,7 @@ use bevy::state::app::StatesPlugin;
 use bevy::time::TimeUpdateStrategy;
 use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
+use bevy::ecs::schedule::ExecutorKind;
 use lightyear::prelude::{client::*, server::*, *};
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_replication::delta::DeltaManager;
@@ -94,6 +95,15 @@ impl DetStepper {
         ));
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
+        });
+        client_app.edit_schedule(PreUpdate, |schedule| {
+            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        });
+        client_app.edit_schedule(Update, |schedule| {
+            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        });
+        client_app.edit_schedule(PostUpdate, |schedule| {
+            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
         });
         // `ChecksumSendPlugin` is auto-registered by `client::ClientPlugins`
         // when the `deterministic` feature is enabled on `lightyear`.

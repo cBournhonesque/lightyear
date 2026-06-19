@@ -32,7 +32,7 @@ pub struct CatchUpClientTimeout {
     pub duration: Duration,
 }
 
-const CATCH_UP_REQUEST_RETRY_TICKS: i32 = 8;
+const CATCH_UP_REQUEST_RETRY_TICKS: i32 = 16;
 const CATCH_UP_MAX_REQUESTS: u8 = 10;
 
 impl Default for CatchUpClientTimeout {
@@ -141,7 +141,8 @@ pub(crate) fn send_catchup_request(
             ),
             With<Client>,
         >,
-    awaiting: Query<(), With<CatchUpGated>>,
+    awaiting: Query<Entity, With<CatchUpGated>>,
+    mut commands: Commands,
 ) {
     let (
         client_entity,
@@ -154,9 +155,19 @@ pub(crate) fn send_catchup_request(
         return;
     }
     let local_tick = timeline.tick();
-    let Some(mut input_safe_tick) = last_confirmed_input.get() else {
+    if !last_confirmed_input.received_for_all_clients {
         return;
-    };
+    }
+    let mut input_safe_tick = last_confirmed_input.tick.get();
+    // TODO: this might not be correct, what if we just took some time to receive the remote player entities?
+    // this means that we are the first client to connect, so we can just skip catchup
+    if input_safe_tick == Tick(u32::MAX) {
+        manager.completed = true;
+        for entity in awaiting.iter() {
+            commands.entity(entity).remove::<CatchUpGated>();
+        }
+        return;
+    }
     if awaiting.is_empty() || manager.pending_snapshot.is_some() {
         return;
     }
@@ -218,29 +229,36 @@ fn receive_catch_up_snapshot_ready(
 /// Client system: on receiving any CatchUpGated component, suppress checksums while
 /// we wait to complete the catchup process
 fn on_receive_catchup_gated(
-    _: On<Add, CatchUpGated>,
+    add: On<Add, CatchUpGated>,
     mut manager: Single<&mut CatchUpManager, With<Client>>,
+    mut commands: Commands,
 ) {
     if !manager.completed {
         manager.suppress_checksums = true;
+    } else {
+        commands.entity(add.entity).remove::<CatchUpGated>();
     }
 }
 
 /// Client system: trigger the catchup rollback after we confirm the snapshot tick has been
 /// fully receive (by checking ServerMutateTicks)
 pub(crate) fn trigger_snapshot_rollback(
-    mut manager: Single<&mut CatchUpManager, With<Client>>,
+    manager: Single<(&mut CatchUpManager, &LastConfirmedInput), With<Client>>,
     server_mutate_ticks: Res<ServerMutateTicks>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     gated: Query<Entity, With<CatchUpGated>>,
     mut commands: Commands,
 ) {
+    let (mut manager, last_confirmed_input) = manager.into_inner();
     if manager.completed {
         return;
     }
     let Some(snapshot) = manager.pending_snapshot.as_ref() else {
         return;
     };
+    if !last_confirmed_input.received_for_all_clients || last_confirmed_input.get().is_none_or(|t| t < snapshot.server_tick) {
+        return;
+    }
     let snapshot_replicon_tick = snapshot.replicon_tick;
     let snapshot_server_tick = snapshot.server_tick;
     if manager.last_emitted_replicon_tick == Some(snapshot_replicon_tick) {
