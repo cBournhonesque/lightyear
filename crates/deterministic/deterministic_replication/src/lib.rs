@@ -36,7 +36,6 @@ mod plugin;
 
 /// Commonly used items from the `lightyear_deterministic_replication` crate.
 pub mod prelude {
-    pub use lightyear_prediction::rollback::CatchUpGated;
     pub use crate::checksum::ChecksumMessage;
     #[cfg(feature = "client")]
     pub use crate::checksum::ChecksumSendPlugin;
@@ -44,13 +43,14 @@ pub mod prelude {
     pub use crate::checksum::{ChecksumHistory, ChecksumReceivePlugin};
     #[cfg(feature = "replication")]
     pub use crate::late_join::{
-        AppCatchUpExt, CatchUpRegistry, CatchUpRequest,
-        CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp, LateJoinCatchUpPlugin,
+        AppCatchUpExt, CatchUpRegistry, CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,
+        HasCaughtUp, LateJoinCatchUpPlugin,
     };
     #[cfg(all(feature = "client", feature = "replication"))]
     pub use crate::late_join::{CatchUpClientTimeout, CatchUpManager};
     pub use crate::mode::CatchUpMode;
     pub use crate::plugin::DeterministicReplicationPlugin;
+    pub use lightyear_prediction::rollback::CatchUpGated;
 }
 
 /// Marker component that indicates that this entity is deterministic. It is not updated via state, but only via inputs.

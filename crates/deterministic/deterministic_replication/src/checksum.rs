@@ -72,8 +72,9 @@ impl ChecksumSendPlugin {
             (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
-        #[cfg(feature = "replication")]
-        catchup_manager: Option<Single<&CatchUpManager, With<Client>>>,
+        #[cfg(feature = "replication")] catchup_manager: Option<
+            Single<&CatchUpManager, With<Client>>,
+        >,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
         let mut checksum = 0u64;

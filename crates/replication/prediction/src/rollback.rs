@@ -61,12 +61,12 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{is_in_rollback, Rollback};
+use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
 use lightyear_replication::registry::ComponentRegistry;
-use lightyear_replication::{checkpoint::ReplicationCheckpointMap, ReplicationSystems};
+use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;

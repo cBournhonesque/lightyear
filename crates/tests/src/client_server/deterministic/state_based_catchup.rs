@@ -17,7 +17,7 @@ use crate::client_server::deterministic::protocol::{
     Player,
 };
 use crate::client_server::deterministic::stepper::{
-    spawn_local_action_on_client, spawn_player_on_server, DetStepper,
+    DetStepper, spawn_local_action_on_client, spawn_player_on_server,
 };
 use approx::assert_relative_eq;
 use avian2d::prelude::*;
@@ -28,13 +28,11 @@ use bevy_enhanced_input::prelude::{
 use lightyear::input::bei::input_message::ActionsSnapshot;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{
-    CatchUpSnapshotReady,
-};
+use lightyear_deterministic_replication::prelude::CatchUpSnapshotReady;
 use lightyear_messages::MessageManager;
+use lightyear_prediction::rollback::CatchUpGated;
 use std::collections::HashMap;
 use test_log::test;
-use lightyear_prediction::rollback::CatchUpGated;
 
 /// Resource on each client driving a deterministic pseudo-random walk
 /// for its BEI action.
@@ -689,9 +687,7 @@ fn assert_single_ball_entity(world: &mut World, label: &str) -> Entity {
         Has<LinearVelocity>,
         Has<DeterministicPredicted>,
     ), With<DetBallMarker>>();
-    let rows = balls
-        .iter(world)
-        .collect::<Vec<_>>();
+    let rows = balls.iter(world).collect::<Vec<_>>();
     assert_eq!(
         rows.len(),
         1,
@@ -725,11 +721,8 @@ fn assert_clean_stepper_ball_entities(stepper: &mut DetStepper) {
 }
 
 fn assert_no_awaiting_catchup(world: &mut World, label: &str) {
-    let mut awaiting = world.query_filtered::<(
-        Entity,
-        Option<&DetPlayerId>,
-        Has<DetBallMarker>,
-    ), With<CatchUpGated>>();
+    let mut awaiting = world
+        .query_filtered::<(Entity, Option<&DetPlayerId>, Has<DetBallMarker>), With<CatchUpGated>>();
     let rows = awaiting
         .iter(world)
         .map(|(entity, player_id, ball)| (entity, player_id.map(|id| id.0), ball))

@@ -157,7 +157,7 @@ mod client {
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             Option<&PlayerActivationTick>,
-            Has<AwaitingCatchUpSnapshot>,
+            Has<CatchUpGated>,
         )>,
         mut previous: Local<Vec<KeyCode>>,
         mut ready_logged: Local<bool>,
@@ -250,7 +250,7 @@ mod client {
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             Option<&PlayerActivationTick>,
-            Has<AwaitingCatchUpSnapshot>,
+            Has<CatchUpGated>,
         )>,
         settings: &AutomationSettings,
     ) -> bool {

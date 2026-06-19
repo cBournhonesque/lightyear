@@ -10,12 +10,10 @@ use serde::{Deserialize, Serialize};
 /// [`CatchUpGated`] entity.
 ///
 /// The request carries the latest server tick for which the client currently
-/// has enough rebroadcast input to replay. The server uses this as a readiness
-/// signal, accepts at its current authoritative tick, and sends
-/// [`CatchUpSnapshotReady`] as a replicated event carrying the accepted
-/// snapshot metadata. If the accepted tick is newer than `input_safe_tick`,
-/// the client waits for its input buffers to cover the accepted tick before
-/// replaying.
+/// has enough rebroadcast input to replay. The server buffers this readiness
+/// signal until its authoritative tick has moved past `input_safe_tick`, then
+/// accepts at its current authoritative tick and sends [`CatchUpSnapshotReady`]
+/// as a replicated event carrying the accepted snapshot metadata.
 #[derive(Event, Serialize, Deserialize, Clone, Debug, Default)]
 pub struct CatchUpRequest {
     pub input_safe_tick: Tick,
@@ -83,8 +81,8 @@ pub trait CatchUpComponentScope: FilterScope {}
 
 impl<T: FilterScope> CatchUpComponentScope for T {}
 
-/// Server-side marker inserted on a client's link entity once the client
-/// has received at least one bundled catch-up snapshot.
+/// Server-side marker inserted on a client's link entity once gated catch-up
+/// state should be visible to that client.
 #[derive(Component, Debug, Default)]
 #[component(immutable)]
 pub struct HasCaughtUp;
@@ -92,7 +90,7 @@ pub struct HasCaughtUp;
 /// System sets for the late-join catch-up plugin.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone)]
 pub enum CatchUpSystems {
-    /// Server-side: accepts [`CatchUpRequest`] messages.
+    /// Server-side: buffers and accepts [`CatchUpRequest`] messages.
     HandleRequests,
     /// Client-side: detect that we have received inputs from all clients so
     /// we can start the catchup process

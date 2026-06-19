@@ -1,3 +1,4 @@
+use crate::mode::CatchUpMode;
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::*;
@@ -6,21 +7,16 @@ use bevy_replicon::prelude::RepliconTick;
 use core::time::Duration;
 use lightyear_connection::client::Client;
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::tick::{Tick};
+use lightyear_core::tick::Tick;
 use lightyear_messages::prelude::{MessageSender, RemoteEvent};
-use lightyear_prediction::prelude::{
-    LastConfirmedInput, PredictionSystems, StateRollbackMetadata,
-};
+use lightyear_prediction::prelude::{LastConfirmedInput, PredictionSystems, StateRollbackMetadata};
+use lightyear_prediction::rollback::CatchUpGated;
 use lightyear_replication::metadata::MetadataChannel;
-use lightyear_replication::prelude::{ReplicationSystems};
+use lightyear_replication::prelude::ReplicationSystems;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use tracing::{debug, info};
-use lightyear_prediction::rollback::CatchUpGated;
-use crate::mode::CatchUpMode;
 
-use super::{
-    CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,
-};
+use super::{CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems};
 
 /// Client-side timeout for an in-flight catch-up request.
 ///
@@ -54,7 +50,7 @@ pub(crate) struct PendingCatchUpSnapshot {
 /// The manager owns all per-client metadata for the initial catch-up flow:
 /// input coverage, request retry state, accepted snapshot state, and completion
 /// status.
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Default)]
 pub struct CatchUpManager {
     pub(crate) completed: bool,
     pub(crate) pending_snapshot: Option<PendingCatchUpSnapshot>,
@@ -65,20 +61,6 @@ pub struct CatchUpManager {
     pub(crate) suppress_checksums: bool,
 }
 
-impl Default for CatchUpManager {
-    fn default() -> Self {
-        Self {
-            completed: false,
-            pending_snapshot: None,
-            requests_sent: 0,
-            request_sent_at_tick: None,
-            request_input_safe_tick: None,
-            last_emitted_replicon_tick: None,
-            suppress_checksums: false,
-        }
-    }
-}
-
 impl CatchUpManager {
     /// Returns true while the client is running with intentionally stale
     /// deterministic state and checksum sends should be suppressed.
@@ -86,7 +68,6 @@ impl CatchUpManager {
         self.suppress_checksums
     }
 }
-
 
 pub(crate) fn build(app: &mut App) {
     app.init_resource::<CatchUpClientTimeout>();
@@ -108,7 +89,7 @@ pub(crate) fn build(app: &mut App) {
         (
             send_catchup_request.in_set(CatchUpSystems::SendCatchUpRequest),
             trigger_snapshot_rollback.in_set(CatchUpSystems::TriggerCatchUpRollback),
-        )
+        ),
     );
 }
 
@@ -132,26 +113,24 @@ fn initial_catchup_is_active(
 pub(crate) fn send_catchup_request(
     timeline: Res<LocalTimeline>,
     client: Single<
-            (
-                Entity,
-                &mut CatchUpManager,
-                &LastConfirmedInput,
-                &mut MessageSender<CatchUpRequest>,
-                Has<IsSynced<InputTimeline>>,
-            ),
-            With<Client>,
-        >,
+        (
+            Entity,
+            &mut CatchUpManager,
+            &LastConfirmedInput,
+            &mut MessageSender<CatchUpRequest>,
+            Has<IsSynced<InputTimeline>>,
+        ),
+        With<Client>,
+    >,
     awaiting: Query<Entity, With<CatchUpGated>>,
     mut commands: Commands,
 ) {
-    let (
-        client_entity,
-        mut manager,
-        last_confirmed_input,
-        mut sender,
-        is_synced,
-    ) = client.into_inner();
+    let (client_entity, mut manager, last_confirmed_input, mut sender, is_synced) =
+        client.into_inner();
     if !is_synced {
+        return;
+    }
+    if manager.completed {
         return;
     }
     let local_tick = timeline.tick();
@@ -162,10 +141,17 @@ pub(crate) fn send_catchup_request(
     // TODO: this might not be correct, what if we just took some time to receive the remote player entities?
     // this means that we are the first client to connect, so we can just skip catchup
     if input_safe_tick == Tick(u32::MAX) {
+        if !awaiting.is_empty() {
+            commands.trigger(CatchUpSnapshotReady {
+                replicon_tick: RepliconTick::new(local_tick.0),
+                server_tick: local_tick,
+            });
+        }
         manager.completed = true;
         for entity in awaiting.iter() {
             commands.entity(entity).remove::<CatchUpGated>();
         }
+        manager.suppress_checksums = false;
         return;
     }
     if awaiting.is_empty() || manager.pending_snapshot.is_some() {
@@ -173,7 +159,8 @@ pub(crate) fn send_catchup_request(
     }
     if manager
         .request_sent_at_tick
-        .is_some_and(|sent_at_tick| local_tick - sent_at_tick < CATCH_UP_REQUEST_RETRY_TICKS) {
+        .is_some_and(|sent_at_tick| local_tick - sent_at_tick < CATCH_UP_REQUEST_RETRY_TICKS)
+    {
         return;
     }
     info!(?manager.request_input_safe_tick, ?input_safe_tick, "checking if we can send");
@@ -218,7 +205,11 @@ fn receive_catch_up_snapshot_ready(
         ?event.replicon_tick,
         "received replicated CatchUpSnapshotReady"
     );
-    if manager.pending_snapshot.as_mut().is_none_or(|pending| pending.server_tick < event.server_tick) {
+    if manager
+        .pending_snapshot
+        .as_mut()
+        .is_none_or(|pending| pending.server_tick < event.server_tick)
+    {
         manager.pending_snapshot = Some(PendingCatchUpSnapshot {
             server_tick: event.server_tick,
             replicon_tick: event.replicon_tick,
@@ -230,12 +221,18 @@ fn receive_catch_up_snapshot_ready(
 /// we wait to complete the catchup process
 fn on_receive_catchup_gated(
     add: On<Add, CatchUpGated>,
+    timeline: Res<LocalTimeline>,
     mut manager: Single<&mut CatchUpManager, With<Client>>,
     mut commands: Commands,
 ) {
     if !manager.completed {
         manager.suppress_checksums = true;
     } else {
+        let tick = timeline.tick();
+        commands.trigger(CatchUpSnapshotReady {
+            replicon_tick: RepliconTick::new(tick.0),
+            server_tick: tick,
+        });
         commands.entity(add.entity).remove::<CatchUpGated>();
     }
 }
@@ -256,26 +253,35 @@ pub(crate) fn trigger_snapshot_rollback(
     let Some(snapshot) = manager.pending_snapshot.as_ref() else {
         return;
     };
-    if !last_confirmed_input.received_for_all_clients || last_confirmed_input.get().is_none_or(|t| t < snapshot.server_tick) {
+    if !last_confirmed_input.received_for_all_clients
+        || last_confirmed_input
+            .get()
+            .is_none_or(|t| t < snapshot.server_tick)
+    {
         return;
     }
     let snapshot_replicon_tick = snapshot.replicon_tick;
     let snapshot_server_tick = snapshot.server_tick;
     if manager.last_emitted_replicon_tick == Some(snapshot_replicon_tick) {
+        state_metadata.request_forced_rollback(snapshot_server_tick);
+        info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
+        for entity in gated.iter() {
+            commands.entity(entity).remove::<CatchUpGated>();
+        }
+        manager.completed = true;
+        manager.pending_snapshot = None;
+        manager.requests_sent = 0;
+        manager.request_sent_at_tick = None;
+        manager.request_input_safe_tick = None;
+        manager.suppress_checksums = false;
         return;
     }
     if !server_mutate_ticks.contains(snapshot_replicon_tick) {
         return;
     }
-    state_metadata.request_forced_rollback(snapshot_server_tick);
-    info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
-    for entity in gated.iter() {
-        commands.entity(entity).remove::<CatchUpGated>();
-    }
-    manager.completed = true;
-    manager.pending_snapshot = None;
-    manager.requests_sent = 0;
-    manager.request_sent_at_tick = None;
-    manager.request_input_safe_tick = None;
-    manager.suppress_checksums = false;
+    manager.last_emitted_replicon_tick = Some(snapshot_replicon_tick);
+    commands.trigger(CatchUpSnapshotReady {
+        replicon_tick: snapshot_replicon_tick,
+        server_tick: snapshot_server_tick,
+    });
 }

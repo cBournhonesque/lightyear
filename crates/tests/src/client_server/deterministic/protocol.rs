@@ -10,7 +10,6 @@
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
-use bevy_replicon::server::visibility::registry::FilterRegistry;
 use lightyear::frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 use lightyear::input::bei::prelude::{BEIBuffer, BEIStateSequence};
 use lightyear::input::config::InputConfig;
@@ -109,11 +108,7 @@ impl Plugin for DetProtocolPlugin {
         }));
         app.register_input_action::<DetMovement>();
 
-        app.add_plugins(LateJoinCatchUpPlugin::default());
-        // `FilterRegistry` is auto-initialised in the server-side replication
-        // pipeline, but on a pure-client app we need to bring it in explicitly
-        // so `register_catchup` can allocate a bit.
-        app.init_resource::<FilterRegistry>();
+        app.add_plugins(LateJoinCatchUpPlugin);
         app.register_catchup::<
             (Position, Rotation, LinearVelocity, AngularVelocity),
             BEIStateSequence<Player>,

@@ -30,11 +30,11 @@
 //!    inputs from all clients, the plugin
 //!    sends [`CatchUpRequest`] with that `input_safe_tick`.
 //!
-//! 3. On the server, the [`CatchUpRequest`] handler accepts the request at the
-//!    server's current authoritative tick. It then inserts [`HasCaughtUp`] on
-//!    the client's link entity and sends a replicated [`CatchUpSnapshotReady`]
-//!    event with the authoritative rollback tick and the Replicon checkpoint
-//!    that contains the reveal.
+//! 3. On the server, the [`CatchUpRequest`] handler buffers the client's
+//!    advertised input-safe tick until the authoritative server tick has moved
+//!    past it. It then inserts [`HasCaughtUp`] on the client's link entity and
+//!    sends a replicated [`CatchUpSnapshotReady`] event with the authoritative
+//!    rollback tick and the Replicon checkpoint that contains the reveal.
 //!
 //! 4. The client waits until Replicon's mutate completion state reports that
 //!    the accepted Replicon checkpoint is fully confirmed. At that point all
@@ -63,8 +63,8 @@ mod shared;
 #[cfg(feature = "client")]
 pub use client::{CatchUpClientTimeout, CatchUpManager};
 pub use shared::{
-    AppCatchUpExt, CatchUpComponentScope, CatchUpRegistry,
-    CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp,
+    AppCatchUpExt, CatchUpComponentScope, CatchUpRegistry, CatchUpRequest, CatchUpSnapshotReady,
+    CatchUpSystems, HasCaughtUp,
 };
 
 use bevy_app::{App, Plugin};
@@ -141,12 +141,11 @@ impl Plugin for LateJoinCatchUpPlugin {
         app.init_resource::<CatchUpMode>();
         app.register_component_once::<CatchUpGated>();
 
-
         #[cfg(feature = "client")]
         client::build(app);
     }
 
-    fn finish(&self, app: &mut App) {
+    fn cleanup(&self, app: &mut App) {
         #[cfg(feature = "server")]
         server::build(app);
     }

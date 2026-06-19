@@ -92,9 +92,7 @@ impl Plugin for ProtocolPlugin {
         // would fail because the archetype already exists). Registered in
         // ProtocolPlugin (loaded by SharedPlugin) so it runs before the
         // CLI spawns the networking entities.
-        app.add_plugins(
-            lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin::default(),
-        );
+        app.add_plugins(lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin);
         app.register_catchup::<
             (Position, Rotation, LinearVelocity, AngularVelocity),
             leafwing::LeafwingSequence<PlayerActions>,

@@ -165,7 +165,7 @@ pub(crate) fn spawn_ball(
         if is_server {
             ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
         } else if is_client {
-            ball.insert(AwaitingCatchUpSnapshot);
+            ball.insert(CatchUpGated);
         }
     }
     ball.id()

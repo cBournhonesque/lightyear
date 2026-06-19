@@ -929,7 +929,10 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    last_confirmed_input: Single<(&mut LastConfirmedInput, &InputTimelineConfig), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    last_confirmed_input: Single<
+        (&mut LastConfirmedInput, &InputTimelineConfig),
+        (With<Client>, With<IsSynced<InputTimeline>>),
+    >,
     predicted_query: Query<
         &InputBuffer<S::Snapshot, S::Action>,
         (Without<S::Marker>, Allow<PredictionDisable>),

@@ -135,7 +135,7 @@ impl LastConfirmedInput {
     pub fn get(&self) -> Option<Tick> {
         match self.tick.get() {
             tick if tick == Tick(u32::MAX) => None,
-             tick => Some(tick),
+            tick => Some(tick),
         }
     }
 }

@@ -583,11 +583,10 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         // authoritative value arrives.
         use crate::rollback::CatchUpGated;
         use crate::rollback::DeterministicPredicted;
-        self.app
-            .register_marker_with::<CatchUpGated>(MarkerConfig {
-                priority: 110,
-                need_history: true,
-            });
+        self.app.register_marker_with::<CatchUpGated>(MarkerConfig {
+            priority: 110,
+            need_history: true,
+        });
         self.app.set_marker_fns::<CatchUpGated, C>(
             write_history_gated_by_catchup::<C>,
             remove_history_gated_by_catchup::<C>,
