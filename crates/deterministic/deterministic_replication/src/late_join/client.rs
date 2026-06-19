@@ -123,7 +123,6 @@ pub(crate) fn send_catchup_request(
         With<Client>,
     >,
     awaiting: Query<Entity, With<CatchUpGated>>,
-    mut commands: Commands,
 ) {
     let (client_entity, mut manager, last_confirmed_input, mut sender, is_synced) =
         client.into_inner();
@@ -137,23 +136,9 @@ pub(crate) fn send_catchup_request(
     if !last_confirmed_input.received_for_all_clients {
         return;
     }
-    let mut input_safe_tick = last_confirmed_input.tick.get();
-    // TODO: this might not be correct, what if we just took some time to receive the remote player entities?
-    // this means that we are the first client to connect, so we can just skip catchup
-    if input_safe_tick == Tick(u32::MAX) {
-        if !awaiting.is_empty() {
-            commands.trigger(CatchUpSnapshotReady {
-                replicon_tick: RepliconTick::new(local_tick.0),
-                server_tick: local_tick,
-            });
-        }
-        manager.completed = true;
-        for entity in awaiting.iter() {
-            commands.entity(entity).remove::<CatchUpGated>();
-        }
-        manager.suppress_checksums = false;
+    let Some(input_safe_tick) = last_confirmed_input.get() else {
         return;
-    }
+    };
     if awaiting.is_empty() || manager.pending_snapshot.is_some() {
         return;
     }
@@ -163,15 +148,10 @@ pub(crate) fn send_catchup_request(
     {
         return;
     }
-    info!(?manager.request_input_safe_tick, ?input_safe_tick, "checking if we can send");
-    // keep using the earliest input_safe_tick we have recorded
-    if let Some(previous_input_safe_tick) = manager.request_input_safe_tick {
-        input_safe_tick = core::cmp::min(input_safe_tick, previous_input_safe_tick);
-    }
     debug!(
         ?client_entity,
         ?input_safe_tick,
-        previous_input_safe_tick = ?manager.request_input_safe_tick,
+        previous_input_safe_tick = ?input_safe_tick,
         "sending CatchUpRequest to server"
     );
     sender.send::<MetadataChannel>(CatchUpRequest { input_safe_tick });
@@ -185,7 +165,6 @@ pub(crate) fn send_catchup_request(
         );
     }
     manager.request_sent_at_tick = Some(local_tick);
-    manager.request_input_safe_tick = Some(input_safe_tick);
     manager.suppress_checksums = true;
 }
 
@@ -195,6 +174,8 @@ pub(crate) fn send_catchup_request(
 fn receive_catch_up_snapshot_ready(
     trigger: On<RemoteEvent<CatchUpSnapshotReady>>,
     mut manager: Single<&mut CatchUpManager, With<Client>>,
+    gated: Query<Entity, With<CatchUpGated>>,
+    mut commands: Commands,
 ) {
     if manager.completed {
         return;
@@ -205,6 +186,12 @@ fn receive_catch_up_snapshot_ready(
         ?event.replicon_tick,
         "received replicated CatchUpSnapshotReady"
     );
+    if event.is_not_required() {
+        debug!("server reported catch-up is not required");
+        commands.trigger(event.clone());
+        complete_catch_up(&mut manager, &gated, &mut commands);
+        return;
+    }
     if manager
         .pending_snapshot
         .as_mut()
@@ -265,15 +252,7 @@ pub(crate) fn trigger_snapshot_rollback(
     if manager.last_emitted_replicon_tick == Some(snapshot_replicon_tick) {
         state_metadata.request_forced_rollback(snapshot_server_tick);
         info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
-        for entity in gated.iter() {
-            commands.entity(entity).remove::<CatchUpGated>();
-        }
-        manager.completed = true;
-        manager.pending_snapshot = None;
-        manager.requests_sent = 0;
-        manager.request_sent_at_tick = None;
-        manager.request_input_safe_tick = None;
-        manager.suppress_checksums = false;
+        complete_catch_up(&mut manager, &gated, &mut commands);
         return;
     }
     if !server_mutate_ticks.contains(snapshot_replicon_tick) {
@@ -284,4 +263,20 @@ pub(crate) fn trigger_snapshot_rollback(
         replicon_tick: snapshot_replicon_tick,
         server_tick: snapshot_server_tick,
     });
+}
+
+fn complete_catch_up(
+    manager: &mut CatchUpManager,
+    gated: &Query<Entity, With<CatchUpGated>>,
+    commands: &mut Commands,
+) {
+    for entity in gated.iter() {
+        commands.entity(entity).remove::<CatchUpGated>();
+    }
+    manager.completed = true;
+    manager.pending_snapshot = None;
+    manager.requests_sent = 0;
+    manager.request_sent_at_tick = None;
+    manager.last_emitted_replicon_tick = None;
+    manager.suppress_checksums = false;
 }

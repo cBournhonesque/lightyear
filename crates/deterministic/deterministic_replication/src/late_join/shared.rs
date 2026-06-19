@@ -23,10 +23,12 @@ pub struct CatchUpRequest {
 ///
 /// The server sends this as a replicated event when it accepts a catch-up
 /// request. The client stores that metadata, waits for the matching Replicon
-/// checkpoint to be confirmed, then triggers this same event locally. User
-/// code should observe `On<CatchUpSnapshotReady>` and query [`CatchUpGated`]
-/// entities to add application-specific local components before the forced
-/// rollback runs.
+/// checkpoint to be confirmed, then triggers this same event locally. If the
+/// server sends [`CatchUpSnapshotReady::not_required`], the client skips the
+/// forced rollback and triggers this event locally before removing
+/// [`CatchUpGated`]. User code should observe `On<CatchUpSnapshotReady>` and
+/// query [`CatchUpGated`] entities to add application-specific local
+/// components before the forced rollback or skip completes.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct CatchUpSnapshotReady {
     /// The accepted Replicon checkpoint tick that revealed the bundled
@@ -37,6 +39,24 @@ pub struct CatchUpSnapshotReady {
     ///
     /// [`replicon_tick`]: Self::replicon_tick
     pub server_tick: Tick,
+}
+
+impl CatchUpSnapshotReady {
+    /// Sentinel used by the server to tell a client that no catch-up snapshot
+    /// is required. Both ticks are set to `u32::MAX` so the client can
+    /// distinguish this from an accepted authoritative snapshot.
+    pub fn not_required() -> Self {
+        Self {
+            replicon_tick: RepliconTick::new(u32::MAX),
+            server_tick: Tick(u32::MAX),
+        }
+    }
+
+    /// Returns true when this event is the server-authoritative
+    /// "catch-up not required" sentinel.
+    pub fn is_not_required(&self) -> bool {
+        self.replicon_tick.get() == u32::MAX && self.server_tick == Tick(u32::MAX)
+    }
 }
 
 /// Tracks whether [`AppCatchUpExt::register_catchup`] has

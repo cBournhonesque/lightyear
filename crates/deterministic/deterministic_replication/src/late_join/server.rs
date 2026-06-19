@@ -91,6 +91,13 @@ impl ServerCatchUpMetadata {
             snapshot_ready: None,
         }
     }
+
+    fn not_required() -> Self {
+        Self {
+            input_safe_tick: Tick(u32::MAX),
+            snapshot_ready: Some(CatchUpSnapshotReady::not_required()),
+        }
+    }
 }
 
 /// If a client is the only connected client, or joins before any server-owned
@@ -126,7 +133,9 @@ fn mark_client_caught_up_if_no_gated_on_connect(
         gated_requiring_catchup = !gated_requiring_catchup.is_empty(),
         "client does not need initial catch-up; marking caught up"
     );
-    commands.entity(client).insert(HasCaughtUp);
+    commands
+        .entity(client)
+        .insert((HasCaughtUp, ServerCatchUpMetadata::not_required()));
 }
 
 /// Server system: buffer catch-up requests until they become safe to accept.

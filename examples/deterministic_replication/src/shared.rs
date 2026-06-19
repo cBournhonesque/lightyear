@@ -1,4 +1,5 @@
 use crate::protocol::*;
+use avian2d::dynamics::solver::SolverConfig;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
@@ -52,7 +53,11 @@ impl Plugin for SharedPlugin {
                 .disable::<IslandPlugin>()
                 .disable::<IslandSleepingPlugin>(),
         )
-        .insert_resource(Gravity(Vec2::ZERO));
+        .insert_resource(Gravity(Vec2::ZERO))
+        .insert_resource(SolverConfig {
+            warm_start_coefficient: 0.0,
+            ..default()
+        });
 
         // Game logic
         app.add_systems(FixedUpdate, player_movement);

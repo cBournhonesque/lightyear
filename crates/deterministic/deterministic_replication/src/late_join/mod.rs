@@ -34,7 +34,10 @@
 //!    advertised input-safe tick until the authoritative server tick has moved
 //!    past it. It then inserts [`HasCaughtUp`] on the client's link entity and
 //!    sends a replicated [`CatchUpSnapshotReady`] event with the authoritative
-//!    rollback tick and the Replicon checkpoint that contains the reveal.
+//!    rollback tick and the Replicon checkpoint that contains the reveal. If
+//!    the server determines that no snapshot is needed, it still sends
+//!    [`CatchUpSnapshotReady`] with both ticks set to `u32::MAX`; the client
+//!    treats that as a server-authoritative skip.
 //!
 //! 4. The client waits until Replicon's mutate completion state reports that
 //!    the accepted Replicon checkpoint is fully confirmed. At that point all
