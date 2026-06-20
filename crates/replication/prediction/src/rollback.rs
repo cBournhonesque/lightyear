@@ -31,7 +31,7 @@ We need:
 
  */
 
-use super::predicted_history::PredictionHistory;
+use super::predicted_history::{PredictionHistory, PredictionState};
 use super::resource_history::ResourceHistory;
 use super::{Predicted, SyncComponent};
 use crate::correction::PreviousVisual;
@@ -59,7 +59,7 @@ use core::fmt::Debug;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
@@ -962,7 +962,9 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         } else {
             // Input rollbacks restore from predicted history. State rollbacks
             // use confirmed history instead.
-            predicted_history.get_state(rollback_tick).cloned()
+            predicted_history
+                .get_state(rollback_tick)
+                .cloned()
         };
         // Keep the prediction history anchored at the actual rollback target.
         // For completed state rollbacks this is the completed mutate tick; for
@@ -994,17 +996,13 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         match restore_state {
             // No state exists at rollback_tick. This is not an explicit
             // removal, so leave the current component value in place.
-            None if is_state_rollback => {
+            None => {
                 trace!(
                     ?entity,
                     ?kind,
                     ?rollback_tick,
                     "No history entry for component at rollback tick; leaving current value in place"
                 );
-            }
-            None => {
-                entity_mut.try_remove::<C>();
-                trace!("Removing component from predicted entity for rollback");
             }
             // An explicit removal means the component was authoritatively removed at rollback_tick.
             Some(HistoryState::Removed) => {

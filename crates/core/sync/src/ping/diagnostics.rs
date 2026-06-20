@@ -35,11 +35,18 @@ impl PingDiagnosticsPlugin {
     pub const PONGS_RECEIVED: DiagnosticPath =
         DiagnosticPath::const_new("ping.pong_received_count");
 
+    /// Number of RTT samples received from pongs or packet acknowledgements.
+    pub const LATENCY_SAMPLES_RECEIVED: DiagnosticPath =
+        DiagnosticPath::const_new("ping.latency_sample_count");
+
     pub(crate) fn add_measurements(manager: &PingManager, mut diagnostics: Diagnostics) {
         diagnostics.add_measurement(&Self::JITTER, || manager.jitter().as_secs_f64() * 1000.0);
         diagnostics.add_measurement(&Self::RTT, || manager.rtt().as_secs_f64() * 1000.0);
         diagnostics.add_measurement(&Self::PINGS_SENT, || manager.pings_sent as f64);
         diagnostics.add_measurement(&Self::PONGS_RECEIVED, || manager.pongs_recv as f64);
+        diagnostics.add_measurement(&Self::LATENCY_SAMPLES_RECEIVED, || {
+            manager.latency_samples_recv() as f64
+        });
     }
 }
 
@@ -62,6 +69,11 @@ impl Plugin for PingDiagnosticsPlugin {
         );
         app.register_diagnostic(
             Diagnostic::new(Self::PONGS_RECEIVED)
+                .with_suffix("")
+                .with_max_history_length(self.history_len),
+        );
+        app.register_diagnostic(
+            Diagnostic::new(Self::LATENCY_SAMPLES_RECEIVED)
                 .with_suffix("")
                 .with_max_history_length(self.history_len),
         );

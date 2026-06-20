@@ -73,6 +73,25 @@ fn input_timeline_initial_sync_resyncs_to_objective() {
 }
 
 #[test_log::test]
+fn input_timeline_sync_uses_packet_latency_samples_without_pongs() {
+    let remote = remote_timeline_at(100);
+    let mut ping_manager = PingManager::default();
+    ping_manager.process_packet_rtt_sample(Duration::ZERO);
+    let config = InputTimelineConfig::default().with_sync_config(SyncConfig {
+        handshake_pings: 1,
+        ..Default::default()
+    });
+    let mut timeline = InputTimeline::default();
+
+    let tick_delta = timeline.sync(&remote, &config, &ping_manager, TICK_DURATION);
+
+    assert_eq!(ping_manager.pongs_recv, 0);
+    assert_eq!(ping_manager.latency_samples_recv(), 1);
+    assert_eq!(tick_delta, Some(103));
+    assert!(timeline.is_synced());
+}
+
+#[test_log::test]
 fn input_timeline_adjusts_speed_after_repeated_error() {
     let remote = remote_timeline_at(100);
     let ping_manager = ping_manager(Duration::ZERO, Duration::ZERO);

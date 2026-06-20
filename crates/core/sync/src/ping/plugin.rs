@@ -16,6 +16,7 @@ use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
+use lightyear_transport::plugin::PacketAcked;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -139,6 +140,12 @@ impl PingPlugin {
             manager.reset();
         }
     }
+
+    pub(crate) fn process_packet_ack(trigger: On<PacketAcked>, mut query: Query<&mut PingManager>) {
+        if let Ok(mut manager) = query.get_mut(trigger.entity) {
+            manager.process_packet_rtt_sample(trigger.rtt_sample);
+        }
+    }
 }
 
 impl Plugin for PingPlugin {
@@ -182,5 +189,6 @@ impl Plugin for PingPlugin {
         app.add_systems(PostUpdate, Self::send.in_set(PingSystems::Send));
 
         app.add_observer(Self::handle_connect);
+        app.add_observer(Self::process_packet_ack);
     }
 }
