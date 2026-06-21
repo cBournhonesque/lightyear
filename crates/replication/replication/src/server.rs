@@ -165,7 +165,7 @@ mod tests {
     use super::sync_server_state;
     use bevy_app::{App, Update};
     use bevy_replicon::prelude::ServerState;
-    use bevy_state::app::StatesPlugin;
+    use bevy_state::app::{AppExtStates, StatesPlugin};
     use bevy_state::state::State;
     use lightyear_connection::client::PeerMetadata;
     use lightyear_connection::server::Stopped;

@@ -7,6 +7,7 @@ use bevy::prelude::*;
 use bevy_enhanced_input::prelude::InputAction;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::postcard_utils;
+use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
 use leafwing_input_manager::Actionlike;
 use lightyear::avian2d::plugin::AvianReplicationMode;
@@ -14,7 +15,7 @@ use lightyear::frame_interpolation::FrameInterpolationPlugin;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_replication::delta::Diffable;
+use lightyear_replication::delta::Diffable as DeltaDiffable;
 use serde::{Deserialize, Serialize};
 
 // Messages
@@ -109,7 +110,7 @@ impl Ease for CompCorr {
     }
 }
 
-impl Diffable for CompCorr {
+impl DeltaDiffable for CompCorr {
     fn base_value() -> Self {
         Self(0.0)
     }
@@ -128,7 +129,7 @@ pub struct CompNotNetworked(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompDelta(pub usize);
-impl Diffable<usize> for CompDelta {
+impl DeltaDiffable<usize> for CompDelta {
     fn base_value() -> Self {
         Self(0)
     }
@@ -139,6 +140,18 @@ impl Diffable<usize> for CompDelta {
 
     fn apply_diff(&mut self, delta: &usize) {
         self.0 += *delta;
+    }
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompRepliconDiff(pub u32);
+
+impl RepliconDiffable for CompRepliconDiff {
+    type Patch = u32;
+
+    fn apply_patch(&mut self, patch: &Self::Patch) -> Result<()> {
+        self.0 = *patch;
+        Ok(())
     }
 }
 
@@ -224,6 +237,10 @@ impl Plugin for ProtocolPlugin {
         app.component::<CompMap>().replicate().predict();
         app.local_rollback::<CompNotNetworked>();
         app.component::<CompDelta>().replicate();
+        app.component::<CompRepliconDiff>()
+            .replicate_diff()
+            .predict_diff()
+            .add_custom_interpolation_diff();
         // .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
