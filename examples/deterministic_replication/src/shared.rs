@@ -44,12 +44,12 @@ impl Plugin for SharedPlugin {
         });
         app.add_plugins(
             PhysicsPlugins::default()
+                .with_length_unit(10.0)
                 .build()
                 // disable syncing position<>transform as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
                 // interpolation is handled by lightyear_frame_interpolation
                 .disable::<PhysicsInterpolationPlugin>()
-                // disable island sleeping plugin as it's not compatible with rollbacks
                 .disable::<IslandPlugin>()
                 .disable::<IslandSleepingPlugin>(),
         )
@@ -359,6 +359,7 @@ pub(crate) fn emit_fixed_last_players(
 pub(crate) struct WallBundle {
     color: ColorComponent,
     physics: PhysicsBundle,
+    collision: CollisionMargin,
     wall: Wall,
     name: Name,
 }
@@ -377,8 +378,9 @@ impl WallBundle {
                 collider: Collider::segment(start, end),
                 collider_density: ColliderDensity(1.0),
                 rigid_body: RigidBody::Static,
-                restitution: Restitution::new(0.0),
+                restitution: Restitution::new(1.0),
             },
+            collision: CollisionMargin(2.0),
             wall: Wall { start, end },
             name: Name::from("Wall"),
         }

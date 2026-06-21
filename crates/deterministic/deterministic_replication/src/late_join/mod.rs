@@ -43,7 +43,10 @@
 //!    the accepted Replicon checkpoint is fully confirmed. At that point all
 //!    mutation messages for the catch-up reveal have landed, so the plugin
 //!    emits [`CatchUpSnapshotReady`] for local-only setup and schedules one
-//!    forced rollback to the accepted server tick.
+//!    forced rollback to the accepted server tick. If that checkpoint becomes
+//!    too old for the configured rollback window before it is usable, the
+//!    client logs and disconnects; that should not happen in a healthy
+//!    catch-up flow.
 //!
 //! 5. [`HasCaughtUp`] is not removed. After the initial catch-up, the rest of
 //!    the simulation is deterministic, so later catch-up-gated components are

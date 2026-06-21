@@ -24,7 +24,7 @@ impl PhysicsBundle {
             collider: Collider::circle(BALL_SIZE),
             collider_density: ColliderDensity(0.05),
             rigid_body: RigidBody::Dynamic,
-            restitution: Restitution::new(0.5),
+            restitution: Restitution::new(1.0),
         }
     }
 
@@ -33,7 +33,7 @@ impl PhysicsBundle {
             collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
             collider_density: ColliderDensity(0.2),
             rigid_body: RigidBody::Dynamic,
-            restitution: Restitution::new(0.3),
+            restitution: Restitution::new(1.0),
         }
     }
 }

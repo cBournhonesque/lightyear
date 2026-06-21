@@ -42,6 +42,7 @@ struct RandomDrive {
     /// Keep the action still for this many ticks at the start so catch-up
     /// machinery can settle (matches "50 ticks then start moving" request).
     warmup_ticks: u32,
+    direction: Option<Vec2>,
 }
 
 #[derive(Resource, Default)]
@@ -141,6 +142,15 @@ impl RandomDrive {
         Self {
             seed: seed.wrapping_add(0x9E3779B97F4A7C15),
             warmup_ticks,
+            direction: None,
+        }
+    }
+
+    fn fixed(direction: Vec2, warmup_ticks: u32) -> Self {
+        Self {
+            seed: 0,
+            warmup_ticks,
+            direction: Some(direction),
         }
     }
 }
@@ -163,6 +173,8 @@ fn drive_random_input(
     let tick = timeline.tick();
     let dir = if tick.0 < random.warmup_ticks {
         Vec2::ZERO
+    } else if let Some(direction) = random.direction {
+        direction
     } else {
         // Pick one of 4 cardinal directions pseudo-randomly.
         let mut state = random
@@ -303,11 +315,30 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
 }
 
 fn configure_client_app(client_app: &mut App, seed: u64, warmup_ticks: u32) {
-    client_app.insert_resource(RandomDrive::new(seed, warmup_ticks));
+    configure_client_app_with_drive(client_app, RandomDrive::new(seed, warmup_ticks));
+}
+
+fn configure_client_app_with_drive(client_app: &mut App, drive: RandomDrive) {
+    client_app.insert_resource(drive);
     client_app.init_resource::<CatchUpTrace>();
     add_position_samples(client_app);
     client_app.add_observer(activate_physics_when_bundle_lands);
     client_app.add_systems(FixedPreUpdate, drive_random_input);
+}
+
+fn configure_stepper_with_fixed_drives(
+    stepper: &mut DetStepper,
+    warmup_ticks: u32,
+    directions: &[Vec2],
+) {
+    add_position_samples(&mut stepper.server_app);
+    for (client_app, direction) in stepper
+        .client_apps
+        .iter_mut()
+        .zip(directions.iter().copied())
+    {
+        configure_client_app_with_drive(client_app, RandomDrive::fixed(direction, warmup_ticks));
+    }
 }
 
 fn add_position_samples(app: &mut App) {
@@ -1396,6 +1427,48 @@ fn test_state_based_catchup_late_join_after_movement() {
 
     // Let client 1 receive the state snapshot, activate physics, roll back,
     // and replay from the catch-up tick while both clients keep sending input.
+    stepper.frame_step(220);
+
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+    compare_players_to_server(
+        &mut stepper,
+        &[server_player_a, server_player_b],
+        &[peer_a, peer_b],
+    );
+    compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
+}
+
+/// Covers a late join while the existing client continuously holds movement
+/// input, matching the manual reproduction where the first client keeps
+/// pressing a key while the second client applies catch-up.
+#[test]
+fn test_state_based_catchup_late_join_while_first_client_holds_input() {
+    let mut stepper = DetStepper::new_server();
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper_with_fixed_drives(&mut stepper, 50, &[Vec2::X, Vec2::ZERO]);
+
+    stepper.start();
+    stepper.connect_single(0);
+
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_player_a =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+
+    // Client 0 is holding right before client 1 joins, and keeps holding it
+    // through the catch-up snapshot and forced rollback.
+    stepper.frame_step(140);
+
+    stepper.connect_single(1);
+    let server_player_b =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+
     stepper.frame_step(220);
 
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
