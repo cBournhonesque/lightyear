@@ -6,14 +6,14 @@
 
 use crate::rollback::DeterministicPredicted;
 use crate::{Predicted, SyncComponent};
-use alloc::collections::VecDeque;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use core::fmt::{self, Debug, Display};
-use core::ops::Deref;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
+use core::ops::{Deref, DerefMut};
+use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
+use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, SyncEvent};
 use lightyear_replication::prelude::PreSpawned;
@@ -21,90 +21,43 @@ use lightyear_sync::prelude::InputTimelineConfig;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
-/// The local predicted state of a component.
-#[derive(Debug, PartialEq, Clone, Default, Reflect)]
-pub enum PredictionState<R> {
-    #[default]
-    /// The component was removed (predicted locally)
-    Removed,
-    /// The value was predicted locally
-    Predicted(R),
-}
-
-impl<R> PredictionState<R> {
-    /// Returns true if the component exists (not removed)
-    pub fn is_present(&self) -> bool {
-        matches!(self, PredictionState::Predicted(_))
-    }
-
-    pub fn into_value(self) -> Option<R> {
-        match self {
-            PredictionState::Predicted(r) => Some(r),
-            PredictionState::Removed => None,
-        }
-    }
-
-    /// Get the inner value if present
-    pub fn value(&self) -> Option<&R> {
-        match self {
-            PredictionState::Predicted(r) => Some(r),
-            PredictionState::Removed => None,
-        }
-    }
-
-    /// Get the inner value if present (mutable)
-    pub fn value_mut(&mut self) -> Option<&mut R> {
-        match self {
-            PredictionState::Predicted(r) => Some(r),
-            PredictionState::Removed => None,
-        }
-    }
-}
-
-impl<'w, R> From<&'w PredictionState<R>> for Option<&'w R> {
-    fn from(val: &'w PredictionState<R>) -> Self {
-        val.value()
-    }
-}
-
-impl<R> From<PredictionState<R>> for Option<R> {
-    fn from(val: PredictionState<R>) -> Self {
-        match val {
-            PredictionState::Removed => None,
-            PredictionState::Predicted(r) => Some(r),
-        }
-    }
-}
-
 /// Holds the history of locally predicted component states.
 ///
 /// This stores only local prediction samples. Authoritative samples from the
 /// remote are stored separately in [`ConfirmedHistory`].
 #[derive(Component, Debug, Reflect)]
-pub struct PredictionHistory<C> {
-    /// Queue containing the history. Front = oldest, back = most recent.
-    /// Stores explicit local prediction samples, including removals.
-    buffer: VecDeque<(Tick, PredictionState<C>)>,
-}
+pub struct PredictionHistory<C>(HistoryBuffer<C>);
 
 impl<C> Default for PredictionHistory<C> {
     fn default() -> Self {
-        Self {
-            buffer: VecDeque::new(),
-        }
+        Self(HistoryBuffer::default())
+    }
+}
+
+impl<C> Deref for PredictionHistory<C> {
+    type Target = HistoryBuffer<C>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<C> DerefMut for PredictionHistory<C> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 
 impl<C: Debug> Display for PredictionHistory<C> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "PredictionHistory[")?;
-        for (i, (tick, state)) in self.buffer.iter().enumerate() {
+        for (i, (tick, state)) in self.buffer().iter().enumerate() {
             if i > 0 {
                 write!(f, ", ")?;
             }
             let state_char = match state {
-                PredictionState::Predicted(_) => "P",
-                PredictionState::Removed => "R",
+                HistoryState::Updated(_) => "P",
+                HistoryState::Removed => "R",
             };
             write!(f, "{:?}:{}", tick, state_char)?;
         }
@@ -113,136 +66,9 @@ impl<C: Debug> Display for PredictionHistory<C> {
 }
 
 impl<C> PredictionHistory<C> {
-    pub fn len(&self) -> usize {
-        self.buffer.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.buffer.is_empty()
-    }
-
-    /// Oldest value in the buffer
-    pub fn oldest(&self) -> Option<&(Tick, PredictionState<C>)> {
-        self.buffer.front()
-    }
-
-    /// Most recent value in the buffer
-    pub fn most_recent(&self) -> Option<&(Tick, PredictionState<C>)> {
-        self.buffer.back()
-    }
-
-    /// For unit tests
-    #[doc(hidden)]
-    pub fn buffer(&self) -> &VecDeque<(Tick, PredictionState<C>)> {
-        &self.buffer
-    }
-
-    /// Get the value at the specified tick (returns the most recent value <= tick)
-    pub fn get(&self, tick: Tick) -> Option<&C> {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
-        if partition == 0 {
-            return None;
-        }
-        self.buffer
-            .get(partition - 1)
-            .and_then(|(_, state)| state.value())
-    }
-
-    /// Get the full state at the specified tick
-    pub fn get_state(&self, tick: Tick) -> Option<&PredictionState<C>> {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| *buffer_tick <= tick);
-        if partition == 0 {
-            return None;
-        }
-        self.buffer.get(partition - 1).map(|(_, state)| state)
-    }
-
-    /// Clear the entire history
-    pub fn clear(&mut self) {
-        self.buffer.clear();
-    }
-
     /// Add a predicted value or removal computed locally.
     pub fn add_predicted(&mut self, tick: Tick, value: Option<C>) {
-        self.add_state(
-            tick,
-            match value {
-                Some(value) => PredictionState::Predicted(value),
-                None => PredictionState::Removed,
-            },
-        );
-    }
-
-    /// Add a local predicted state.
-    fn add_state(&mut self, tick: Tick, state: PredictionState<C>) {
-        if let Some((last_tick, _)) = self.buffer.back()
-            && *last_tick == tick
-        {
-            // Replace the existing value at this tick
-            self.buffer.pop_back();
-        }
-        self.buffer.push_back((tick, state));
-    }
-
-    /// Update ticks in case of a TickEvent (client tick changed)
-    pub fn update_ticks(&mut self, delta: i32) {
-        self.buffer.iter_mut().for_each(|(tick, _)| {
-            *tick = *tick + delta;
-        });
-    }
-
-    /// Pop the oldest value in the history
-    pub fn pop(&mut self) -> Option<(Tick, PredictionState<C>)> {
-        self.buffer.pop_front()
-    }
-
-    /// Clear all values strictly older than the specified tick
-    pub fn clear_until_tick(&mut self, tick: Tick) {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick < &tick);
-        if partition > 0 {
-            self.buffer.drain(0..partition);
-        }
-    }
-
-    /// Clear all predicted states strictly newer than the specified tick.
-    pub fn clear_after_tick(&mut self, tick: Tick) {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
-        self.buffer.truncate(partition);
-    }
-}
-
-impl<C: Clone> PredictionHistory<C> {
-    /// Clear the history of values strictly older than the specified tick,
-    /// and return the value at the specified tick.
-    ///
-    /// This is similar to HistoryBuffer::pop_until_tick but for PredictionHistory.
-    pub fn pop_until_tick(&mut self, tick: Tick) -> Option<PredictionState<C>> {
-        let partition = self
-            .buffer
-            .partition_point(|(buffer_tick, _)| buffer_tick <= &tick);
-
-        if partition == 0 {
-            return None;
-        }
-
-        // Drain all elements strictly older than the tick
-        self.buffer.drain(0..(partition - 1));
-        let res = self.buffer.pop_front().map(|(_, state)| state);
-
-        // Re-add the value at tick to the buffer
-        if let Some(ref state) = res {
-            self.buffer.push_front((tick, state.clone()));
-        }
-
-        res
+        self.add(tick, value);
     }
 }
 
@@ -462,7 +288,7 @@ pub(crate) fn snap_to_confirmed_during_rollback<
         // Check if there's a confirmed value at exactly this tick
         if let Some(confirmed_state) = history.get_state_at(tick) {
             match confirmed_state {
-                ConfirmedState::Confirmed(confirmed_value) => {
+                HistoryState::Updated(confirmed_value) => {
                     // Snap to the confirmed value
                     if let Some(mut comp) = component {
                         if comp.deref() != confirmed_value {
@@ -503,7 +329,7 @@ pub(crate) fn snap_to_confirmed_during_rollback<
                         commands.entity(entity).insert(confirmed_value.clone());
                     }
                 }
-                ConfirmedState::Removed => {
+                HistoryState::Removed => {
                     // Confirmed removal - remove the component if it exists
                     if component.is_some() {
                         debug!(
@@ -551,8 +377,8 @@ mod tests {
 
         assert!(matches!(restore_value, Some(TestValue(v)) if v == 1.0));
 
-        let has_tick_5 = history.buffer.iter().any(|(t, _)| *t == Tick(5));
-        let has_tick_9 = history.buffer.iter().any(|(t, _)| *t == Tick(9));
+        let has_tick_5 = history.buffer().iter().any(|(t, _)| *t == Tick(5));
+        let has_tick_9 = history.buffer().iter().any(|(t, _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
     }

@@ -906,8 +906,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             is_state_rollback && server_confirmed_tick == Some(rollback_tick);
         let is_forced_state_rollback = is_state_rollback && !is_completed_state_rollback;
 
-        let confirmed_restore = if is_state_rollback {
-            confirmed_history.as_ref().and_then(|history| {
+        let restore_state = if is_state_rollback {
+            if let Some(history) = confirmed_history.as_ref() {
                 // Completed state rollbacks restore from the latest globally completed
                 // mutate tick. That completed tick proves that a component without an
                 // explicit update is unchanged since its previous confirmed state, even
@@ -924,26 +924,23 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     "state rollback must be completed or forced"
                 );
                 history.get_state_at_or_before(rollback_tick).cloned()
-            })
+            } else {
+                // State rollback can also cover predicted-only local components
+                // that have no authoritative history yet.
+                predicted_history.get_state(rollback_tick).cloned()
+            }
         } else {
-            None
-        };
-
-        let restore_value = if let Some(confirmed_restore) = confirmed_restore {
-            confirmed_restore.into_value()
-        } else {
-            // Input rollbacks restore from predicted history. State rollbacks
-            // only reach this fallback for components without an authoritative
-            // sample at `rollback_tick` (for example non-networked predicted
-            // components, or components with no confirmed state yet).
-            predicted_history.get(rollback_tick).cloned()
+            // Input rollbacks restore from predicted history.
+            predicted_history.get_state(rollback_tick).cloned()
         };
         // Keep the prediction history anchored at the actual rollback target.
         // For completed state rollbacks this is the completed mutate tick; for
         // forced state and input rollbacks it may be older than the latest
         // completed mutate tick.
-        predicted_history.clear_until_tick(rollback_tick);
-        predicted_history.clear_after_tick(rollback_tick);
+        predicted_history.clear();
+        if let Some(state) = restore_state.clone() {
+            predicted_history.add_state(rollback_tick, state);
+        }
         trace!(
             target: "lightyear_debug::prediction",
             kind = "prepare_rollback_component",
@@ -955,7 +952,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             rollback_tick = rollback_tick.0,
             confirmed_tick = server_confirmed_tick.map(|tick| tick.0),
             rollback = ?rollback,
-            restore_value = ?restore_value,
+            restore_state = ?restore_state,
             history_len = predicted_history.len(),
             "prepared component rollback"
         );
@@ -963,14 +960,24 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         let mut entity_mut = commands.entity(entity);
 
         // Update the component to the value at rollback_tick
-        match restore_value {
-            // No value exists at rollback_tick, or component was removed
+        match restore_state {
+            // No state exists at rollback_tick. This is not an explicit
+            // removal, so leave the current component value in place.
             None => {
+                trace!(
+                    ?entity,
+                    ?kind,
+                    ?rollback_tick,
+                    "No history entry for component at rollback tick; leaving current value in place"
+                );
+            }
+            // An explicit removal means the component was authoritatively removed at rollback_tick.
+            Some(HistoryState::Removed) => {
                 entity_mut.try_remove::<C>();
                 trace!("Removing component from predicted entity for rollback");
             }
             // Value exists at rollback_tick (either predicted or confirmed)
-            Some(correct) => {
+            Some(HistoryState::Updated(correct)) => {
                 match predicted_component {
                     None => {
                         debug!("Re-adding deleted component to predicted");
@@ -1281,3 +1288,44 @@ pub enum RollbackState {
 /// entity next to `Replicate::to_clients(NetworkTarget::All)`.
 #[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CatchUpGated;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::system::RunSystemOnce;
+
+    #[derive(Component, Clone, PartialEq, Debug)]
+    struct TestComponent(f32);
+
+    /// Test that rollback does not remove a predicted component
+    /// when the rollback tick predates the first retained history entry.
+    #[test]
+    fn test_predicted_component_initial_rollback() {
+        let rollback_tick = Tick(10);
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        world.init_resource::<ReplicationCheckpointMap>();
+
+        let manager = world
+            .spawn((PredictionManager::default(), Rollback::FromState))
+            .id();
+        world
+            .get_mut::<PredictionManager>(manager)
+            .unwrap()
+            .set_rollback_tick(rollback_tick);
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        history.add_predicted(rollback_tick + 5, Some(TestComponent(1.0)));
+        let predicted = world.spawn((Predicted, TestComponent(1.0), history)).id();
+
+        world
+            .run_system_once(prepare_rollback::<TestComponent>)
+            .unwrap();
+
+        assert_eq!(
+            world.get::<TestComponent>(predicted),
+            Some(&TestComponent(1.0))
+        );
+    }
+}

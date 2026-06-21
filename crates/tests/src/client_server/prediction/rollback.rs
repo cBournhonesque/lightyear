@@ -15,7 +15,7 @@ use lightyear::prediction::predicted_history::PredictionHistory;
 use lightyear::prelude::input::native::ActionState;
 use lightyear_connection::prelude::NetworkTarget;
 use lightyear_core::id::PeerId;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline, Tick};
+use lightyear_core::prelude::{ConfirmedHistory, HistoryState, LocalTimeline, Tick};
 use lightyear_messages::MessageManager;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode, StateRollbackMetadata};
@@ -46,8 +46,8 @@ fn insert_confirmed<C: Component + PartialEq>(
     value: Option<C>,
 ) {
     let state = match value {
-        Some(value) => ConfirmedState::Confirmed(value),
-        None => ConfirmedState::Removed,
+        Some(value) => HistoryState::Updated(value),
+        None => HistoryState::Removed,
     };
     let mut entity_mut = world.entity_mut(entity);
     if let Some(mut history) = entity_mut.get_mut::<ConfirmedHistory<C>>() {
@@ -88,13 +88,14 @@ fn observe_rollback_start(app: &mut App) {
 }
 
 // =============================================================================
-// Scenario 1: Component predicted-inserted but not from replication → removed on rollback
+// Scenario 1: Non-networked component without confirmed state is not removed on state rollback
 // =============================================================================
 
-/// Client prediction adds a component, but server never has it.
-/// On rollback, the component should be removed.
+/// Client prediction adds a non-networked component.
+/// On state rollback, missing confirmed state should not be treated as
+/// authoritative removal.
 #[test]
-fn test_predicted_insert_reverted_on_rollback() {
+fn test_non_networked_insert_kept_on_state_rollback_without_confirmed_history() {
     let (mut stepper, predicted) = setup();
 
     stepper.frame_step(1);
@@ -119,14 +120,14 @@ fn test_predicted_insert_reverted_on_rollback() {
     trigger_rollback_check(&mut stepper, rollback_tick);
     stepper.frame_step(1);
 
-    // CompNotNetworked should be removed: it wasn't in the history at rollback_tick
+    // CompNotNetworked should remain: there was no authoritative removal.
     assert!(
         stepper
             .client_app()
             .world()
             .get::<CompNotNetworked>(predicted)
-            .is_none(),
-        "Predicted-inserted component should be removed on rollback"
+            .is_some(),
+        "State rollback should not remove a component only because it has no confirmed history"
     );
 }
 
@@ -954,6 +955,47 @@ fn test_remote_remove_applied_on_rollback() {
             .get::<CompFull>(predicted)
             .is_none(),
         "Remotely-removed component should be absent after rollback"
+    );
+}
+
+/// If a predicted component has no history sample at-or-before the rollback
+/// tick, rollback should not treat that absence as an authoritative removal.
+#[test]
+fn test_predicted_component_kept_when_no_history_sample_at_rollback_tick() {
+    let (mut stepper, predicted) = setup();
+
+    stepper.frame_step(3);
+    let tick = stepper.client_tick(0);
+
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .is_some(),
+        "precondition: component is present before the rollback"
+    );
+
+    {
+        let world = stepper.client_app().world_mut();
+        let mut history = world
+            .get_mut::<PredictionHistory<CompFull>>(predicted)
+            .expect("prediction history exists for predicted component");
+        history.clear();
+        history.add_predicted(tick + 5, Some(CompFull(1.0)));
+    }
+
+    let rollback_tick = tick - 2;
+    trigger_state_rollback(&mut stepper, rollback_tick);
+    stepper.frame_step(1);
+
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .get::<CompFull>(predicted)
+            .is_some(),
+        "present predicted component should not be removed when no history sample exists at-or-before the rollback tick"
     );
 }
 

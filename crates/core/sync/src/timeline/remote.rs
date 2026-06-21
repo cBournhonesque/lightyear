@@ -112,16 +112,16 @@ impl RemoteTimeline {
         ping_manager: &PingManager,
         tick_duration: Duration,
     ) {
-        if ping_manager.pongs_recv < self.handshake_pings {
+        if ping_manager.latency_samples_recv() < self.handshake_pings {
             trace!(
                 target: "lightyear_debug::sync",
-                kind = "remote_estimate_waiting_for_handshake",
+                kind = "remote_estimate_waiting_for_latency_samples",
                 schedule = "PreUpdate",
                 sample_point = "PreUpdate",
                 remote_tick = remote_tick.0,
-                pongs_recv = ping_manager.pongs_recv,
-                handshake_pings = self.handshake_pings,
-                "remote timeline estimate skipped until handshake pongs are available"
+                latency_samples_recv = ping_manager.latency_samples_recv(),
+                required_latency_samples = self.handshake_pings,
+                "remote timeline estimate skipped until latency samples are available"
             );
             return;
         }

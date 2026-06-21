@@ -18,6 +18,7 @@ use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
 use bytes::Bytes;
+use core::time::Duration;
 use lightyear_connection::host::HostClient;
 #[cfg(any(feature = "client", feature = "server"))]
 use lightyear_connection::prelude::Disconnected;
@@ -50,6 +51,14 @@ pub enum TransportSystems {
 pub struct PacketReceived {
     pub entity: Entity,
     pub remote_tick: Tick,
+}
+
+/// Event triggered on a [`Transport`] entity when a sent packet is acknowledged.
+#[derive(EntityEvent)]
+pub struct PacketAcked {
+    pub entity: Entity,
+    pub packet_id: u32,
+    pub rtt_sample: Duration,
 }
 
 pub struct TransportPlugin;
@@ -94,7 +103,7 @@ impl TransportPlugin {
                 transport
                     .packet_manager
                     .header_manager
-                    .update(time.delta(), &link.stats);
+                    .update(time.elapsed(), &link.stats);
                 transport
                     .packet_manager
                     .header_manager
@@ -163,19 +172,35 @@ impl TransportPlugin {
                             "received transport packet"
                         );
 
-                        // TODO: maybe switch to event buffer instead of triggers?
+                        // Update the packet acks before triggering PacketReceived, so timeline
+                        // observers can consume RTT samples from this packet first.
+                        let newly_acked_packets = transport
+                            .packet_manager
+                            .header_manager
+                            .process_recv_packet_header(&header, time.elapsed());
+
                         #[cfg(feature = "std")]
                         par_commands.command_scope(|mut commands| {
+                            newly_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
+                                commands.trigger(PacketAcked {
+                                    entity,
+                                    packet_id: packet_id.0,
+                                    rtt_sample: *rtt_sample,
+                                });
+                            });
                             commands.trigger(PacketReceived { entity, remote_tick: tick });
                         });
                         #[cfg(not(feature = "std"))]
-                        commands.trigger(PacketReceived { entity, remote_tick: tick });
-
-                        // Update the packet acks
-                        transport
-                            .packet_manager
-                            .header_manager
-                            .process_recv_packet_header(&header);
+                        {
+                            newly_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
+                                commands.trigger(PacketAcked {
+                                    entity,
+                                    packet_id: packet_id.0,
+                                    rtt_sample: *rtt_sample,
+                                });
+                            });
+                            commands.trigger(PacketReceived { entity, remote_tick: tick });
+                        }
 
                         let mut packet_type = header.get_packet_type();
                         if packet_type.is_compressed() {
@@ -287,7 +312,7 @@ impl TransportPlugin {
                     .header_manager
                     .newly_acked_packets
                     .drain(..)
-                    .try_for_each(|acked_packet| {
+                    .try_for_each(|(acked_packet, rtt_sample)| {
                         trace!("Acked packet {:?}", acked_packet);
                         trace!(
                             target: "lightyear_debug::transport",
@@ -296,6 +321,7 @@ impl TransportPlugin {
                             sample_point = "PreUpdate",
                             entity = ?entity,
                             packet_id = ?acked_packet,
+                            rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
                             "transport packet acked"
                         );
                         if let Some(message_acks) =
@@ -362,6 +388,19 @@ impl TransportPlugin {
             }
             transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
                 let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
+                trace!(
+                    target: "lightyear_debug::transport",
+                    kind = "channel_send_buffer",
+                    schedule = "PostUpdate",
+                    sample_point = "PostUpdate",
+                    tick = ?tick,
+                    tick_id = u64::from(tick.0),
+                    channel = %sender_metadata.name,
+                    channel_kind = ?channel_kind,
+                    bytes = bytes.len(),
+                    priority = priority,
+                    "buffered channel message for transport send"
+                );
                 // TODO: do we need the message_id?
                 sender_metadata
                     .sender

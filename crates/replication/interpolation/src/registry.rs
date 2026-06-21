@@ -14,7 +14,8 @@ use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_utils::prelude::DebugName;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, Interpolated, Tick};
+use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
 use lightyear_replication::registry::replication::ComponentRegistration;
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
@@ -95,7 +96,7 @@ impl InterpolationRegistry {
         history: &ConfirmedHistory<C>,
         interpolation_tick: Tick,
         interpolation_overstep: f32,
-    ) -> Option<ConfirmedState<C>> {
+    ) -> Option<HistoryState<C>> {
         let previous_index = (0..history.len())
             .take_while(|i| {
                 history
@@ -105,18 +106,18 @@ impl InterpolationRegistry {
             .last()?;
 
         let (start_tick, start_state) = history.get_nth_state(previous_index)?;
-        let ConfirmedState::Confirmed(start) = start_state else {
-            return Some(ConfirmedState::Removed);
+        let HistoryState::Updated(start) = start_state else {
+            return Some(HistoryState::Removed);
         };
 
-        let Some((end_tick, ConfirmedState::Confirmed(end))) =
+        let Some((end_tick, HistoryState::Updated(end))) =
             history.get_nth_state(previous_index + 1)
         else {
-            return Some(ConfirmedState::Confirmed(start.clone()));
+            return Some(HistoryState::Updated(start.clone()));
         };
 
         if !self.has_interpolation_fn::<C>() {
-            return Some(ConfirmedState::Confirmed(start.clone()));
+            return Some(HistoryState::Updated(start.clone()));
         }
 
         // Clamp rather than extrapolate beyond the newest confirmed value. This
@@ -137,7 +138,7 @@ impl InterpolationRegistry {
             history_len = history.len(),
             "sampled confirmed history for interpolation"
         );
-        Some(ConfirmedState::Confirmed(self.interpolate(
+        Some(HistoryState::Updated(self.interpolate(
             start.clone(),
             end.clone(),
             fraction,
@@ -434,11 +435,11 @@ mod tests {
         let registry = registry();
         assert_eq!(
             registry.sample(&history, Tick(30), 0.0),
-            Some(ConfirmedState::Confirmed(TestComp(10.0)))
+            Some(HistoryState::Updated(TestComp(10.0)))
         );
         assert_eq!(
             registry.sample(&history, Tick(20), 0.5),
-            Some(ConfirmedState::Confirmed(TestComp(10.0)))
+            Some(HistoryState::Updated(TestComp(10.0)))
         );
     }
 
@@ -451,11 +452,11 @@ mod tests {
         assert_eq!(registry.sample(&history, Tick(5), 0.0), None);
         assert_eq!(
             registry.sample(&history, Tick(10), 0.0),
-            Some(ConfirmedState::Confirmed(TestComp(42.0)))
+            Some(HistoryState::Updated(TestComp(42.0)))
         );
         assert_eq!(
             registry.sample(&history, Tick(50), 0.5),
-            Some(ConfirmedState::Confirmed(TestComp(42.0)))
+            Some(HistoryState::Updated(TestComp(42.0)))
         );
     }
 

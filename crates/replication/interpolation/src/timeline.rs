@@ -135,7 +135,7 @@ impl SyncedTimeline for InterpolationTimeline {
         tick_duration: Duration,
     ) -> Option<i32> {
         // skip syncing if we haven't received enough information
-        if ping_manager.pongs_recv < config.sync.handshake_pings as u32 {
+        if ping_manager.latency_samples_recv() < config.sync.handshake_pings as u32 {
             return None;
         }
         // TODO: should we call current_estimate()? now() should basically return the same thing
