@@ -235,11 +235,12 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<Name>();
-        app.register_component::<PlayerId>();
+        app.component::<Name>().replicate();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<PlayerPosition>()
-            .add_prediction()
+        app.component::<PlayerPosition>()
+            .replicate()
+            .predict()
             // NOTE: notice that we use custom interpolation here, this means that we don't run
             //  the interpolation function for this component, so we need to implement our own interpolation system
             //  (we do this because our interpolation system queries multiple components at once)
@@ -247,18 +248,19 @@ impl Plugin for ProtocolPlugin {
             // we still register an interpolation function which will be used for frame interpolation
             .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>();
+        app.component::<PlayerColor>().replicate();
 
-        app.register_component::<TailPoints>()
-            .add_prediction()
+        app.component::<TailPoints>()
+            .replicate()
+            .predict()
             // NOTE: notice that we use custom interpolation here, this means that we don't run
             //  the interpolation function for this component, so we need to implement our own interpolation system
             //  (we do this because our interpolation system queries multiple components at once)
             .add_custom_interpolation();
         // we do not register an interpolation function because we will use a custom interpolation system
 
-        app.register_component::<TailLength>();
+        app.component::<TailLength>().replicate();
 
-        app.register_component::<PlayerParent>();
+        app.component::<PlayerParent>().replicate();
     }
 }

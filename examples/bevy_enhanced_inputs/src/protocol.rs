@@ -43,12 +43,13 @@ impl Plugin for ProtocolPlugin {
         app.register_input_action::<Movement>();
 
         // components
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<PlayerPosition>()
-            .add_prediction()
+        app.component::<PlayerPosition>()
+            .replicate()
+            .predict()
             .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>();
+        app.component::<PlayerColor>().replicate();
     }
 }

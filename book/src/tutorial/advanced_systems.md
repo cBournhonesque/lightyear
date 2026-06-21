@@ -21,8 +21,8 @@ when we receive the actual state of the entity from the server. (if there is a m
 To do this in lightyear, you will need to change a few things.
 
 ```rust,ignore
-app.register_component::<PlayerPosition>()
-    .add_prediction();
+app.component::<PlayerPosition>().replicate()
+    .predict();
 ```
 
 Then, when replicating the entity, you can also specify which clients should predict the entity by adding a `PredictionTarget` component.
@@ -113,7 +113,7 @@ impl Ease for PlayerPosition {
     }
 }
 
-app.register_component::<PlayerPosition>()
+app.component::<PlayerPosition>().replicate()
     .add_linear_interpolation_fn();
 ```
 

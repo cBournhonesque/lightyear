@@ -33,7 +33,9 @@ pub mod prelude {
     pub use crate::plugin::{PredictionPlugin, PredictionSystems};
     pub use crate::predicted_history::PredictionHistory;
     pub use crate::registry::{
-        PredictionAppRegistrationExt, PredictionRegistrationExt, PredictionRegistry,
+        LocalRollbackComponentRegistration, PredictedComponentRegistration,
+        PredictionAppRegistrationExt, PredictionBuilderExt, PredictionRegistrationExt,
+        PredictionRegistry,
     };
     pub use crate::rollback::{
         CatchUpGated, DeterministicPredicted, DisableRollback, DisabledDuringRollback,

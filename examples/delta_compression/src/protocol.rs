@@ -136,14 +136,13 @@ impl Plugin for ProtocolPlugin {
         app.add_plugins(lightyear::prelude::input::native::InputPlugin::<Inputs>::default());
         // components
         // Use PredictionMode and InterpolationMode
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<PlayerPosition>()
-            .add_prediction()
-            .add_linear_interpolation()
-            // NOTE: currently there is a limitation that DeltaCompression must be added AFTER prediction/interpolation
-            .add_delta_compression::<(i8, i8)>();
+        app.component::<PlayerPosition>()
+            .replicate()
+            .predict()
+            .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>();
+        app.component::<PlayerColor>().replicate();
     }
 }

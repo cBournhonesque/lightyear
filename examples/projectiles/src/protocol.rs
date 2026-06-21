@@ -349,34 +349,37 @@ impl Plugin for ProtocolPlugin {
             .add_direction(NetworkDirection::ClientToServer);
 
         // components
-        app.register_component::<Name>();
-        app.register_component::<PlayerId>();
-        app.register_component::<PlayerMarker>();
+        app.component::<Name>().replicate();
+        app.component::<PlayerId>().replicate();
+        app.component::<PlayerMarker>().replicate();
 
-        app.register_component::<Position>()
-            .add_prediction()
-            .add_should_rollback(position_should_rollback)
+        app.component::<Position>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(position_should_rollback)
             .add_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component::<Rotation>()
-            .add_prediction()
-            .add_should_rollback(rotation_should_rollback)
+        app.component::<Rotation>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(rotation_should_rollback)
             .add_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component::<LinearVelocity>()
-            .add_prediction()
-            .add_should_rollback(linear_velocity_should_rollback);
+        app.component::<LinearVelocity>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(linear_velocity_should_rollback);
 
-        app.register_component::<ColorComponent>();
+        app.component::<ColorComponent>().replicate();
 
-        app.register_component::<Score>();
+        app.component::<Score>().replicate();
 
         // we replicate HitscanVisual for the AllInterpolation mode
         // make sure that we have an Interpolated HitscanVisual entity since we only render entities
         // that are interpolated or predicted
-        app.register_component::<HitscanVisual>();
+        app.component::<HitscanVisual>().replicate();
 
         // We do not need to replicate RigidBody:
         // - for interpolated entities, we just interpolate between Position updates
@@ -384,40 +387,39 @@ impl Plugin for ProtocolPlugin {
         // The issue we want to avoid is that we don't want RigidBody to be included on Interpolated
         // entities because that means that we would be doing expensive simulation work on interpolated
         // entities.
-        app.register_component::<RigidBody>();
+        app.component::<RigidBody>().replicate();
 
-        app.register_component::<BulletMarker>();
+        app.component::<BulletMarker>().replicate();
 
-        app.register_component::<Bot>();
+        app.component::<Bot>().replicate();
 
-        app.register_component::<Score>();
+        app.component::<Score>().replicate();
 
-        app.register_component::<PredictedBot>();
+        app.component::<PredictedBot>().replicate();
 
-        app.register_component::<InterpolatedBot>();
+        app.component::<InterpolatedBot>().replicate();
 
         // Register new weapon and projectile components
-        app.register_component::<WeaponType>();
+        app.component::<WeaponType>().replicate();
 
-        app.register_component::<Weapon>().add_prediction();
+        app.component::<Weapon>().replicate().predict();
 
-        app.register_component::<ProjectileReplicationMode>();
+        app.component::<ProjectileReplicationMode>().replicate();
 
-        app.register_component::<GameReplicationMode>();
+        app.component::<GameReplicationMode>().replicate();
 
-        app.register_component::<PlayerRoom>();
+        app.component::<PlayerRoom>().replicate();
 
-        app.register_component::<PhysicsProjectile>()
-            .add_prediction();
+        app.component::<PhysicsProjectile>().replicate().predict();
 
-        app.register_component::<HomingMissile>().add_prediction();
+        app.component::<HomingMissile>().replicate().predict();
 
-        app.register_component::<ShotgunPellet>();
+        app.component::<ShotgunPellet>().replicate();
 
-        app.register_component::<ProjectileSpawn>();
+        app.component::<ProjectileSpawn>().replicate();
 
         // Make sure that we rollback the DespawnAfter timer in deterministic replication mode
-        app.add_rollback::<DespawnAfter>();
+        app.local_rollback::<DespawnAfter>();
     }
 }
 

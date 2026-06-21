@@ -27,9 +27,10 @@ A `Protocol` contains multiple sub-parts:
   the client and server. Each component must be `Serializable + Clone + Component`.
   You can register a component with:
   ```rust,noplayground
-  app.register_component::<PlayerId>(ChannelDirection::ServerToClient)
-    .add_prediction::<PlayerId>(ComponentSyncMode::Once)
-    .add_interpolation::<PlayerId>(ComponentSyncMode::Once);
+  app.component::<PlayerId>()
+    .replicate()
+    .predict()
+    .add_linear_interpolation();
   ```
   (You can specify additional behaviour for the component, such as prediction or interpolation.)
 

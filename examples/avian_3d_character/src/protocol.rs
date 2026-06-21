@@ -55,43 +55,47 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        app.register_component::<ColorComponent>();
+        app.component::<ColorComponent>().replicate();
 
-        app.register_component::<Name>();
+        app.component::<Name>().replicate();
 
-        app.register_component::<CharacterMarker>();
+        app.component::<CharacterMarker>().replicate();
 
-        app.register_component::<ProjectileMarker>();
+        app.component::<ProjectileMarker>().replicate();
 
-        app.register_component::<FloorMarker>();
+        app.component::<FloorMarker>().replicate();
 
-        app.register_component::<BlockMarker>();
+        app.component::<BlockMarker>().replicate();
 
         // Fully replicated, but not visual, so no need for lerp/corrections:
-        app.register_component::<LinearVelocity>()
-            .add_prediction()
-            .add_should_rollback(linear_velocity_should_rollback);
+        app.component::<LinearVelocity>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(linear_velocity_should_rollback);
 
-        app.register_component::<AngularVelocity>()
-            .add_prediction()
-            .add_should_rollback(angular_velocity_should_rollback);
+        app.component::<AngularVelocity>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(angular_velocity_should_rollback);
 
-        // app.register_component::<ComputedMass>().add_prediction();
+        // app.component::<ComputedMass>().replicate().predict();
 
         // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
         //
         // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
         // out rendering between fixedupdate ticks.
-        app.register_component::<Position>()
-            .add_prediction()
-            .add_should_rollback(position_should_rollback)
+        app.component::<Position>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(position_should_rollback)
             .add_linear_correction_fn()
             .add_linear_interpolation();
 
-        app.register_component::<Rotation>()
-            .add_prediction()
-            .add_should_rollback(rotation_should_rollback)
+        app.component::<Rotation>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(rotation_should_rollback)
             .add_linear_correction_fn()
             .add_linear_interpolation();
     }

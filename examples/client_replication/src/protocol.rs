@@ -66,20 +66,22 @@ impl Plugin for ProtocolPlugin {
         app.register_input_action::<DespawnPlayer>();
 
         // components
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<Name>();
-        app.register_component::<Admin>();
-        app.register_component::<Player>();
+        app.component::<Name>().replicate();
+        app.component::<Admin>().replicate();
+        app.component::<Player>().replicate();
 
-        app.register_component::<PlayerPosition>()
-            .add_prediction()
+        app.component::<PlayerPosition>()
+            .replicate()
+            .predict()
             .add_linear_interpolation();
 
-        app.register_component::<PlayerColor>();
+        app.component::<PlayerColor>().replicate();
 
-        app.register_component::<CursorPosition>()
-            .add_prediction()
+        app.component::<CursorPosition>()
+            .replicate()
+            .predict()
             .add_linear_interpolation();
     }
 }
