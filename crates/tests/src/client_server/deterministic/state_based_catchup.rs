@@ -1,10 +1,10 @@
 //! Scenario 2: `CatchUpMode::StateBasedCatchUp` with BEI `Axis2D` inputs,
 //! random per-tick movements and tight collisions.
 //!
-//! Two clients connect. The server delays the bundled catch-up snapshot
-//! (via `CatchUpServerReadiness`) until it has received inputs from every
-//! connected client. Each client receives the bundle in one replicon
-//! update and fires a single forced rollback to reconcile.
+//! Two clients connect. Late-join delays the bundled catch-up snapshot until
+//! the server has received inputs from every connected client. Each client
+//! receives the bundle in one replicon update and the plugin fires a single
+//! forced rollback to reconcile.
 //!
 //! Both clients then drive their player with randomised Axis2D inputs
 //! switching every tick, inside a small box that forces frequent
@@ -14,7 +14,7 @@
 
 use crate::client_server::deterministic::protocol::{
     DetBallMarker, DetBuffer, DetMovement, DetPlayerActivationTick, DetPlayerId, DetWallMarker,
-    Player, owner_is_waiting_for_catch_up,
+    Player,
 };
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
@@ -27,15 +27,10 @@ use bevy_enhanced_input::prelude::{
 };
 use lightyear::input::bei::input_message::ActionsSnapshot;
 use lightyear::prediction::rollback::{DeterministicPredicted, DisableRollback};
-use lightyear::prelude::server::ClientOf;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{
-    AwaitingCatchUpSnapshot, CatchUpMode, CatchUpRequestSent, CatchUpServerReadiness,
-    CatchUpSnapshotReady, CatchUpSystems, HasCaughtUp,
-    request_forced_rollback_to_catch_up_server_tick_with_commands,
-};
+use lightyear_deterministic_replication::prelude::CatchUpSnapshotReady;
 use lightyear_messages::MessageManager;
-use lightyear_replication::prelude::PreSpawned;
+use lightyear_prediction::rollback::CatchUpGated;
 use std::collections::HashMap;
 use test_log::test;
 
@@ -47,6 +42,7 @@ struct RandomDrive {
     /// Keep the action still for this many ticks at the start so catch-up
     /// machinery can settle (matches "50 ticks then start moving" request).
     warmup_ticks: u32,
+    direction: Option<Vec2>,
 }
 
 #[derive(Resource, Default)]
@@ -99,12 +95,6 @@ struct StageMotionSample {
 #[derive(Resource, Default)]
 struct StageMotionSamples(Vec<StageMotionSample>);
 
-#[derive(Resource, Default)]
-struct InitialCatchUpComplete;
-
-#[derive(Resource, Default)]
-struct PendingCatchUpSnapshot(Option<Tick>);
-
 #[derive(Clone, Debug)]
 struct ContactPairSample {
     collider1: String,
@@ -152,6 +142,15 @@ impl RandomDrive {
         Self {
             seed: seed.wrapping_add(0x9E3779B97F4A7C15),
             warmup_ticks,
+            direction: None,
+        }
+    }
+
+    fn fixed(direction: Vec2, warmup_ticks: u32) -> Self {
+        Self {
+            seed: 0,
+            warmup_ticks,
+            direction: Some(direction),
         }
     }
 }
@@ -174,6 +173,8 @@ fn drive_random_input(
     let tick = timeline.tick();
     let dir = if tick.0 < random.warmup_ticks {
         Vec2::ZERO
+    } else if let Some(direction) = random.direction {
+        direction
     } else {
         // Pick one of 4 cardinal directions pseudo-randomly.
         let mut state = random
@@ -195,98 +196,18 @@ fn drive_random_input(
     }
 }
 
-/// Server-side: update `CatchUpServerReadiness` based on whether every
-/// player has real remote input through the server's current tick.
-fn update_server_readiness(
-    mode: Res<CatchUpMode>,
-    timeline: Res<LocalTimeline>,
-    players: Query<(Entity, &DetPlayerId, &DetPlayerActivationTick), With<DetPlayerId>>,
-    actions: Query<(&ActionOf<Player>, &DetBuffer)>,
-    client_links: Query<(&RemoteId, Has<HasCaughtUp>), With<ClientOf>>,
-    mut readiness: ResMut<CatchUpServerReadiness>,
-) {
-    use bevy::ecs::relationship::Relationship;
-    let current_tick = timeline.tick();
-    let mut any = false;
-    let ready = players
-        .iter()
-        .all(|(player_entity, player_id, activation_tick)| {
-            any = true;
-            if owner_is_waiting_for_catch_up(&mode, player_id.0, client_links.iter()) {
-                return true;
-            }
-            if activation_tick.is_pending() || current_tick < activation_tick.0 {
-                return true;
-            }
-            actions.iter().any(|(action_of, buffer)| {
-                action_of.get() == player_entity
-                    && matches!(buffer.last_remote_tick, Some(t) if t >= current_tick)
-            })
-        });
-    readiness.all_clients_ready = any && ready;
-}
-
-/// Client-side: once the catch-up bundle for every known player entity
-/// has landed (Position present), insert the physics bundle +
-/// `DeterministicPredicted` and fire the bundled forced rollback.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ReplayCoverage {
-    Ready,
-    Wait,
-    Stale,
-}
-
-fn mark_awaiting_on_hidden_replicated_players(
-    players: Query<
-        Entity,
-        (
-            With<DetPlayerId>,
-            Without<AwaitingCatchUpSnapshot>,
-            Without<DeterministicPredicted>,
-        ),
-    >,
-    completed: Option<Res<InitialCatchUpComplete>>,
-    mut commands: Commands,
-) {
-    if completed.is_some() {
-        return;
-    }
-    for entity in &players {
-        commands.entity(entity).insert(AwaitingCatchUpSnapshot);
-    }
-}
-
 fn activate_physics_when_bundle_lands(
+    trigger: On<CatchUpSnapshotReady>,
     mut commands: Commands,
-    mut snapshot_ready_events: MessageReader<CatchUpSnapshotReady>,
-    mut pending_snapshot: ResMut<PendingCatchUpSnapshot>,
     pending: Query<
+        (Entity, &DetPlayerId),
         (
-            Entity,
-            &DetPlayerId,
-            &Position,
-            Has<AwaitingCatchUpSnapshot>,
-        ),
-        (
+            With<CatchUpGated>,
             With<DetPlayerId>,
-            With<DetPlayerActivationTick>,
             Without<DeterministicPredicted>,
         ),
     >,
-    still_pending: Query<
-        Entity,
-        (
-            With<DetPlayerId>,
-            Without<DeterministicPredicted>,
-            Without<Position>,
-        ),
-    >,
-    awaiting_snapshots: Query<Entity, With<AwaitingCatchUpSnapshot>>,
     timeline: Res<LocalTimeline>,
-    local_id: Option<Single<&LocalId, With<Client>>>,
-    client_request: Option<Single<Entity, (With<Client>, With<CatchUpRequestSent>)>>,
-    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
-    mut state_metadata: ResMut<StateRollbackMetadata>,
     all_players: Query<(
         Entity,
         &DetPlayerId,
@@ -297,54 +218,27 @@ fn activate_physics_when_bundle_lands(
     mut trace: ResMut<CatchUpTrace>,
 ) {
     use crate::client_server::deterministic::protocol::DetPhysicsBundle;
-    for event in snapshot_ready_events.read() {
-        pending_snapshot.0 = Some(event.server_tick);
-    }
-    let reference_tick = pending_snapshot.0;
-    let max_rollback_ticks = prediction_manager
-        .as_ref()
-        .map(|manager| manager.rollback_policy.max_rollback_ticks)
-        .unwrap_or(100);
-    let coverage = if still_pending.is_empty() {
-        reference_tick.map_or(ReplayCoverage::Wait, |reference_tick| {
-            let Some(local_id) = local_id.as_ref() else {
-                return ReplayCoverage::Wait;
-            };
-            input_buffers_cover_replay(
-                reference_tick,
-                timeline.tick(),
-                local_id.0,
-                max_rollback_ticks,
-                &all_players,
-                &mut input_buffers,
-            )
-        })
-    } else {
-        ReplayCoverage::Wait
-    };
-    if coverage == ReplayCoverage::Stale
-        && let Some(client_request) = client_request.as_ref()
-    {
-        commands
-            .entity(**client_request)
-            .remove::<CatchUpRequestSent>();
-        pending_snapshot.0 = None;
-    }
-    let catchup_ready = coverage == ReplayCoverage::Ready;
 
     let mut ready = Vec::new();
-    for (entity, id, _pos, awaiting_catchup) in pending.iter() {
-        if awaiting_catchup && !catchup_ready {
-            continue;
-        }
+    for (entity, id) in &pending {
         ready.push((entity, id.0));
     }
+    if ready.is_empty() {
+        return;
+    }
+    let event = trigger.event();
+    record_catchup_activation_trace(
+        &mut trace,
+        timeline.tick(),
+        event.server_tick,
+        &all_players,
+        &mut input_buffers,
+    );
     // Avian can depend on insertion order for internal proxy/body ordering.
     // The deterministic example activates players in this game-defined order;
     // keep the regression test on the same path.
     ready.sort_by_key(|(_, peer_id)| peer_id.to_bits());
 
-    let mut newly: Vec<Entity> = Vec::new();
     for (entity, _id) in ready {
         commands.entity(entity).insert((
             DetPhysicsBundle::player(),
@@ -353,32 +247,6 @@ fn activate_physics_when_bundle_lands(
                 ..default()
             },
         ));
-        newly.push(entity);
-    }
-    if catchup_ready
-        && !awaiting_snapshots.is_empty()
-        && newly.is_empty()
-        && let Some(reference_tick) = reference_tick
-    {
-        record_catchup_activation_trace(
-            &mut trace,
-            timeline.tick(),
-            reference_tick,
-            &all_players,
-            &mut input_buffers,
-        );
-        let awaiting_entities = awaiting_snapshots.iter().collect::<Vec<_>>();
-        let catchup_clients = client_request.as_ref().map(|entity| **entity).into_iter();
-        if request_forced_rollback_to_catch_up_server_tick_with_commands(
-            reference_tick,
-            &mut state_metadata,
-            awaiting_entities,
-            catchup_clients,
-            &mut commands,
-        ) {
-            pending_snapshot.0 = None;
-            commands.insert_resource(InitialCatchUpComplete);
-        }
     }
 }
 
@@ -438,170 +306,8 @@ fn record_catchup_activation_trace(
     });
 }
 
-fn input_buffers_cover_replay(
-    reference_tick: Tick,
-    local_tick: Tick,
-    local_id: PeerId,
-    max_rollback_ticks: u16,
-    players: &Query<(
-        Entity,
-        &DetPlayerId,
-        Option<&DetPlayerActivationTick>,
-        Option<&Position>,
-    )>,
-    input_buffers: &mut Query<(&ActionOf<Player>, Option<&mut DetBuffer>)>,
-) -> ReplayCoverage {
-    use bevy::ecs::relationship::Relationship;
-
-    if local_tick - reference_tick > i32::from(max_rollback_ticks) {
-        return ReplayCoverage::Stale;
-    }
-    let mut any_player = false;
-    for (player, player_id, activation_tick, _) in players.iter() {
-        any_player = true;
-        if activation_tick.is_some_and(|activation_tick| {
-            activation_tick.is_pending() || activation_tick.0 > reference_tick
-        }) {
-            continue;
-        }
-        let mut found = false;
-        for (action_of, buffer) in input_buffers.iter_mut() {
-            if action_of.get() != player {
-                continue;
-            }
-            let Some(mut buffer) = buffer else {
-                continue;
-            };
-            if player_id.0 == local_id {
-                let Some(end_tick) = buffer.end_tick() else {
-                    debug!(
-                        ?player,
-                        player_id = ?player_id.0,
-                        ?reference_tick,
-                        ?local_tick,
-                        "catch-up replay coverage waiting for local input buffer end tick"
-                    );
-                    return ReplayCoverage::Wait;
-                };
-                if end_tick < reference_tick {
-                    debug!(
-                        ?player,
-                        player_id = ?player_id.0,
-                        ?reference_tick,
-                        ?local_tick,
-                        ?end_tick,
-                        start_tick = ?buffer.start_tick,
-                        last_remote_tick = ?buffer.last_remote_tick,
-                        "catch-up replay coverage waiting for local input buffer to reach reference tick"
-                    );
-                    return ReplayCoverage::Wait;
-                }
-                if buffer.start_tick.is_none_or(|start| start > reference_tick) {
-                    let old_start = buffer.start_tick.unwrap_or(reference_tick);
-                    pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
-                }
-            } else if buffer.start_tick.is_none_or(|start| start > reference_tick) {
-                let old_start = buffer.start_tick.unwrap_or(reference_tick);
-                let Some(end_tick) = buffer.end_tick() else {
-                    debug!(
-                        ?player,
-                        player_id = ?player_id.0,
-                        ?reference_tick,
-                        ?local_tick,
-                        "catch-up replay coverage waiting for remote input buffer end tick"
-                    );
-                    return ReplayCoverage::Wait;
-                };
-                let Some(activation_tick) = activation_tick else {
-                    debug!(
-                        ?player,
-                        player_id = ?player_id.0,
-                        ?reference_tick,
-                        ?local_tick,
-                        "catch-up replay coverage stale: remote player has no activation tick"
-                    );
-                    return ReplayCoverage::Stale;
-                };
-                if old_start > activation_tick.0 {
-                    debug!(
-                        ?player,
-                        player_id = ?player_id.0,
-                        ?reference_tick,
-                        ?local_tick,
-                        ?old_start,
-                        ?end_tick,
-                        activation_tick = ?activation_tick.0,
-                        last_remote_tick = ?buffer.last_remote_tick,
-                        "catch-up replay coverage stale: remote input starts after activation tick"
-                    );
-                    return ReplayCoverage::Stale;
-                }
-                pad_neutral_prefix(&mut buffer, reference_tick, old_start, end_tick);
-            } else if buffer
-                .last_remote_tick
-                .is_none_or(|last_remote_tick| last_remote_tick < reference_tick)
-            {
-                debug!(
-                    ?player,
-                    player_id = ?player_id.0,
-                    ?reference_tick,
-                    ?local_tick,
-                    start_tick = ?buffer.start_tick,
-                    end_tick = ?buffer.end_tick(),
-                    last_remote_tick = ?buffer.last_remote_tick,
-                    "catch-up replay coverage waiting for remote input last_remote_tick"
-                );
-                return ReplayCoverage::Wait;
-            }
-            found = true;
-            break;
-        }
-        if !found {
-            debug!(
-                ?player,
-                player_id = ?player_id.0,
-                ?reference_tick,
-                ?local_tick,
-                "catch-up replay coverage waiting for action buffer entity"
-            );
-            return ReplayCoverage::Wait;
-        }
-    }
-    if any_player {
-        ReplayCoverage::Ready
-    } else {
-        ReplayCoverage::Wait
-    }
-}
-
-fn pad_neutral_prefix(
-    buffer: &mut DetBuffer,
-    reference_tick: Tick,
-    old_start: Tick,
-    end_tick: Tick,
-) {
-    buffer.extend_to_range(reference_tick, end_tick);
-    let mut tick = reference_tick;
-    while tick < old_start {
-        buffer.set(
-            tick,
-            ActionsSnapshot {
-                state: TriggerState::None,
-                value: ActionValue::Axis2D(Vec2::ZERO),
-                ..default()
-            },
-        );
-        tick = tick + 1;
-    }
-}
-
-/// Wire up the readiness system on the server and the physics-activation
-/// + random-drive systems on each client.
+/// Wire up the physics-activation and random-drive systems on each client.
 fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
-    stepper.server_app.add_systems(
-        PreUpdate,
-        update_server_readiness.in_set(CatchUpSystems::UpdateReadiness),
-    );
     add_position_samples(&mut stepper.server_app);
     for (i, client_app) in stepper.client_apps.iter_mut().enumerate() {
         configure_client_app(client_app, i as u64 + 1, warmup_ticks);
@@ -609,23 +315,30 @@ fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
 }
 
 fn configure_client_app(client_app: &mut App, seed: u64, warmup_ticks: u32) {
-    client_app.insert_resource(RandomDrive::new(seed, warmup_ticks));
-    client_app
-        .world_mut()
-        .remove_resource::<InitialCatchUpComplete>();
+    configure_client_app_with_drive(client_app, RandomDrive::new(seed, warmup_ticks));
+}
+
+fn configure_client_app_with_drive(client_app: &mut App, drive: RandomDrive) {
+    client_app.insert_resource(drive);
     client_app.init_resource::<CatchUpTrace>();
-    client_app.init_resource::<PendingCatchUpSnapshot>();
     add_position_samples(client_app);
-    client_app.add_systems(
-        PreUpdate,
-        (
-            mark_awaiting_on_hidden_replicated_players
-                .after(ReplicationSystems::Receive)
-                .before(CatchUpSystems::DetectSnapshotReady),
-            activate_physics_when_bundle_lands.in_set(CatchUpSystems::OnSnapshotReady),
-        ),
-    );
+    client_app.add_observer(activate_physics_when_bundle_lands);
     client_app.add_systems(FixedPreUpdate, drive_random_input);
+}
+
+fn configure_stepper_with_fixed_drives(
+    stepper: &mut DetStepper,
+    warmup_ticks: u32,
+    directions: &[Vec2],
+) {
+    add_position_samples(&mut stepper.server_app);
+    for (client_app, direction) in stepper
+        .client_apps
+        .iter_mut()
+        .zip(directions.iter().copied())
+    {
+        configure_client_app_with_drive(client_app, RandomDrive::fixed(direction, warmup_ticks));
+    }
 }
 
 fn add_position_samples(app: &mut App) {
@@ -878,6 +591,20 @@ fn fixed_position_at(world: &World, player_id: PeerId, tick: Tick) -> Position {
         })
 }
 
+fn motion_sample_at(world: &World, subject: MotionSubject, tick: Tick) -> MotionSample {
+    world
+        .resource::<MotionSamples>()
+        .0
+        .get(&(tick.0, subject))
+        .copied()
+        .unwrap_or_else(|| {
+            let local_tick = world.resource::<LocalTimeline>().tick();
+            panic!(
+                "cannot compare deterministic motion for {subject:?} at tick {tick:?}; app is at local tick {local_tick:?}"
+            )
+        })
+}
+
 fn wait_for_client_mapping(
     stepper: &mut DetStepper,
     client_id: usize,
@@ -990,22 +717,16 @@ fn assert_single_ball_entity(world: &mut World, label: &str) -> Entity {
         Has<Position>,
         Has<LinearVelocity>,
         Has<DeterministicPredicted>,
-        Has<AwaitingCatchUpSnapshot>,
     ), With<DetBallMarker>>();
-    let rows = balls
-        .iter(world)
-        .map(|(entity, position, velocity, deterministic, awaiting)| {
-            (entity, position, velocity, deterministic, awaiting)
-        })
-        .collect::<Vec<_>>();
+    let rows = balls.iter(world).collect::<Vec<_>>();
     assert_eq!(
         rows.len(),
         1,
         "expected exactly one deterministic ball in {label}; rows={rows:?}"
     );
-    let (entity, has_position, has_velocity, deterministic, awaiting) = rows[0];
+    let (entity, has_position, has_velocity, deterministic) = rows[0];
     assert!(
-        has_position && has_velocity && deterministic && !awaiting,
+        has_position && has_velocity && deterministic,
         "ball in {label} should have live deterministic physics state; rows={rows:?}"
     );
     entity
@@ -1027,6 +748,26 @@ fn assert_clean_stepper_ball_entities(stepper: &mut DetStepper) {
             Some(client_ball),
             "client {client_id} should map the server ball entity {server_ball:?}"
         );
+    }
+}
+
+fn assert_no_awaiting_catchup(world: &mut World, label: &str) {
+    let mut awaiting = world
+        .query_filtered::<(Entity, Option<&DetPlayerId>, Has<DetBallMarker>), With<CatchUpGated>>();
+    let rows = awaiting
+        .iter(world)
+        .map(|(entity, player_id, ball)| (entity, player_id.map(|id| id.0), ball))
+        .collect::<Vec<_>>();
+    assert!(
+        rows.is_empty(),
+        "expected no CatchupGated entities in {label}; rows={rows:?}"
+    );
+}
+
+fn assert_stepper_catchup_complete(stepper: &mut DetStepper) {
+    for client_id in 0..stepper.client_apps.len() {
+        let label = format!("client {client_id}");
+        assert_no_awaiting_catchup(stepper.client_app(client_id).world_mut(), &label);
     }
 }
 
@@ -1068,6 +809,61 @@ fn compare_players_to_server(
             );
             assert_relative_eq!(client_pos.x, server_pos.x, epsilon = 0.01);
             assert_relative_eq!(client_pos.y, server_pos.y, epsilon = 0.01);
+        }
+    }
+}
+
+fn compare_deterministic_motion_to_server(stepper: &mut DetStepper, peers: &[PeerId]) {
+    let subjects = peers
+        .iter()
+        .copied()
+        .map(MotionSubject::Player)
+        .chain([MotionSubject::Ball])
+        .collect::<Vec<_>>();
+    let latest_tick = stepper
+        .client_apps
+        .iter()
+        .enumerate()
+        .map(|(client_id, _)| stepper.client_tick(client_id))
+        .fold(stepper.server_tick(), |min_tick, tick| {
+            if tick.0 < min_tick.0 { tick } else { min_tick }
+        });
+    let compare_tick = latest_common_motion_sample_tick(stepper, &subjects, latest_tick);
+
+    for subject in subjects {
+        let server_sample = motion_sample_at(stepper.server_app.world(), subject, compare_tick);
+        for client_id in 0..stepper.client_apps.len() {
+            let client_sample =
+                motion_sample_at(stepper.client_app(client_id).world(), subject, compare_tick);
+            info!(
+                client_id,
+                ?subject,
+                server_tick = ?stepper.server_tick(),
+                ?compare_tick,
+                ?server_sample,
+                ?client_sample,
+                "comparing deterministic motion"
+            );
+            assert_relative_eq!(
+                client_sample.position.0.x,
+                server_sample.position.0.x,
+                epsilon = 0.01
+            );
+            assert_relative_eq!(
+                client_sample.position.0.y,
+                server_sample.position.0.y,
+                epsilon = 0.01
+            );
+            assert_relative_eq!(
+                client_sample.velocity.0.x,
+                server_sample.velocity.0.x,
+                epsilon = 0.01
+            );
+            assert_relative_eq!(
+                client_sample.velocity.0.y,
+                server_sample.velocity.0.y,
+                epsilon = 0.01
+            );
         }
     }
 }
@@ -1419,7 +1215,7 @@ fn log_entity_availability(label: &str, world: &mut World, peers: &[PeerId]) {
         Option<&DetBallMarker>,
         Option<&Position>,
         Has<DeterministicPredicted>,
-        Has<AwaitingCatchUpSnapshot>,
+        Has<CatchUpGated>,
         Has<DisableRollback>,
     )>();
     let entities: Vec<_> = query
@@ -1447,6 +1243,33 @@ fn has_position_samples(world: &World, peers: &[PeerId], tick: Tick) -> bool {
     peers
         .iter()
         .all(|peer| samples.0.contains_key(&(tick.0, *peer)))
+}
+
+fn has_motion_samples(world: &World, subjects: &[MotionSubject], tick: Tick) -> bool {
+    let samples = world.resource::<MotionSamples>();
+    subjects
+        .iter()
+        .all(|subject| samples.0.contains_key(&(tick.0, *subject)))
+}
+
+fn latest_common_motion_sample_tick(
+    stepper: &mut DetStepper,
+    subjects: &[MotionSubject],
+    latest_tick: Tick,
+) -> Tick {
+    let mut tick = latest_tick;
+    for _ in 0..300 {
+        if has_motion_samples(stepper.server_app.world(), subjects, tick)
+            && stepper
+                .client_apps
+                .iter()
+                .all(|app| has_motion_samples(app.world(), subjects, tick))
+        {
+            return tick;
+        }
+        tick = tick - 1;
+    }
+    panic!("no common deterministic motion sample found near {latest_tick:?} for {subjects:?}");
 }
 
 /// Exercises state-based deterministic catch-up, the bundled forced rollback,
@@ -1575,6 +1398,91 @@ fn test_state_based_catchup_two_clients() {
 }
 
 /// Covers the example flow where an existing client has already moved and
+/// collided before a second client late-joins and catches up from state.
+#[test]
+fn test_state_based_catchup_late_join_after_movement() {
+    let mut stepper = DetStepper::new_server();
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper(&mut stepper, 50);
+
+    stepper.start();
+    stepper.connect_single(0);
+
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_player_a =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+
+    // Client 0 moves and collides with the deterministic ball/walls before
+    // client 1 exists.
+    stepper.frame_step(140);
+
+    stepper.connect_single(1);
+    let server_player_b =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+
+    // Let client 1 receive the state snapshot, activate physics, roll back,
+    // and replay from the catch-up tick while both clients keep sending input.
+    stepper.frame_step(220);
+
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+    compare_players_to_server(
+        &mut stepper,
+        &[server_player_a, server_player_b],
+        &[peer_a, peer_b],
+    );
+    compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
+}
+
+/// Covers a late join while the existing client continuously holds movement
+/// input, matching the manual reproduction where the first client keeps
+/// pressing a key while the second client applies catch-up.
+#[test]
+fn test_state_based_catchup_late_join_while_first_client_holds_input() {
+    let mut stepper = DetStepper::new_server();
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper_with_fixed_drives(&mut stepper, 50, &[Vec2::X, Vec2::ZERO]);
+
+    stepper.start();
+    stepper.connect_single(0);
+
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_player_a =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+
+    // Client 0 is holding right before client 1 joins, and keeps holding it
+    // through the catch-up snapshot and forced rollback.
+    stepper.frame_step(140);
+
+    stepper.connect_single(1);
+    let server_player_b =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+
+    stepper.frame_step(220);
+
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+    compare_players_to_server(
+        &mut stepper,
+        &[server_player_a, server_player_b],
+        &[peer_a, peer_b],
+    );
+    compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
+}
+
+/// Covers the example flow where an existing client has already moved and
 /// collided before a second client late-joins, disconnects, then reconnects
 /// with the same peer id and catches up again.
 #[test]
@@ -1626,6 +1534,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
     assert_server_entity_unmapped(&mut stepper, server_player_b);
     assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
 
     dump_catchup_trace(&mut stepper, &[peer_a, peer_b]);
     compare_players_to_server(
@@ -1633,9 +1542,5 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
         &[server_player_a, server_player_b_reconnect],
         &[peer_a, peer_b],
     );
+    compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
 }
-
-// Suppress unused-import warnings when only some items of PreSpawned are
-// used via the stepper helpers.
-#[allow(dead_code)]
-fn _dummy(_: PreSpawned) {}

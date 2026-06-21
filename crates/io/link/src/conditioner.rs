@@ -9,7 +9,7 @@ use rand::RngExt;
 /// Configuration for receive-side packet conditioning.
 ///
 /// The values describe the local inbound path: a payload inserted into a
-/// [`LinkConditioner`](crate::LinkConditioner) can be delayed by [`incoming_latency`](Self::incoming_latency),
+/// [`LinkConditioner`] can be delayed by [`incoming_latency`](Self::incoming_latency),
 /// randomly shifted by [`incoming_jitter`](Self::incoming_jitter), or dropped according to
 /// [`incoming_loss`](Self::incoming_loss).
 ///

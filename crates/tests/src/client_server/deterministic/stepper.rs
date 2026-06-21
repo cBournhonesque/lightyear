@@ -9,6 +9,7 @@ use crate::client_server::deterministic::protocol::DetProtocolPlugin;
 use avian2d::prelude::*;
 use bevy::MinimalPlugins;
 use bevy::app::PluginsState;
+use bevy::ecs::schedule::ExecutorKind;
 use bevy::input::InputPlugin;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
@@ -94,6 +95,15 @@ impl DetStepper {
         ));
         client_app.add_plugins(client::ClientPlugins {
             tick_duration: self.tick_duration,
+        });
+        client_app.edit_schedule(PreUpdate, |schedule| {
+            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        });
+        client_app.edit_schedule(Update, |schedule| {
+            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+        });
+        client_app.edit_schedule(PostUpdate, |schedule| {
+            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
         });
         // `ChecksumSendPlugin` is auto-registered by `client::ClientPlugins`
         // when the `deterministic` feature is enabled on `lightyear`.
@@ -354,7 +364,7 @@ pub fn spawn_player_on_server(
         action_prespawn_hash,
     };
     use bevy_enhanced_input::prelude::{Action, ActionOf};
-    use lightyear_deterministic_replication::prelude::CatchUpGated;
+    use lightyear_prediction::rollback::CatchUpGated;
     use lightyear_prediction::rollback::DeterministicPredicted;
     use lightyear_replication::prelude::PreSpawned;
 

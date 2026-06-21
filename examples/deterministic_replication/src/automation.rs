@@ -1,14 +1,22 @@
 use avian2d::prelude::Position;
 use bevy::prelude::*;
+#[cfg(feature = "client")]
 use core::time::Duration;
+#[cfg(feature = "client")]
 use leafwing_input_manager::plugin::InputManagerSystem;
+#[cfg(feature = "client")]
 use leafwing_input_manager::prelude::{ActionState, InputMap};
+#[cfg(feature = "client")]
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{AwaitingCatchUpSnapshot, CatchUpMode};
+#[cfg(feature = "client")]
+use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
+#[cfg(feature = "client")]
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
-use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
+use crate::protocol::PlayerId;
+#[cfg(feature = "client")]
+use crate::protocol::{PlayerActions, PlayerActivationTick};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -157,7 +165,7 @@ mod client {
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             Option<&PlayerActivationTick>,
-            Has<AwaitingCatchUpSnapshot>,
+            Has<CatchUpGated>,
         )>,
         mut previous: Local<Vec<KeyCode>>,
         mut ready_logged: Local<bool>,
@@ -204,7 +212,7 @@ mod client {
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             Option<&PlayerActivationTick>,
-            Has<AwaitingCatchUpSnapshot>,
+            Has<CatchUpGated>,
         )>,
         mut query: Query<&mut ActionState<PlayerActions>, With<InputMap<PlayerActions>>>,
     ) {
@@ -250,7 +258,7 @@ mod client {
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
             Option<&PlayerActivationTick>,
-            Has<AwaitingCatchUpSnapshot>,
+            Has<CatchUpGated>,
         )>,
         settings: &AutomationSettings,
     ) -> bool {

@@ -33,6 +33,7 @@ std = [
   "lightyear_inputs_leafwing?/std",
   "lightyear_inputs_native?/std",
   "lightyear_interpolation?/std",
+  "lightyear_deterministic_replication?/std",
   "lightyear_link/std",
   "lightyear_metrics?/std",
   "lightyear_messages/std",
@@ -53,6 +54,7 @@ client = [
   "lightyear_inputs_bei?/client",
   "lightyear_inputs_leafwing?/client",
   "lightyear_inputs_native?/client",
+  "lightyear_deterministic_replication?/client",
   "lightyear_messages/client",
   "lightyear_netcode?/client",
   "lightyear_raw_connection?/client",
@@ -70,6 +72,7 @@ server = [
   "lightyear_inputs_bei?/server",
   "lightyear_inputs_leafwing?/server",
   "lightyear_inputs_native?/server",
+  "lightyear_deterministic_replication?/server",
   "lightyear_messages/server",
   "lightyear_netcode?/server",
   "lightyear_prediction?/server",
@@ -91,7 +94,10 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables replicating entities between two peers
-replication = ["dep:lightyear_replication"]
+replication = [
+  "dep:lightyear_replication",
+  "lightyear_deterministic_replication?/replication",
+]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [
   "dep:lightyear_prediction",

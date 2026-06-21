@@ -929,13 +929,16 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    last_confirmed_input: Single<(&LastConfirmedInput, &InputTimelineConfig), With<Client>>,
+    last_confirmed_input: Single<
+        (&mut LastConfirmedInput, &InputTimelineConfig),
+        (With<Client>, With<IsSynced<InputTimeline>>),
+    >,
     predicted_query: Query<
         &InputBuffer<S::Snapshot, S::Action>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (last_confirmed_input, input_config) = last_confirmed_input.into_inner();
+    let (mut last_confirmed_input, input_config) = last_confirmed_input.into_inner();
     let tick = timeline.tick();
     // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
     // we will just use the current tick as the last confirmed input tick
@@ -944,20 +947,19 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         return;
     }
     // TODO: how to handle multiple actions S?
+
     // find the earliest last_confirmed_tick for each client
     // (we replaced LastConfirmedInput in  with a high tick to avoid any tick-wrapping issues)
+    last_confirmed_input.received_for_all_clients = true;
     predicted_query.iter().for_each(|buffer| {
         // if we received any messages, we update the LastConfirmedInput
         // (this is used to determine the last confirmed tick for each client)
         if let Some(end_tick) = buffer.last_remote_tick {
             last_confirmed_input.tick.set_if_lower(end_tick);
+        } else {
+            last_confirmed_input.received_for_all_clients = false;
         }
     });
-    trace!(
-        kind = ?DebugName::type_name::<S::Action>(),
-        "Updated LastConfirmedTick to tick {:?}",
-        last_confirmed_input.tick.get()
-    );
     trace!(
         target: "lightyear_debug::input",
         kind = "last_confirmed_input",

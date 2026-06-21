@@ -63,15 +63,15 @@ impl From<TypeId> for ComponentKind {
 ///
 /// ### Adding Components
 ///
-/// You register components by calling the [`register_component`](AppComponentExt::register_component) method directly on the App.
+/// You register components by calling the `register_component` method directly on the App.
 ///
 /// By default, a component needs to implement `Serialize` and `Deserialize`, but you can also provide your own
-/// serialization functions by using the [`register_component_with`](AppComponentExt::register_component_with) method.
+/// serialization functions by using the `register_component_with` method.
 ///
 /// Components that should only send insertions and removals can use
-/// [`register_component_once`](AppComponentExt::register_component_once). For
+/// `register_component_once`. For
 /// once-replicated components with custom serialization, use
-/// [`register_component_once_with`](AppComponentExt::register_component_once_with).
+/// `register_component_once_with`.
 ///
 /// ```rust
 /// # use bevy_app::App;
@@ -92,11 +92,11 @@ impl From<TypeId> for ComponentKind {
 /// There are some cases where you might want to define additional behaviour for a component.
 ///
 /// #### Entity Mapping
-/// If the component contains any [`Entity`](bevy_ecs::prelude::Entity), you need to specify how those entities
+/// If the component contains any [`Entity`], you need to specify how those entities
 /// will be mapped from the remote world to the local world.
 ///
-/// Provided that your type implements [`MapEntities`], you can extend the protocol to support this behaviour, by
-/// calling the [`add_map_entities`](ComponentRegistration::add_map_entities) method.
+/// Provided that your type implements [`MapEntities`](bevy_ecs::entity::MapEntities), you can extend the protocol to support this behaviour, by
+/// calling the `add_map_entities` method.
 ///
 /// #### Prediction
 /// When client-prediction is enabled, a predicted entity is one that has the [`Predicted`](lightyear_core::prelude::Predicted) component.

@@ -4,6 +4,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
+use lightyear_deterministic_replication::prelude::AppCatchUpExt;
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -23,7 +24,7 @@ impl PhysicsBundle {
             collider: Collider::circle(BALL_SIZE),
             collider_density: ColliderDensity(0.05),
             rigid_body: RigidBody::Dynamic,
-            restitution: Restitution::new(0.5),
+            restitution: Restitution::new(1.0),
         }
     }
 
@@ -32,7 +33,7 @@ impl PhysicsBundle {
             collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
             collider_density: ColliderDensity(0.2),
             rigid_body: RigidBody::Dynamic,
-            restitution: Restitution::new(0.3),
+            restitution: Restitution::new(1.0),
         }
     }
 }
@@ -62,11 +63,6 @@ pub struct ColorComponent(pub(crate) Color);
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
 
-// Channel
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct Channel1;
-
 // Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]
 pub enum PlayerActions {
@@ -90,22 +86,17 @@ impl Plugin for ProtocolPlugin {
             },
         });
 
-        // Reliable channel used for late-join catch-up requests.
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        })
-        .add_direction(NetworkDirection::ClientToServer);
-
         // Late-join catch-up: shared between client and server so it must
         // be registered before `cli.spawn_connections` adds the Client /
         // ClientOf entities (otherwise `register_required_components`
         // would fail because the archetype already exists). Registered in
         // ProtocolPlugin (loaded by SharedPlugin) so it runs before the
         // CLI spawns the networking entities.
-        app.add_plugins(
-            lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin::<Channel1>::default(),
-        );
+        app.add_plugins(lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin);
+        app.register_catchup::<
+            (Position, Rotation, LinearVelocity, AngularVelocity),
+            leafwing::LeafwingSequence<PlayerActions>,
+        >();
 
         // components
         app.register_component::<PlayerId>();

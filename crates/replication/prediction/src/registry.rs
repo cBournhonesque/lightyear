@@ -4,7 +4,7 @@ use crate::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
 use crate::predicted_history::PredictionHistory;
-use crate::prelude::PredictionManager;
+use crate::prelude::{CatchUpGated, PredictionManager};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
@@ -569,9 +569,9 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         // is inserted by user code.
         //
         // - StateBasedCatchUp: while the client is expecting the bundled
-        //   snapshot, user code inserts `AwaitingCatchUpSnapshot` on the
-        //   catch-up-gated entity. Writes land in `ConfirmedHistory<C>`.
-        //   `request_forced_rollback_to_catch_up_tick` removes the marker
+        //   snapshot, the late-join catch-up plugin inserts
+        //   `AwaitingCatchUpSnapshot` on catch-up-gated entities. Writes
+        //   land in `ConfirmedHistory<C>`. The plugin removes the marker
         //   once the forced rollback is scheduled.
         //
         // - InputOnly: `DeterministicPredicted` is present from spawn but
@@ -582,14 +582,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         // The `DeterministicPredicted` marker remains registered for older
         // flows where the entity is already deterministic when the
         // authoritative value arrives.
-        use crate::rollback::AwaitingCatchUpSnapshot;
+        use crate::rollback::CatchUpGated;
         use crate::rollback::DeterministicPredicted;
-        self.app
-            .register_marker_with::<AwaitingCatchUpSnapshot>(MarkerConfig {
-                priority: 110,
-                need_history: true,
-            });
-        self.app.set_marker_fns::<AwaitingCatchUpSnapshot, C>(
+        self.app.register_marker_with::<CatchUpGated>(MarkerConfig {
+            priority: 110,
+            need_history: true,
+        });
+        self.app.set_marker_fns::<CatchUpGated, C>(
             write_history_gated_by_catchup::<C>,
             remove_history_gated_by_catchup::<C>,
         );
@@ -920,7 +919,7 @@ fn write_history_gated_by_catchup<C: SyncComponent>(
     entity: &mut DeferredEntity,
     message: &mut Bytes,
 ) -> Result<()> {
-    if !entity.contains::<crate::rollback::AwaitingCatchUpSnapshot>() {
+    if !entity.contains::<CatchUpGated>() {
         if let Some(mut component) = entity.get_mut::<C>() {
             rule_fns.deserialize_in_place(ctx, &mut *component, message)?;
         } else {
@@ -953,7 +952,7 @@ fn remove_history_gated_by_catchup<C: SyncComponent>(
     ctx: &mut RemoveCtx,
     entity: &mut DeferredEntity,
 ) {
-    let awaiting_catchup = entity.contains::<crate::rollback::AwaitingCatchUpSnapshot>();
+    let awaiting_catchup = entity.contains::<crate::rollback::CatchUpGated>();
     if awaiting_catchup || entity.contains::<crate::rollback::DeterministicPredicted>() {
         trace!(
             component = ?DebugName::type_name::<C>(),

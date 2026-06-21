@@ -3,6 +3,7 @@ use crate::client::ExampleClientPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
+#[cfg(feature = "client")]
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear_examples_common::cli::{Cli, Mode};

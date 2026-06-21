@@ -6,28 +6,47 @@
 //! Because of this, we will compute an order-independent checksum by only hashing component data and then XOR-ing the results together.
 
 use crate::archetypes::ChecksumWorld;
-use crate::late_join::AwaitingCatchUpSnapshot;
+#[cfg(all(feature = "client", feature = "replication"))]
+use crate::late_join::CatchUpManager;
 use crate::plugin::DeterministicReplicationPlugin;
 use alloc::collections::BTreeMap;
-use bevy_app::{App, FixedLast, Plugin, PostUpdate};
+#[cfg(feature = "server")]
+use bevy_app::FixedLast;
+use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use core::hash::Hasher;
-use lightyear_connection::client::{Client, Connected};
+#[cfg(feature = "client")]
+use lightyear_connection::client::Client;
+#[cfg(feature = "server")]
+use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
+#[cfg(feature = "server")]
 use lightyear_connection::server::Started;
+#[cfg(feature = "server")]
 use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
+#[cfg(feature = "client")]
 use lightyear_inputs::InputChannel;
+#[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
+#[cfg(feature = "server")]
 use lightyear_link::server::{LinkOf, Server};
+#[cfg(feature = "client")]
 use lightyear_messages::plugin::MessageSystems;
-use lightyear_messages::prelude::{AppMessageExt, MessageSender};
+use lightyear_messages::prelude::AppMessageExt;
+#[cfg(feature = "client")]
+use lightyear_messages::prelude::MessageSender;
+#[cfg(feature = "server")]
 use lightyear_messages::receive::MessageReceiver;
+#[cfg(feature = "client")]
 use lightyear_prediction::manager::{LastConfirmedInput, StateRollbackMetadata};
+#[cfg(feature = "client")]
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use serde::{Deserialize, Serialize};
-use tracing::{debug, error, trace};
+#[cfg(feature = "server")]
+use tracing::error;
+use tracing::{debug, trace};
 
 /// History of the checksums on the server to validate client checksums against.
 #[derive(Component, Debug, Default)]
@@ -39,8 +58,10 @@ pub struct ChecksumHistory {
 ///
 /// The server will receive these checksums and verify them against its own computed checksums.
 /// If a checksum does not match, it indicates a desync between the client and server.
+#[cfg(feature = "client")]
 pub struct ChecksumSendPlugin;
 
+#[cfg(feature = "client")]
 impl ChecksumSendPlugin {
     /// Compute a checksum over all deterministic entities' hashable
     /// components at `LastConfirmedInput.tick` and send it to the server.
@@ -51,7 +72,9 @@ impl ChecksumSendPlugin {
             (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
             (With<Client>, With<IsSynced<InputTimeline>>),
         >,
-        awaiting: Query<(), With<AwaitingCatchUpSnapshot>>,
+        #[cfg(feature = "replication")] catchup_manager: Option<
+            Single<&CatchUpManager, With<Client>>,
+        >,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
         let mut checksum = 0u64;
@@ -62,12 +85,10 @@ impl ChecksumSendPlugin {
         if tick > current_tick {
             return;
         }
-        // Skip the whole tick while any entity is still waiting for its
-        // bundled catch-up snapshot. Those entities' state doesn't match
-        // the server; filtering them out of the XOR would leave the server
-        // computing over a superset — producing a sustained mismatch for
-        // every other entity too.
-        if !awaiting.is_empty() {
+        #[cfg(feature = "replication")]
+        // Skip while catch-up is running. The client is intentionally hashing
+        // pre-catch-up state until the bundled snapshot has been replayed.
+        if catchup_manager.is_some_and(|manager| manager.suppresses_checksums()) {
             return;
         }
         // Skip if a one-shot forced rollback is scheduled but not yet
@@ -114,6 +135,7 @@ pub struct ChecksumMessage {
     pub checksum: u64,
 }
 
+#[cfg(feature = "client")]
 impl Plugin for ChecksumSendPlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<DeterministicReplicationPlugin>() {
@@ -143,8 +165,10 @@ impl Plugin for ChecksumSendPlugin {
 /// Plugin that can be added to the server to receive and validate checksums sent by clients.
 ///
 /// The server needs to also run the simulation to be able to compute its own checksums for comparison.
+#[cfg(feature = "server")]
 pub struct ChecksumReceivePlugin;
 
+#[cfg(feature = "server")]
 impl ChecksumReceivePlugin {
     /// Compute a checksum over all deterministic entities' hashable
     /// components at the current server tick and store it for later
@@ -233,6 +257,7 @@ impl ChecksumReceivePlugin {
     }
 }
 
+#[cfg(feature = "server")]
 impl Plugin for ChecksumReceivePlugin {
     fn build(&self, app: &mut App) {
         if !app.is_plugin_added::<DeterministicReplicationPlugin>() {

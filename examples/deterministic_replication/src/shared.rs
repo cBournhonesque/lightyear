@@ -1,15 +1,14 @@
 use crate::protocol::*;
+use avian2d::dynamics::solver::SolverConfig;
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
-use lightyear::prediction::rollback::DeterministicPredicted;
+use lightyear::prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
-use lightyear_deterministic_replication::prelude::{
-    AwaitingCatchUpSnapshot, CatchUpGated, CatchUpMode,
-};
+use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 const MAX_VELOCITY: f32 = 200.0;
@@ -45,16 +44,20 @@ impl Plugin for SharedPlugin {
         });
         app.add_plugins(
             PhysicsPlugins::default()
+                .with_length_unit(10.0)
                 .build()
                 // disable syncing position<>transform as it is handled by lightyear_avian
                 .disable::<PhysicsTransformPlugin>()
                 // interpolation is handled by lightyear_frame_interpolation
                 .disable::<PhysicsInterpolationPlugin>()
-                // disable island sleeping plugin as it's not compatible with rollbacks
                 .disable::<IslandPlugin>()
                 .disable::<IslandSleepingPlugin>(),
         )
-        .insert_resource(Gravity(Vec2::ZERO));
+        .insert_resource(Gravity(Vec2::ZERO))
+        .insert_resource(SolverConfig {
+            warm_start_coefficient: 0.0,
+            ..default()
+        });
 
         // Game logic
         app.add_systems(FixedUpdate, player_movement);
@@ -167,7 +170,7 @@ pub(crate) fn spawn_ball(
         if is_server {
             ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
         } else if is_client {
-            ball.insert(AwaitingCatchUpSnapshot);
+            ball.insert(CatchUpGated);
         }
     }
     ball.id()
@@ -356,6 +359,7 @@ pub(crate) fn emit_fixed_last_players(
 pub(crate) struct WallBundle {
     color: ColorComponent,
     physics: PhysicsBundle,
+    collision: CollisionMargin,
     wall: Wall,
     name: Name,
 }
@@ -374,8 +378,9 @@ impl WallBundle {
                 collider: Collider::segment(start, end),
                 collider_density: ColliderDensity(1.0),
                 rigid_body: RigidBody::Static,
-                restitution: Restitution::new(0.0),
+                restitution: Restitution::new(1.0),
             },
+            collision: CollisionMargin(2.0),
             wall: Wall { start, end },
             name: Name::from("Wall"),
         }

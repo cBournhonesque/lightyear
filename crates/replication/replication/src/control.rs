@@ -39,7 +39,7 @@ pub struct ControlledByRemote(Vec<Entity>);
 ///
 /// When the link is disconnected, the sender will optionally (based on the [`Lifetime`] value)
 /// despawn the entity. If you want to persist an entity on the receiver side even after the link is disconnected,
-/// see [`Persistent`](super::components::Persistent)
+/// see [`Lifetime::Persistent`].
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect)]
 // TODO: we add Controlled on the sender side to replicate it to the remote, but this could cause issues with client authority!
 #[require(Controlled)]
@@ -47,7 +47,7 @@ pub struct ControlledByRemote(Vec<Entity>);
 #[component(immutable)]
 #[relationship(relationship_target = ControlledByRemote)]
 pub struct ControlledBy {
-    /// Which peer controls this entity? This should be an entity with a [`ReplicationSender`](crate::send::sender::ReplicationSender) component
+    /// Which peer controls this entity? This should be an entity with a [`ReplicationSender`] component.
     #[relationship]
     pub owner: Entity,
     /// What happens to the entity on the sender-side if the controlling client disconnects?

@@ -87,7 +87,7 @@ fn drive_random_input(
 
 fn configure_stepper(stepper: &mut DetStepper, warmup_ticks: u32) {
     // InputOnly mode on every peer — never send CatchUpRequest, never
-    // wait for server readiness.
+    // wait for an accepted catch-up snapshot.
     stepper.server_app.insert_resource(CatchUpMode::InputOnly);
     add_phase_samplers(&mut stepper.server_app, "server");
     for (i, client_app) in stepper.client_apps.iter_mut().enumerate() {
