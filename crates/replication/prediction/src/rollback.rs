@@ -31,7 +31,7 @@ We need:
 
  */
 
-use super::predicted_history::{PredictionHistory, PredictionState};
+use super::predicted_history::PredictionHistory;
 use super::resource_history::ResourceHistory;
 use super::{Predicted, SyncComponent};
 use crate::correction::PreviousVisual;
@@ -59,7 +59,7 @@ use core::fmt::Debug;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, LocalTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
@@ -941,7 +941,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         let is_forced_state_rollback = is_state_rollback && !is_completed_state_rollback;
 
         let restore_state = if is_state_rollback {
-            confirmed_history.as_ref().and_then(|history| {
+            if let Some(history) = confirmed_history.as_ref() {
                 // Completed state rollbacks restore from the latest globally completed
                 // mutate tick. That completed tick proves that a component without an
                 // explicit update is unchanged since its previous confirmed state, even
@@ -958,13 +958,14 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                     "state rollback must be completed or forced"
                 );
                 history.get_state_at_or_before(rollback_tick).cloned()
-            })
+            } else {
+                // State rollback can also cover predicted-only local components
+                // that have no authoritative history yet.
+                predicted_history.get_state(rollback_tick).cloned()
+            }
         } else {
-            // Input rollbacks restore from predicted history. State rollbacks
-            // use confirmed history instead.
-            predicted_history
-                .get_state(rollback_tick)
-                .cloned()
+            // Input rollbacks restore from predicted history.
+            predicted_history.get_state(rollback_tick).cloned()
         };
         // Keep the prediction history anchored at the actual rollback target.
         // For completed state rollbacks this is the completed mutate tick; for
