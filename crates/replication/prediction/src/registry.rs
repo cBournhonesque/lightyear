@@ -30,7 +30,7 @@ use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
 use lightyear_replication::prelude::PreSpawned;
-use lightyear_replication::registry::replication::ComponentRegistration;
+use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
 use tracing::{debug, error, trace, trace_span};
@@ -105,7 +105,7 @@ impl PredictionMetadata {
 /// Function called when comparing the confirmed component value (received from the remote) with the
 /// predicted component value (from the local [`PredictionHistory`]).
 ///
-/// In general we use [`PartialEq::ne`] by default, but you can provide your own function with [`ComponentRegistration::add_should_rollback`] to customize
+/// In general we use [`PartialEq::ne`] by default, but you can provide your own function with [`PredictedComponentRegistration::with_rollback_condition`] to customize
 /// the rollback behavior. (for example, you might want to ignore small floating point differences)
 pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 
@@ -132,38 +132,49 @@ impl PredictionRegistry {
 
     fn set_should_rollback<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>) {
         self.prediction_map
-                .get_mut(&ComponentKind::of::<C>())
-                .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`")
-                .should_rollback = unsafe {
-                core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
-                    should_rollback,
-                )
-            };
+            .get_mut(&ComponentKind::of::<C>())
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            )
+            .should_rollback = unsafe {
+            core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
+                should_rollback,
+            )
+        };
     }
 
     #[doc(hidden)]
     pub fn apply_correction<C: SyncComponent, D: Default>(&self, error: D, r: f32) -> Option<D> {
         self.prediction_map
             .get(&ComponentKind::of::<C>())
-            .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`")
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            )
             .correction_fn
             .map(|correction_fn| {
-            // SAFETY: the correction_fn was registered as a LerpFn<D>
-            let lerp_fn = unsafe { core::mem::transmute::<unsafe fn(), LerpFn<D>>(correction_fn) };
-            lerp_fn(D::default(), error, r)
-        })
+                // SAFETY: the correction_fn was registered as a LerpFn<D>
+                let lerp_fn =
+                    unsafe { core::mem::transmute::<unsafe fn(), LerpFn<D>>(correction_fn) };
+                lerp_fn(D::default(), error, r)
+            })
     }
 
     fn enable_correction<C: SyncComponent>(&mut self) {
         self.prediction_map
             .get_mut(&ComponentKind::of::<C>())
-            .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`").correction = true;
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            )
+            .correction = true;
     }
 
     fn set_correction_fn<C: SyncComponent, D>(&mut self, correction_fn: LerpFn<D>) {
-        let metadata = self.prediction_map
+        let metadata = self
+            .prediction_map
             .get_mut(&ComponentKind::of::<C>())
-            .expect("The component has not been registered for prediction. Did you call `.add_prediction(PredictionMode::Full)`");
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            );
         metadata.correction = true;
         metadata.correction_fn = Some(unsafe { core::mem::transmute(correction_fn) });
     }
@@ -498,6 +509,7 @@ impl PredictionRegistry {
 
 pub trait PredictionRegistrationExt<C> {
     /// Enable prediction for this component.
+    #[deprecated(note = "use `app.component::<C>().predict()` instead")]
     fn add_prediction(self) -> Self
     where
         C: SyncComponent;
@@ -507,7 +519,7 @@ pub trait PredictionRegistrationExt<C> {
     /// `ConfirmedHistory<C>` as authoritative state (and optionally trigger a
     /// state rollback) rather than overwriting the component directly.
     ///
-    /// Use this alongside `add_rollback` when the component is normally
+    /// Use this alongside `local_rollback` when the component is normally
     /// non-networked (computed from deterministic inputs) but needs an initial
     /// value from replication (e.g. `replicate_once` on a physics component
     /// for late-joining clients).
@@ -547,9 +559,203 @@ pub trait PredictionRegistrationExt<C> {
 
     /// Add a custom comparison function to determine if we should rollback by comparing the
     /// confirmed component with the predicted component's history.
+    ///
+    /// Kept for backwards compatibility. Prefer
+    /// [`PredictionBuilderExt::predict`] or
+    /// [`PredictionAppRegistrationExt::local_rollback`] followed by
+    /// `with_rollback_condition`, so the call order is explicit in the type.
+    #[deprecated(
+        note = "use `.predict().with_rollback_condition(...)` or `local_rollback::<C>().with_rollback_condition(...)` instead"
+    )]
     fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
     where
         C: SyncComponent;
+}
+
+/// Registration state returned after prediction has been enabled for a component.
+///
+/// New code should prefer:
+///
+/// ```rust,ignore
+/// app.component::<Position>()
+///     .predict()
+///     .with_rollback_condition(position_should_rollback);
+/// ```
+///
+/// This makes it clear that custom rollback comparison is only meaningful after
+/// prediction has been enabled. Most registration extension traits can operate
+/// on this builder state directly; [`Self::into_component_registration`] is
+/// kept as an escape hatch for custom integrations.
+pub struct PredictedComponentRegistration<'a, C> {
+    registration: ComponentRegistration<'a, C>,
+}
+
+impl<'a, C> PredictedComponentRegistration<'a, C> {
+    fn new(registration: ComponentRegistration<'a, C>) -> Self {
+        Self { registration }
+    }
+
+    /// Add a custom comparison function to determine if we should rollback by
+    /// comparing the confirmed component with the predicted component's history.
+    #[allow(deprecated)]
+    pub fn with_rollback_condition(mut self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.registration = self.registration.add_should_rollback(should_rollback);
+        self
+    }
+
+    /// Backwards-compatible spelling for [`Self::with_rollback_condition`].
+    #[deprecated(note = "use `.with_rollback_condition(...)` instead")]
+    pub fn should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.with_rollback_condition(should_rollback)
+    }
+
+    /// Backwards-compatible spelling for [`Self::with_rollback_condition`].
+    #[deprecated(note = "use `.with_rollback_condition(...)` instead")]
+    pub fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.with_rollback_condition(should_rollback)
+    }
+
+    /// Enables correction for this component, without adding the correction systems.
+    pub fn enable_correction(mut self) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.registration = self.registration.enable_correction();
+        self
+    }
+
+    /// Add correction for this component where interpolation uses the
+    /// [`Ease`] trait.
+    pub fn add_linear_correction_fn<D>(mut self) -> Self
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+    {
+        self.registration = self.registration.add_linear_correction_fn::<D>();
+        self
+    }
+
+    /// Add correction for this component using a custom interpolation function.
+    pub fn add_correction_fn<D>(mut self, correction_fn: LerpFn<D>) -> Self
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+    {
+        self.registration = self.registration.add_correction_fn::<D>(correction_fn);
+        self
+    }
+
+    /// Return to the general component registration builder.
+    pub fn into_component_registration(self) -> ComponentRegistration<'a, C> {
+        self.registration
+    }
+}
+
+impl<'a, C> ComponentRegistrator<'a, C> for PredictedComponentRegistration<'a, C> {
+    fn into_component_registration(self) -> ComponentRegistration<'a, C> {
+        self.registration
+    }
+
+    fn from_component_registration(registration: ComponentRegistration<'a, C>) -> Self {
+        Self::new(registration)
+    }
+}
+
+/// Extension trait for the new prediction registration builder.
+pub trait PredictionBuilderExt<'a, C>: ComponentRegistrator<'a, C> {
+    /// Enable prediction and return a state that exposes prediction-only
+    /// configuration methods.
+    fn predict(self) -> PredictedComponentRegistration<'a, C>
+    where
+        C: SyncComponent;
+}
+
+impl<'a, C, R> PredictionBuilderExt<'a, C> for R
+where
+    R: ComponentRegistrator<'a, C>,
+{
+    #[allow(deprecated)]
+    fn predict(self) -> PredictedComponentRegistration<'a, C>
+    where
+        C: SyncComponent,
+    {
+        PredictedComponentRegistration::new(self.into_component_registration().add_prediction())
+    }
+}
+
+/// Registration state returned after local rollback has been enabled for a
+/// non-networked component.
+pub struct LocalRollbackComponentRegistration<'a, C> {
+    registration: ComponentRegistration<'a, C>,
+}
+
+impl<'a, C> LocalRollbackComponentRegistration<'a, C> {
+    fn new(registration: ComponentRegistration<'a, C>) -> Self {
+        Self { registration }
+    }
+
+    /// Add a custom comparison function to determine if we should rollback by
+    /// comparing the confirmed component with the predicted component's history.
+    #[allow(deprecated)]
+    pub fn with_rollback_condition(mut self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.registration = self.registration.add_should_rollback(should_rollback);
+        self
+    }
+
+    /// Backwards-compatible spelling for [`Self::with_rollback_condition`].
+    #[deprecated(note = "use `.with_rollback_condition(...)` instead")]
+    pub fn should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.with_rollback_condition(should_rollback)
+    }
+
+    /// Backwards-compatible spelling for [`Self::with_rollback_condition`].
+    #[deprecated(note = "use `.with_rollback_condition(...)` instead")]
+    pub fn add_should_rollback(self, should_rollback: ShouldRollbackFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.with_rollback_condition(should_rollback)
+    }
+
+    /// Route replicated writes into confirmed history while an entity is
+    /// waiting for deterministic catch-up.
+    pub fn add_confirmed_write(mut self) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.registration = self.registration.add_confirmed_write();
+        self
+    }
+
+    /// Return to the general component registration builder.
+    pub fn into_component_registration(self) -> ComponentRegistration<'a, C> {
+        self.registration
+    }
+}
+
+impl<'a, C> ComponentRegistrator<'a, C> for LocalRollbackComponentRegistration<'a, C> {
+    fn into_component_registration(self) -> ComponentRegistration<'a, C> {
+        self.registration
+    }
+
+    fn from_component_registration(registration: ComponentRegistration<'a, C>) -> Self {
+        Self::new(registration)
+    }
 }
 
 impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
@@ -733,25 +939,36 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
 }
 
 pub trait PredictionAppRegistrationExt {
+    /// Enable rollback for a component that is local-only and is not replicated
+    /// by Replicon.
+    fn local_rollback<C: SyncComponent>(&mut self) -> LocalRollbackComponentRegistration<'_, C>;
+
     /// Enable rollbacks for a component that is not networked.
+    #[deprecated(note = "use `app.local_rollback::<C>()` instead")]
     fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<'_, C>;
 
     fn add_resource_rollback<R: Resource + Clone>(&mut self);
 }
 
+fn add_local_rollback<C: SyncComponent>(app: &mut App) -> ComponentRegistration<'_, C> {
+    let prediction_history_id = app.world_mut().register_component::<PredictionHistory<C>>();
+    let confirmed_history_id = app.world_mut().register_component::<ConfirmedHistory<C>>();
+    // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
+    let Some(mut registry) = app.world_mut().get_resource_mut::<PredictionRegistry>() else {
+        return ComponentRegistration::<C>::new(app);
+    };
+    registry.register::<C>(prediction_history_id, confirmed_history_id);
+    add_non_networked_rollback_systems::<C>(app);
+    ComponentRegistration::<C>::new(app)
+}
+
 impl PredictionAppRegistrationExt for App {
+    fn local_rollback<C: SyncComponent>(&mut self) -> LocalRollbackComponentRegistration<'_, C> {
+        LocalRollbackComponentRegistration::new(add_local_rollback::<C>(self))
+    }
+
     fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<'_, C> {
-        let prediction_history_id = self
-            .world_mut()
-            .register_component::<PredictionHistory<C>>();
-        let confirmed_history_id = self.world_mut().register_component::<ConfirmedHistory<C>>();
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        let Some(mut registry) = self.world_mut().get_resource_mut::<PredictionRegistry>() else {
-            return ComponentRegistration::<C>::new(self);
-        };
-        registry.register::<C>(prediction_history_id, confirmed_history_id);
-        add_non_networked_rollback_systems::<C>(self);
-        ComponentRegistration::<C>::new(self)
+        add_local_rollback::<C>(self)
     }
 
     fn add_resource_rollback<R: Resource + Clone>(&mut self) {
@@ -969,13 +1186,111 @@ fn remove_history_gated_by_catchup<C: SyncComponent>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bevy_replicon::prelude::{AuthMethod, RepliconSharedPlugin};
+    use bevy_state::app::StatesPlugin;
     use core::hash::Hasher;
+    use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
+    use lightyear_replication::prelude::AppComponentExt;
 
     #[derive(Clone, PartialEq, Debug)]
     struct TestComponent(u32);
 
+    #[derive(Component, Clone, PartialEq, Debug)]
+    struct BuilderComponent(u32);
+
+    #[derive(Component, Clone, PartialEq, Debug)]
+    struct LocalRollbackComponent(u32);
+
+    fn prediction_app() -> App {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+        app
+    }
+
     fn hash_test_component(value: &TestComponent, hasher: &mut seahash::SeaHasher) {
         hasher.write_u32(value.0);
+    }
+
+    fn parity_should_rollback(confirmed: &BuilderComponent, predicted: &BuilderComponent) -> bool {
+        confirmed.0 % 2 != predicted.0 % 2
+    }
+
+    fn local_should_rollback(
+        confirmed: &LocalRollbackComponent,
+        predicted: &LocalRollbackComponent,
+    ) -> bool {
+        confirmed.0 / 10 != predicted.0 / 10
+    }
+
+    #[test]
+    fn predict_builder_enables_prediction_before_rollback_condition() {
+        let mut app = prediction_app();
+
+        app.component::<BuilderComponent>()
+            .predict()
+            .with_rollback_condition(parity_should_rollback);
+
+        let registry = app.world().resource::<PredictionRegistry>();
+        assert!(registry.predicted::<BuilderComponent>());
+        assert!(!registry.should_rollback(&BuilderComponent(1), &BuilderComponent(3)));
+        assert!(registry.should_rollback(&BuilderComponent(1), &BuilderComponent(2)));
+    }
+
+    #[test]
+    fn predicted_builder_can_add_custom_interpolation() {
+        let mut app = prediction_app();
+
+        app.component::<BuilderComponent>()
+            .predict()
+            .add_custom_interpolation()
+            .with_rollback_condition(parity_should_rollback);
+
+        let prediction_registry = app.world().resource::<PredictionRegistry>();
+        assert!(prediction_registry.predicted::<BuilderComponent>());
+
+        let interpolation_registry = app.world().resource::<InterpolationRegistry>();
+        assert!(interpolation_registry.interpolated::<BuilderComponent>());
+        assert!(prediction_registry.should_rollback(&BuilderComponent(1), &BuilderComponent(2)));
+    }
+
+    #[test]
+    fn interpolated_builder_can_add_prediction() {
+        let mut app = prediction_app();
+
+        app.component::<BuilderComponent>()
+            .add_custom_interpolation()
+            .predict()
+            .with_rollback_condition(parity_should_rollback);
+
+        let prediction_registry = app.world().resource::<PredictionRegistry>();
+        assert!(prediction_registry.predicted::<BuilderComponent>());
+
+        let interpolation_registry = app.world().resource::<InterpolationRegistry>();
+        assert!(interpolation_registry.interpolated::<BuilderComponent>());
+        assert!(prediction_registry.should_rollback(&BuilderComponent(1), &BuilderComponent(2)));
+    }
+
+    #[test]
+    fn local_rollback_builder_registers_non_networked_rollback() {
+        let mut app = App::new();
+        app.init_resource::<PredictionRegistry>();
+
+        app.local_rollback::<LocalRollbackComponent>()
+            .with_rollback_condition(local_should_rollback);
+
+        let registry = app.world().resource::<PredictionRegistry>();
+        assert!(registry.predicted::<LocalRollbackComponent>());
+        assert!(
+            !registry.should_rollback(&LocalRollbackComponent(10), &LocalRollbackComponent(19))
+        );
+        assert!(registry.should_rollback(&LocalRollbackComponent(10), &LocalRollbackComponent(20)));
+        assert!(app.world().get_resource::<ComponentRegistry>().is_none());
     }
 
     #[test]

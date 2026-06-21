@@ -1,5 +1,6 @@
 use crate::SyncComponent;
 use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
+use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_math::{
     Curve,
@@ -17,7 +18,7 @@ use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
-use lightyear_replication::registry::replication::ComponentRegistration;
+use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 use tracing::{error, trace};
 
@@ -206,7 +207,7 @@ pub(crate) fn insert_confirmed_history_on_interpolated<C: SyncComponent>(
         .try_remove::<C>();
 }
 
-pub trait InterpolationRegistrationExt<C> {
+pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
     /// Register an interpolation function for this component using the provided [`LerpFn`]
     ///
     /// This does NOT mean that interpolation systems are added, it simply registers a function to
@@ -245,24 +246,18 @@ pub trait InterpolationRegistrationExt<C> {
         C: SyncComponent;
 }
 
-impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
+impl<'a, C, R> InterpolationRegistrationExt<'a, C> for R
+where
+    R: ComponentRegistrator<'a, C>,
+{
     fn register_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent,
     {
-        register_interpolated_marker_fns::<C>(self.app);
-        if !self
-            .app
-            .world()
-            .contains_resource::<InterpolationRegistry>()
-        {
-            self.app
-                .world_mut()
-                .insert_resource(InterpolationRegistry::default());
-        }
-        let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
-        registry.set_interpolation::<C>(interpolation_fn);
-        self
+        Self::from_component_registration(register_interpolation_fn_impl(
+            self.into_component_registration(),
+            interpolation_fn,
+        ))
     }
 
     fn register_linear_interpolation(self) -> Self
@@ -272,24 +267,14 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
         self.register_interpolation_fn(lerp::<C>)
     }
 
-    fn add_interpolation_with(mut self, interpolation_fn: LerpFn<C>) -> Self
+    fn add_interpolation_with(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent,
     {
-        self = self.register_interpolation_fn(interpolation_fn);
-        add_prepare_interpolation_systems::<C>(self.app);
-        add_interpolation_systems::<C>(self.app);
-
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry
-            .component_metadata_map
-            .get_mut(&ComponentKind::of::<C>())
-            .unwrap()
-            .replication
-            .as_mut()
-            .unwrap()
-            .set_interpolated(true);
-        self
+        Self::from_component_registration(add_interpolation_with_impl(
+            self.into_component_registration(),
+            interpolation_fn,
+        ))
     }
 
     fn add_linear_interpolation(self) -> Self
@@ -303,39 +288,86 @@ impl<C> InterpolationRegistrationExt<C> for ComponentRegistration<'_, C> {
     where
         C: SyncComponent,
     {
-        let kind = ComponentKind::of::<C>();
-        register_interpolated_marker_fns::<C>(self.app);
-        if !self
-            .app
-            .world()
-            .contains_resource::<InterpolationRegistry>()
-        {
-            self.app
-                .world_mut()
-                .insert_resource(InterpolationRegistry::default());
-        }
-        let mut registry = self.app.world_mut().resource_mut::<InterpolationRegistry>();
-        registry
-            .interpolation_map
-            .entry(kind)
-            .and_modify(|r| r.custom_interpolation = true)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation: None,
-                custom_interpolation: true,
-            });
-        add_prepare_interpolation_systems::<C>(self.app);
-
-        let mut registry = self.app.world_mut().resource_mut::<ComponentRegistry>();
-        registry
-            .component_metadata_map
-            .get_mut(&ComponentKind::of::<C>())
-            .unwrap()
-            .replication
-            .as_mut()
-            .unwrap()
-            .set_interpolated(true);
-        self
+        Self::from_component_registration(add_custom_interpolation_impl(
+            self.into_component_registration(),
+        ))
     }
+}
+
+fn ensure_interpolation_registry(app: &mut App) {
+    if !app.world().contains_resource::<InterpolationRegistry>() {
+        app.world_mut()
+            .insert_resource(InterpolationRegistry::default());
+    }
+}
+
+fn mark_interpolated<C: SyncComponent>(app: &mut App) {
+    let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
+    registry
+        .component_metadata_map
+        .get_mut(&ComponentKind::of::<C>())
+        .unwrap()
+        .replication
+        .as_mut()
+        .unwrap()
+        .set_interpolated(true);
+}
+
+fn register_interpolation_fn_impl<'a, C>(
+    registration: ComponentRegistration<'a, C>,
+    interpolation_fn: LerpFn<C>,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent,
+{
+    register_interpolated_marker_fns::<C>(registration.app);
+    ensure_interpolation_registry(registration.app);
+    let mut registry = registration
+        .app
+        .world_mut()
+        .resource_mut::<InterpolationRegistry>();
+    registry.set_interpolation::<C>(interpolation_fn);
+    registration
+}
+
+fn add_interpolation_with_impl<'a, C>(
+    registration: ComponentRegistration<'a, C>,
+    interpolation_fn: LerpFn<C>,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent,
+{
+    let registration = register_interpolation_fn_impl(registration, interpolation_fn);
+    add_prepare_interpolation_systems::<C>(registration.app);
+    add_interpolation_systems::<C>(registration.app);
+    mark_interpolated::<C>(registration.app);
+    registration
+}
+
+fn add_custom_interpolation_impl<C>(
+    registration: ComponentRegistration<'_, C>,
+) -> ComponentRegistration<'_, C>
+where
+    C: SyncComponent,
+{
+    let kind = ComponentKind::of::<C>();
+    register_interpolated_marker_fns::<C>(registration.app);
+    ensure_interpolation_registry(registration.app);
+    let mut registry = registration
+        .app
+        .world_mut()
+        .resource_mut::<InterpolationRegistry>();
+    registry
+        .interpolation_map
+        .entry(kind)
+        .and_modify(|r| r.custom_interpolation = true)
+        .or_insert_with(|| InterpolationMetadata {
+            interpolation: None,
+            custom_interpolation: true,
+        });
+    add_prepare_interpolation_systems::<C>(registration.app);
+    mark_interpolated::<C>(registration.app);
+    registration
 }
 
 /// Instead of writing into a component directly, it writes data into [`ConfirmedHistory<C>`].

@@ -99,32 +99,35 @@ impl Plugin for ProtocolPlugin {
         >();
 
         // components
-        app.register_component::<PlayerId>();
-        app.register_component::<PlayerActivationTick>();
+        app.component::<PlayerId>().replicate();
+        app.component::<PlayerActivationTick>().replicate();
         // Physics components are replicated once (initial value on entity spawn)
         // so that late-joining clients get the correct starting state.
-        // add_rollback registers PredictionHistory for rollback/checksums.
+        // local_rollback registers PredictionHistory for rollback/checksums.
         // add_confirmed_write ensures the replicated value goes to
         // PredictionHistory as confirmed state (instead of overwriting the
         // component), so input-triggered rollbacks snap to the correct value.
-        app.register_component_once::<Position>();
-        app.add_rollback::<Position>()
+        app.component::<Position>().replicate_once();
+        app.local_rollback::<Position>()
             .add_confirmed_write()
+            .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component_once::<Rotation>();
-        app.add_rollback::<Rotation>()
+        app.component::<Rotation>().replicate_once();
+        app.local_rollback::<Rotation>()
             .add_confirmed_write()
+            .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component_once::<LinearVelocity>();
-        app.add_rollback::<LinearVelocity>().add_confirmed_write();
+        app.component::<LinearVelocity>().replicate_once();
+        app.local_rollback::<LinearVelocity>().add_confirmed_write();
 
-        app.register_component_once::<AngularVelocity>();
-        app.add_rollback::<AngularVelocity>().add_confirmed_write();
+        app.component::<AngularVelocity>().replicate_once();
+        app.local_rollback::<AngularVelocity>()
+            .add_confirmed_write();
     }
 }

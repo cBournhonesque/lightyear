@@ -72,29 +72,31 @@ impl Plugin for ProtocolPlugin {
         });
 
         // components
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<ColorComponent>();
+        app.component::<ColorComponent>().replicate();
 
-        app.register_component::<BallMarker>();
+        app.component::<BallMarker>().replicate();
 
-        app.register_component::<Position>()
-            .add_prediction()
-            .add_should_rollback(position_should_rollback)
+        app.component::<Position>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(position_should_rollback)
             .add_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component::<Rotation>()
-            .add_prediction()
-            .add_should_rollback(rotation_should_rollback)
+        app.component::<Rotation>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(rotation_should_rollback)
             .add_linear_interpolation()
             .add_linear_correction_fn();
 
         // NOTE: interpolation/correction is only needed for components that are visually displayed!
         // we still need prediction to be able to correctly predict the physics on the client
-        app.register_component::<LinearVelocity>().add_prediction();
+        app.component::<LinearVelocity>().replicate().predict();
 
-        app.register_component::<AngularVelocity>().add_prediction();
+        app.component::<AngularVelocity>().replicate().predict();
     }
 }
 

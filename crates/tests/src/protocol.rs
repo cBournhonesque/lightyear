@@ -199,27 +199,31 @@ impl Plugin for ProtocolPlugin {
         })
         .add_direction(NetworkDirection::Bidirectional);
         // components
-        app.register_component::<CompA>();
-        app.register_component::<CompS>();
-        app.register_component_once::<CompReplicateOnce>();
-        app.register_component_once_with::<CompCustomReplicateOnce>(
-            serialize_custom_replicate_once,
-            deserialize_custom_replicate_once,
-        );
-        app.register_component::<CompFull>()
-            .add_prediction()
+        app.component::<CompA>().replicate();
+        app.component::<CompS>().replicate();
+        app.component::<CompReplicateOnce>().replicate_once();
+        app.component::<CompCustomReplicateOnce>()
+            .replicate_once_with(bevy_replicon::prelude::RuleFns::new(
+                serialize_custom_replicate_once,
+                deserialize_custom_replicate_once,
+            ));
+        app.component::<CompFull>()
+            .replicate()
+            .predict()
             .add_linear_interpolation();
-        app.register_component::<CompSimple>();
-        app.register_component::<CompCustomInterp>()
+        app.component::<CompSimple>().replicate();
+        app.component::<CompCustomInterp>()
+            .replicate()
             .add_custom_interpolation();
-        app.register_component::<CompOnce>();
-        app.register_component::<CompCorr>()
-            .add_prediction()
+        app.component::<CompOnce>().replicate();
+        app.component::<CompCorr>()
+            .replicate()
+            .predict()
             .add_linear_correction_fn()
             .add_linear_interpolation();
-        app.register_component::<CompMap>().add_prediction();
-        app.add_rollback::<CompNotNetworked>();
-        app.register_component::<CompDelta>();
+        app.component::<CompMap>().replicate().predict();
+        app.local_rollback::<CompNotNetworked>();
+        app.component::<CompDelta>().replicate();
         // .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
@@ -254,7 +258,7 @@ impl Plugin for ProtocolPlugin {
                 .disable::<IslandSleepingPlugin>()
                 .disable::<PhysicsInterpolationPlugin>(),
         );
-        // app.register_component::<Collider>();
+        // app.component::<Collider>().replicate();
 
         match self.avian_mode {
             AvianReplicationMode::Position => {
@@ -270,19 +274,22 @@ impl Plugin for ProtocolPlugin {
         match self.avian_mode {
             AvianReplicationMode::Position
             | AvianReplicationMode::PositionButInterpolateTransform => {
-                app.register_component::<Position>()
-                    .add_prediction()
+                app.component::<Position>()
+                    .replicate()
+                    .predict()
                     .add_linear_correction_fn()
                     .add_linear_interpolation();
 
-                app.register_component::<Rotation>()
-                    .add_prediction()
+                app.component::<Rotation>()
+                    .replicate()
+                    .predict()
                     .add_linear_correction_fn()
                     .add_linear_interpolation();
             }
             AvianReplicationMode::Transform => {
-                app.register_component::<Transform>()
-                    .add_prediction()
+                app.component::<Transform>()
+                    .replicate()
+                    .predict()
                     .add_linear_correction_fn::<Isometry2d>()
                     .add_interpolation_with(TransformLinearInterpolation::lerp);
             }

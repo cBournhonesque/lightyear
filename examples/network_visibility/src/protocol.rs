@@ -56,12 +56,13 @@ impl Plugin for ProtocolPlugin {
         // inputs
         app.add_plugins(InputPlugin::<Inputs>::default());
         // components
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<Position>()
-            .add_prediction()
+        app.component::<Position>()
+            .replicate()
+            .predict()
             .add_linear_interpolation();
-        app.register_component::<PlayerColor>();
-        app.register_component::<CircleMarker>();
+        app.component::<PlayerColor>().replicate();
+        app.component::<CircleMarker>().replicate();
     }
 }

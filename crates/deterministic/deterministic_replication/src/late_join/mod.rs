@@ -145,7 +145,7 @@ impl Plugin for LateJoinCatchUpPlugin {
             .add_direction(NetworkDirection::ServerToClient);
         app.init_resource::<CatchUpRegistry>();
         app.init_resource::<CatchUpMode>();
-        app.register_component_once::<CatchUpGated>();
+        app.component::<CatchUpGated>().replicate_once();
 
         #[cfg(feature = "client")]
         client::build(app);

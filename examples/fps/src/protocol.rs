@@ -91,39 +91,41 @@ impl Plugin for ProtocolPlugin {
             },
         });
         // components
-        app.register_component::<Name>();
-        app.register_component::<PlayerId>();
-        app.register_component::<PlayerMarker>();
+        app.component::<Name>().replicate();
+        app.component::<PlayerId>().replicate();
+        app.component::<PlayerMarker>().replicate();
 
-        app.register_component::<Position>()
-            .add_prediction()
+        app.component::<Position>()
+            .replicate()
+            .predict()
             .add_linear_interpolation()
             // we enable correction without applying Correction on Position.
             // Instead we will apply Correction/FrameInterpolation on Transform directly.
             .enable_correction();
 
-        app.register_component::<Rotation>()
-            .add_prediction()
-            .add_linear_interpolation()
+        app.component::<Rotation>()
+            .replicate()
+            .predict()
+            .with_rollback_condition(rotation_should_rollback)
             .enable_correction()
-            .add_should_rollback(rotation_should_rollback);
+            .add_linear_interpolation();
 
         // Bullet motion is simulated by Avian from LinearVelocity. Predicted bullets need the same
         // velocity in rollback history as the server entity, otherwise replay re-simulates from stale
         // or missing physics state and repeatedly corrects bullet positions.
-        app.register_component::<LinearVelocity>().add_prediction();
+        app.component::<LinearVelocity>().replicate().predict();
 
-        app.register_component::<ColorComponent>();
+        app.component::<ColorComponent>().replicate();
 
-        app.register_component::<Score>();
+        app.component::<Score>().replicate();
 
-        app.register_component::<RigidBody>();
+        app.component::<RigidBody>().replicate();
 
-        app.register_component::<BulletMarker>();
+        app.component::<BulletMarker>().replicate();
 
-        app.register_component::<PredictedBot>();
+        app.component::<PredictedBot>().replicate();
 
-        app.register_component::<InterpolatedBot>();
+        app.component::<InterpolatedBot>().replicate();
     }
 }
 

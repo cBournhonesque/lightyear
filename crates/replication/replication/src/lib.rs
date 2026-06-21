@@ -136,7 +136,7 @@ pub mod prelude {
 
     pub use crate::registry::ComponentRegistry;
     pub use crate::registry::TransformLinearInterpolation;
-    pub use crate::registry::replication::AppComponentExt;
+    pub use crate::registry::replication::{AppComponentExt, ComponentRegistrator};
     pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
     pub use crate::visibility::room::{RoomAllocator, RoomId, RoomPlugin, Rooms};
 

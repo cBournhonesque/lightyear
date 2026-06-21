@@ -63,15 +63,35 @@ impl From<TypeId> for ComponentKind {
 ///
 /// ### Adding Components
 ///
-/// You register components by calling the `register_component` method directly on the App.
+/// You register components by composing Lightyear's component builder with the
+/// desired Replicon rule:
 ///
-/// By default, a component needs to implement `Serialize` and `Deserialize`, but you can also provide your own
-/// serialization functions by using the `register_component_with` method.
+/// ```rust,ignore
+/// # use bevy_app::App;
+/// # use bevy_replicon::prelude::AppRuleExt;
+/// # use lightyear_replication::prelude::AppComponentExt;
+/// #
+/// app.component::<MyComponent>().replicate();
+/// ```
+///
+/// This also supports custom Replicon registration APIs, including priority,
+/// filters, custom rule functions, and `replicate_as`.
+///
+/// If you prefer to call Replicon's APIs directly, that still works: call the
+/// Replicon API first, then
+/// [`component`](crate::registry::replication::AppComponentExt::component) to
+/// make Lightyear prediction/interpolation metadata available for that same
+/// component type.
+///
+/// By default, a component needs to implement `Serialize` and `Deserialize`, but
+/// you can also provide your own serialization functions with
+/// [`ComponentRegistration::replicate_with`](crate::registry::replication::ComponentRegistration::replicate_with).
 ///
 /// Components that should only send insertions and removals can use
-/// `register_component_once`. For
+/// [`ComponentRegistration::replicate_once`](crate::registry::replication::ComponentRegistration::replicate_once).
+/// For
 /// once-replicated components with custom serialization, use
-/// `register_component_once_with`.
+/// [`ComponentRegistration::replicate_once_with`](crate::registry::replication::ComponentRegistration::replicate_once_with).
 ///
 /// ```rust
 /// # use bevy_app::App;
@@ -83,7 +103,7 @@ impl From<TypeId> for ComponentKind {
 /// struct MyComponent;
 ///
 /// fn add_components(app: &mut App) {
-///   app.register_component::<MyComponent>();
+///   app.component::<MyComponent>().replicate();
 /// }
 /// ```
 ///
@@ -95,13 +115,13 @@ impl From<TypeId> for ComponentKind {
 /// If the component contains any [`Entity`], you need to specify how those entities
 /// will be mapped from the remote world to the local world.
 ///
-/// Provided that your type implements [`MapEntities`](bevy_ecs::entity::MapEntities), you can extend the protocol to support this behaviour, by
+/// Provided that your type implements `MapEntities`, you can extend the protocol to support this behaviour by
 /// calling the `add_map_entities` method.
 ///
 /// #### Prediction
 /// When client-prediction is enabled, a predicted entity is one that has the [`Predicted`](lightyear_core::prelude::Predicted) component.
 ///
-/// You have to specify which components are predicted by calling the `add_prediction` method.
+/// You have to specify which components are predicted by calling `predict()`.
 ///
 /// #### Correction
 /// When client-prediction is enabled, there might be cases where there is a mismatch between the state of the Predicted entity
@@ -139,10 +159,10 @@ impl From<TypeId> for ComponentKind {
 /// }
 ///
 /// fn add_messages(app: &mut App) {
-///   app.register_component::<MyComponent>()
-///       .add_prediction(PredictionMode::Full)
-///       .add_interpolation(InterpolationMode::Full)
-///       .add_interpolation_fn(my_lerp_fn);
+///   app.component::<MyComponent>().replicate()
+///       .predict()
+///       .into_component_registration()
+///       .add_interpolation_with(my_lerp_fn);
 /// }
 /// ```
 #[derive(Debug, Default, Clone, Resource, TypePath)]
@@ -192,10 +212,7 @@ impl ComponentRegistry {
             .entry(component_kind)
             .or_insert(ComponentMetadata {
                 component_id,
-                replication: Some(ReplicationMetadata {
-                    predicted: false,
-                    interpolated: false,
-                }),
+                replication: Some(ReplicationMetadata::default()),
                 // #[cfg(feature = "delta")]
                 // delta: None,
                 #[cfg(feature = "deterministic")]

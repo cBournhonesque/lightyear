@@ -18,7 +18,7 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 
 2. **Replication targets** (`send.rs`): `Replicate`, `PredictionTarget`, and `InterpolationTarget` use bevy component hooks (`on_insert`/`on_replace`) to configure replicon's `ClientVisibility` and `VisibilityFilter` per-entity per-client. This replaces the old `ReplicationSender` change-tracking approach.
 
-3. **Prediction integration** (`registry.rs` in `lightyear_prediction`): Components registered with `.add_prediction()` use replicon's marker system — `Predicted` is registered as a marker with custom `write_history` / `remove_history` functions that store confirmed values in `PredictionHistory<C>` and detect mismatches for rollback.
+3. **Prediction integration** (`registry.rs` in `lightyear_prediction`): Components registered with `.predict()` use replicon's marker system — `Predicted` is registered as a marker with custom `write_history` / `remove_history` functions that store confirmed values in `PredictionHistory<C>` and detect mismatches for rollback.
 
 4. **State management**: `ServerState::Running` and `ClientState::Connected` are transitioned at appropriate times so replicon's internal systems run.
 

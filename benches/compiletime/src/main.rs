@@ -9,7 +9,7 @@ macro_rules! register_components {
                 #[derive(Component, Serialize, Deserialize, PartialEq, Clone)]
                 struct $component;
 
-                app.register_component::<$component>();
+                app.component::<$component>().replicate();
             )*
 
             $(

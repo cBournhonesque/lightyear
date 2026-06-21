@@ -73,11 +73,11 @@ pub struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin{
     fn build(&self, app: &mut App) {
-        app.register_component::<PlayerId>();
+        app.component::<PlayerId>().replicate();
 
-        app.register_component::<PlayerPosition>();
+        app.component::<PlayerPosition>().replicate();
 
-        app.register_component::<PlayerColor>();
+        app.component::<PlayerColor>().replicate();
     }
 }
 ```

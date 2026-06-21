@@ -354,11 +354,11 @@ impl Plugin for LightyearAvianPlugin {
             app.init_resource::<ConstraintGraph>();
             app.add_resource_rollback::<ContactGraph>();
             app.add_resource_rollback::<ConstraintGraph>();
-            app.add_rollback::<CollidingEntities>();
+            app.local_rollback::<CollidingEntities>();
             // `ColliderTrees` cannot be cloned for rollback, but its leaf AABBs
             // are derived from these cloneable collider components.
-            app.add_rollback::<ColliderAabb>();
-            app.add_rollback::<EnlargedAabb>();
+            app.local_rollback::<ColliderAabb>();
+            app.local_rollback::<EnlargedAabb>();
             app.init_resource::<RollbackMovedProxies>();
             app.add_resource_rollback::<RollbackMovedProxies>();
             app.add_systems(
@@ -388,10 +388,10 @@ impl Plugin for LightyearAvianPlugin {
 impl LightyearAvianPlugin {
     fn add_island_rollback(app: &mut App, rollback_sleeping: bool) {
         app.add_resource_rollback::<PhysicsIslands>();
-        app.add_rollback::<BodyIslandNode>();
+        app.local_rollback::<BodyIslandNode>();
         if rollback_sleeping {
-            app.add_rollback::<Sleeping>();
-            app.add_rollback::<SleepTimer>();
+            app.local_rollback::<Sleeping>();
+            app.local_rollback::<SleepTimer>();
         }
     }
 

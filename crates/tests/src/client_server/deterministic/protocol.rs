@@ -140,28 +140,31 @@ impl Plugin for DetProtocolPlugin {
         app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
         app.add_observer(add_frame_interpolation);
 
-        app.register_component::<DetPlayerId>();
-        app.register_component::<DetPlayerActivationTick>();
+        app.component::<DetPlayerId>().replicate();
+        app.component::<DetPlayerActivationTick>().replicate();
 
-        app.register_component_once::<Position>();
-        app.add_rollback::<Position>()
+        app.component::<Position>().replicate_once();
+        app.local_rollback::<Position>()
             .add_confirmed_write()
+            .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component_once::<Rotation>();
-        app.add_rollback::<Rotation>()
+        app.component::<Rotation>().replicate_once();
+        app.local_rollback::<Rotation>()
             .add_confirmed_write()
+            .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
             .register_linear_interpolation()
             .add_linear_correction_fn();
 
-        app.register_component_once::<LinearVelocity>();
-        app.add_rollback::<LinearVelocity>().add_confirmed_write();
+        app.component::<LinearVelocity>().replicate_once();
+        app.local_rollback::<LinearVelocity>().add_confirmed_write();
 
-        app.register_component_once::<AngularVelocity>();
-        app.add_rollback::<AngularVelocity>().add_confirmed_write();
+        app.component::<AngularVelocity>().replicate_once();
+        app.local_rollback::<AngularVelocity>()
+            .add_confirmed_write();
 
         // Apply movement via a Fire observer on the action.
         app.add_observer(apply_movement);
