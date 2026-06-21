@@ -1275,7 +1275,7 @@ pub enum RollbackState {
 ///
 /// On [`Add`], the registered visibility filter is inserted on the same
 /// entity. Replicon hides the registered catch-up component scope from clients
-/// that do not yet have [`HasCaughtUp`] on their client link entity.
+/// that do not yet have `HasCaughtUp` on their client link entity.
 ///
 /// In the deterministic_replication example this is inserted on the player
 /// entity next to `Replicate::to_clients(NetworkTarget::All)`.

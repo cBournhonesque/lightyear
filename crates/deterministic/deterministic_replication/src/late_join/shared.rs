@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 /// Message sent from a client to the server requesting the bundled
 /// one-time snapshot of catch-up-gated components for *every*
-/// [`CatchUpGated`] entity.
+/// `CatchUpGated` entity.
 ///
 /// The request carries the latest server tick for which the client currently
 /// has enough rebroadcast input to replay. The server buffers this readiness
@@ -26,8 +26,8 @@ pub struct CatchUpRequest {
 /// checkpoint to be confirmed, then triggers this same event locally. If the
 /// server sends [`CatchUpSnapshotReady::not_required`], the client skips the
 /// forced rollback and triggers this event locally before removing
-/// [`CatchUpGated`]. User code should observe `On<CatchUpSnapshotReady>` and
-/// query [`CatchUpGated`] entities to add application-specific local
+/// `CatchUpGated`. User code should observe `On<CatchUpSnapshotReady>` and
+/// query `CatchUpGated` entities to add application-specific local
 /// components before the forced rollback or skip completes.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct CatchUpSnapshotReady {
@@ -80,7 +80,7 @@ pub trait AppCatchUpExt {
     ///
     /// On server apps, `T` (typically a tuple of physics components, e.g.
     /// `(Position, Rotation, LinearVelocity, AngularVelocity)`) becomes the
-    /// Replicon visibility scope hidden behind [`CatchUpGated`].
+    /// Replicon visibility scope hidden behind `CatchUpGated`.
     ///
     /// On clients, `S` contributes the input-buffer coverage check used to
     /// decide when the client can safely request a catch-up snapshot.

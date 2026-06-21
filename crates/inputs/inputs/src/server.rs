@@ -39,7 +39,7 @@ use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
 /// Server-side plugin that receives input messages from clients and applies
-/// them to [`InputBuffer`](crate::input_buffer::InputBuffer) components.
+/// them to [`InputBuffer`] components.
 ///
 /// If `rebroadcast_inputs` is enabled, the server also forwards input messages
 /// to other clients so they can use them for remote-player prediction.

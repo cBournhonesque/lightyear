@@ -21,34 +21,34 @@
 //! 1. At join, the server replicates "structural" data for existing entities
 //!    (markers like `PlayerId`, `DeterministicPredicted`) and starts
 //!    rebroadcasting inputs for those entities. Physics components
-//!    registered via [`AppCatchUpExt::register_catchup`] are
+//!    registered via `AppCatchUpExt::register_catchup` are
 //!    **hidden by default** via a replicon per-component visibility filter
 //!    until each client requests a catch-up snapshot.
 //!
-//! 2. On the client, catch-up entities are replicated with the [`CatchUpGated`]
-//!    marker component.Once the [`InputTimeline`] is synced and we have received
+//! 2. On the client, catch-up entities are replicated with the `CatchUpGated`
+//!    marker component. Once the `InputTimeline` is synced and we have received
 //!    inputs from all clients, the plugin
-//!    sends [`CatchUpRequest`] with that `input_safe_tick`.
+//!    sends `CatchUpRequest` with that `input_safe_tick`.
 //!
-//! 3. On the server, the [`CatchUpRequest`] handler buffers the client's
+//! 3. On the server, the `CatchUpRequest` handler buffers the client's
 //!    advertised input-safe tick until the authoritative server tick has moved
-//!    past it. It then inserts [`HasCaughtUp`] on the client's link entity and
-//!    sends a replicated [`CatchUpSnapshotReady`] event with the authoritative
+//!    past it. It then inserts `HasCaughtUp` on the client's link entity and
+//!    sends a replicated `CatchUpSnapshotReady` event with the authoritative
 //!    rollback tick and the Replicon checkpoint that contains the reveal. If
 //!    the server determines that no snapshot is needed, it still sends
-//!    [`CatchUpSnapshotReady`] with both ticks set to `u32::MAX`; the client
+//!    `CatchUpSnapshotReady` with both ticks set to `u32::MAX`; the client
 //!    treats that as a server-authoritative skip.
 //!
 //! 4. The client waits until Replicon's mutate completion state reports that
 //!    the accepted Replicon checkpoint is fully confirmed. At that point all
 //!    mutation messages for the catch-up reveal have landed, so the plugin
-//!    emits [`CatchUpSnapshotReady`] for local-only setup and schedules one
+//!    emits `CatchUpSnapshotReady` for local-only setup and schedules one
 //!    forced rollback to the accepted server tick. If that checkpoint becomes
 //!    too old for the configured rollback window before it is usable, the
 //!    client logs and disconnects; that should not happen in a healthy
 //!    catch-up flow.
 //!
-//! 5. [`HasCaughtUp`] is not removed. After the initial catch-up, the rest of
+//! 5. `HasCaughtUp` is not removed. After the initial catch-up, the rest of
 //!    the simulation is deterministic, so later catch-up-gated components are
 //!    replicated normally to that client.
 //!

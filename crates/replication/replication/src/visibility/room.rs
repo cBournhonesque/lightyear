@@ -160,7 +160,7 @@ impl VisibilityFilter for Rooms {
     }
 }
 
-/// Plugin used to handle interest managements via [`Room`]s
+/// Plugin used to handle interest management via [`Rooms`].
 #[derive(Default)]
 pub struct RoomPlugin;
 
