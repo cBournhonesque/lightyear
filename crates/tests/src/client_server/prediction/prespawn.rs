@@ -10,6 +10,7 @@ use bevy_replicon::prelude::Signature;
 use lightyear::prelude::LocalTimeline;
 use lightyear::prelude::{Link, LinkConditionerConfig, RecvLinkConditioner};
 use lightyear_connection::network_target::NetworkTarget;
+use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_core::prelude::Tick;
 use lightyear_core::timeline::is_in_rollback;
@@ -17,7 +18,7 @@ use lightyear_messages::MessageManager;
 use lightyear_prediction::Predicted;
 use lightyear_prediction::despawn::{PredictionDespawnCommandsExt, PredictionDisable};
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_prediction::predicted_history::{PredictionHistory, PredictionState};
+use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_prediction::prelude::RollbackSystems;
 use lightyear_replication::prelude::{PreSpawned, PredictionTarget, Replicate, Replicated};
 use lightyear_replication::prespawn::PreSpawnedReceiver;
@@ -77,7 +78,7 @@ fn test_compute_hash() {
             .get::<PredictionHistory<CompFull>>()
             .unwrap()
             .most_recent(),
-        Some(&(current_tick, PredictionState::Predicted(CompFull(1.0)),))
+        Some(&(current_tick, HistoryState::Updated(CompFull(1.0)),))
     );
 }
 

@@ -4,7 +4,8 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::prelude::*;
 use bevy_utils::prelude::DebugName;
-use lightyear_core::prelude::{ConfirmedHistory, ConfirmedState, Interpolated, NetworkTimeline};
+use lightyear_core::history_buffer::HistoryState;
+use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_sync::prelude::client::IsSynced;
@@ -76,10 +77,10 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
             current_interpolate_tick,
             timeline.overstep().to_f32(),
         ) {
-            None | Some(ConfirmedState::Removed) if present => {
+            None | Some(HistoryState::Removed) if present => {
                 commands.entity(entity).try_remove::<C>();
             }
-            Some(ConfirmedState::Confirmed(value)) if !present => {
+            Some(HistoryState::Updated(value)) if !present => {
                 commands.entity(entity).try_insert(value);
             }
             _ => {}
@@ -98,7 +99,7 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
     let interpolation_overstep = timeline.overstep().to_f32();
     for (entity, mut component, history) in query.iter_mut() {
         match interpolation_registry.sample(history, interpolation_tick, interpolation_overstep) {
-            Some(ConfirmedState::Confirmed(interpolated)) => {
+            Some(HistoryState::Updated(interpolated)) => {
                 trace!(
                     target: "lightyear_debug::interpolation",
                     kind = "interpolation_apply",
@@ -112,7 +113,7 @@ pub(crate) fn interpolate<C: Component<Mutability = Mutable> + Clone>(
                 );
                 *component = interpolated;
             }
-            Some(ConfirmedState::Removed) => {
+            Some(HistoryState::Removed) => {
                 commands.entity(entity).try_remove::<C>();
             }
             None => {}

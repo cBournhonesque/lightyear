@@ -42,7 +42,8 @@ pub mod test;
 
 /// Commonly used items from the `lightyear_core` crate.
 pub mod prelude {
-    pub use crate::confirmed_history::{ConfirmedHistory, ConfirmedState};
+    pub use crate::confirmed_history::ConfirmedHistory;
+    pub use crate::history_buffer::HistoryState;
 
     pub use crate::interpolation::Interpolated;
 
