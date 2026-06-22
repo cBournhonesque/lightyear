@@ -238,7 +238,7 @@ leafwing-input-manager = { version = "0.20", default-features = false, features 
 ] }
 
 # replication
-bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon", rev = "d144ce91aa4a322a300968a7e882e86aea72fb1b" }
+bevy_replicon = { git = "https://github.com/cBournhonesque/bevy_replicon", rev = "89b743b00c3b30182da86b8d88b6d6a0d5013603" }
 
 # physics
 avian2d = { version = "0.6", default-features = false }

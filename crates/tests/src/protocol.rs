@@ -60,7 +60,7 @@ pub struct CompReplicateOnce(pub f32);
 pub struct CompCustomReplicateOnce(pub f32);
 
 fn serialize_custom_replicate_once(
-    _ctx: &SerializeCtx,
+    _ctx: &mut SerializeCtx,
     component: &CompCustomReplicateOnce,
     message: &mut Vec<u8>,
 ) -> Result<()> {

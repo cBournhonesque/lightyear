@@ -10,6 +10,7 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_replicon::shared::replication::diff::{Diffable as RepliconDiffable, PatchBuffer};
+use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_utils::prelude::DebugName;
 use core::fmt::{self, Debug, Display};
 use core::ops::{Deref, DerefMut};
@@ -350,21 +351,21 @@ pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDi
             if entity_mut.contains::<ConfirmedHistoryPatchReceiver<C>>() {
                 return;
             }
-            let cursor = entity_mut
-                .get::<PatchBuffer<C>>()
-                .map(PatchBuffer::<C>::last_applied);
             let confirm_last = entity_mut
                 .get::<lightyear_replication::prelude::ConfirmHistory>()
                 .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
-            (cursor, confirm_last)
+            confirm_last
         };
-        let seed = match seed_inputs {
-            (Some(cursor), Some(confirm_tick)) => world
+        let seed = seed_inputs.and_then(|confirm_tick| {
+            let cursor = world
+                .get_resource::<ReplicationStorage>()
+                .and_then(|storage| storage.get::<PatchBuffer<C>>(entity))
+                .and_then(PatchBuffer::<C>::last_applied)?;
+            world
                 .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
                 .get(confirm_tick)
-                .map(|tick| (tick, cursor)),
-            _ => None,
-        };
+                .map(|tick| (tick, cursor))
+        });
         let Some((tick, cursor)) = seed else {
             return;
         };
@@ -375,7 +376,7 @@ pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDi
             return;
         }
         let mut receiver = ConfirmedHistoryPatchReceiver::<C>::default();
-        receiver.record_cursor(tick, cursor);
+        receiver.record_cursor(tick, Some(cursor));
         entity_mut.insert(receiver);
     });
 }
@@ -470,6 +471,7 @@ mod tests {
     use super::*;
     use crate::manager::StateRollbackMetadata;
     use bevy_app::{App, Update};
+    use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -485,6 +487,10 @@ mod tests {
             self.0 = *patch;
             Ok(())
         }
+    }
+
+    fn idx(value: u16) -> PatchIndex {
+        PatchIndex::new(value)
     }
 
     #[test]
@@ -523,9 +529,9 @@ mod tests {
         history.insert_present(Tick(8), TestDiffValue(8));
 
         let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
-        receiver.record_cursor(Tick(2), Some(2));
-        receiver.record_cursor(Tick(4), Some(4));
-        receiver.record_cursor(Tick(8), Some(8));
+        receiver.record_cursor(Tick(2), Some(idx(2)));
+        receiver.record_cursor(Tick(4), Some(idx(4)));
+        receiver.record_cursor(Tick(8), Some(idx(8)));
 
         let entity = app.world_mut().spawn((history, receiver)).id();
         app.update();
@@ -535,8 +541,8 @@ mod tests {
             .entity(entity)
             .get::<ConfirmedHistoryPatchReceiver<TestDiffValue>>()
             .unwrap();
-        assert_eq!(receiver.tick_for_cursor(Some(2)), None);
-        assert_eq!(receiver.tick_for_cursor(Some(4)), Some(Tick(4)));
-        assert_eq!(receiver.tick_for_cursor(Some(8)), Some(Tick(8)));
+        assert_eq!(receiver.tick_for_cursor(Some(idx(2))), None);
+        assert_eq!(receiver.tick_for_cursor(Some(idx(4))), Some(Tick(4)));
+        assert_eq!(receiver.tick_for_cursor(Some(idx(8))), Some(Tick(8)));
     }
 }

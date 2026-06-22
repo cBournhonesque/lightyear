@@ -201,7 +201,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// Register this component using Replicon's patch-based diff replication.
     ///
     /// Mutations must be recorded with
-    /// [`DiffEntityExt::apply_patch`](bevy_replicon::shared::replication::diff::DiffEntityExt::apply_patch)
+    /// [`EntityPatchExt::apply_patch`](bevy_replicon::shared::replication::diff::EntityPatchExt::apply_patch)
     /// so Replicon can create patch messages. This registers Replicon's
     /// `replicate_diff` rule, but does not also register the normal
     /// full-component replication rule.
