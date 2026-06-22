@@ -23,6 +23,7 @@ use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::diff::{Diffable as RepliconDiffable, WireDiff};
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
+use bevy_replicon::shared::replication::storage::EntityStorageCtx;
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
 use lightyear_core::history_buffer::HistoryState;
@@ -920,9 +921,6 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .app
             .world_mut()
             .register_component::<ConfirmedHistory<C>>();
-        self.app
-            .world_mut()
-            .register_component::<ConfirmedHistoryPatchReceiver<C>>();
         let mut registry = self.app.world_mut().resource_mut::<PredictionRegistry>();
         trace!(
             "Adding diff prediction for component {:?}",
@@ -1090,16 +1088,13 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
     let Some((tick, diff)) = client_diff_and_tick::<C>(ctx, entity, message)? else {
         return Ok(());
     };
-    let mut receiver = entity
-        .get_mut::<ConfirmedHistoryPatchReceiver<C>>()
-        .map(|mut receiver| core::mem::take(&mut *receiver))
-        .unwrap_or_default();
     match diff {
         WireDiff::Snapshot {
             index,
             mut component,
         } => {
             C::map_entities(&mut component, ctx);
+            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
             receiver.record_cursor(tick, Some(index));
             let should_rollback =
                 add_resolved_confirmed_to_history(tick, Some(component), entity, true);
@@ -1111,16 +1106,19 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
             }
         }
         WireDiff::Patches { index, patches } => {
+            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
             receiver.queue_patch_diff(tick, index, patches)?;
         }
     }
 
-    while let Some((tick, value)) = entity
-        .get::<ConfirmedHistory<C>>()
-        .map(|history| receiver.take_ready_update(history))
-        .transpose()?
-        .flatten()
-    {
+    while let Some((tick, value)) = {
+        let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
+        entity
+            .get::<ConfirmedHistory<C>>()
+            .map(|history| receiver.take_ready_update(history))
+            .transpose()?
+            .flatten()
+    } {
         let should_rollback = add_resolved_confirmed_to_history(tick, Some(value), entity, true);
         if should_rollback {
             // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access
@@ -1129,10 +1127,11 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
                 .record_mismatch(tick);
         }
     }
-    entity.insert(receiver);
     Ok(())
 }
 
+/// Decode the raw Replicon diff bytes and map the Replicon message tick to the
+/// corresponding Lightyear server tick.
 fn client_diff_and_tick<C: SyncComponent + RepliconDiffable>(
     ctx: &mut WriteCtx,
     entity: &mut DeferredEntity,

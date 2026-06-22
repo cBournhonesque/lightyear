@@ -32,6 +32,7 @@ use tracing::{debug, info, trace};
 /// Keeping this margin gives late patch messages a chance to find their
 /// historical base in [`ConfirmedHistory`] instead of forcing a snapshot.
 pub(crate) const PATCH_HISTORY_TICK_MARGIN: u32 = 12;
+
 /// Holds the history of locally predicted component states.
 ///
 /// This stores only local prediction samples. Authoritative samples from the
@@ -167,16 +168,19 @@ pub(crate) fn handle_tick_event_confirmed_history<C: Component>(
 
 pub(crate) fn handle_tick_event_confirmed_history_patch_receiver<C: RepliconDiffable>(
     trigger: On<SyncEvent<InputTimelineConfig>>,
-    mut query: Query<&mut ConfirmedHistoryPatchReceiver<C>>,
+    mut storage: ResMut<ReplicationStorage>,
 ) {
-    for mut receiver in query.iter_mut() {
+    for (entity, entity_storage) in storage.entities.iter_mut() {
+        let Some(receiver) = entity_storage.get_mut::<ConfirmedHistoryPatchReceiver<C>>() else {
+            continue;
+        };
         receiver.update_ticks(trigger.tick_delta);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "confirmed_history_patch_receiver_tick_delta",
             schedule = "PostUpdate",
             sample_point = "PostUpdate",
-            entity = ?trigger.entity,
+            entity = ?entity,
             component = ?DebugName::type_name::<C>(),
             tick_delta = trigger.tick_delta,
             "shifted confirmed history patch receiver ticks"
@@ -193,13 +197,17 @@ pub(crate) fn handle_tick_event_confirmed_history_patch_receiver<C: RepliconDiff
 /// yet.
 pub(crate) fn prune_confirmed_history_patch_receiver<C: RepliconDiffable>(
     state_metadata: Res<crate::manager::StateRollbackMetadata>,
-    mut query: Query<(&ConfirmedHistory<C>, &mut ConfirmedHistoryPatchReceiver<C>)>,
+    mut storage: ResMut<ReplicationStorage>,
+    query: Query<(Entity, &ConfirmedHistory<C>)>,
 ) {
     let Some(last_processed_tick) = state_metadata.last_processed_tick() else {
         return;
     };
     let prune_tick = last_processed_tick - PATCH_HISTORY_TICK_MARGIN;
-    for (history, mut receiver) in query.iter_mut() {
+    for (entity, history) in query.iter() {
+        let Some(receiver) = storage.get_mut::<ConfirmedHistoryPatchReceiver<C>>(entity) else {
+            continue;
+        };
         if !receiver.has_pending_patches() {
             receiver.clear_before_tick(prune_tick, history);
         }
@@ -348,9 +356,6 @@ pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDi
             let Ok(entity_mut) = world.get_entity_mut(entity) else {
                 return;
             };
-            if entity_mut.contains::<ConfirmedHistoryPatchReceiver<C>>() {
-                return;
-            }
             let confirm_last = entity_mut
                 .get::<lightyear_replication::prelude::ConfirmHistory>()
                 .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
@@ -369,15 +374,14 @@ pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDi
         let Some((tick, cursor)) = seed else {
             return;
         };
-        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+        let Some(mut storage) = world.get_resource_mut::<ReplicationStorage>() else {
             return;
         };
-        if entity_mut.contains::<ConfirmedHistoryPatchReceiver<C>>() {
-            return;
-        }
-        let mut receiver = ConfirmedHistoryPatchReceiver::<C>::default();
-        receiver.record_cursor(tick, Some(cursor));
-        entity_mut.insert(receiver);
+        storage.get_or_init::<ConfirmedHistoryPatchReceiver<C>>(entity, || {
+            let mut receiver = ConfirmedHistoryPatchReceiver::<C>::default();
+            receiver.record_cursor(tick, Some(cursor));
+            receiver
+        });
     });
 }
 
@@ -518,6 +522,7 @@ mod tests {
         let mut metadata = StateRollbackMetadata::default();
         metadata.set_last_processed_tick(Tick(16));
         app.insert_resource(metadata);
+        app.insert_resource(ReplicationStorage::default());
         app.add_systems(
             Update,
             prune_confirmed_history_patch_receiver::<TestDiffValue>,
@@ -533,13 +538,16 @@ mod tests {
         receiver.record_cursor(Tick(4), Some(idx(4)));
         receiver.record_cursor(Tick(8), Some(idx(8)));
 
-        let entity = app.world_mut().spawn((history, receiver)).id();
+        let entity = app.world_mut().spawn(history).id();
+        app.world_mut()
+            .resource_mut::<ReplicationStorage>()
+            .insert(entity, receiver);
         app.update();
 
         let receiver = app
             .world()
-            .entity(entity)
-            .get::<ConfirmedHistoryPatchReceiver<TestDiffValue>>()
+            .resource::<ReplicationStorage>()
+            .get::<ConfirmedHistoryPatchReceiver<TestDiffValue>>(entity)
             .unwrap();
         assert_eq!(receiver.tick_for_cursor(Some(idx(2))), None);
         assert_eq!(receiver.tick_for_cursor(Some(idx(4))), Some(Tick(4)));

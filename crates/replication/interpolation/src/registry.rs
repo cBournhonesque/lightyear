@@ -1,5 +1,8 @@
 use crate::SyncComponent;
-use crate::plugin::{add_interpolation_systems, add_prepare_interpolation_systems};
+use crate::plugin::{
+    add_interpolation_systems, add_prepare_interpolation_diff_systems,
+    add_prepare_interpolation_systems,
+};
 use bevy_app::App;
 use bevy_ecs::prelude::*;
 use bevy_math::{
@@ -18,7 +21,7 @@ use bevy_replicon::shared::replication::diff::{
 };
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
-use bevy_replicon::shared::replication::storage::ReplicationStorage;
+use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
@@ -239,19 +242,11 @@ pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + R
     trigger: On<Add, Interpolated>,
     mut commands: Commands,
     checkpoints: Res<ReplicationCheckpointMap>,
-    query: Query<(
-        &C,
-        &ConfirmHistory,
-        Option<&ConfirmedHistory<C>>,
-        Option<&ConfirmedHistoryPatchReceiver<C>>,
-    )>,
+    query: Query<(&C, &ConfirmHistory, Option<&ConfirmedHistory<C>>)>,
 ) {
-    let Ok((component, confirm_history, history, receiver)) = query.get(trigger.entity) else {
+    let Ok((component, confirm_history, history)) = query.get(trigger.entity) else {
         return;
     };
-    if history.is_some() && receiver.is_some() {
-        return;
-    }
 
     let Some(tick) = checkpoints.get(confirm_history.last_tick()) else {
         debug_assert!(
@@ -264,29 +259,48 @@ pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + R
     let entity = trigger.entity;
     let component = component.clone();
     let insert_history = history.is_none();
-    let insert_receiver = receiver.is_none();
     commands.queue(move |world: &mut World| {
-        let cursor = world
+        let (cursor, has_receiver) = world
             .get_resource::<ReplicationStorage>()
-            .and_then(|storage| storage.get::<PatchBuffer<C>>(entity))
-            .and_then(PatchBuffer::<C>::last_applied);
-        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            .map(|storage| {
+                (
+                    storage
+                        .get::<PatchBuffer<C>>(entity)
+                        .and_then(PatchBuffer::<C>::last_applied),
+                    storage
+                        .get::<ConfirmedHistoryPatchReceiver<C>>(entity)
+                        .is_some(),
+                )
+            })
+            .unwrap_or_default();
+
+        if !insert_history && has_receiver {
             return;
-        };
-        if insert_history && !entity_mut.contains::<ConfirmedHistory<C>>() {
-            let mut history = ConfirmedHistory::<C>::default();
-            history.insert_present(tick, component);
-            entity_mut.insert(history);
         }
-        if insert_receiver
-            && !entity_mut.contains::<ConfirmedHistoryPatchReceiver<C>>()
+
+        {
+            let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+                return;
+            };
+            if insert_history && !entity_mut.contains::<ConfirmedHistory<C>>() {
+                let mut history = ConfirmedHistory::<C>::default();
+                history.insert_present(tick, component);
+                entity_mut.insert(history);
+            }
+            entity_mut.remove::<C>();
+        }
+
+        if !has_receiver
             && let Some(cursor) = cursor
+            && let Some(mut storage) = world.get_resource_mut::<ReplicationStorage>()
+            && storage
+                .get::<ConfirmedHistoryPatchReceiver<C>>(entity)
+                .is_none()
         {
             let mut receiver = ConfirmedHistoryPatchReceiver::<C>::default();
             receiver.record_cursor(tick, Some(cursor));
-            entity_mut.insert(receiver);
+            storage.insert(entity, receiver);
         }
-        entity_mut.remove::<C>();
     });
 }
 
@@ -314,12 +328,24 @@ pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
     where
         C: SyncComponent;
 
+    /// Like [`Self::add_interpolation_with`], but for components replicated with
+    /// Replicon's patch-based diff mode.
+    fn add_interpolation_diff_with(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent + RepliconDiffable;
+
     /// Enable interpolation systems for this component using the [`Ease`] implementation
     ///
     /// This will register interpolation systems to interpolate between two confirmed states.
     fn add_linear_interpolation(self) -> Self
     where
         C: SyncComponent + Ease;
+
+    /// Like [`Self::add_linear_interpolation`], but for components replicated
+    /// with Replicon's patch-based diff mode.
+    fn add_linear_interpolation_diff(self) -> Self
+    where
+        C: SyncComponent + RepliconDiffable + Ease;
 
     /// The remote updates will be stored in a [`ConfirmedHistory<C>`] component
     /// but the user has to define the interpolation logic themselves
@@ -366,11 +392,28 @@ where
         ))
     }
 
+    fn add_interpolation_diff_with(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent + RepliconDiffable,
+    {
+        Self::from_component_registration(add_interpolation_diff_with_impl(
+            self.into_component_registration(),
+            interpolation_fn,
+        ))
+    }
+
     fn add_linear_interpolation(self) -> Self
     where
         C: SyncComponent + Ease,
     {
         self.add_interpolation_with(lerp::<C>)
+    }
+
+    fn add_linear_interpolation_diff(self) -> Self
+    where
+        C: SyncComponent + RepliconDiffable + Ease,
+    {
+        self.add_interpolation_diff_with(lerp::<C>)
     }
 
     fn add_custom_interpolation(self) -> Self
@@ -428,6 +471,23 @@ where
     registration
 }
 
+fn register_interpolation_diff_fn_impl<'a, C>(
+    registration: ComponentRegistration<'a, C>,
+    interpolation_fn: LerpFn<C>,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent + RepliconDiffable,
+{
+    register_interpolated_diff_marker_fns::<C>(registration.app);
+    ensure_interpolation_registry(registration.app);
+    let mut registry = registration
+        .app
+        .world_mut()
+        .resource_mut::<InterpolationRegistry>();
+    registry.set_interpolation::<C>(interpolation_fn);
+    registration
+}
+
 fn add_interpolation_with_impl<'a, C>(
     registration: ComponentRegistration<'a, C>,
     interpolation_fn: LerpFn<C>,
@@ -437,6 +497,20 @@ where
 {
     let registration = register_interpolation_fn_impl(registration, interpolation_fn);
     add_prepare_interpolation_systems::<C>(registration.app);
+    add_interpolation_systems::<C>(registration.app);
+    mark_interpolated::<C>(registration.app);
+    registration
+}
+
+fn add_interpolation_diff_with_impl<'a, C>(
+    registration: ComponentRegistration<'a, C>,
+    interpolation_fn: LerpFn<C>,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent + RepliconDiffable,
+{
+    let registration = register_interpolation_diff_fn_impl(registration, interpolation_fn);
+    add_prepare_interpolation_diff_systems::<C>(registration.app);
     add_interpolation_systems::<C>(registration.app);
     mark_interpolated::<C>(registration.app);
     registration
@@ -489,11 +563,7 @@ where
             interpolation: None,
             custom_interpolation: true,
         });
-    crate::plugin::add_prepare_interpolation_diff_systems::<C>(registration.app);
-    registration
-        .app
-        .world_mut()
-        .register_component::<ConfirmedHistoryPatchReceiver<C>>();
+    add_prepare_interpolation_diff_systems::<C>(registration.app);
     mark_interpolated::<C>(registration.app);
     registration
 }
@@ -524,11 +594,9 @@ fn write_history<C: SyncComponent>(
         );
         return Ok(());
     };
-    if let Some(mut history) = entity.get_mut::<ConfirmedHistory<C>>() {
-        history.insert_present(tick, component);
-    } else {
-        let mut history = ConfirmedHistory::<C>::default();
-        history.insert_present(tick, component);
+    let mut new_history = None;
+    insert_interpolation_history_value(entity, &mut new_history, tick, component);
+    if let Some(history) = new_history {
         entity.insert(history);
     }
     Ok(())
@@ -544,32 +612,33 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
     let Some((tick, diff)) = client_diff_and_tick::<C>(ctx, entity, message)? else {
         return Ok(());
     };
-    let mut receiver = entity
-        .get_mut::<ConfirmedHistoryPatchReceiver<C>>()
-        .map(|mut receiver| core::mem::take(&mut *receiver))
-        .unwrap_or_default();
     match diff {
         WireDiff::Snapshot {
             index,
             mut component,
         } => {
             C::map_entities(&mut component, ctx);
+            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
             receiver.record_cursor(tick, Some(index));
             insert_interpolation_history_value(entity, &mut new_history, tick, component);
         }
         WireDiff::Patches { index, patches } => {
+            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
             receiver.queue_patch_diff(tick, index, patches)?;
         }
     }
 
-    while let Some((tick, value)) = if let Some(history) = new_history.as_ref() {
-        receiver.take_ready_update(history)?
-    } else {
-        entity
-            .get::<ConfirmedHistory<C>>()
-            .map(|history| receiver.take_ready_update(history))
-            .transpose()?
-            .flatten()
+    while let Some((tick, value)) = {
+        let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
+        if let Some(history) = new_history.as_ref() {
+            receiver.take_ready_update(history)?
+        } else {
+            entity
+                .get::<ConfirmedHistory<C>>()
+                .map(|history| receiver.take_ready_update(history))
+                .transpose()?
+                .flatten()
+        }
     } {
         insert_interpolation_history_value(entity, &mut new_history, tick, value);
     }
@@ -577,7 +646,6 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
     if let Some(history) = new_history {
         entity.insert(history);
     }
-    entity.insert(receiver);
     Ok(())
 }
 
@@ -595,6 +663,8 @@ fn insert_interpolation_history_value<C: SyncComponent>(
     }
 }
 
+/// Decode the raw Replicon diff bytes and map the Replicon message tick to the
+/// corresponding Lightyear server tick.
 fn client_diff_and_tick<C: SyncComponent + RepliconDiffable>(
     ctx: &mut WriteCtx,
     entity: &mut DeferredEntity,
@@ -683,6 +753,10 @@ mod tests {
         TestComp(start.0 + (end.0 - start.0) * t)
     }
 
+    fn diff_lerp(start: TestDiffComponent, end: TestDiffComponent, t: f32) -> TestDiffComponent {
+        if t < 0.5 { start } else { end }
+    }
+
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct TestDiffComponent(u32);
 
@@ -754,6 +828,23 @@ mod tests {
                     fns_id
                 });
         (app, fns_id)
+    }
+
+    #[test]
+    fn add_interpolation_diff_with_registers_diff_history_and_sampler() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconPlugins,
+            crate::plugin::InterpolationPlugin,
+        ));
+        app.component::<TestDiffComponent>()
+            .replicate_diff()
+            .add_interpolation_diff_with(diff_lerp);
+
+        let registry = app.world().resource::<InterpolationRegistry>();
+        assert!(registry.interpolated::<TestDiffComponent>());
+        assert!(registry.has_interpolation_fn::<TestDiffComponent>());
     }
 
     fn record_checkpoint(app: &mut App, tick: u32) -> RepliconTick {

@@ -3,7 +3,6 @@
 use alloc::{format, vec::Vec};
 use core::marker::PhantomData;
 
-use bevy_ecs::component::Component;
 use bevy_ecs::error::Result;
 use bevy_replicon::shared::replication::diff::{
     Diffable as RepliconDiffable, patch_index::PatchIndex,
@@ -76,7 +75,7 @@ impl<Patch> PendingPatchMessage<Patch> {
 /// 5. After prediction/interpolation has processed a confirmed server tick,
 ///    [`Self::clear_before_tick`] promotes the newest usable cursor at that tick
 ///    to the retained base and drains older cursor/pending state.
-#[derive(Component, Debug, Clone)]
+#[derive(Debug, Clone)]
 pub struct ConfirmedHistoryPatchReceiver<C: RepliconDiffable> {
     base_cursor: Option<PatchIndex>,
     base_tick: Option<Tick>,
@@ -324,7 +323,10 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                 patches.len()
             )
         })?;
-        self.queue_patches(tick, index - offset, patches)
+        // PatchIndex arithmetic wraps, so this also handles ranges that cross
+        // u16::MAX, e.g. final index 3 with 10 patches starts at 65530.
+        let first_patch_index = index - offset;
+        self.queue_patches(tick, first_patch_index, patches)
     }
 
     /// Attempts to materialize one queued patch message from `history`.
@@ -584,6 +586,26 @@ mod tests {
         assert_eq!((tick, value), (Tick(5), TestDiffValue(5)));
         assert!(receiver.pending.is_empty());
         assert_eq!(receiver.tick_for_cursor(Some(idx(5))), Some(Tick(5)));
+    }
+
+    /// Replicon's patch indexes wrap at u16::MAX. A message ending at cursor 3
+    /// with 10 patches starts at cursor 65530 and uses 65529 as its base.
+    #[test]
+    fn queue_patch_diff_handles_wrapped_patch_indexes() {
+        let mut history = ConfirmedHistory::<TestDiffValue>::default();
+        history.insert_present(Tick(0), TestDiffValue(0));
+
+        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        receiver.record_cursor(Tick(0), Some(idx(u16::MAX - 6)));
+
+        receiver
+            .queue_patch_diff(Tick(10), idx(3), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+            .unwrap();
+
+        let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
+        assert_eq!((tick, value), (Tick(10), TestDiffValue(10)));
+        assert!(receiver.pending.is_empty());
+        assert_eq!(receiver.tick_for_cursor(Some(idx(3))), Some(Tick(10)));
     }
 
     /// Pruning promotes the newest known cursor at or before the processed tick
