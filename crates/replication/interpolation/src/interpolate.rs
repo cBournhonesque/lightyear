@@ -4,6 +4,7 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::Has;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
+use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
@@ -94,15 +95,8 @@ pub(crate) fn update_confirmed_history_diff<C>(
     interpolation_registry: Res<InterpolationRegistry>,
     interpolation: Single<&InterpolationTimeline>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    mut query: Query<
-        (
-            Entity,
-            &mut ConfirmedHistory<C>,
-            &mut ConfirmedHistoryPatchReceiver<C>,
-            Has<C>,
-        ),
-        With<Interpolated>,
-    >,
+    mut patch_receivers: ResMut<ReplicationStorage>,
+    mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>), With<Interpolated>>,
     mut commands: Commands,
 ) where
     C: Component + Clone + RepliconDiffable,
@@ -110,7 +104,12 @@ pub(crate) fn update_confirmed_history_diff<C>(
     let timeline = interpolation.into_inner();
     let server_complete_tick = checkpoints.last_confirmed_tick();
     let current_interpolate_tick = timeline.now().tick();
-    for (entity, mut history, mut patch_receiver, present) in query.iter_mut() {
+    for (entity, mut history, present) in query.iter_mut() {
+        let Some(patch_receiver) =
+            patch_receivers.get_mut::<ConfirmedHistoryPatchReceiver<C>>(entity)
+        else {
+            continue;
+        };
         if let Some(server_complete_tick) = server_complete_tick
             && !patch_receiver.has_pending_patch_at_tick(server_complete_tick)
             && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
@@ -233,6 +232,8 @@ mod tests {
             .insert_resource(ReplicationCheckpointMap::default());
         app.world_mut()
             .insert_resource(InterpolationRegistry::default());
+        app.world_mut()
+            .insert_resource(ReplicationStorage::default());
 
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(current_tick));
@@ -354,10 +355,10 @@ mod tests {
             .queue_patches(Tick(5), idx(4), vec![4.0, 5.0])
             .unwrap();
 
-        let entity = app
-            .world_mut()
-            .spawn((Interpolated, history, receiver))
-            .id();
+        let entity = app.world_mut().spawn((Interpolated, history)).id();
+        app.world_mut()
+            .resource_mut::<ReplicationStorage>()
+            .insert(entity, receiver);
 
         app.update();
 
@@ -373,6 +374,7 @@ mod tests {
 
         let receiver = app
             .world()
+            .resource::<ReplicationStorage>()
             .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
             .unwrap();
         assert!(receiver.has_pending_patches());
@@ -393,10 +395,10 @@ mod tests {
             .queue_patches(Tick(5), idx(4), vec![4.0, 5.0])
             .unwrap();
 
-        let entity = app
-            .world_mut()
-            .spawn((Interpolated, history, receiver))
-            .id();
+        let entity = app.world_mut().spawn((Interpolated, history)).id();
+        app.world_mut()
+            .resource_mut::<ReplicationStorage>()
+            .insert(entity, receiver);
 
         app.update();
 
@@ -416,6 +418,7 @@ mod tests {
 
         let receiver = app
             .world()
+            .resource::<ReplicationStorage>()
             .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
             .unwrap();
         assert!(receiver.has_pending_patches());
