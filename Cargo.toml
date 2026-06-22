@@ -242,7 +242,7 @@ bevy_replicon = { version = "=0.40.3" }
 
 # physics
 avian2d = { version = "0.6", default-features = false }
-avian3d = { version = "0.6", default-features = false }
+avian3d = { version = "0.7", default-features = false }
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.36", default-features = false, features = [
