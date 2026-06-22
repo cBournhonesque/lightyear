@@ -201,6 +201,7 @@ mod tests {
     use bevy_app::{App, Update};
     use bevy_ecs::component::Component;
     use bevy_replicon::prelude::{Diffable as RepliconDiffable, RepliconTick};
+    use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
     use lightyear_core::time::TickInstant;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
@@ -216,6 +217,10 @@ mod tests {
             self.0 = *patch;
             Ok(())
         }
+    }
+
+    fn idx(value: u16) -> PatchIndex {
+        PatchIndex::new(value)
     }
 
     fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
@@ -344,9 +349,9 @@ mod tests {
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.insert_present(Tick(0), TestComp(0.0));
         let mut receiver = ConfirmedHistoryPatchReceiver::<TestComp>::default();
-        receiver.record_cursor(Tick(0), Some(0));
+        receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver
-            .queue_patches(Tick(5), 4, vec![vec![4.0], vec![5.0]])
+            .queue_patches(Tick(5), idx(4), vec![4.0, 5.0])
             .unwrap();
 
         let entity = app
@@ -371,7 +376,7 @@ mod tests {
             .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
             .unwrap();
         assert!(receiver.has_pending_patches());
-        assert_eq!(receiver.tick_for_cursor(Some(0)), Some(Tick(0)));
+        assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
     }
 
     #[test]
@@ -383,9 +388,9 @@ mod tests {
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.insert_present(Tick(0), TestComp(0.0));
         let mut receiver = ConfirmedHistoryPatchReceiver::<TestComp>::default();
-        receiver.record_cursor(Tick(0), Some(0));
+        receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver
-            .queue_patches(Tick(5), 4, vec![vec![4.0], vec![5.0]])
+            .queue_patches(Tick(5), idx(4), vec![4.0, 5.0])
             .unwrap();
 
         let entity = app
@@ -414,7 +419,7 @@ mod tests {
             .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
             .unwrap();
         assert!(receiver.has_pending_patches());
-        assert_eq!(receiver.tick_for_cursor(Some(0)), Some(Tick(0)));
+        assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
     }
 
     #[test]

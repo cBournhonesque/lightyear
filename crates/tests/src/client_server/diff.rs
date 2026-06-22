@@ -3,8 +3,8 @@ use crate::stepper::*;
 use bevy::prelude::*;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::postcard_utils;
-use bevy_replicon::prelude::{RepliconPlugins, RepliconTick, RuleFns};
-use bevy_replicon::shared::replication::diff::{DiffEntityExt, DiffWire};
+use bevy_replicon::prelude::{EntityPatchExt, RepliconPlugins, RepliconTick, RuleFns};
+use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
 use lightyear::prelude::{InterpolationPlugin, InterpolationRegistrationExt, PredictionBuilderExt};
@@ -18,6 +18,7 @@ use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::prelude::{
     AppComponentExt, InterpolationTarget, PredictionTarget, Replicate,
 };
+use serde::Serialize;
 
 fn client_entity(stepper: &ClientServerStepper, server_entity: Entity) -> Entity {
     stepper
@@ -139,8 +140,34 @@ fn diff_interpolation_records_confirmed_history_from_replicon_patches() {
     );
 }
 
-fn diff_wire(wire: DiffWire<CompRepliconDiff, u32>) -> Bytes {
+#[derive(Serialize)]
+enum TestWireDiff<'a> {
+    Snapshot {
+        index: PatchIndex,
+        component: &'a CompRepliconDiff,
+    },
+    Patches {
+        index: PatchIndex,
+        patches: &'a [u32],
+    },
+}
+
+fn diff_snapshot(index: u16, component: CompRepliconDiff) -> Bytes {
     let mut message = Vec::new();
+    let wire = TestWireDiff::Snapshot {
+        index: PatchIndex::new(index),
+        component: &component,
+    };
+    postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
+    message.into()
+}
+
+fn diff_patches(index: u16, patches: &[u32]) -> Bytes {
+    let mut message = Vec::new();
+    let wire = TestWireDiff::Patches {
+        index: PatchIndex::new(index),
+        patches,
+    };
     postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
     message.into()
 }
@@ -212,21 +239,13 @@ fn diff_prediction_materializes_older_patch_after_newer_patch_arrives_first() {
     let entity = app.world_mut().spawn(Predicted).id();
 
     app.world_mut().entity_mut(entity).apply_write(
-        diff_wire(DiffWire::Snapshot {
-            cursor: Some(0),
-            value: CompRepliconDiff(0),
-        }),
+        diff_snapshot(0, CompRepliconDiff(0)),
         fns_id,
         tick0,
     );
-    app.world_mut().entity_mut(entity).apply_write(
-        diff_wire(DiffWire::Patches {
-            first_patch_index: 4,
-            patches: vec![vec![4], vec![5]],
-        }),
-        fns_id,
-        tick5,
-    );
+    app.world_mut()
+        .entity_mut(entity)
+        .apply_write(diff_patches(5, &[4, 5]), fns_id, tick5);
     assert_eq!(
         app.world()
             .entity(entity)
@@ -236,14 +255,9 @@ fn diff_prediction_materializes_older_patch_after_newer_patch_arrives_first() {
         None
     );
 
-    app.world_mut().entity_mut(entity).apply_write(
-        diff_wire(DiffWire::Patches {
-            first_patch_index: 1,
-            patches: vec![vec![1], vec![2], vec![3]],
-        }),
-        fns_id,
-        tick3,
-    );
+    app.world_mut()
+        .entity_mut(entity)
+        .apply_write(diff_patches(3, &[1, 2, 3]), fns_id, tick3);
 
     let history = app
         .world()
@@ -276,21 +290,13 @@ fn diff_interpolation_materializes_older_patch_after_newer_patch_arrives_first()
     let entity = app.world_mut().spawn(Interpolated).id();
 
     app.world_mut().entity_mut(entity).apply_write(
-        diff_wire(DiffWire::Snapshot {
-            cursor: Some(0),
-            value: CompRepliconDiff(0),
-        }),
+        diff_snapshot(0, CompRepliconDiff(0)),
         fns_id,
         tick0,
     );
-    app.world_mut().entity_mut(entity).apply_write(
-        diff_wire(DiffWire::Patches {
-            first_patch_index: 4,
-            patches: vec![vec![4], vec![5]],
-        }),
-        fns_id,
-        tick5,
-    );
+    app.world_mut()
+        .entity_mut(entity)
+        .apply_write(diff_patches(5, &[4, 5]), fns_id, tick5);
     assert_eq!(
         app.world()
             .entity(entity)
@@ -300,14 +306,9 @@ fn diff_interpolation_materializes_older_patch_after_newer_patch_arrives_first()
         None
     );
 
-    app.world_mut().entity_mut(entity).apply_write(
-        diff_wire(DiffWire::Patches {
-            first_patch_index: 1,
-            patches: vec![vec![1], vec![2], vec![3]],
-        }),
-        fns_id,
-        tick3,
-    );
+    app.world_mut()
+        .entity_mut(entity)
+        .apply_write(diff_patches(3, &[1, 2, 3]), fns_id, tick3);
 
     let history = app
         .world()
