@@ -57,7 +57,9 @@ pub(crate) fn register_catchup<T: FilterScope + Send + Sync + 'static>(app: &mut
 }
 
 pub(crate) fn build(app: &mut App) {
+    app.init_resource::<CatchUpServerState>();
     app.add_observer(mark_client_caught_up_if_no_gated_on_connect);
+    app.add_observer(mark_server_has_revealed_catchup_state);
     app.add_systems(
         PostUpdate,
         (
@@ -100,6 +102,11 @@ impl ServerCatchUpMetadata {
     }
 }
 
+#[derive(Resource, Default)]
+struct CatchUpServerState {
+    has_revealed_catchup_state: bool,
+}
+
 /// If a client is the only connected client, or joins before any server-owned
 /// catch-up-gated entities exist, it is already part of the deterministic
 /// simulation and does not need the late-join snapshot flow. Mark it caught up
@@ -116,7 +123,9 @@ fn mark_client_caught_up_if_no_gated_on_connect(
             With<HasCaughtUp>,
         ),
     >,
+    catchup_gated: Query<(), With<CatchUpGated>>,
     gated_requiring_catchup: Query<(), (With<CatchUpGated>, Without<PreSpawned>)>,
+    server_state: Res<CatchUpServerState>,
     mut commands: Commands,
 ) {
     let client = trigger.entity;
@@ -124,18 +133,47 @@ fn mark_client_caught_up_if_no_gated_on_connect(
         return;
     }
     let no_caught_up_clients = caught_up_clients.is_empty();
-    if !no_caught_up_clients && !gated_requiring_catchup.is_empty() {
+    let has_any_gated = !catchup_gated.is_empty();
+    let has_non_prespawn_gated = !gated_requiring_catchup.is_empty();
+    if server_state.has_revealed_catchup_state && no_caught_up_clients && has_any_gated {
+        debug!(
+            ?client,
+            "client is first reconnect after catch-up state was revealed; buffering immediate catch-up snapshot"
+        );
+        commands
+            .entity(client)
+            .insert(ServerCatchUpMetadata::new(Tick(0)));
+        return;
+    }
+    let needs_catchup = if server_state.has_revealed_catchup_state {
+        has_any_gated
+    } else {
+        !no_caught_up_clients && has_non_prespawn_gated
+    };
+    if needs_catchup {
         return;
     }
     debug!(
         ?client,
         no_caught_up_clients,
-        gated_requiring_catchup = !gated_requiring_catchup.is_empty(),
+        has_any_gated,
+        has_non_prespawn_gated,
+        has_revealed_catchup_state = server_state.has_revealed_catchup_state,
         "client does not need initial catch-up; marking caught up"
     );
     commands
         .entity(client)
         .insert((HasCaughtUp, ServerCatchUpMetadata::not_required()));
+}
+
+fn mark_server_has_revealed_catchup_state(
+    trigger: On<Add, HasCaughtUp>,
+    clients: Query<(), (With<ClientOf>, With<LinkOf>)>,
+    mut server_state: ResMut<CatchUpServerState>,
+) {
+    if clients.get(trigger.entity).is_ok() {
+        server_state.has_revealed_catchup_state = true;
+    }
 }
 
 /// Server system: buffer catch-up requests until they become safe to accept.

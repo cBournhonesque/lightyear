@@ -4,7 +4,7 @@
 //! 1. Compare local predicted values with confirmed values from the server to detect mismatches
 //! 2. Rollback to a past local state and replay the simulation
 
-use crate::rollback::DeterministicPredicted;
+use crate::rollback::{CatchUpGated, DeterministicPredicted};
 use crate::{Predicted, SyncComponent};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
@@ -237,10 +237,10 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     }
 }
 
-/// When any of `C`, [`Predicted`], [`PreSpawned`], or [`DeterministicPredicted`]
-/// is added to an entity, ensure [`PredictionHistory<C>`] is present, and if
-/// `C` has just been applied via an init message, seed [`ConfirmedHistory<C>`]
-/// at the server tick that produced the init.
+/// When any of `C`, [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`],
+/// or [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`]
+/// is present, and if `C` has just been applied via an init message, seed
+/// [`ConfirmedHistory<C>`] at the server tick that produced the init.
 ///
 /// # Why seeding is needed
 ///
@@ -257,21 +257,31 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// samples. If there is no authoritative seed, no confirmed history is inserted:
 /// receive paths create it when a confirmed sample actually arrives.
 pub(crate) fn add_prediction_history<C: SyncComponent>(
-    trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
-    query: Query<
-        (),
+    trigger: On<
+        Add,
         (
-            With<C>,
-            Or<(
-                With<Predicted>,
-                With<PreSpawned>,
-                With<DeterministicPredicted>,
-            )>,
+            C,
+            Predicted,
+            PreSpawned,
+            DeterministicPredicted,
+            CatchUpGated,
         ),
     >,
+    query: Query<(
+        Has<C>,
+        Has<Predicted>,
+        Has<PreSpawned>,
+        Has<DeterministicPredicted>,
+        Has<CatchUpGated>,
+    )>,
     mut commands: Commands,
 ) {
-    if query.get(trigger.entity).is_err() {
+    let Ok((has_component, predicted, prespawned, deterministic, catchup_gated)) =
+        query.get(trigger.entity)
+    else {
+        return;
+    };
+    if !catchup_gated && !(has_component && (predicted || prespawned || deterministic)) {
         return;
     }
     trace!(
@@ -333,7 +343,16 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
 }
 
 pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDiffable>(
-    trigger: On<Add, (C, Predicted, PreSpawned, DeterministicPredicted)>,
+    trigger: On<
+        Add,
+        (
+            C,
+            Predicted,
+            PreSpawned,
+            DeterministicPredicted,
+            CatchUpGated,
+        ),
+    >,
     query: Query<
         (),
         (
@@ -342,6 +361,7 @@ pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDi
                 With<Predicted>,
                 With<PreSpawned>,
                 With<DeterministicPredicted>,
+                With<CatchUpGated>,
             )>,
         ),
     >,
