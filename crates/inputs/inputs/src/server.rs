@@ -30,13 +30,59 @@ use lightyear_connection::prelude::NetworkTarget;
 use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_core::tick::TickDuration;
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
+
+/// Maximum number of ticks ahead of the server's current tick that an
+/// incoming [`InputMessage::end_tick`] is allowed to be. Messages with
+/// `end_tick > server_tick + MAX_INPUT_LOOKAHEAD_TICKS` are dropped before
+/// they are written into the [`InputBuffer`].
+///
+/// Without this bound, [`InputBuffer::extend_to_range`] / [`InputBuffer::set_raw`]
+/// extend the internal `VecDeque` to fit *any* tick value (filling intermediate
+/// entries with `Absent` / `SameAsPrecedent`). A modified client sending
+/// `end_tick = current + 30_000` would cause a 30 000-entry allocation per
+/// message; repeated across messages and connections, the server is
+/// memory-exhausted.
+///
+/// Legitimate clients run at most a few ticks ahead of the server (typical
+/// `InputDelayConfig` values are 0–3 ticks). 64 ticks (~1 s at 64 Hz) is
+/// generous compared to that range while still bounding attacker memory cost
+/// per message.
+const MAX_INPUT_LOOKAHEAD_TICKS: i32 = 64;
+
+/// Maximum number of ticks *behind* the server's current tick that an incoming
+/// [`InputMessage::end_tick`] is allowed to be.
+///
+/// Past-direction messages are normally handled harmlessly by
+/// [`InputBuffer::set_raw`]'s start-tick guard. The reason we still bound them:
+/// `Tick - Tick` returns `i32` via signed wrapping arithmetic over `u32` tick
+/// values. A far-future tick at the `i32` boundary
+/// (`end_tick = server_tick + 2^31`) wraps to `i32::MIN`, which a naive
+/// `delta <= LOOKAHEAD` check would accept. Rejecting "very far past" deltas
+/// catches that wrap-around attack while still accepting reasonable late inputs
+/// (up to ~4 s of network lag at 64 Hz). The wrap-around scenario is
+/// astronomically improbable (2^31 ticks at 64 Hz ≈ 1.06 years of continuous
+/// server runtime) but the symmetric bound is cheap belt-and-suspenders.
+const MAX_INPUT_PAST_TICKS: i32 = 256;
+
+/// Returns `true` iff `end_tick - server_tick` falls within
+/// `[-MAX_INPUT_PAST_TICKS, MAX_INPUT_LOOKAHEAD_TICKS]`. See those constants
+/// for the threat model behind each bound.
+///
+/// The symmetric past bound is what makes this safe under wrap-around: a naive
+/// `delta <= MAX_LOOKAHEAD` check accepts `i32::MIN` because it is trivially
+/// `<=` any positive bound. Rejecting on both ends eliminates the ambiguity
+/// regardless of which interpretation an attacker intended.
+pub(crate) fn is_input_within_lookahead(end_tick: Tick, server_tick: Tick) -> bool {
+    let delta = end_tick - server_tick;
+    (-MAX_INPUT_PAST_TICKS..=MAX_INPUT_LOOKAHEAD_TICKS).contains(&delta)
+}
 
 /// Server-side plugin that receives input messages from clients and applies
 /// them to [`InputBuffer`] components.
@@ -218,6 +264,23 @@ fn receive_input_message<S: ActionStateSequence>(
                 message = ?message,
                 "server received input message"
             );
+
+            // Reject messages whose end_tick is implausibly far from the
+            // server's current tick before any buffer write. A modified
+            // client sending a far-future end_tick would otherwise force
+            // `InputBuffer::set_raw` to allocate one entry per intermediate
+            // tick (memory-exhaustion DoS). See `is_input_within_lookahead`.
+            if !is_input_within_lookahead(message.end_tick, tick) {
+                trace!(
+                    ?tick,
+                    ?client_id,
+                    end_tick = ?message.end_tick,
+                    "Dropping input message: end_tick outside [server-{}, server+{}] window",
+                    MAX_INPUT_PAST_TICKS,
+                    MAX_INPUT_LOOKAHEAD_TICKS,
+                );
+                return Ok(())
+            }
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
@@ -590,5 +653,59 @@ fn update_action_state<S: ActionStateSequence>(
         // fallback on the last known value
         input_buffer.pop_keeping_last(tick - history_depth);
         // info!("Buffer length: {}", input_buffer.len());
+    }
+}
+
+#[cfg(test)]
+mod lookahead_tests {
+    use super::*;
+
+    /// Forward bound is inclusive.
+    #[test]
+    fn accepts_within_forward_bound() {
+        let server = Tick(1_000);
+        assert!(is_input_within_lookahead(server, server));
+        assert!(is_input_within_lookahead(
+            server + MAX_INPUT_LOOKAHEAD_TICKS,
+            server
+        ));
+    }
+
+    /// One tick past the forward bound is rejected.
+    #[test]
+    fn rejects_beyond_forward_bound() {
+        let server = Tick(1_000);
+        assert!(!is_input_within_lookahead(
+            server + (MAX_INPUT_LOOKAHEAD_TICKS + 1),
+            server
+        ));
+    }
+
+    /// Reasonable late inputs (within the past bound) are accepted.
+    #[test]
+    fn accepts_within_past_bound() {
+        let server = Tick(1_000);
+        assert!(is_input_within_lookahead(
+            server + (-MAX_INPUT_PAST_TICKS),
+            server
+        ));
+    }
+
+    /// Far-future end_tick (the DoS payload) is rejected.
+    #[test]
+    fn rejects_far_future_end_tick() {
+        let server = Tick(1_000);
+        assert!(!is_input_within_lookahead(server + 30_000, server));
+    }
+
+    /// Wrap-around attack: `end_tick = server + 2^31` makes `end - server`
+    /// wrap to `i32::MIN`. The symmetric past bound rejects it; a naive
+    /// `delta <= MAX_LOOKAHEAD` check would have accepted it.
+    #[test]
+    fn rejects_wraparound_to_i32_min() {
+        let server = Tick(1_000);
+        let wrapped = Tick(server.0.wrapping_add(1 << 31));
+        assert_eq!(wrapped - server, i32::MIN);
+        assert!(!is_input_within_lookahead(wrapped, server));
     }
 }
