@@ -4,7 +4,7 @@ use crate::plugin::{
     add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
 };
 use crate::predicted_history::PredictionHistory;
-use crate::prelude::{CatchUpGated, PredictionManager};
+use crate::prelude::PredictionManager;
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
@@ -766,47 +766,24 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !self.app.world().contains_resource::<PredictionRegistry>() {
             return self;
         }
-        // Gate keyed on both `AwaitingCatchUpSnapshot` and
-        // `DeterministicPredicted` (backwards-compatible). The Awaiting
-        // marker is important for init messages: Replicon chooses the
-        // receive function before applying the incoming components, so a
-        // late-join catch-up snapshot must be routed to history while the
-        // entity is still awaiting catch-up, before `DeterministicPredicted`
-        // is inserted by user code.
+        // Only `CatchUpGated` routes replicated component state into history.
+        // While it is present, we care about authoritative state replication
+        // because the late-join flow will run a forced state rollback and
+        // materialize that history onto the live entity. `CatchUpGated` is
+        // registered as a marker so it takes precedence over Replicon's default
+        // component write while the entity is awaiting catch-up.
         //
-        // - StateBasedCatchUp: while the client is expecting the bundled
-        //   snapshot, the late-join catch-up plugin inserts
-        //   `AwaitingCatchUpSnapshot` on catch-up-gated entities. Writes
-        //   land in `ConfirmedHistory<C>`. The plugin removes the marker
-        //   once the forced rollback is scheduled.
-        //
-        // - InputOnly: `DeterministicPredicted` is present from spawn but
-        //   `AwaitingCatchUpSnapshot` is never inserted. The initial
-        //   `replicate_once` value lands directly on the live component
-        //   via the default replicon write path.
-        //
-        // The `DeterministicPredicted` marker remains registered for older
-        // flows where the entity is already deterministic when the
-        // authoritative value arrives.
+        // `DeterministicPredicted` is intentionally not registered here. Outside
+        // catch-up there is no forced state rollback that would insert a
+        // history-only component, so those one-shot replicated components should
+        // use Replicon's normal live write/remove behavior.
         use crate::rollback::CatchUpGated;
-        use crate::rollback::DeterministicPredicted;
         self.app.register_marker_with::<CatchUpGated>(MarkerConfig {
             priority: 110,
             need_history: true,
         });
-        self.app.set_marker_fns::<CatchUpGated, C>(
-            write_history_gated_by_catchup::<C>,
-            remove_history_gated_by_catchup::<C>,
-        );
         self.app
-            .register_marker_with::<DeterministicPredicted>(MarkerConfig {
-                priority: 100,
-                need_history: true,
-            });
-        self.app.set_marker_fns::<DeterministicPredicted, C>(
-            write_history_gated_by_catchup::<C>,
-            remove_history_gated_by_catchup::<C>,
-        );
+            .set_marker_fns::<CatchUpGated, C>(write_history::<C>, remove_history::<C>);
         self
     }
 
@@ -1120,67 +1097,6 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
             .resource_mut::<StateRollbackMetadata>()
             .record_mismatch(tick);
     }
-}
-
-/// Variant of [`write_history`] used by `add_confirmed_write`.
-///
-/// Checks for `AwaitingCatchUpSnapshot` on the entity at write time:
-/// - If absent (e.g. InputOnly mode, or post-catch-up), performs a normal
-///   replicon default write directly to the live component.
-/// - If present (StateBasedCatchUp bundled snapshot en route), records the
-///   write in `ConfirmedHistory<C>` and updates the live component so
-///   activation systems can see that the bundled component has landed.
-fn write_history_gated_by_catchup<C: SyncComponent>(
-    ctx: &mut WriteCtx,
-    rule_fns: &RuleFns<C>,
-    entity: &mut DeferredEntity,
-    message: &mut Bytes,
-) -> Result<()> {
-    if !entity.contains::<CatchUpGated>() {
-        if let Some(mut component) = entity.get_mut::<C>() {
-            rule_fns.deserialize_in_place(ctx, &mut *component, message)?;
-        } else {
-            let component: C = rule_fns.deserialize(ctx, message)?;
-            entity.insert(component);
-        }
-        return Ok(());
-    }
-    let component: C = rule_fns.deserialize(ctx, message)?;
-    let live_component = component.clone();
-    let (_, should_rollback) =
-        add_confirmed_to_history(ctx.message_tick, Some(component), entity, false)?;
-    debug_assert!(!should_rollback);
-    if let Some(mut component) = entity.get_mut::<C>() {
-        *component = live_component;
-    } else {
-        entity.insert(live_component);
-    }
-    Ok(())
-}
-
-/// Variant of [`remove_history`] used by `add_confirmed_write`.
-///
-/// Mirrors [`write_history_gated_by_catchup`], but treats removals from
-/// deterministic catch-up-gated components as visibility-reset noise.
-/// Replicon resends `replicate_once` components by hiding and showing them;
-/// the hide half can arrive as a component removal even though the server did
-/// not authoritatively remove the simulation component.
-fn remove_history_gated_by_catchup<C: SyncComponent>(
-    ctx: &mut RemoveCtx,
-    entity: &mut DeferredEntity,
-) {
-    let awaiting_catchup = entity.contains::<crate::rollback::CatchUpGated>();
-    if awaiting_catchup || entity.contains::<crate::rollback::DeterministicPredicted>() {
-        trace!(
-            component = ?DebugName::type_name::<C>(),
-            entity = ?entity.id(),
-            message_tick = ?ctx.message_tick,
-            awaiting_catchup,
-            "Ignoring deterministic catch-up component removal"
-        );
-        return;
-    }
-    entity.remove::<C>();
 }
 
 #[cfg(test)]
