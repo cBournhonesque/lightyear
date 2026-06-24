@@ -443,3 +443,122 @@ fn test_leafwing_input_rebroadcast() {
         );
     }
 }
+
+/// End_tick DoS: a forged `InputMessage` with `end_tick = server_tick +
+/// 30_000` causes `InputBuffer::set_raw` to allocate ~30k entries. Goes
+/// end-to-end via the public `MessageSender::send::<InputChannel>` API (no
+/// internal-API hooks) and asserts the server's buffer stays bounded. See
+/// `is_input_within_lookahead` in `lightyear_inputs::server` for the defense.
+#[test]
+fn test_input_message_with_huge_end_tick_does_not_allocate_unbounded_buffer() {
+    use lightyear::input::leafwing::input_message::{LeafwingSequence, LeafwingSnapshot};
+    use lightyear_inputs::input_buffer::InputBuffer;
+    use lightyear_inputs::input_message::{
+        ActionStateSequence, InputMessage, InputTarget, PerTargetData,
+    };
+    use lightyear_inputs::prelude::InputChannel;
+    use lightyear_messages::prelude::MessageSender;
+    use lightyear_replication::prelude::ControlledBy;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    let client_of_0 = stepper.client_of(0).id();
+
+    let target_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+
+    // Warm-up: let the entity replicate down to the client and (if the
+    // target-authorization defense is also present) `ControlledByRemote`
+    // auto-populate, so the forged input is authorized and actually reaches
+    // `set_raw` — exercising the DoS path rather than being filtered first.
+    stepper.frame_step(5);
+
+    let target_local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(target_server_entity)
+        .expect("target entity should be replicated to client 0");
+
+    // Establish a baseline server-side InputBuffer at the current tick range.
+    // Without this the attack just initializes the buffer at the huge tick
+    // (no gap to fill, no growth).
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(target_local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(5);
+
+    let server_tick_before = stepper.server_tick();
+    let attack_end_tick = server_tick_before + 30_000;
+
+    // The sequence content doesn't matter — only `end_tick` controls how far
+    // `set_raw` extends the server's buffer.
+    let mut sequence_buf =
+        InputBuffer::<LeafwingSnapshot<LeafwingInput1>, LeafwingInput1>::default();
+    let mut snapshot_state = ActionState::<LeafwingInput1>::default();
+    snapshot_state.press(&LeafwingInput1::Jump);
+    sequence_buf.set(attack_end_tick, LeafwingSnapshot(snapshot_state));
+    let sequence = LeafwingSequence::<LeafwingInput1>::build_from_input_buffer(
+        &sequence_buf,
+        1,
+        attack_end_tick,
+    )
+    .expect("sequence built from non-empty buffer");
+
+    let mut forged: InputMessage<LeafwingSequence<LeafwingInput1>> =
+        InputMessage::new(attack_end_tick);
+    forged.inputs.push(PerTargetData {
+        target: InputTarget::Entity(target_local),
+        states: sequence,
+    });
+
+    // Send via the public MessageSender API — models exactly what a modified
+    // client binary could do.
+    {
+        let client_app = &mut stepper.client_apps[0];
+        let mut client_entity_mut = client_app
+            .world_mut()
+            .entity_mut(stepper.client_entities[0]);
+        let mut sender = client_entity_mut
+            .get_mut::<MessageSender<InputMessage<LeafwingSequence<LeafwingInput1>>>>()
+            .expect("client has a MessageSender for InputMessage<LeafwingSequence>");
+        sender.send::<InputChannel>(forged);
+    }
+
+    // Frames for serialize → wire → deserialize → receive.
+    stepper.frame_step(3);
+
+    let buffer = stepper
+        .server_app
+        .world()
+        .entity(target_server_entity)
+        .get::<InputBuffer<LeafwingSnapshot<LeafwingInput1>, LeafwingInput1>>()
+        .expect("server should have an InputBuffer for the target after receiving inputs");
+    let buffer_len = buffer.len();
+    assert!(
+        buffer_len < 1_000,
+        "DoS: server allocated {buffer_len} entries in the InputBuffer for a \
+         single forged InputMessage with end_tick = server_tick + 30000. The \
+         receive path does not bound the message's end_tick — see \
+         `is_input_within_lookahead` in lightyear_inputs::server.",
+    );
+}
