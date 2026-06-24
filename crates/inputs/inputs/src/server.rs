@@ -38,7 +38,7 @@ use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
-use crate::validation::{InputMessageValidators, InputValidationContext};
+use crate::validation::{InputBufferProvider, InputMessageValidators, InputValidationContext};
 
 /// Server-side plugin that receives input messages from clients and applies
 /// them to [`InputBuffer`] components.
@@ -156,6 +156,25 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
 // TODO: why do we need the Server? we could just run this on any receiver.
 //  (apart from rebroadcast inputs)
 
+/// Read-only [`InputBuffer`] accessor handed to input-message validators,
+/// backed by the receive system's buffer query. Resolves `InputTarget::Entity`
+/// targets; `InputTarget::PreSpawned` returns `None` (validators that need
+/// prespawn buffers should run inline for now).
+struct ReceiveBufferProvider<'a, 'w, 's, 'd, S: ActionStateSequence> {
+    buffers: &'a Query<'w, 's, Option<&'d mut InputBuffer<S::Snapshot, S::Action>>>,
+}
+
+impl<'a, 'w, 's, 'd, S: ActionStateSequence> InputBufferProvider<S>
+    for ReceiveBufferProvider<'a, 'w, 's, 'd, S>
+{
+    fn input_buffer(&self, target: InputTarget) -> Option<&InputBuffer<S::Snapshot, S::Action>> {
+        match target {
+            InputTarget::Entity(entity) => self.buffers.get(entity).ok().flatten(),
+            InputTarget::PreSpawned(_) => None,
+        }
+    }
+}
+
 /// Read the input messages from the server events to update the InputBuffers
 fn receive_input_message<S: ActionStateSequence>(
     config: Res<ServerInputConfig<S::Action>>,
@@ -231,14 +250,34 @@ fn receive_input_message<S: ActionStateSequence>(
             // Running here — *before* the rebroadcast block — means dropped
             // targets are also not relayed to other clients. The chain is empty
             // unless the user registers validators; see `crate::validation`.
-            let validation_ctx = InputValidationContext {
-                sender: client_entity,
-                client_id: *client_id,
-                server_tick: tick,
-            };
-            if !validators.validate(&validation_ctx, &mut message) {
-                trace!(?tick, ?client_id, "Input message rejected by validator chain");
-                return Ok(())
+            //
+            // NOTE: host-client / rebroadcast-disabled messages already returned
+            // above, so the validator chain does not see host-client inputs.
+            {
+                let buffer_provider = ReceiveBufferProvider { buffers: &query };
+                let validation_ctx = InputValidationContext::new(
+                    client_entity,
+                    *client_id,
+                    tick,
+                    &buffer_provider,
+                );
+                if let Some(rejected_by) = validators.validate(&validation_ctx, &mut message) {
+                    trace!(
+                        target: "lightyear_debug::input",
+                        kind = "server_input_message_rejected",
+                        schedule = "PreUpdate",
+                        sample_point = "PreUpdate",
+                        entity = ?client_entity,
+                        server_entity = ?server_entity,
+                        client_id = ?client_id.0,
+                        action = ?DebugName::type_name::<S::Action>(),
+                        local_tick = tick.0,
+                        end_tick = message.end_tick.0,
+                        validator = rejected_by,
+                        "input message rejected by validator",
+                    );
+                    return Ok(())
+                }
             }
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick

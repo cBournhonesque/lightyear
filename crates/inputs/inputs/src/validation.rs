@@ -32,16 +32,37 @@ use bevy_ecs::resource::Resource;
 use lightyear_core::id::RemoteId;
 use lightyear_core::tick::Tick;
 
-use crate::input_message::{ActionStateSequence, InputMessage};
+use crate::input_buffer::InputBuffer;
+use crate::input_message::{ActionStateSequence, InputMessage, InputTarget};
+
+/// Read-only access to the server-side [`InputBuffer`] of an input target.
+///
+/// Validators run *inside* the input-receive system and cannot issue their own
+/// ECS queries, so the receive system supplies this accessor (built from the
+/// query it already holds). It lets a validator look at a target's *current*
+/// buffer state — e.g. its `last_remote_tick` — which is what buffer-aware
+/// checks (staleness, history-rewrite) need.
+pub trait InputBufferProvider<S: ActionStateSequence> {
+    /// The target's current input buffer, if it exists and can be resolved.
+    fn input_buffer(&self, target: InputTarget) -> Option<&InputBuffer<S::Snapshot, S::Action>>;
+}
+
+/// A provider that resolves nothing — useful for tests or receive paths that
+/// don't (yet) expose buffer access.
+impl<S: ActionStateSequence> InputBufferProvider<S> for () {
+    fn input_buffer(&self, _target: InputTarget) -> Option<&InputBuffer<S::Snapshot, S::Action>> {
+        None
+    }
+}
 
 /// Read-only context handed to every [`InputMessageValidator`].
 ///
 /// Validators run *inside* the input-receive system, so they cannot issue
 /// their own ECS queries; everything they are expected to need is exposed
-/// here. The set of fields is intentionally small and is expected to grow as
-/// new validators need more context (see the module docs and the PR
-/// discussion on scope).
-pub struct InputValidationContext {
+/// here. It is `#[non_exhaustive]` and accessed through methods so new context
+/// can be added without breaking existing validators.
+#[non_exhaustive]
+pub struct InputValidationContext<'a, S: ActionStateSequence> {
     /// The sender's connection entity on the server (the `ClientOf` / link
     /// entity the message was received on).
     pub sender: Entity,
@@ -49,6 +70,36 @@ pub struct InputValidationContext {
     pub client_id: RemoteId,
     /// The server's current tick.
     pub server_tick: Tick,
+    buffers: &'a dyn InputBufferProvider<S>,
+}
+
+impl<'a, S: ActionStateSequence> InputValidationContext<'a, S> {
+    /// Build a context. Called by the input-receive systems; `buffers` is the
+    /// read-only buffer accessor (pass `&()` if buffer access is unavailable).
+    pub fn new(
+        sender: Entity,
+        client_id: RemoteId,
+        server_tick: Tick,
+        buffers: &'a dyn InputBufferProvider<S>,
+    ) -> Self {
+        Self {
+            sender,
+            client_id,
+            server_tick,
+            buffers,
+        }
+    }
+
+    /// Read-only access to a target's current server-side [`InputBuffer`].
+    ///
+    /// Returns `None` if the target has no buffer, or for targets the active
+    /// provider can't resolve (e.g. `InputTarget::PreSpawned`).
+    pub fn input_buffer(
+        &self,
+        target: InputTarget,
+    ) -> Option<&InputBuffer<S::Snapshot, S::Action>> {
+        self.buffers.input_buffer(target)
+    }
 }
 
 /// The outcome of validating a single [`InputMessage`].
@@ -74,7 +125,7 @@ pub trait InputMessageValidator<S: ActionStateSequence>: Send + Sync + 'static {
     /// [`InputValidation::Reject`] to drop it.
     fn validate(
         &self,
-        ctx: &InputValidationContext,
+        ctx: &InputValidationContext<'_, S>,
         message: &mut InputMessage<S>,
     ) -> InputValidation;
 
@@ -96,17 +147,49 @@ pub trait InputMessageValidator<S: ActionStateSequence>: Send + Sync + 'static {
 impl<S, F> InputMessageValidator<S> for F
 where
     S: ActionStateSequence,
-    F: Fn(&InputValidationContext, &mut InputMessage<S>) -> InputValidation
+    F: for<'a> Fn(&InputValidationContext<'a, S>, &mut InputMessage<S>) -> InputValidation
         + Send
         + Sync
         + 'static,
 {
     fn validate(
         &self,
-        ctx: &InputValidationContext,
+        ctx: &InputValidationContext<'_, S>,
         message: &mut InputMessage<S>,
     ) -> InputValidation {
         self(ctx, message)
+    }
+}
+
+/// Wrap a validator (typically a closure) with an explicit [`name`] so it can
+/// be removed via [`InputValidatorAppExt::remove_input_validator`]. Bare
+/// closures all share an opaque `name()`, so without this they cannot be
+/// removed individually.
+///
+/// [`name`]: InputMessageValidator::name
+pub fn named<S: ActionStateSequence>(
+    name: &'static str,
+    validator: impl InputMessageValidator<S>,
+) -> impl InputMessageValidator<S> {
+    Named { name, validator }
+}
+
+struct Named<V> {
+    name: &'static str,
+    validator: V,
+}
+
+impl<S: ActionStateSequence, V: InputMessageValidator<S>> InputMessageValidator<S> for Named<V> {
+    fn validate(
+        &self,
+        ctx: &InputValidationContext<'_, S>,
+        message: &mut InputMessage<S>,
+    ) -> InputValidation {
+        self.validator.validate(ctx, message)
+    }
+
+    fn name(&self) -> &'static str {
+        self.name
     }
 }
 
@@ -161,19 +244,20 @@ impl<S: ActionStateSequence> InputMessageValidators<S> {
         self.validators.is_empty()
     }
 
-    /// Run the chain over `message`. Returns `false` if any validator rejected
-    /// it (the caller should then skip the message).
+    /// Run the chain over `message`. Returns `Some(name)` of the first
+    /// validator that rejected it (the caller should then skip the message), or
+    /// `None` if every validator accepted.
     pub fn validate(
         &self,
-        ctx: &InputValidationContext,
+        ctx: &InputValidationContext<'_, S>,
         message: &mut InputMessage<S>,
-    ) -> bool {
+    ) -> Option<&'static str> {
         for validator in &self.validators {
             if validator.validate(ctx, message) == InputValidation::Reject {
-                return false;
+                return Some(validator.name());
             }
         }
-        true
+        None
     }
 }
 

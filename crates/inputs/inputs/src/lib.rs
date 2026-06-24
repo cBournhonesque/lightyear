@@ -47,8 +47,8 @@ pub mod prelude {
             InputRebroadcaster, InputSystems, ServerInputConfig, ServerInputPlugin,
         };
         pub use crate::validation::{
-            InputMessageValidator, InputMessageValidators, InputValidation, InputValidatorAppExt,
-            InputValidationContext,
+            InputBufferProvider, InputMessageValidator, InputMessageValidators, InputValidation,
+            InputValidationContext, InputValidatorAppExt, named,
         };
     }
 }

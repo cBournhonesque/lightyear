@@ -466,7 +466,7 @@ fn test_registered_validator_can_reject_input() {
     stepper
         .server_app
         .add_input_validator::<LeafwingSequence<LeafwingInput1>>(
-            |_ctx: &InputValidationContext,
+            |_ctx: &InputValidationContext<LeafwingSequence<LeafwingInput1>>,
              _msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>| {
                 InputValidation::Reject
             },
@@ -532,7 +532,7 @@ fn test_validator_can_drop_targets_by_mutation() {
     stepper
         .server_app
         .add_input_validator::<LeafwingSequence<LeafwingInput1>>(
-            |_ctx: &InputValidationContext,
+            |_ctx: &InputValidationContext<LeafwingSequence<LeafwingInput1>>,
              msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>| {
                 // Drop every entity target; keep the message otherwise intact.
                 msg.inputs.clear();
@@ -601,7 +601,7 @@ fn test_remove_input_validator_restores_handling() {
     impl InputMessageValidator<LeafwingSequence<LeafwingInput1>> for BlockAll {
         fn validate(
             &self,
-            _ctx: &InputValidationContext,
+            _ctx: &InputValidationContext<'_, LeafwingSequence<LeafwingInput1>>,
             _msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>,
         ) -> InputValidation {
             InputValidation::Reject
@@ -673,5 +673,86 @@ fn test_remove_input_validator_restores_handling() {
         now_pressed,
         "after remove_input_validator, the input should reach the server, but \
          it is still being dropped.",
+    );
+}
+
+/// A validator can read a target's current server-side `InputBuffer` through
+/// the context accessor. The validator records (via a captured flag) whether it
+/// ever resolved a buffer, and returns `Continue` so the input still lands —
+/// proving the accessor resolves real targets without altering behavior.
+#[test]
+fn test_validator_can_read_target_input_buffer() {
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::InputMessage;
+    use lightyear_inputs::prelude::server::{
+        InputValidation, InputValidationContext, InputValidatorAppExt,
+    };
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let saw_buffer = Arc::new(AtomicBool::new(false));
+    let flag = saw_buffer.clone();
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper
+        .server_app
+        .add_input_validator::<LeafwingSequence<LeafwingInput1>>(
+            move |ctx: &InputValidationContext<LeafwingSequence<LeafwingInput1>>,
+                  msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>| {
+                for data in &msg.inputs {
+                    if ctx.input_buffer(data.target).is_some() {
+                        flag.store(true, Ordering::SeqCst);
+                    }
+                }
+                InputValidation::Continue
+            },
+        );
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    assert!(
+        saw_buffer.load(Ordering::SeqCst),
+        "validator never resolved a target's InputBuffer via ctx.input_buffer — \
+         the read-only buffer accessor is not wired.",
+    );
+    let pressed = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .unwrap()
+        .pressed(&LeafwingInput1::Jump);
+    assert!(
+        pressed,
+        "validator returned Continue, so the legitimate input should still land.",
     );
 }
