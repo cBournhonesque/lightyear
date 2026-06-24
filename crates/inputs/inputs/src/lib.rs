@@ -19,6 +19,8 @@ pub mod input_message;
 pub mod plugin;
 #[cfg(feature = "server")]
 pub mod server;
+#[cfg(feature = "server")]
+pub mod validation;
 
 pub(crate) const HISTORY_DEPTH: u32 = 20;
 
@@ -43,6 +45,10 @@ pub mod prelude {
     pub mod server {
         pub use crate::server::{
             InputRebroadcaster, InputSystems, ServerInputConfig, ServerInputPlugin,
+        };
+        pub use crate::validation::{
+            InputMessageValidator, InputMessageValidators, InputValidation, InputValidatorAppExt,
+            InputValidationContext,
         };
     }
 }

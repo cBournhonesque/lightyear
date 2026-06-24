@@ -443,3 +443,235 @@ fn test_leafwing_input_rebroadcast() {
         );
     }
 }
+
+// --- Input-message validation framework --------------------------------------
+//
+// These exercise the pluggable validator chain (lightyear ships no validators
+// by default, so without registration the chain is a no-op). They demonstrate:
+// rejecting a whole message, mutating a message (dropping targets), and
+// removing a registered validator by name.
+
+/// A registered validator that returns `Reject` drops the message: a
+/// legitimate, authorized input never reaches the server's `ActionState`.
+/// Registered here as a plain closure (blanket `Fn` impl).
+#[test]
+fn test_registered_validator_can_reject_input() {
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::InputMessage;
+    use lightyear_inputs::prelude::server::{
+        InputValidation, InputValidationContext, InputValidatorAppExt,
+    };
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper
+        .server_app
+        .add_input_validator::<LeafwingSequence<LeafwingInput1>>(
+            |_ctx: &InputValidationContext,
+             _msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>| {
+                InputValidation::Reject
+            },
+        );
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    let server_state = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .expect("entity has ActionState");
+    assert!(
+        !server_state.pressed(&LeafwingInput1::Jump),
+        "input reached the server even though a registered validator rejected \
+         every message — the validator chain is not being run.",
+    );
+}
+
+/// A validator may mutate the message instead of rejecting it. Here it drops
+/// the message's `InputTarget::Entity` entries via `retain` (returning
+/// `Continue`), so the authorized input still never lands — exercising the
+/// mutate path and the empty-after-mutation no-op.
+#[test]
+fn test_validator_can_drop_targets_by_mutation() {
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::InputMessage;
+    use lightyear_inputs::prelude::server::{
+        InputValidation, InputValidationContext, InputValidatorAppExt,
+    };
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper
+        .server_app
+        .add_input_validator::<LeafwingSequence<LeafwingInput1>>(
+            |_ctx: &InputValidationContext,
+             msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>| {
+                // Drop every entity target; keep the message otherwise intact.
+                msg.inputs.clear();
+                InputValidation::Continue
+            },
+        );
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    let server_state = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .expect("entity has ActionState");
+    assert!(
+        !server_state.pressed(&LeafwingInput1::Jump),
+        "input landed even though the validator cleared the message's targets.",
+    );
+}
+
+/// `remove_input_validator(name)` takes a previously-registered validator back
+/// out of the chain: the same input that was blocked now flows through.
+#[test]
+fn test_remove_input_validator_restores_handling() {
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::InputMessage;
+    use lightyear_inputs::prelude::server::{
+        InputMessageValidator, InputValidation, InputValidationContext, InputValidatorAppExt,
+    };
+
+    /// A named validator that rejects everything.
+    struct BlockAll;
+    impl BlockAll {
+        const NAME: &'static str = "test::BlockAll";
+    }
+    impl InputMessageValidator<LeafwingSequence<LeafwingInput1>> for BlockAll {
+        fn validate(
+            &self,
+            _ctx: &InputValidationContext,
+            _msg: &mut InputMessage<LeafwingSequence<LeafwingInput1>>,
+        ) -> InputValidation {
+            InputValidation::Reject
+        }
+        fn name(&self) -> &'static str {
+            Self::NAME
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper
+        .server_app
+        .add_input_validator::<LeafwingSequence<LeafwingInput1>>(BlockAll);
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    let blocked = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .unwrap()
+        .pressed(&LeafwingInput1::Jump);
+    assert!(!blocked, "BlockAll should have rejected the input");
+
+    // Remove the validator; the same held key should now reach the server.
+    stepper
+        .server_app
+        .remove_input_validator::<LeafwingSequence<LeafwingInput1>>(BlockAll::NAME);
+    stepper.frame_step(10);
+
+    let now_pressed = stepper
+        .server_app
+        .world()
+        .entity(server_entity)
+        .get::<ActionState<LeafwingInput1>>()
+        .unwrap()
+        .pressed(&LeafwingInput1::Jump);
+    assert!(
+        now_pressed,
+        "after remove_input_validator, the input should reach the server, but \
+         it is still being dropped.",
+    );
+}

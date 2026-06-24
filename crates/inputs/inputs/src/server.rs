@@ -38,6 +38,8 @@ use lightyear_messages::server::ServerMultiMessageSender;
 use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
+use crate::validation::{InputMessageValidators, InputValidationContext};
+
 /// Server-side plugin that receives input messages from clients and applies
 /// them to [`InputBuffer`] components.
 ///
@@ -116,6 +118,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
             marker: core::marker::PhantomData,
         });
 
+        // The validator chain runs on every received `InputMessage` after
+        // deserialization and before it is handled. Empty by default; register
+        // validators via `InputValidatorAppExt`.
+        app.init_resource::<InputMessageValidators<S>>();
+
         // SETS
         // TODO:
         //  - could there be an issue because, client updates `state` and `fixed_update_state` and sends it to server
@@ -159,6 +166,7 @@ fn receive_input_message<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     rooms_query: Query<(Entity, &Rooms), With<Connected>>,
     timeline: Res<LocalTimeline>,
+    validators: Res<InputMessageValidators<S>>,
     mut receivers: Query<
         (
             Entity,
@@ -187,9 +195,7 @@ fn receive_input_message<S: ActionStateSequence>(
         //  should we just read instead?
         let server_entity = link_of.server;
         let tick = timeline.tick();
-        receiver.receive().try_for_each(|message| {
-            #[cfg(feature = "prediction")]
-            let mut message = message;
+        receiver.receive().try_for_each(|mut message| {
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
@@ -218,6 +224,22 @@ fn receive_input_message<S: ActionStateSequence>(
                 message = ?message,
                 "server received input message"
             );
+
+            // Run the validation chain on the freshly-deserialized message
+            // before anything reads or rebroadcasts it. Validators may mutate
+            // the message (e.g. drop individual targets) or reject it whole.
+            // Running here — *before* the rebroadcast block — means dropped
+            // targets are also not relayed to other clients. The chain is empty
+            // unless the user registers validators; see `crate::validation`.
+            let validation_ctx = InputValidationContext {
+                sender: client_entity,
+                client_id: *client_id,
+                server_tick: tick,
+            };
+            if !validators.validate(&validation_ctx, &mut message) {
+                trace!(?tick, ?client_id, "Input message rejected by validator chain");
+                return Ok(())
+            }
 
             // TODO: or should we try to store in a buffer the interpolation delay for the exact tick
             //  that the message was intended for?
