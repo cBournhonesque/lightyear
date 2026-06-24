@@ -23,12 +23,14 @@ pub struct CatchUpRequest {
 ///
 /// The server sends this as a replicated event when it accepts a catch-up
 /// request. The client stores that metadata, waits for the matching Replicon
-/// checkpoint to be confirmed, then triggers this same event locally. If the
-/// server sends [`CatchUpSnapshotReady::not_required`], the client skips the
-/// forced rollback and triggers this event locally before removing
-/// `CatchUpGated`. User code should observe `On<CatchUpSnapshotReady>` and
-/// query `CatchUpGated` entities to add application-specific local
-/// components before the forced rollback or skip completes.
+/// checkpoint to be confirmed, requests the forced rollback, and then triggers
+/// this same event locally after rollback preparation has restored the snapshot
+/// components but before rollback replay begins. If the server sends
+/// [`CatchUpSnapshotReady::not_required`], the client skips the forced rollback
+/// and triggers this event locally before removing `CatchUpGated`. User code
+/// should observe `On<CatchUpSnapshotReady>` and query `CatchUpGated` entities
+/// to add application-specific local components before replay or skip
+/// completes.
 #[derive(Event, Serialize, Deserialize, Clone, Debug)]
 pub struct CatchUpSnapshotReady {
     /// The accepted Replicon checkpoint tick that revealed the bundled
@@ -118,4 +120,7 @@ pub enum CatchUpSystems {
     /// Client-side: after we receive the catchup tick from the server, trigger a forced
     /// rollback to perform the catchup.
     TriggerCatchUpRollback,
+    /// Client-side: after rollback preparation has restored the snapshot
+    /// components, activate local-only application state before replay begins.
+    ActivateCatchUp,
 }
