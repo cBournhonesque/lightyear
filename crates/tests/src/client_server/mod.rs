@@ -4,6 +4,7 @@ mod base;
 mod avian;
 mod connection;
 mod deterministic;
+mod diff;
 // mod delta;
 mod hierarchy;
 mod input;

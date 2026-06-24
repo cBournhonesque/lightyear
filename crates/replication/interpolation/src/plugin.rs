@@ -1,7 +1,10 @@
 use crate::SyncComponent;
 use crate::despawn::configure_delayed_interpolated_despawn;
-use crate::interpolate::{interpolate, update_confirmed_history};
-use crate::registry::{InterpolationRegistry, insert_confirmed_history_on_interpolated};
+use crate::interpolate::{interpolate, update_confirmed_history, update_confirmed_history_diff};
+use crate::registry::{
+    InterpolationRegistry, insert_confirmed_history_on_interpolated,
+    insert_confirmed_history_on_interpolated_diff,
+};
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, PreUpdate, Update};
 use bevy_ecs::{
@@ -9,6 +12,7 @@ use bevy_ecs::{
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
+use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
@@ -102,6 +106,18 @@ pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(app: &mut App)
     app.add_systems(
         Update,
         update_confirmed_history::<C>
+            .chain()
+            .in_set(InterpolationSystems::Prepare),
+    );
+}
+
+pub(crate) fn add_prepare_interpolation_diff_systems<C: SyncComponent + RepliconDiffable>(
+    app: &mut App,
+) {
+    app.add_observer(insert_confirmed_history_on_interpolated_diff::<C>);
+    app.add_systems(
+        Update,
+        update_confirmed_history_diff::<C>
             .chain()
             .in_set(InterpolationSystems::Prepare),
     );
