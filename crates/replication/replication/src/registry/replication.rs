@@ -37,7 +37,7 @@ pub trait AppComponentExt {
         &mut self,
     ) -> ComponentRegistration<'_, C>;
 
-    /// Registers the component using Replicon's patch-based diff replication.
+    /// Registers the component using Replicon's diff-based replication.
     #[deprecated(note = "use `app.component::<C>().replicate_diff()` instead")]
     fn register_component_diff<C: RepliconDiffable>(&mut self) -> ComponentRegistration<'_, C>;
 
@@ -198,11 +198,11 @@ impl<C> ComponentRegistration<'_, C> {
         self
     }
 
-    /// Register this component using Replicon's patch-based diff replication.
+    /// Register this component using Replicon's diff-based replication.
     ///
     /// Mutations must be recorded with
-    /// [`EntityPatchExt::apply_patch`](bevy_replicon::shared::replication::diff::EntityPatchExt::apply_patch)
-    /// so Replicon can create patch messages. This registers Replicon's
+    /// [`EntityDiffExt::apply_diff`](bevy_replicon::shared::replication::diff::EntityDiffExt::apply_diff)
+    /// so Replicon can create diff messages. This registers Replicon's
     /// `replicate_diff` rule, but does not also register the normal
     /// full-component replication rule.
     pub fn replicate_diff(self) -> Self
@@ -367,7 +367,7 @@ impl<C> ComponentRegistration<'_, C> {
     /// without changing the Replicon rule registered by earlier builder calls.
     #[cfg(feature = "delta")]
     #[deprecated(
-        note = "Lightyear delta compression is not implemented on the Replicon backend; use `replicate_diff()` for Replicon patch replication"
+        note = "Lightyear delta compression is not implemented on the Replicon backend; use `replicate_diff()` for Replicon diff replication"
     )]
     pub fn add_delta_compression<Delta>(self) -> Self
     where

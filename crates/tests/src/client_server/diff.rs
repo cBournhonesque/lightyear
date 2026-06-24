@@ -3,8 +3,8 @@ use crate::stepper::*;
 use bevy::prelude::*;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::postcard_utils;
-use bevy_replicon::prelude::{EntityPatchExt, RepliconPlugins, RepliconTick, RuleFns};
-use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
+use bevy_replicon::prelude::{EntityDiffExt, RepliconPlugins, RepliconTick, RuleFns};
+use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
 use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
 use lightyear::prelude::{InterpolationPlugin, InterpolationRegistrationExt, PredictionBuilderExt};
@@ -39,7 +39,7 @@ fn newest_confirmed_value(app: &App, entity: Entity) -> Option<u32> {
 }
 
 /// Verifies the end-to-end prediction path for Replicon diff components:
-/// server-side `apply_patch` produces patch replication, and the client stores
+/// server-side `apply_diff` produces diff replication, and the client stores
 /// the materialized value in `ConfirmedHistory`.
 #[test]
 fn diff_prediction_records_confirmed_history_from_replicon_patches() {
@@ -58,7 +58,7 @@ fn diff_prediction_records_confirmed_history_from_replicon_patches() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .apply_patch::<CompRepliconDiff>(0)
+        .apply_diff::<CompRepliconDiff>(0)
         .unwrap();
 
     stepper.frame_step_server_first(1);
@@ -79,7 +79,7 @@ fn diff_prediction_records_confirmed_history_from_replicon_patches() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .apply_patch::<CompRepliconDiff>(1)
+        .apply_diff::<CompRepliconDiff>(1)
         .unwrap();
     stepper.frame_step_server_first(1);
 
@@ -90,7 +90,7 @@ fn diff_prediction_records_confirmed_history_from_replicon_patches() {
 }
 
 /// Verifies the end-to-end interpolation path for Replicon diff components:
-/// server-side `apply_patch` produces patch replication, and the client stores
+/// server-side `apply_diff` produces diff replication, and the client stores
 /// the materialized value in `ConfirmedHistory`.
 #[test]
 fn diff_interpolation_records_confirmed_history_from_replicon_patches() {
@@ -109,7 +109,7 @@ fn diff_interpolation_records_confirmed_history_from_replicon_patches() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .apply_patch::<CompRepliconDiff>(0)
+        .apply_diff::<CompRepliconDiff>(0)
         .unwrap();
 
     stepper.frame_step_server_first(1);
@@ -130,7 +130,7 @@ fn diff_interpolation_records_confirmed_history_from_replicon_patches() {
         .server_app
         .world_mut()
         .entity_mut(server_entity)
-        .apply_patch::<CompRepliconDiff>(1)
+        .apply_diff::<CompRepliconDiff>(1)
         .unwrap();
     stepper.frame_step_server_first(1);
 
@@ -141,21 +141,21 @@ fn diff_interpolation_records_confirmed_history_from_replicon_patches() {
 }
 
 #[derive(Serialize)]
-enum TestWireDiff<'a> {
+enum TestComponentDelta<'a> {
     Snapshot {
-        index: PatchIndex,
+        index: DiffIndex,
         component: &'a CompRepliconDiff,
     },
-    Patches {
-        index: PatchIndex,
-        patches: &'a [u32],
+    Diffs {
+        index: DiffIndex,
+        diffs: &'a [u32],
     },
 }
 
 fn diff_snapshot(index: u16, component: CompRepliconDiff) -> Bytes {
     let mut message = Vec::new();
-    let wire = TestWireDiff::Snapshot {
-        index: PatchIndex::new(index),
+    let wire = TestComponentDelta::Snapshot {
+        index: DiffIndex::new(index),
         component: &component,
     };
     postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
@@ -164,9 +164,9 @@ fn diff_snapshot(index: u16, component: CompRepliconDiff) -> Bytes {
 
 fn diff_patches(index: u16, patches: &[u32]) -> Bytes {
     let mut message = Vec::new();
-    let wire = TestWireDiff::Patches {
-        index: PatchIndex::new(index),
-        patches,
+    let wire = TestComponentDelta::Diffs {
+        index: DiffIndex::new(index),
+        diffs: patches,
     };
     postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
     message.into()

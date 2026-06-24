@@ -9,7 +9,7 @@ use crate::{Predicted, SyncComponent};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_replicon::shared::replication::diff::{Diffable as RepliconDiffable, PatchBuffer};
+use bevy_replicon::shared::replication::diff::{DiffBuffer, Diffable as RepliconDiffable};
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_utils::prelude::DebugName;
 use core::fmt::{self, Debug, Display};
@@ -364,8 +364,8 @@ pub(crate) fn add_confirmed_history_patch_receiver<C: SyncComponent + RepliconDi
         let seed = seed_inputs.and_then(|confirm_tick| {
             let cursor = world
                 .get_resource::<ReplicationStorage>()
-                .and_then(|storage| storage.get::<PatchBuffer<C>>(entity))
-                .and_then(PatchBuffer::<C>::last_applied)?;
+                .and_then(|storage| storage.get::<DiffBuffer<C>>(entity))
+                .and_then(DiffBuffer::<C>::last_applied)?;
             world
                 .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
                 .get(confirm_tick)
@@ -475,7 +475,7 @@ mod tests {
     use super::*;
     use crate::manager::StateRollbackMetadata;
     use bevy_app::{App, Update};
-    use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
+    use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -485,16 +485,16 @@ mod tests {
     struct TestDiffValue(u32);
 
     impl RepliconDiffable for TestDiffValue {
-        type Patch = u32;
+        type Diff = u32;
 
-        fn apply_patch(&mut self, patch: &Self::Patch) -> bevy_ecs::error::Result<()> {
+        fn apply_diff(&mut self, patch: &Self::Diff) -> bevy_ecs::error::Result<()> {
             self.0 = *patch;
             Ok(())
         }
     }
 
-    fn idx(value: u16) -> PatchIndex {
-        PatchIndex::new(value)
+    fn idx(value: u16) -> DiffIndex {
+        DiffIndex::new(value)
     }
 
     #[test]

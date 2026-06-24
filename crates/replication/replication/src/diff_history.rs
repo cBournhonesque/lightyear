@@ -5,23 +5,23 @@ use core::marker::PhantomData;
 
 use bevy_ecs::error::Result;
 use bevy_replicon::shared::replication::diff::{
-    Diffable as RepliconDiffable, patch_index::PatchIndex,
+    Diffable as RepliconDiffable, diff_index::DiffIndex,
 };
 use lightyear_core::prelude::{ConfirmedHistory, HistoryState, Tick};
 
 #[derive(Debug, Clone)]
 struct PendingPatchMessage<Patch> {
     tick: Tick,
-    first_patch_index: PatchIndex,
+    first_patch_index: DiffIndex,
     patches: Vec<Patch>,
 }
 
 impl<Patch> PendingPatchMessage<Patch> {
-    fn base_cursor(&self) -> PatchIndex {
+    fn base_cursor(&self) -> DiffIndex {
         self.first_patch_index - 1
     }
 
-    fn cursor(&self) -> Result<PatchIndex> {
+    fn cursor(&self) -> Result<DiffIndex> {
         let offset = self
             .patches
             .len()
@@ -40,7 +40,7 @@ impl<Patch> PendingPatchMessage<Patch> {
 
 /// Tracks patch cursors for materialized [`ConfirmedHistory`] entries.
 ///
-/// This is deliberately separate from Replicon's live `PatchBuffer`: prediction
+/// This is deliberately separate from Replicon's live `DiffBuffer`: prediction
 /// and interpolation need to reconstruct historical confirmed values from patch
 /// messages without advancing a single live base cursor past older ticks that
 /// can still arrive later.
@@ -63,7 +63,7 @@ impl<Patch> PendingPatchMessage<Patch> {
 ///   moved to the prune tick so the base can be fetched from `ConfirmedHistory`.
 ///
 /// Lifecycle:
-/// 1. The prediction/interpolation `write_fn` receives a [`WireDiff`](bevy_replicon::shared::replication::diff::WireDiff).
+/// 1. The prediction/interpolation `write_fn` receives a [`ComponentDelta`](bevy_replicon::shared::replication::diff::ComponentDelta).
 /// 2. Snapshots are written directly into [`ConfirmedHistory`] and their cursor
 ///    is recorded with [`Self::record_cursor`].
 /// 3. Patch messages are added with [`Self::queue_patches`]. They may be
@@ -77,10 +77,10 @@ impl<Patch> PendingPatchMessage<Patch> {
 ///    to the retained base and drains older cursor/pending state.
 #[derive(Debug, Clone)]
 pub struct ConfirmedHistoryPatchReceiver<C: RepliconDiffable> {
-    base_cursor: Option<PatchIndex>,
+    base_cursor: Option<DiffIndex>,
     base_tick: Option<Tick>,
-    patch_ticks: Vec<(PatchIndex, Tick)>,
-    pending: Vec<PendingPatchMessage<C::Patch>>,
+    patch_ticks: Vec<(DiffIndex, Tick)>,
+    pending: Vec<PendingPatchMessage<C::Diff>>,
     marker: PhantomData<fn() -> C>,
 }
 
@@ -106,7 +106,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     ///
     /// Cursors older than the retained base are ignored. Recording `None`
     /// resets the receiver to a full-snapshot base for a new patch stream.
-    pub fn record_cursor(&mut self, tick: Tick, cursor: Option<PatchIndex>) {
+    pub fn record_cursor(&mut self, tick: Tick, cursor: Option<DiffIndex>) {
         match cursor {
             Some(cursor) => {
                 if let Some(base_cursor) = self.base_cursor {
@@ -155,7 +155,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     }
 
     /// Returns the confirmed tick corresponding to `cursor`.
-    pub fn tick_for_cursor(&self, cursor: Option<PatchIndex>) -> Option<Tick> {
+    pub fn tick_for_cursor(&self, cursor: Option<DiffIndex>) -> Option<Tick> {
         if cursor == self.base_cursor {
             return self.base_tick;
         }
@@ -167,7 +167,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     }
 
     /// Returns the newest retained cursor recorded at or before `tick`.
-    fn cursor_at_or_before(&self, tick: Tick) -> Option<(Option<PatchIndex>, Tick)> {
+    fn cursor_at_or_before(&self, tick: Tick) -> Option<(Option<DiffIndex>, Tick)> {
         self.base_tick
             .map(|base_tick| (self.base_cursor, base_tick))
             .into_iter()
@@ -261,8 +261,8 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     pub fn queue_patches(
         &mut self,
         tick: Tick,
-        first_patch_index: PatchIndex,
-        patches: Vec<C::Patch>,
+        first_patch_index: DiffIndex,
+        patches: Vec<C::Diff>,
     ) -> Result<()> {
         if patches.is_empty() {
             return Ok(());
@@ -304,13 +304,13 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         Ok(())
     }
 
-    /// Queues a Replicon patch message encoded as the final cursor plus all
+    /// Queues a Replicon diff message encoded as the final cursor plus all
     /// patches needed to reach it.
     pub fn queue_patch_diff(
         &mut self,
         tick: Tick,
-        index: PatchIndex,
-        patches: Vec<C::Patch>,
+        index: DiffIndex,
+        patches: Vec<C::Diff>,
     ) -> Result<()> {
         if patches.is_empty() {
             return Ok(());
@@ -323,7 +323,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                 patches.len()
             )
         })?;
-        // PatchIndex arithmetic wraps, so this also handles ranges that cross
+        // DiffIndex arithmetic wraps, so this also handles ranges that cross
         // u16::MAX, e.g. final index 3 with 10 patches starts at 65530.
         let first_patch_index = index - offset;
         self.queue_patches(tick, first_patch_index, patches)
@@ -357,13 +357,13 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         let pending = self.pending.remove(pending_index);
         let cursor = pending.cursor()?;
         for patch in &pending.patches {
-            value.apply_patch(patch)?;
+            value.apply_diff(patch)?;
         }
         self.record_cursor(pending.tick, Some(cursor));
         Ok(Some((pending.tick, value)))
     }
 
-    fn is_retired_cursor(&self, cursor: PatchIndex) -> bool {
+    fn is_retired_cursor(&self, cursor: DiffIndex) -> bool {
         self.base_cursor
             .is_some_and(|base_cursor| cursor == base_cursor || !cursor.is_newer_than(base_cursor))
     }
@@ -394,16 +394,16 @@ mod tests {
     struct TestDiffValue(u32);
 
     impl RepliconDiffable for TestDiffValue {
-        type Patch = u32;
+        type Diff = u32;
 
-        fn apply_patch(&mut self, patch: &Self::Patch) -> Result<()> {
+        fn apply_diff(&mut self, patch: &Self::Diff) -> Result<()> {
             self.0 = *patch;
             Ok(())
         }
     }
 
-    fn idx(value: u16) -> PatchIndex {
-        PatchIndex::new(value)
+    fn idx(value: u16) -> DiffIndex {
+        DiffIndex::new(value)
     }
 
     /// A patch message for `S3 -> S5` is buffered when the receiver has not

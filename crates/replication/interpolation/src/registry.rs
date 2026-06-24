@@ -17,7 +17,7 @@ use bevy_replicon::postcard_utils;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
 use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::diff::{
-    Diffable as RepliconDiffable, PatchBuffer, WireDiff,
+    ComponentDelta, DiffBuffer, Diffable as RepliconDiffable,
 };
 use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
@@ -265,8 +265,8 @@ pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + R
             .map(|storage| {
                 (
                     storage
-                        .get::<PatchBuffer<C>>(entity)
-                        .and_then(PatchBuffer::<C>::last_applied),
+                        .get::<DiffBuffer<C>>(entity)
+                        .and_then(DiffBuffer::<C>::last_applied),
                     storage
                         .get::<ConfirmedHistoryPatchReceiver<C>>(entity)
                         .is_some(),
@@ -329,7 +329,7 @@ pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
         C: SyncComponent;
 
     /// Like [`Self::add_interpolation_with`], but for components replicated with
-    /// Replicon's patch-based diff mode.
+    /// Replicon's diff-based mode.
     fn add_interpolation_diff_with(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent + RepliconDiffable;
@@ -342,7 +342,7 @@ pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
         C: SyncComponent + Ease;
 
     /// Like [`Self::add_linear_interpolation`], but for components replicated
-    /// with Replicon's patch-based diff mode.
+    /// with Replicon's diff-based mode.
     fn add_linear_interpolation_diff(self) -> Self
     where
         C: SyncComponent + RepliconDiffable + Ease;
@@ -355,7 +355,7 @@ pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
         C: SyncComponent;
 
     /// Like [`Self::add_custom_interpolation`], but for components replicated
-    /// with Replicon's patch-based diff mode.
+    /// with Replicon's diff-based mode.
     fn add_custom_interpolation_diff(self) -> Self
     where
         C: SyncComponent + RepliconDiffable;
@@ -613,7 +613,7 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
         return Ok(());
     };
     match diff {
-        WireDiff::Snapshot {
+        ComponentDelta::Snapshot {
             index,
             mut component,
         } => {
@@ -622,7 +622,10 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
             receiver.record_cursor(tick, Some(index));
             insert_interpolation_history_value(entity, &mut new_history, tick, component);
         }
-        WireDiff::Patches { index, patches } => {
+        ComponentDelta::Diffs {
+            index,
+            diffs: patches,
+        } => {
             let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
             receiver.queue_patch_diff(tick, index, patches)?;
         }
@@ -669,8 +672,8 @@ fn client_diff_and_tick<C: SyncComponent + RepliconDiffable>(
     ctx: &mut WriteCtx,
     entity: &mut DeferredEntity,
     message: &mut Bytes,
-) -> bevy_ecs::error::Result<Option<(Tick, WireDiff<C>)>> {
-    let diff: WireDiff<C> = postcard_utils::from_buf(message)?;
+) -> bevy_ecs::error::Result<Option<(Tick, ComponentDelta<C>)>> {
+    let diff: ComponentDelta<C> = postcard_utils::from_buf(message)?;
     let checkpoints = {
         // SAFETY: we only access resources, which don't alias with the DeferredEntity's component access.
         let world = unsafe { entity.world_mut() };
@@ -739,7 +742,7 @@ mod tests {
     use bevy_ecs::component::Component;
     use bevy_replicon::postcard_utils;
     use bevy_replicon::prelude::{RepliconPlugins, RepliconTick, RuleFns};
-    use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
+    use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use bevy_replicon::shared::replication::registry::ReplicationRegistry;
     use bevy_replicon::shared::replication::registry::test_fns::TestFnsEntityExt;
     use bevy_state::app::StatesPlugin;
@@ -761,9 +764,9 @@ mod tests {
     struct TestDiffComponent(u32);
 
     impl RepliconDiffable for TestDiffComponent {
-        type Patch = u32;
+        type Diff = u32;
 
-        fn apply_patch(&mut self, patch: &Self::Patch) -> bevy_ecs::error::Result<()> {
+        fn apply_diff(&mut self, patch: &Self::Diff) -> bevy_ecs::error::Result<()> {
             self.0 = *patch;
             Ok(())
         }
@@ -776,21 +779,21 @@ mod tests {
     }
 
     #[derive(Serialize)]
-    enum TestWireDiff<'a> {
+    enum TestComponentDelta<'a> {
         Snapshot {
-            index: PatchIndex,
+            index: DiffIndex,
             component: &'a TestDiffComponent,
         },
-        Patches {
-            index: PatchIndex,
-            patches: &'a [u32],
+        Diffs {
+            index: DiffIndex,
+            diffs: &'a [u32],
         },
     }
 
     fn diff_snapshot(index: u16, component: TestDiffComponent) -> Bytes {
         let mut message = Vec::new();
-        let wire = TestWireDiff::Snapshot {
-            index: PatchIndex::new(index),
+        let wire = TestComponentDelta::Snapshot {
+            index: DiffIndex::new(index),
             component: &component,
         };
         postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
@@ -799,9 +802,9 @@ mod tests {
 
     fn diff_patches(index: u16, patches: &[u32]) -> Bytes {
         let mut message = Vec::new();
-        let wire = TestWireDiff::Patches {
-            index: PatchIndex::new(index),
-            patches,
+        let wire = TestComponentDelta::Diffs {
+            index: DiffIndex::new(index),
+            diffs: patches,
         };
         postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
         message.into()

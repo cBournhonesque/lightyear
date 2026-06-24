@@ -200,7 +200,7 @@ mod tests {
     use bevy_app::{App, Update};
     use bevy_ecs::component::Component;
     use bevy_replicon::prelude::{Diffable as RepliconDiffable, RepliconTick};
-    use bevy_replicon::shared::replication::diff::patch_index::PatchIndex;
+    use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use lightyear_core::time::TickInstant;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
@@ -210,16 +210,16 @@ mod tests {
     struct TestComp(f32);
 
     impl RepliconDiffable for TestComp {
-        type Patch = f32;
+        type Diff = f32;
 
-        fn apply_patch(&mut self, patch: &Self::Patch) -> bevy_ecs::error::Result<()> {
+        fn apply_diff(&mut self, patch: &Self::Diff) -> bevy_ecs::error::Result<()> {
             self.0 = *patch;
             Ok(())
         }
     }
 
-    fn idx(value: u16) -> PatchIndex {
-        PatchIndex::new(value)
+    fn idx(value: u16) -> DiffIndex {
+        DiffIndex::new(value)
     }
 
     fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {

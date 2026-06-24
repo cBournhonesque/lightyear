@@ -147,9 +147,9 @@ impl DeltaDiffable<usize> for CompDelta {
 pub struct CompRepliconDiff(pub u32);
 
 impl RepliconDiffable for CompRepliconDiff {
-    type Patch = u32;
+    type Diff = u32;
 
-    fn apply_patch(&mut self, patch: &Self::Patch) -> Result<()> {
+    fn apply_diff(&mut self, patch: &Self::Diff) -> Result<()> {
         self.0 = *patch;
         Ok(())
     }
