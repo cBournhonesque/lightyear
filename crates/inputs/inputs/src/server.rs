@@ -13,6 +13,7 @@ use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
+use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::{
     entity::{Entity, MapEntities},
     error::Result,
@@ -35,6 +36,7 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
+use lightyear_replication::control::ControlledByRemote;
 use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
@@ -155,6 +157,51 @@ impl InputValidationAppExt for App {
     ) -> &mut Self {
         self.add_systems(PreUpdate, systems.in_set(InputSystems::ValidateInputs));
         self
+    }
+}
+
+/// Opt-in [`InputSystems::ValidateInputs`] system that drops every
+/// `InputTarget::Entity` the sending peer is **not** authorized to control —
+/// i.e. not a member of its [`ControlledByRemote`]. A message left with no
+/// targets is dropped entirely. This is the spoofed-target defense: a modified
+/// client cannot forge `InputTarget::Entity(other_player)` to drive an entity
+/// it doesn't own.
+///
+/// lightyear does **not** enable this by default. `ControlledBy` is an optional
+/// helper for modeling input ownership, not a mandatory component, and some
+/// games legitimately let several clients drive one entity. Register this only
+/// if your game uses `ControlledBy` and wants the check:
+///
+/// ```ignore
+/// app.add_input_validator(authorize_controlled_targets::<MySequence>);
+/// ```
+///
+/// - Host-client inputs (`RemoteId::is_local`) are trusted in-process and
+///   skipped.
+/// - `InputTarget::PreSpawned` is identified by a hash, not an entity id, so it
+///   is passed through here (binding a prespawn to an owner is out of scope).
+pub fn authorize_controlled_targets<S: ActionStateSequence>(
+    mut receivers: Query<
+        (
+            &RemoteId,
+            Option<&ControlledByRemote>,
+            &mut MessageReceiver<InputMessage<S>>,
+        ),
+        With<Connected>,
+    >,
+) {
+    for (client_id, controlled_by_remote, mut receiver) in receivers.iter_mut() {
+        if client_id.is_local() {
+            continue;
+        }
+        receiver.retain_messages(|message| {
+            message.inputs.retain(|data| match data.target {
+                InputTarget::Entity(entity) => controlled_by_remote
+                    .is_some_and(|controlled| controlled.collection().contains(&entity)),
+                InputTarget::PreSpawned(_) => true,
+            });
+            !message.inputs.is_empty()
+        });
     }
 }
 

@@ -43,7 +43,7 @@ pub mod prelude {
     pub mod server {
         pub use crate::server::{
             InputRebroadcaster, InputSystems, InputValidationAppExt, ServerInputConfig,
-            ServerInputPlugin,
+            ServerInputPlugin, authorize_controlled_targets,
         };
     }
 }

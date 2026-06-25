@@ -647,52 +647,23 @@ fn test_input_validator_system_can_drop_messages() {
     );
 }
 
-/// Example: a *game-supplied* `ValidateInputs` system implements input-target
-/// authorization itself — lightyear does not enforce `ControlledBy` (it's an
-/// optional helper). The validator drops any `InputTarget::Entity` the sender
-/// doesn't control (via `ControlledByRemote` + `retain_messages`).
+/// lightyear's opt-in `authorize_controlled_targets` helper, when a game
+/// registers it in `ValidateInputs`, drops `InputTarget::Entity` the sender
+/// doesn't control — without lightyear enforcing it by default.
 ///
 /// Client 0 controls entity A and forges an input also targeting entity B
-/// (uncontrolled). The validator must let A's input through (non-overblocking)
+/// (uncontrolled). The helper must let A's input through (non-overblocking)
 /// and drop B's — so A's server `ActionState` is pressed and B's is not.
 #[test]
-fn test_user_validator_can_authorize_targets() {
-    use bevy::ecs::relationship::RelationshipTarget;
-    use bevy::ecs::system::Query;
+fn test_authorize_controlled_targets_helper() {
     use lightyear::input::leafwing::input_message::LeafwingSequence;
-    use lightyear_core::id::RemoteId;
-    use lightyear_inputs::input_message::{InputMessage, InputTarget};
-    use lightyear_inputs::prelude::server::InputValidationAppExt;
-    use lightyear_messages::prelude::MessageReceiver;
-    use lightyear_replication::control::ControlledByRemote;
+    use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
     use lightyear_replication::prelude::ControlledBy;
 
-    // Game-side authorization, expressed as an ordinary ValidateInputs system.
-    fn authorize_targets(
-        mut receivers: Query<(
-            &RemoteId,
-            Option<&ControlledByRemote>,
-            &mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>,
-        )>,
-    ) {
-        for (client_id, controlled, mut receiver) in &mut receivers {
-            if client_id.is_local() {
-                continue;
-            }
-            receiver.retain_messages(|msg| {
-                msg.inputs.retain(|data| match data.target {
-                    InputTarget::Entity(e) => {
-                        controlled.is_some_and(|c| c.collection().contains(&e))
-                    }
-                    InputTarget::PreSpawned(_) => true,
-                });
-                !msg.inputs.is_empty()
-            });
-        }
-    }
-
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
-    stepper.server_app.add_input_validator(authorize_targets);
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>);
 
     let client_of_0 = stepper.client_of(0).id();
     // Entity A: controlled by client 0.
