@@ -771,3 +771,89 @@ fn test_user_validator_can_authorize_targets() {
         "spoofed input landed on victim B's ActionState",
     );
 }
+
+/// `retain_received_messages` exposes per-message metadata (`remote_tick`,
+/// `channel_kind`, `message_id`) that `retain_messages` hides — needed for
+/// rate-limit / tick-window / replay validators. Here a validator reads
+/// `remote_tick` and drops the message; we assert both that the metadata was
+/// readable and that the drop took effect.
+#[test]
+fn test_validator_can_read_message_metadata() {
+    use bevy::ecs::resource::Resource;
+    use bevy::ecs::system::{Query, ResMut};
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::InputMessage;
+    use lightyear_inputs::prelude::server::InputValidationAppExt;
+    use lightyear_messages::prelude::MessageReceiver;
+
+    #[derive(Resource, Default)]
+    struct SeenRemoteTick(Option<u32>);
+
+    fn inspect_metadata(
+        mut seen: ResMut<SeenRemoteTick>,
+        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    ) {
+        for mut receiver in &mut receivers {
+            receiver.retain_received_messages(|received| {
+                // Metadata is reachable here (unlike `retain_messages`).
+                seen.0 = Some(received.remote_tick.0);
+                false // drop the message
+            });
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper.server_app.init_resource::<SeenRemoteTick>();
+    stepper.server_app.add_input_validator(inspect_metadata);
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .resource::<SeenRemoteTick>()
+            .0
+            .is_some(),
+        "validator never observed a message's remote_tick metadata",
+    );
+    assert!(
+        !stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump),
+        "input landed even though retain_received_messages dropped the message",
+    );
+}

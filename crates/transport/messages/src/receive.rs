@@ -103,6 +103,21 @@ impl<M: Message> MessageReceiver<M> {
         self.recv.retain_mut(|received| keep(&mut received.data));
     }
 
+    /// Like [`retain_messages`](Self::retain_messages), but the predicate also
+    /// gets the per-message metadata on [`ReceivedMessage`] — `remote_tick`,
+    /// `channel_kind`, `message_id` — which `retain_messages` hides.
+    ///
+    /// Use this when validation needs the metadata, e.g. rate limiting,
+    /// tick-window / staleness checks, replay diagnostics, or per-channel
+    /// policy. Mutate `received.data` to rewrite the message; return `false` to
+    /// drop it.
+    pub fn retain_received_messages(
+        &mut self,
+        mut keep: impl FnMut(&mut ReceivedMessage<M>) -> bool,
+    ) {
+        self.recv.retain_mut(|received| keep(received));
+    }
+
     pub fn num_messages(&self) -> usize {
         self.recv.len()
     }
