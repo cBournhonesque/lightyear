@@ -67,6 +67,19 @@ pub struct ReceivedMessage<M: Message> {
     pub message_id: Option<MessageId>,
 }
 
+/// Read-only per-message metadata handed to
+/// [`MessageReceiver::retain_received_messages`] validators alongside `&mut`
+/// access to the message data.
+#[derive(Debug, Clone, Copy)]
+pub struct MessageMetadata {
+    /// Tick on the remote peer when the message was sent.
+    pub remote_tick: Tick,
+    /// Channel the message was sent on.
+    pub channel_kind: ChannelKind,
+    /// MessageId of the message, if the channel assigns one.
+    pub message_id: Option<MessageId>,
+}
+
 impl<M: Message> Default for MessageReceiver<M> {
     fn default() -> Self {
         Self { recv: Vec::new() }
@@ -104,18 +117,26 @@ impl<M: Message> MessageReceiver<M> {
     }
 
     /// Like [`retain_messages`](Self::retain_messages), but the predicate also
-    /// gets the per-message metadata on [`ReceivedMessage`] — `remote_tick`,
-    /// `channel_kind`, `message_id` — which `retain_messages` hides.
+    /// gets the per-message [`MessageMetadata`] (`remote_tick`, `channel_kind`,
+    /// `message_id`) that `retain_messages` hides.
     ///
     /// Use this when validation needs the metadata, e.g. rate limiting,
     /// tick-window / staleness checks, replay diagnostics, or per-channel
-    /// policy. Mutate `received.data` to rewrite the message; return `false` to
-    /// drop it.
+    /// policy. The metadata is passed **by value (read-only)** — only the
+    /// message data is `&mut` (mutate to rewrite, return `false` to drop) — so a
+    /// validator can't accidentally rewrite the wire metadata.
     pub fn retain_received_messages(
         &mut self,
-        mut keep: impl FnMut(&mut ReceivedMessage<M>) -> bool,
+        mut keep: impl FnMut(MessageMetadata, &mut M) -> bool,
     ) {
-        self.recv.retain_mut(|received| keep(received));
+        self.recv.retain_mut(|received| {
+            let metadata = MessageMetadata {
+                remote_tick: received.remote_tick,
+                channel_kind: received.channel_kind,
+                message_id: received.message_id,
+            };
+            keep(metadata, &mut received.data)
+        });
     }
 
     pub fn num_messages(&self) -> usize {

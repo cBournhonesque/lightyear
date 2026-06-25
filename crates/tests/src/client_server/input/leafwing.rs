@@ -794,9 +794,9 @@ fn test_validator_can_read_message_metadata() {
         mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
     ) {
         for mut receiver in &mut receivers {
-            receiver.retain_received_messages(|received| {
-                // Metadata is reachable here (unlike `retain_messages`).
-                seen.0 = Some(received.remote_tick.0);
+            receiver.retain_received_messages(|metadata, _data| {
+                // Metadata is reachable here (read-only), unlike `retain_messages`.
+                seen.0 = Some(metadata.remote_tick.0);
                 false // drop the message
             });
         }
