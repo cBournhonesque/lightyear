@@ -177,6 +177,15 @@ impl InputValidationAppExt for App {
 /// app.add_input_validator(authorize_controlled_targets::<MySequence>);
 /// ```
 ///
+/// To run **your own** validation after this one — so it only sees authorized
+/// targets — order it with `.after(authorize_controlled_targets::<S>)`
+/// (validators in [`InputSystems::ValidateInputs`] are otherwise unordered):
+///
+/// ```ignore
+/// app.add_input_validator(authorize_controlled_targets::<MySequence>);
+/// app.add_input_validator(my_validator.after(authorize_controlled_targets::<MySequence>));
+/// ```
+///
 /// - Host-client inputs (`RemoteId::is_local`) are trusted in-process and
 ///   skipped.
 /// - `InputTarget::PreSpawned` is identified by a hash, not an entity id, so it

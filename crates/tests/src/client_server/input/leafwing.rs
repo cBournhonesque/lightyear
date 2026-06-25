@@ -977,3 +977,113 @@ fn test_authorize_controlled_targets_passes_through_prespawned() {
         "authorize_controlled_targets stripped a PreSpawned target — it must pass through",
     );
 }
+
+/// Documents the recommended way to run your own validator *after* the
+/// `authorize_controlled_targets` helper, so it only sees authorized targets:
+/// register it with `.after(authorize_controlled_targets::<S>)`.
+///
+/// Client 0 controls A and forges a target on uncontrolled B. The custom
+/// validator, ordered after the helper, records the targets it sees: it must
+/// see A but never the spoofed B (already stripped). Were it unordered (or
+/// before), it could observe B.
+#[test]
+fn test_custom_validator_ordered_after_authorize() {
+    use bevy::ecs::resource::Resource;
+    use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy::ecs::system::{Query, ResMut};
+    use bevy::prelude::Entity;
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::{InputMessage, InputTarget};
+    use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
+    use lightyear_messages::prelude::MessageReceiver;
+    use lightyear_replication::prelude::ControlledBy;
+
+    #[derive(Resource, Default)]
+    struct SeenAfterAuth(Vec<Entity>);
+
+    fn record_after_auth(
+        mut seen: ResMut<SeenAfterAuth>,
+        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    ) {
+        for mut receiver in &mut receivers {
+            receiver.retain_messages(|msg| {
+                for data in &msg.inputs {
+                    if let InputTarget::Entity(e) = data.target {
+                        seen.0.push(e);
+                    }
+                }
+                true
+            });
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper.server_app.init_resource::<SeenAfterAuth>();
+    // Recommended ordering: register your validator `.after` the helper.
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>);
+    stepper.server_app.add_input_validator(
+        record_after_auth.after(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>),
+    );
+
+    let client_of_0 = stepper.client_of(0).id();
+    let entity_a = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+    let entity_b = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(10);
+
+    let local_a = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_a)
+        .expect("A replicated");
+    let local_b = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_b)
+        .expect("B replicated");
+    for local in [local_a, local_b] {
+        stepper.client_apps[0].world_mut().entity_mut(local).insert(
+            InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
+        );
+    }
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    let seen = &stepper.server_app.world().resource::<SeenAfterAuth>().0;
+    assert!(
+        seen.contains(&entity_a),
+        "custom validator never saw the authorized target A — setup/ordering issue",
+    );
+    assert!(
+        !seen.contains(&entity_b),
+        "custom validator saw the spoofed target B; it ran before authorize_controlled_targets \
+         (the `.after(authorize_controlled_targets::<S>)` ordering didn't take effect)",
+    );
+}
