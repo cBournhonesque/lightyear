@@ -46,12 +46,31 @@ use serde::de::DeserializeOwned;
 ///
 /// BEI uses separate "action entities" with [`ActionOf<C>`] to represent
 /// individual actions. These entities need to exist on both client and server.
-/// The recommended approach is to use [`PreSpawned`] so both sides spawn them
-/// independently and match via a deterministic hash — this avoids the need
-/// for client-to-server entity replication.
+/// Spawn them on both sides with [`PreSpawned`] so they can be matched via a
+/// deterministic hash; this plugin does not create action entities through
+/// client-to-server entity replication.
 ///
+/// Server-to-client action entity replication is still useful. It confirms the
+/// owner's prespawned action entity and populates the entity maps used by input
+/// messages. If input rebroadcasting is enabled, it also lets other clients
+/// discover the remote player's action entity, its typed [`Action`] component,
+/// and its [`ActionOf<C>`] relationship so rebroadcasted input state has a
+/// local action buffer to target.
+///
+/// The replicated [`Action`] component is structural: it recreates the typed BEI
+/// action entity on the receiver, but does not carry runtime input state. The
+/// action relationship is replicated through an internal network wrapper for
+/// [`ActionOf<C>`], and live action state is sent by [`BEIStateSequence`] input
+/// messages. The owning client adds [`InputMarker`] to local action entities,
+/// buffers BEI trigger state/value/time each tick, and sends those snapshots to
+/// the server. If input rebroadcasting is enabled, the server forwards those
+/// input messages to other clients so they can update remote action buffers for
+/// prediction.
+///
+/// [`Action`]: bevy_enhanced_input::prelude::Action
 /// [`BEIStateSequence`]: crate::input_message::BEIStateSequence
 /// [`ActionOf<C>`]: bevy_enhanced_input::prelude::ActionOf
+/// [`InputMarker`]: crate::marker::InputMarker
 /// [`PreSpawned`]: lightyear_replication::prelude::PreSpawned
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
@@ -118,10 +137,8 @@ impl<
         #[cfg(feature = "client")]
         {
             use crate::marker::{
-                add_input_marker_from_authority, add_input_marker_from_binding,
-                add_input_marker_from_confirmed_controlled_action,
-                add_input_marker_from_network_action, add_input_marker_from_parent,
-                propagate_input_marker,
+                add_input_marker_from_binding, add_input_marker_from_parent,
+                add_input_marker_when_action_becomes_ready, propagate_input_marker,
             };
             // for rebroadcasting inputs, we insert TriggerState (which inserts the InputBuffer) when ActionOf<C> is added
             // on an entity
@@ -130,9 +147,7 @@ impl<
             app.add_observer(propagate_input_marker::<C>);
             app.add_observer(add_input_marker_from_parent::<C>);
             app.add_observer(add_input_marker_from_binding::<C>);
-            app.add_observer(add_input_marker_from_authority::<C>);
-            app.add_observer(add_input_marker_from_network_action::<C>);
-            app.add_observer(add_input_marker_from_confirmed_controlled_action::<C>);
+            app.add_observer(add_input_marker_when_action_becomes_ready::<C>);
 
             if self.config.rebroadcast_inputs {
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
@@ -146,8 +161,6 @@ impl<
                     InputRegistryPlugin::mock_non_host_owned_actions_on_controlled_by::<C>,
                 );
             }
-
-            app.add_observer(InputRegistryPlugin::add_action_of_replicate::<C>);
 
             app.add_plugins(lightyear_inputs::client::ClientInputPlugin::<
                 BEIStateSequence<C>,

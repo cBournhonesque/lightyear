@@ -10,7 +10,7 @@ use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use {
     bevy_enhanced_input::context::ExternallyMocked,
     lightyear_connection::client::Client,
-    lightyear_replication::prelude::{Controlled, ControlledBy, Replicate},
+    lightyear_replication::prelude::{Controlled, ControlledBy},
 };
 
 use bevy_enhanced_input::prelude::*;
@@ -41,6 +41,27 @@ use {
 
 pub struct InputRegistryPlugin;
 
+/// Replication-facing mirror of [`ActionOf<C>`].
+///
+/// BEI's [`ActionOf<C>`] stores the context entity in the local world's entity
+/// namespace. That is not always the entity the receiver needs: a client-side
+/// action may point at a client-local predicted or prespawned context, while
+/// the server must receive the corresponding server entity.
+///
+/// Before replication, [`mirror_action_of_for_replication`] resolves the local
+/// context through the available entity maps and stores the remote-side context
+/// entity here. After replication, [`insert_action_of_from_network`] maps this
+/// value back into the receiver's local world and recreates [`ActionOf<C>`].
+///
+/// This component intentionally does not implement `MapEntities`. Replicon's
+/// serializer only has Replicon's mapping context, while this path may need
+/// Lightyear's message entity map or the server entity map, and some action
+/// entities are created before those maps are populated. Mapping is therefore
+/// done explicitly by the mirror/resolve systems instead of by component-level
+/// `MapEntities`.
+///
+/// [`mirror_action_of_for_replication`]: InputRegistryPlugin::mirror_action_of_for_replication
+/// [`insert_action_of_from_network`]: InputRegistryPlugin::insert_action_of_from_network
 #[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct NetworkActionOf<C> {
     entity: Entity,
@@ -61,6 +82,19 @@ impl<C> NetworkActionOf<C> {
 }
 
 impl InputRegistryPlugin {
+    /// Mirrors a local [`ActionOf<C>`] into [`NetworkActionOf<C>`] so action
+    /// entities can be replicated with an entity reference the receiver can
+    /// resolve.
+    ///
+    /// The mirrored entity is deliberately the remote-side context entity, not
+    /// the raw [`ActionOf<C>`] target from this world. For example, when a
+    /// client spawns a prespawned action for a replicated context, its
+    /// [`ActionOf<C>`] points at the client's local context entity, but the
+    /// server needs the server entity. If that mapping is not available when
+    /// the component is added, [`resolve_pending_network_action_of`] retries
+    /// after replication receive has had a chance to populate the maps.
+    ///
+    /// [`resolve_pending_network_action_of`]: InputRegistryPlugin::resolve_pending_network_action_of
     pub(crate) fn mirror_action_of_for_replication<C: Component>(
         trigger: On<Add, ActionOf<C>>,
         action_of: Query<&ActionOf<C>, Without<Remote>>,
@@ -89,6 +123,31 @@ impl InputRegistryPlugin {
             .insert(NetworkActionOf::<C>::new(remote_entity));
     }
 
+    /// Retries [`ActionOf<C>`] -> [`NetworkActionOf<C>`] mirroring for local
+    /// action entities whose context could not be mapped when [`ActionOf<C>`]
+    /// was first added.
+    ///
+    /// This commonly happens when the action is spawned against a replicated or
+    /// prespawned context before Replicon/Lightyear have populated the relevant
+    /// entity maps for that context. The observer path only runs once, so this
+    /// system runs after replication receive and fills in [`NetworkActionOf<C>`]
+    /// as soon as the remote-side context entity becomes known.
+    ///
+    /// For purely local contexts we may mirror the context entity directly. For
+    /// contexts carrying [`Remote`], identity fallback is not allowed because the
+    /// local entity id is explicitly a receiver-local id and would not be
+    /// meaningful to the peer.
+    ///
+    /// This retry was less important in the old client-to-server action
+    /// replication flow, where [`ActionOf<C>`] itself was serialized as part of
+    /// a concrete outgoing replication message. In that setup, entity mapping
+    /// happened at send time with that connection's mapper, and the receiver
+    /// created the action entity from the replicated component. With the
+    /// prespawned flow, both worlds can spawn the action entity before the
+    /// prespawn/context mapping has settled, while [`NetworkActionOf<C>`] is an
+    /// ordinary component that must exist before the action relationship can be
+    /// replicated or rebroadcast. The add-observer only fires once, so this
+    /// system fills in the mirror once the mapping appears.
     pub(crate) fn resolve_pending_network_action_of<C: Component>(
         pending: Query<(Entity, &ActionOf<C>), (Without<NetworkActionOf<C>>, Without<Remote>)>,
         remote_contexts: Query<(), With<Remote>>,
@@ -114,6 +173,20 @@ impl InputRegistryPlugin {
         }
     }
 
+    /// Recreates BEI's local [`ActionOf<C>`] relationship when a replicated
+    /// action entity receives [`NetworkActionOf<C>`].
+    ///
+    /// [`NetworkActionOf<C>`] stores the sender/authoritative context entity.
+    /// This observer maps that entity into this world's local context entity and
+    /// inserts [`ActionOf<C>`], allowing BEI's relationship hooks to add the
+    /// action to the context's [`Actions<C>`] collection.
+    ///
+    /// If the context mapping is not known yet, the observer leaves the entity
+    /// unchanged and [`resolve_pending_action_of`] retries after replication
+    /// receive. The query is limited to replicated action entities (`With<Remote>`)
+    /// because local action entities already have their own [`ActionOf<C>`].
+    ///
+    /// [`resolve_pending_action_of`]: InputRegistryPlugin::resolve_pending_action_of
     pub(crate) fn insert_action_of_from_network<C: Component>(
         trigger: On<Add, NetworkActionOf<C>>,
         query: Query<&NetworkActionOf<C>, (Without<ActionOf<C>>, With<Remote>)>,
@@ -143,6 +216,20 @@ impl InputRegistryPlugin {
         }
     }
 
+    /// Retries [`NetworkActionOf<C>`] -> [`ActionOf<C>`] reconstruction for
+    /// replicated action entities whose context could not be mapped when
+    /// [`NetworkActionOf<C>`] was first received.
+    ///
+    /// The serialized [`NetworkActionOf<C>`] stores the sender/authoritative
+    /// context entity. The receiver needs a local context entity before BEI can
+    /// attach the action to an [`Actions<C>`] collection. Replication can create
+    /// the action entity before the corresponding context mapping is visible, so
+    /// the add-observer may have to defer and this system retries after
+    /// replication receive has updated the maps.
+    ///
+    /// Host-client and server worlds may use identity mapping for entities that
+    /// already live in the same world. Remote clients do not, because an
+    /// unmapped remote entity id must not be interpreted as a local context.
     pub(crate) fn resolve_pending_action_of<C: Component>(
         pending: Query<(Entity, &NetworkActionOf<C>), (Without<ActionOf<C>>, With<Remote>)>,
         entity_map: Option<Res<ServerEntityMap>>,
@@ -242,40 +329,6 @@ impl InputRegistryPlugin {
         }
     }
 
-    /// When an [`ActionOf<C>`] component is added to an entity (usually on the client),
-    /// we add Replicate to it so that the action entity is also created on the server.
-    ///
-    /// PreSpawned Actions must be replicated from server to client.
-    /// No need to change anything about ActionOf because the Context and Action will be received at the same time,
-    /// so the entity mapping in ActionOf will work properly.
-    #[cfg(feature = "client")]
-    pub(crate) fn add_action_of_replicate<C: Component>(
-        trigger: On<Add, NetworkActionOf<C>>,
-        server: Query<(), (With<Server>, With<Started>)>,
-        // we don't want to add Replicate on action entities that were already received
-        // PreSpawned entities are replicated from server to client
-        action: Query<
-            &ActionOf<C>,
-            (
-                With<NetworkActionOf<C>>,
-                Without<Remote>,
-                Without<PreSpawned>,
-            ),
-        >,
-        mut commands: Commands,
-    ) {
-        if server.single().is_ok() {
-            // we're on the server, don't do anything
-            return;
-        }
-        let entity = trigger.entity;
-        if let Ok(action_of) = action.get(entity) {
-            let context_entity = action_of.get();
-            debug!(action_entity = ?entity, "Replicating ActionOf<{:?}> for context entity {context_entity:?} from client to server", DebugName::type_name::<C>());
-            commands.entity(entity).insert((Replicate::to_server(),));
-        }
-    }
-
     /// When the server receives [`ActionOf`], optionally rebroadcast to other clients if rebroadcast_inputs is enabled
     #[cfg(feature = "server")]
     pub(crate) fn on_action_of_replicated<C: Component>(
@@ -359,6 +412,10 @@ fn resolve_remote_entity<'a>(
         return Some(*remote_entity);
     }
 
+    // There can be several connections in one world: a server has one
+    // MessageManager per ClientOf, and host-server worlds also have the
+    // HostClient manager. The action-context entity may have been mapped by any
+    // active connection, so use the first manager that knows it.
     managers.find_map(|manager| manager.entity_mapper.get_remote(local_entity))
 }
 
@@ -385,9 +442,10 @@ fn resolve_local_entity<'a>(
         return Some(*local_entity);
     }
 
-    if let Some(local_entity) =
-        managers.find_map(|manager| manager.entity_mapper.get_local(remote_entity))
-    {
+    // See resolve_remote_entity: this system is topology-agnostic and can run
+    // in worlds with multiple per-connection MessageManagers.
+    let local_entity = managers.find_map(|manager| manager.entity_mapper.get_local(remote_entity));
+    if let Some(local_entity) = local_entity {
         return Some(local_entity);
     }
 
@@ -396,7 +454,17 @@ fn resolve_local_entity<'a>(
         .flatten()
 }
 
-// we don't care about the actual data in Action<A>, so nothing to serialize
+/// Serializes only the presence and type of [`Action<A>`].
+///
+/// The value stored inside BEI's [`Action<A>`] is local runtime state. Lightyear
+/// sends that state through [`BEIStateSequence`](crate::input_message::BEIStateSequence),
+/// whose snapshots include the trigger state, action value, events, and timing.
+/// Relationship data is handled separately by mirroring [`ActionOf`] into
+/// [`NetworkActionOf`]. Therefore component replication only needs to create
+/// the correctly typed action component on the receiver, and
+/// [`deserialize_action`] can rebuild it from `Default`.
+///
+/// [`ActionOf`]: bevy_enhanced_input::prelude::ActionOf
 fn serialize_action<A: InputAction>(
     _ctx: &mut SerializeCtx,
     _: &Action<A>,

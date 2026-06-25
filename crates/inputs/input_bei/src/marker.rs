@@ -78,15 +78,15 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
 
 /// If Bindings or ActionMock is added to an Action entity, add the InputMarker to that Action entity.
 /// Only add the marker on locally controlled action entities that already have a network-facing
-/// action mapping. This avoids emitting inputs for entities that the server cannot resolve yet.
+/// action mapping, or on confirmed prespawned actions that already resolved through replication.
+/// This avoids emitting inputs for entities that the server cannot resolve yet.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
     trigger: On<Add, (Bindings, ActionMock)>,
     action: Query<
         &ActionOf<C>,
         (
-            With<ActionOf<C>>,
-            With<NetworkActionOf<C>>,
-            Without<ConfirmHistory>,
+            Or<(With<NetworkActionOf<C>>, With<ConfirmHistory>)>,
+            Without<InputMarker<C>>,
         ),
     >,
     contexts: Query<Option<&ControlledBy>, With<Controlled>>,
@@ -102,63 +102,23 @@ pub(crate) fn add_input_marker_from_binding<C: Component>(
     }
 }
 
-/// If authority is granted after the action entity already exists, add the InputMarker
-/// once the entity becomes locally controlled.
-pub(crate) fn add_input_marker_from_authority<C: Component>(
-    trigger: On<Add, HasAuthority>,
+/// If an existing bound action becomes network-ready, authority-ready, or is
+/// confirmed through prespawn matching, add the InputMarker once it targets the
+/// local client.
+pub(crate) fn add_input_marker_when_action_becomes_ready<C: Component>(
+    trigger: On<Add, (NetworkActionOf<C>, HasAuthority, ConfirmHistory)>,
     action: Query<
         &ActionOf<C>,
         (
-            With<ActionOf<C>>,
-            With<NetworkActionOf<C>>,
+            // This is only a real guard for the HasAuthority trigger. The
+            // NetworkActionOf and ConfirmHistory triggers satisfy it by
+            // construction, but HasAuthority alone is not enough to send
+            // inputs: the action also needs a target the receiver can resolve.
+            Or<(With<NetworkActionOf<C>>, With<ConfirmHistory>)>,
             Or<(With<Bindings>, With<ActionMock>)>,
-            Without<ConfirmHistory>,
+            Without<InputMarker<C>>,
         ),
     >,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    clients: Query<(), With<Client>>,
-    mut commands: Commands,
-) {
-    if let Ok(action_of) = action.get(trigger.entity)
-        && action_targets_local_client(action_of, &contexts, &clients)
-    {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
-    }
-}
-
-/// If the network-facing action mapping becomes available after the entity already has bindings,
-/// start treating it as a local input source at that point.
-pub(crate) fn add_input_marker_from_network_action<C: Component>(
-    trigger: On<Add, NetworkActionOf<C>>,
-    action: Query<
-        &ActionOf<C>,
-        (
-            With<ActionOf<C>>,
-            With<NetworkActionOf<C>>,
-            Or<(With<Bindings>, With<ActionMock>)>,
-            Without<ConfirmHistory>,
-        ),
-    >,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    clients: Query<(), With<Client>>,
-    mut commands: Commands,
-) {
-    if let Ok(action_of) = action.get(trigger.entity)
-        && action_targets_local_client(action_of, &contexts, &clients)
-    {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
-    }
-}
-
-/// If a prespawned action entity is confirmed but still targets a locally controlled context,
-/// keep using it as a local input source.
-pub(crate) fn add_input_marker_from_confirmed_controlled_action<C: Component>(
-    trigger: On<Add, ConfirmHistory>,
-    action: Query<&ActionOf<C>, (With<ConfirmHistory>, Or<(With<Bindings>, With<ActionMock>)>)>,
     contexts: Query<Option<&ControlledBy>, With<Controlled>>,
     clients: Query<(), With<Client>>,
     mut commands: Commands,
