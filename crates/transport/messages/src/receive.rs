@@ -67,6 +67,19 @@ pub struct ReceivedMessage<M: Message> {
     pub message_id: Option<MessageId>,
 }
 
+/// Read-only per-message metadata handed to
+/// [`MessageReceiver::retain_received_messages`] validators alongside `&mut`
+/// access to the message data.
+#[derive(Debug, Clone, Copy)]
+pub struct MessageMetadata {
+    /// Tick on the remote peer when the message was sent.
+    pub remote_tick: Tick,
+    /// Channel the message was sent on.
+    pub channel_kind: ChannelKind,
+    /// MessageId of the message, if the channel assigns one.
+    pub message_id: Option<MessageId>,
+}
+
 impl<M: Message> Default for MessageReceiver<M> {
     fn default() -> Self {
         Self { recv: Vec::new() }
@@ -88,6 +101,42 @@ impl<M: Message> MessageReceiver<M> {
     /// Take all messages from the [`MessageReceiver<M>`], deserialize them, and return them
     pub fn receive_with_tick(&mut self) -> impl Iterator<Item = ReceivedMessage<M>> {
         self.recv.drain(..)
+    }
+
+    /// Mutate and/or drop the buffered messages in place, *before* they are
+    /// consumed by the receiving system.
+    ///
+    /// This is the hook for validation/sanitization systems that run between
+    /// message receipt and whatever consumes the messages (e.g. server-side
+    /// input validation between `MessageSystems::Receive` and the input-buffer
+    /// apply). Returning `false` from `keep` drops that message; mutating the
+    /// `&mut M` rewrites it. Per-message metadata (remote tick, channel,
+    /// message id) is preserved automatically — unlike drain-then-re-push.
+    pub fn retain_messages(&mut self, mut keep: impl FnMut(&mut M) -> bool) {
+        self.recv.retain_mut(|received| keep(&mut received.data));
+    }
+
+    /// Like [`retain_messages`](Self::retain_messages), but the predicate also
+    /// gets the per-message [`MessageMetadata`] (`remote_tick`, `channel_kind`,
+    /// `message_id`) that `retain_messages` hides.
+    ///
+    /// Use this when validation needs the metadata, e.g. rate limiting,
+    /// tick-window / staleness checks, replay diagnostics, or per-channel
+    /// policy. The metadata is passed **by value (read-only)** — only the
+    /// message data is `&mut` (mutate to rewrite, return `false` to drop) — so a
+    /// validator can't accidentally rewrite the wire metadata.
+    pub fn retain_received_messages(
+        &mut self,
+        mut keep: impl FnMut(MessageMetadata, &mut M) -> bool,
+    ) {
+        self.recv.retain_mut(|received| {
+            let metadata = MessageMetadata {
+                remote_tick: received.remote_tick,
+                channel_kind: received.channel_kind,
+                message_id: received.message_id,
+            };
+            keep(metadata, &mut received.data)
+        });
     }
 
     pub fn num_messages(&self) -> usize {

@@ -116,10 +116,46 @@ pub type InputSet = InputSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
+    /// Validate / sanitize received [`InputMessage`]s before they are applied to
+    /// the [`InputBuffer`]. Runs after `MessageSystems::Receive` and before
+    /// [`Self::ReceiveInputs`]. Empty by default — add systems here (see
+    /// [`InputValidationAppExt::add_input_validator`]) that mutate or drop
+    /// messages via [`MessageReceiver::retain_messages`]. A game that wants to
+    /// authorize input targets against `ControlledBy` can do so here.
+    ValidateInputs,
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
     /// Use the ActionDiff received from the client to update the `ActionState`
     UpdateActionState,
+}
+
+/// App-builder helper to register a server-side input-validation system.
+///
+/// The system runs in [`InputSystems::ValidateInputs`] — after messages are
+/// received, before they are buffered — so it can mutate or drop them with full
+/// ECS access (any `SystemParam`). It typically queries
+/// `Query<&mut MessageReceiver<InputMessage<S>>>` and calls
+/// [`MessageReceiver::retain_messages`]. This is sugar for
+/// `app.add_systems(PreUpdate, system.in_set(InputSystems::ValidateInputs))`.
+///
+/// Validators in the set are unordered relative to each other. To make one run
+/// before another, pass an ordered config — e.g.
+/// `app.add_input_validator(my_validator.after(other_validator))`.
+pub trait InputValidationAppExt {
+    fn add_input_validator<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<bevy_ecs::system::ScheduleSystem, M>,
+    ) -> &mut Self;
+}
+
+impl InputValidationAppExt for App {
+    fn add_input_validator<M>(
+        &mut self,
+        systems: impl IntoScheduleConfigs<bevy_ecs::system::ScheduleSystem, M>,
+    ) -> &mut Self {
+        self.add_systems(PreUpdate, systems.in_set(InputSystems::ValidateInputs));
+        self
+    }
 }
 
 /// Component that is used to customize how inputs will be rebroadcasted
@@ -169,7 +205,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         //  - but host-server broadcasting their inputs only updates `state`
         app.configure_sets(
             PreUpdate,
-            (MessageSystems::Receive, InputSystems::ReceiveInputs).chain(),
+            (
+                MessageSystems::Receive,
+                InputSystems::ValidateInputs,
+                InputSystems::ReceiveInputs,
+            )
+                .chain(),
         );
         app.configure_sets(FixedPreUpdate, InputSystems::UpdateActionState);
 
