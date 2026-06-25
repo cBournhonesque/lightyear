@@ -270,12 +270,23 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 /// and we will pull ActionStates from the buffer instead of just using the ActionState component directly.
 ///
 /// We do not need to buffer inputs during rollback, as they have already been buffered!
+///
+/// We only buffer inputs after the timelines have synced, otherwise it would be possible to buffer
+/// inputs that would not arrive on time in the server (i.e. the server would simulate tick T
+/// before receiving the input for tick T).
 fn buffer_action_state<S: ActionStateSequence>(
     local_timeline: Res<LocalTimeline>,
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    input_timeline: Single<(Entity, &InputTimeline), (With<Client>, Without<Rollback>)>,
+    input_timeline: Single<
+        (Entity, &InputTimeline),
+        (
+            With<Client>,
+            With<IsSynced<InputTimeline>>,
+            Without<Rollback>,
+        ),
+    >,
     mut action_state_query: Query<
         (
             Entity,
