@@ -71,7 +71,7 @@ impl<M: Event> EventSender<M> {
     /// - the `trigger_sender` must be of type [`EventSender<M>`]
     pub(crate) unsafe fn send_local_trigger_typed(
         trigger_sender: MutUntyped,
-        commands: &mut Commands,
+        commands: &ParallelCommands,
     ) {
         // SAFETY:  the `trigger_sender` must be of type `EventSender<M>`
         let mut sender = unsafe { trigger_sender.with_type::<Self>() };
@@ -85,7 +85,9 @@ impl<M: Event> EventSender<M> {
                     // TODO: how to get the correct PeerId here?
                     from: PeerId::Local(0),
                 };
-                commands.trigger(remote_trigger);
+                commands.command_scope(|mut c| {
+                    c.trigger(remote_trigger);
+                });
             });
     }
 
@@ -116,7 +118,7 @@ pub(crate) type SendTriggerFn = unsafe fn(
 ) -> Result<(), MessageError>;
 
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type
-pub(crate) type SendLocalTriggerFn = unsafe fn(sender: MutUntyped, commands: &mut Commands);
+pub(crate) type SendLocalTriggerFn = unsafe fn(sender: MutUntyped, commands: &ParallelCommands);
 
 impl<M: Event> EventSender<M> {
     /// Buffers a trigger `M` to be sent over the specified channel to the target entities.

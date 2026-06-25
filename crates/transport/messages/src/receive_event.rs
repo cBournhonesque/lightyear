@@ -2,7 +2,7 @@ use crate::Message;
 use crate::registry::MessageError;
 use bevy_ecs::entity::Entity;
 use bevy_ecs::event::EntityEvent;
-use bevy_ecs::{event::Event, system::Commands};
+use bevy_ecs::{event::Event, system::ParallelCommands};
 use bevy_utils::prelude::DebugName;
 use lightyear_core::tick::Tick;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -29,7 +29,7 @@ impl<M: EntityEvent> EntityEvent for RemoteEvent<M> {
 }
 
 pub(crate) type ReceiveTriggerFn = unsafe fn(
-    commands: &mut Commands,
+    commands: &ParallelCommands,
     reader: &mut Reader,
     channel_kind: ChannelKind,
     channel_name: &'static str,
@@ -45,7 +45,7 @@ pub(crate) type ReceiveTriggerFn = unsafe fn(
 /// SAFETY: The `reader` must contain a valid serialized `TriggerEvent<M>`.
 /// The `serialize_metadata` must correspond to the `TriggerEvent<M>` type.
 pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
-    commands: &mut Commands,
+    commands: &ParallelCommands,
     reader: &mut Reader,
     _channel_kind: ChannelKind,
     _channel_name: &'static str,
@@ -65,6 +65,8 @@ pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
         trigger: message,
         from,
     };
-    commands.trigger(trigger);
+    commands.command_scope(|mut c| {
+        c.trigger(trigger);
+    });
     Ok(())
 }

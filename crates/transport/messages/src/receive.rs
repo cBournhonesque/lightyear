@@ -9,7 +9,7 @@ use bevy_ecs::{
     entity::Entity,
     event::Event,
     query::With,
-    system::{Commands, Query, Res},
+    system::{ParallelCommands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
 use lightyear_core::tick::Tick;
@@ -186,7 +186,7 @@ impl MessagePlugin {
         tick: Tick,
         message_id: Option<MessageId>,
         message_manager: &mut MessageManager,
-        commands: &mut Commands,
+        commands: &ParallelCommands,
         remote_peer_id: PeerId,
     ) -> Result<(), MessageError> {
         trace!(
@@ -284,13 +284,13 @@ impl MessagePlugin {
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
         channel_registry: Res<ChannelRegistry>,
-        mut commands: Commands,
+        commands: ParallelCommands,
     ) {
         let tick = timeline.tick();
         // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
         // on potentially different entities in parallel (though the current loop isn't parallel)
         let receiver_query = Arc::new(receiver_query);
-        transport_query.iter_mut().for_each(
+        transport_query.par_iter_mut().for_each(
             |(
                 entity,
                 mut message_manager,
@@ -324,7 +324,7 @@ impl MessagePlugin {
                                         tick,
                                         None,
                                         &mut message_manager,
-                                        &mut commands,
+                                        &commands,
                                         remote_peer_id.0,
                                     )
                                 },
@@ -353,7 +353,7 @@ impl MessagePlugin {
                                     tick,
                                     message_id,
                                     &mut message_manager,
-                                    &mut commands,
+                                    &commands,
                                     remote_peer_id.0,
                                 )?;
                             }
