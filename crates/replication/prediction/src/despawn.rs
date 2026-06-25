@@ -33,7 +33,9 @@ pub struct PredictionDespawnCommand {
 pub struct PredictionDisable;
 
 impl Command for PredictionDespawnCommand {
-    fn apply(self, world: &mut World) {
+    type Out = ();
+
+    fn apply(self, world: &mut World) -> Self::Out {
         // if we are the server (or host-client), there is no rollback so we can despawn the entity immediately
         if world
             .get_resource::<PredictionResource>()

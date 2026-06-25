@@ -9,7 +9,7 @@ use crate::client_server::deterministic::protocol::DetProtocolPlugin;
 use avian2d::prelude::*;
 use bevy::MinimalPlugins;
 use bevy::app::PluginsState;
-use bevy::ecs::schedule::ExecutorKind;
+use bevy::ecs::schedule::SingleThreadedExecutor;
 use bevy::input::InputPlugin;
 use bevy::log::LogPlugin;
 use bevy::prelude::*;
@@ -97,13 +97,13 @@ impl DetStepper {
             tick_duration: self.tick_duration,
         });
         client_app.edit_schedule(PreUpdate, |schedule| {
-            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+            schedule.set_executor(SingleThreadedExecutor::new());
         });
         client_app.edit_schedule(Update, |schedule| {
-            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+            schedule.set_executor(SingleThreadedExecutor::new());
         });
         client_app.edit_schedule(PostUpdate, |schedule| {
-            schedule.set_executor_kind(ExecutorKind::SingleThreaded);
+            schedule.set_executor(SingleThreadedExecutor::new());
         });
         // `ChecksumSendPlugin` is auto-registered by `client::ClientPlugins`
         // when the `deterministic` feature is enabled on `lightyear`.

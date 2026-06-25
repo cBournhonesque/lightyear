@@ -138,6 +138,7 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     );
                     return false;
                 };
+                let interpolation_overstep = Scalar::from(interpolation_overstep);
                 // we assume that the collider itself doesn't change so we don't need to interpolate it
                 let interpolated_position =
                     start_position.lerp(**target_position, interpolation_overstep);
@@ -145,9 +146,9 @@ impl LagCompensationSpatialQuery<'_, '_> {
                     start_rotation.slerp(*target_rotation, interpolation_overstep);
 
                 #[cfg(all(feature = "2d", not(feature = "3d")))]
-                let dir = direction.as_vec2();
+                let dir = direction.as_vec2().adjust_precision();
                 #[cfg(all(feature = "3d", not(feature = "2d")))]
-                let dir = direction.as_vec3();
+                let dir = direction.as_vec3().adjust_precision();
 
                 if let Some((distance, normal)) = collider.cast_ray(
                     interpolated_position,

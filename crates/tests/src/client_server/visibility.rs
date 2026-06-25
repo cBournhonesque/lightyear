@@ -356,7 +356,7 @@ fn test_visibility_persists_on_replication_target_change() {
         "client 1 should not see the entity after lose_visibility"
     );
 
-    // re-insert Replicate targeting all clients (triggers on_replace + on_insert)
+    // re-insert Replicate targeting all clients (triggers on_discard + on_insert)
     stepper
         .server_app
         .world_mut()

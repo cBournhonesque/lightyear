@@ -5,7 +5,7 @@ use crate::input_buffer::{Compressed, InputBuffer};
 use alloc::{format, string::String, vec, vec::Vec};
 use bevy_app::App;
 use bevy_ecs::bundle::Bundle;
-use bevy_ecs::query::QueryData;
+use bevy_ecs::query::{IterQueryData, QueryData};
 use bevy_ecs::{
     component::Component,
     entity::{Entity, EntityMapper, MapEntities},
@@ -62,7 +62,7 @@ pub trait InputSnapshot: Send + Sync + Debug + Clone + PartialEq + Default + 'st
 pub trait ActionStateQueryData {
     // The mutable QueryData that allows modifying the ActionState.
     // If the ActionState is a single component, then this is simply `&'static mut Self`.
-    type Mut: QueryData;
+    type Mut: QueryData + IterQueryData;
 
     // The inner value corresponding to Self::Mut::Item<'w, 's> (i.e. for Mut<'w, 's, ActionState<A>, this is &'mut ActionState<A>)
     type MutItemInner<'w>;

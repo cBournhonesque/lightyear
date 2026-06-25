@@ -20,6 +20,7 @@ use crate::rollback::DisabledDuringRollback;
 use alloc::format;
 use bevy_app::FixedPreUpdate;
 use bevy_app::prelude::*;
+use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
@@ -103,7 +104,7 @@ pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
 /// As a side note, the `Time<Fixed>` resource is already rollbacked internally
 /// by lightyear so that it can be used accurately within systems within the
 /// `FixedMain` schedule during a rollback.
-pub fn add_resource_rollback_systems<R: Resource + Clone>(app: &mut App) {
+pub fn add_resource_rollback_systems<R: Resource<Mutability = Mutable> + Clone>(app: &mut App) {
     // TODO: add these registrations if the type is reflect
     // app.register_type::<HistoryState<R>>();
     // app.register_type::<ResourceHistory<R>>();

@@ -6,7 +6,7 @@ use bevy_ecs::change_detection::Tick;
 use bevy_ecs::component::{ComponentId, StorageType};
 use bevy_ecs::prelude::World;
 use bevy_ecs::query::{FilteredAccess, FilteredAccessSet};
-use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam};
+use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use lightyear_prediction::prelude::PredictionRegistry;
 use lightyear_prediction::registry::PopUntilTickAndHashFn;
@@ -149,7 +149,7 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
         world: &mut World,
     ) {
         let mut filtered_access = FilteredAccess::default();
-        filtered_access.add_component_read(state.marker_id);
+        filtered_access.add_read(state.marker_id);
         // Exclude entities with DisableRollback from the checksum calculation since they won't have a PredictionHistory?
         if HISTORY {
             filtered_access.and_without(state.disable_rollback_id);
@@ -160,17 +160,17 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
                 // the component is a PredictionHistory
                 // TODO: for non-full components, just fetch the component value directly
                 // We need write access because we will call `pop_until_tick` on the history component
-                filtered_access.add_component_write(*component_id);
+                filtered_access.add_write(*component_id);
                 assert!(
-                    !combined_access.has_component_read(*component_id),
+                    !combined_access.has_read(*component_id),
                     "replicated component `{}` in system `{}` shouldn't be in conflict with other system parameters",
                     world.components().get_name(*component_id).unwrap(),
                     system_meta.name(),
                 );
             } else {
-                filtered_access.add_component_read(*component_id);
+                filtered_access.add_read(*component_id);
                 assert!(
-                    !combined_access.has_component_write(*component_id),
+                    !combined_access.has_write(*component_id),
                     "replicated component `{}` in system `{}` shouldn't be in conflict with other system parameters",
                     world.components().get_name(*component_id).unwrap(),
                     system_meta.name(),
@@ -186,8 +186,8 @@ unsafe impl<const HISTORY: bool> SystemParam for ChecksumWorld<'_, '_, HISTORY> 
         _system_meta: &SystemMeta,
         world: UnsafeWorldCell<'world>,
         _change_tick: Tick,
-    ) -> Self::Item<'world, 'state> {
-        ChecksumWorld { world, state }
+    ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        Ok(ChecksumWorld { world, state })
     }
 }
 

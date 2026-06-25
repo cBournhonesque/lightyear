@@ -11,7 +11,7 @@ use bevy_ecs::{
     component::Component,
     entity::Entity,
     query::{With, Without},
-    system::{ParallelCommands, Query, Res},
+    system::{Commands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
 use bevy_reflect::Reflect;
@@ -320,7 +320,7 @@ impl MessagePlugin {
         >,
         // MessageSender<M>/MessageReceiver<M>/TriggerSender<M> present on that entity
         message_components_query: Query<FilteredEntityMut>,
-        commands: ParallelCommands,
+        mut commands: Commands,
         registry: Res<MessageRegistry>,
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M>/MessageReceiver<M> components
@@ -328,7 +328,7 @@ impl MessagePlugin {
         let tick = timeline.tick();
         let message_components_query = Arc::new(message_components_query);
         manager_query
-            .par_iter_mut()
+            .iter_mut()
             .for_each(|(entity, mut message_manager)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query =
@@ -394,7 +394,7 @@ impl MessagePlugin {
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
-                            (send_metadata.send_local_trigger_fn)(message_sender, &commands);
+                            (send_metadata.send_local_trigger_fn)(message_sender, &mut commands);
                         }
                         Ok::<_, MessageError>(())
                     })

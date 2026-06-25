@@ -25,12 +25,16 @@ gui2d = [
   "bevy/2d",
   "bevy/2d_bevy_render",
   "bevy/2d_api",
+  "bevy/bevy_text",
+  "bevy/bevy_ui",
 ]
 gui3d = [
   "dep:bevy-inspector-egui",
   "bevy/3d",
   "bevy/3d_bevy_render",
   "bevy/3d_api",
+  "bevy/bevy_text",
+  "bevy/bevy_ui",
 ]
 
 [dependencies]

@@ -2,6 +2,7 @@
 use bevy_app::{App, Plugin};
 use core::time::Duration;
 use lightyear_core::plugin::CorePlugins;
+#[cfg(feature = "replication")]
 use lightyear_replication::LightyearRepliconBackend;
 
 pub struct SharedPlugins {

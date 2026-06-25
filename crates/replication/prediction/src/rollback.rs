@@ -45,6 +45,7 @@ use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
 use bevy_app::FixedMain;
 use bevy_app::prelude::*;
+use bevy_ecs::component::Mutable;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::ScheduleLabel;
@@ -1011,7 +1012,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
 }
 
 // Revert `resource` to its value at the tick that the incoming rollback will rollback to.
-pub(crate) fn prepare_rollback_resource<R: Resource + Clone>(
+pub(crate) fn prepare_rollback_resource<R: Resource<Mutability = Mutable> + Clone>(
     mut commands: Commands,
     prediction_manager: Single<&PredictionManager, With<Rollback>>,
     resource: Option<ResMut<R>>,

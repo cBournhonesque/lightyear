@@ -16,7 +16,7 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 
 1. **Transport bridge** (`server.rs`, `client.rs`): Lightyear's Transport channel system feeds packets into replicon's `ServerMessages`/`ClientMessages` resources. Three replicon channels (Updates, Mutations, MutationAcks) are registered as regular lightyear transport channels via `RepliconChannelMap`.
 
-2. **Replication targets** (`send.rs`): `Replicate`, `PredictionTarget`, and `InterpolationTarget` use bevy component hooks (`on_insert`/`on_replace`) to configure replicon's `ClientVisibility` and `VisibilityFilter` per-entity per-client. This replaces the old `ReplicationSender` change-tracking approach.
+2. **Replication targets** (`send.rs`): `Replicate`, `PredictionTarget`, and `InterpolationTarget` use bevy component hooks (`on_insert`/`on_discard`) to configure replicon's `ClientVisibility` and `VisibilityFilter` per-entity per-client. This replaces the old `ReplicationSender` change-tracking approach.
 
 3. **Prediction integration** (`registry.rs` in `lightyear_prediction`): Components registered with `.predict()` use replicon's marker system — `Predicted` is registered as a marker with custom `write_history` / `remove_history` functions that store confirmed values in `PredictionHistory<C>` and detect mismatches for rollback.
 
@@ -35,7 +35,7 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 
 | File | Purpose |
 |------|---------|
-| `crates/replication/replication/src/send.rs` | Core replication logic: `Replicate`, `PredictionTarget`, `InterpolationTarget` with on_insert/on_replace hooks, visibility management, `SendPlugin` |
+| `crates/replication/replication/src/send.rs` | Core replication logic: `Replicate`, `PredictionTarget`, `InterpolationTarget` with on_insert/on_discard hooks, visibility management, `SendPlugin` |
 | `crates/replication/replication/src/server.rs` | Server-side replicon bridge: `receive_server_packets`, `send_server_packets`, `sync_entity_map`, `sync_server_state`, `on_client_connected` |
 | `crates/replication/replication/src/client.rs` | Client-side replicon bridge: `receive_client_packets`, `send_client_packets`, `sync_entity_map`, `sync_client_state` |
 | `crates/replication/replication/src/metadata.rs` | `ReplicationMetadata` and `SenderMetadata` types extracted from old code |
@@ -74,9 +74,9 @@ This branch (`cb/lightyear-replicon`) replaces lightyear's custom replication in
 
 2. **`ReplicationMode::Manual` implemented** — Was `unimplemented!()`, now iterates over provided entities to set visibility.
 
-3. **Entity existence guard in `on_replace`** — Deferred commands from `on_replace` hooks may execute after the entity is despawned. Added `world.get_entity(context.entity)` guards.
+3. **Entity existence guard in `on_discard`** — Deferred commands from `on_discard` hooks may execute after the entity is despawned. Added `world.get_entity(context.entity)` guards.
 
-4. **Replacement detection in `Replicate::on_replace`** — When `Replicate` is replaced (not removed), `on_replace` fires but `Replicated` should not be removed. Added `entity_ref.contains::<Replicate>()` check.
+4. **Replacement detection in `Replicate::on_discard`** — When `Replicate` is replaced (not removed), `on_discard` fires but `Replicated` should not be removed. Added `entity_ref.contains::<Replicate>()` check.
 
 5. **`Predicted`/`Interpolated` replication** — Replicon markers are NOT auto-inserted on client entities. Fixed by registering these components with `app.replicate::<T>()` so they propagate from server to client.
 

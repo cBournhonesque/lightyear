@@ -48,7 +48,7 @@ version = "0.27.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 publish = false
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 
 # Enable max optimizations for dependencies, but not for our code:
@@ -179,10 +179,10 @@ metrics = "0.24"
 metrics-util = "0.20"
 
 # transport
-aeronet_webtransport = { version = "0.20" }
-aeronet_websocket = { version = "0.20" }
-aeronet_steam = { version = "0.20" }
-aeronet_io = { version = "0.20" }
+aeronet_webtransport = { version = "0.21" }
+aeronet_websocket = { version = "0.21" }
+aeronet_steam = { version = "0.21" }
+aeronet_io = { version = "0.21" }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
   "sync",
@@ -196,7 +196,7 @@ approx = "0.5.1"
 
 # Bevy
 # (the full app is used for examples)
-bevy = { version = "0.18", default-features = false, features = [
+bevy = { version = "0.19", default-features = false, features = [
   "bevy_state",
   "bevy_log",
   "serialize",
@@ -207,56 +207,56 @@ bevy = { version = "0.18", default-features = false, features = [
   "zstd_rust",
   "keyboard",
 ] }
-bevy_app = { version = "0.18", default-features = false }
-bevy_derive = { version = "0.18", default-features = false }
-bevy_log = { version = "0.18", default-features = false }
-bevy_diagnostic = { version = "0.18", default-features = false }
-bevy_color = { version = "0.18", default-features = false }
-bevy_ecs = { version = "0.18", default-features = false }
-bevy_input = { version = "0.18", default-features = false }
-bevy_math = { version = "0.18", default-features = false }
-bevy_platform = { version = "0.18", default-features = false }
-bevy_ptr = { version = "0.18", default-features = false }
-bevy_reflect = { version = "0.18", default-features = false }
-bevy_state = { version = "0.18", default-features = false }
-bevy_text = { version = "0.18", default-features = false }
-bevy_time = { version = "0.18", default-features = false }
-bevy_transform = { version = "0.18", default-features = false }
-bevy_ui = { version = "0.18", default-features = false }
-bevy_utils = { version = "0.18", default-features = false, features = [
+bevy_app = { version = "0.19", default-features = false }
+bevy_derive = { version = "0.19", default-features = false }
+bevy_log = { version = "0.19", default-features = false }
+bevy_diagnostic = { version = "0.19", default-features = false }
+bevy_color = { version = "0.19", default-features = false }
+bevy_ecs = { version = "0.19", default-features = false }
+bevy_input = { version = "0.19", default-features = false }
+bevy_math = { version = "0.19", default-features = false }
+bevy_platform = { version = "0.19", default-features = false }
+bevy_ptr = { version = "0.19", default-features = false }
+bevy_reflect = { version = "0.19", default-features = false }
+bevy_state = { version = "0.19", default-features = false }
+bevy_text = { version = "0.19", default-features = false }
+bevy_time = { version = "0.19", default-features = false }
+bevy_transform = { version = "0.19", default-features = false }
+bevy_ui = { version = "0.19", default-features = false }
+bevy_utils = { version = "0.19", default-features = false, features = [
   "debug",
 ] }
-bevy_winit = { version = "0.18", default-features = false }
+bevy_winit = { version = "0.19", default-features = false }
 tracy-client = { version = "0.18" }
 
 # input
-bevy_enhanced_input = { version = "0.24", default-features = false, features = [
+bevy_enhanced_input = { version = "0.26", default-features = false, features = [
   "serialize",
 ] }
-leafwing-input-manager = { version = "0.20", default-features = false, features = [
+leafwing-input-manager = { version = "0.21", default-features = false, features = [
   "keyboard",
 ] }
 
 # replication
-bevy_replicon = { version = "=0.40.3" }
+bevy_replicon = { version = "0.41" }
 
 # physics
-avian2d = { version = "0.6", default-features = false }
-avian3d = { version = "0.6", default-features = false }
+avian2d = { version = "0.7", default-features = false }
+avian3d = { version = "0.7", default-features = false }
 
 # gui debug ui
-bevy-inspector-egui = { version = "0.36", default-features = false, features = [
+bevy-inspector-egui = { version = "0.37", default-features = false, features = [
   "bevy_pbr",
   "bevy_image",
   "bevy_render",
   "egui_open_url",
 ] }
-bevy_egui = { version = "0.39", default-features = false, features = [
+bevy_egui = { version = "0.40", default-features = false, features = [
   "open_url",
   "default_fonts",
   "render",
 ] }
-egui_extras = "0.33"
+egui_extras = "0.34"
 
 # WASM things
 console_error_panic_hook = "0.1.7"

@@ -1,7 +1,6 @@
 use crate::tick::Tick;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use bevy_ecs::component::Component;
 use bevy_ecs::reflect::{ReflectComponent, ReflectResource};
 use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
@@ -72,7 +71,7 @@ impl<R> HistoryState<R> {
 
 /// HistoryBuffer stores past values (usually of a Component or Resource) in a buffer, to allow for rollback
 /// The values must always remain ordered from oldest (front) to most recent (back)
-#[derive(Resource, Component, Debug, Reflect)]
+#[derive(Resource, Debug, Reflect)]
 #[reflect(Component, Resource)]
 pub struct HistoryBuffer<R> {
     // Queue containing the history of the resource.

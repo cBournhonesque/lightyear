@@ -398,7 +398,7 @@ fn resolve_local_entity<'a>(
 
 // we don't care about the actual data in Action<A>, so nothing to serialize
 fn serialize_action<A: InputAction>(
-    _ctx: &SerializeCtx,
+    _ctx: &mut SerializeCtx,
     _: &Action<A>,
     _: &mut Vec<u8>,
 ) -> bevy_ecs::error::Result<()> {
@@ -416,7 +416,7 @@ fn deserialize_action<A: InputAction>(
 /// Entity mapping is handled out-of-band before replication by mirroring [`ActionOf<C>`]
 /// into [`NetworkActionOf<C>`].
 pub(crate) fn serialize_network_action_of<C: Component>(
-    _ctx: &SerializeCtx,
+    _ctx: &mut SerializeCtx,
     action_of: &NetworkActionOf<C>,
     message: &mut Vec<u8>,
 ) -> bevy_ecs::error::Result<()> {
