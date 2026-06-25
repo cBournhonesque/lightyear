@@ -356,10 +356,9 @@ pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
             let Ok(entity_mut) = world.get_entity_mut(entity) else {
                 return;
             };
-            let confirm_last = entity_mut
+            entity_mut
                 .get::<lightyear_replication::prelude::ConfirmHistory>()
-                .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
-            confirm_last
+                .map(lightyear_replication::prelude::ConfirmHistory::last_tick)
         };
         let seed = seed_inputs.and_then(|confirm_tick| {
             let cursor = world
