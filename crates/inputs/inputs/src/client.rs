@@ -279,7 +279,14 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    input_timeline: Single<(Entity, &InputTimeline), (With<Client>, With<IsSynced<InputTimeline>>, Without<Rollback>)>,
+    input_timeline: Single<
+        (Entity, &InputTimeline),
+        (
+            With<Client>,
+            With<IsSynced<InputTimeline>>,
+            Without<Rollback>,
+        ),
+    >,
     mut action_state_query: Query<
         (
             Entity,
