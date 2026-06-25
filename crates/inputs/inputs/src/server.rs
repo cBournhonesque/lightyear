@@ -13,7 +13,6 @@ use alloc::format;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
-use bevy_ecs::relationship::RelationshipTarget;
 use bevy_ecs::{
     entity::{Entity, MapEntities},
     error::Result,
@@ -36,7 +35,6 @@ use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::MessageReceiver;
 use lightyear_messages::server::ServerMultiMessageSender;
-use lightyear_replication::control::ControlledByRemote;
 use lightyear_replication::prelude::{PreSpawned, RoomId, Rooms};
 use tracing::{debug, error, trace};
 
@@ -118,15 +116,12 @@ pub type InputSet = InputSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InputSystems {
-    /// lightyear-owned authorization: drop `InputTarget::Entity` entries the
-    /// sender is not authorized to control (`ControlledByRemote`). Runs after
-    /// `MessageSystems::Receive` and **before** [`Self::ValidateInputs`], so
-    /// user validation systems never see spoofed targets.
-    AuthorizeInputs,
-    /// Validate / sanitize received [`InputMessage`]s before they are buffered.
-    /// Runs after [`Self::AuthorizeInputs`] and before [`Self::ReceiveInputs`].
-    /// Empty by default — add systems here (see [`InputValidationAppExt::add_input_validator`])
-    /// that mutate or drop messages via [`MessageReceiver::retain_messages`].
+    /// Validate / sanitize received [`InputMessage`]s before they are applied to
+    /// the [`InputBuffer`]. Runs after `MessageSystems::Receive` and before
+    /// [`Self::ReceiveInputs`]. Empty by default — add systems here (see
+    /// [`InputValidationAppExt::add_input_validator`]) that mutate or drop
+    /// messages via [`MessageReceiver::retain_messages`]. A game that wants to
+    /// authorize input targets against `ControlledBy` can do so here.
     ValidateInputs,
     /// Receive the latest ActionDiffs from the client
     ReceiveInputs,
@@ -208,7 +203,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
             PreUpdate,
             (
                 MessageSystems::Receive,
-                InputSystems::AuthorizeInputs,
                 InputSystems::ValidateInputs,
                 InputSystems::ReceiveInputs,
             )
@@ -226,59 +220,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ServerInputPlugin<S> {
         // SYSTEMS
         app.add_systems(
             PreUpdate,
-            authorize_input_targets::<S>.in_set(InputSystems::AuthorizeInputs),
-        );
-        app.add_systems(
-            PreUpdate,
             receive_input_message::<S>.in_set(InputSystems::ReceiveInputs),
         );
         app.add_systems(
             FixedPreUpdate,
             update_action_state::<S>.in_set(InputSystems::UpdateActionState),
         );
-    }
-}
-
-/// lightyear-owned authorization pass (runs in [`InputSystems::AuthorizeInputs`],
-/// before user [`InputSystems::ValidateInputs`]).
-///
-/// Drops every `InputTarget::Entity` the sending peer is not authorized to
-/// control — i.e. not a member of its [`ControlledByRemote`]. A message left
-/// with no targets is removed entirely. This runs the [`#1526`] target-spoof
-/// defense *before* the validation seam, so user validation systems only ever
-/// see authorized `(sender, target)` pairs and never have to reason about
-/// spoofed targets.
-///
-/// - Host-client inputs (`RemoteId::is_local`) are trusted in-process and
-///   skipped.
-/// - `InputTarget::PreSpawned` is identified by hash, not entity id, so it is
-///   passed through here (out of scope for this gate).
-///
-/// [`#1526`]: https://github.com/cBournhonesque/lightyear/pull/1526
-fn authorize_input_targets<S: ActionStateSequence>(
-    mut receivers: Query<
-        (
-            &RemoteId,
-            Option<&ControlledByRemote>,
-            &mut MessageReceiver<InputMessage<S>>,
-        ),
-        With<Connected>,
-    >,
-) {
-    for (client_id, controlled_by_remote, mut receiver) in receivers.iter_mut() {
-        // Host-client inputs are authored in-process; trust them.
-        if client_id.is_local() {
-            continue;
-        }
-        receiver.retain_messages(|message| {
-            message.inputs.retain(|data| match data.target {
-                InputTarget::Entity(entity) => controlled_by_remote
-                    .is_some_and(|controlled| controlled.collection().contains(&entity)),
-                InputTarget::PreSpawned(_) => true,
-            });
-            // Drop the whole message once all of its targets were unauthorized.
-            !message.inputs.is_empty()
-        });
     }
 }
 

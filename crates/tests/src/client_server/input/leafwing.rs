@@ -647,49 +647,52 @@ fn test_input_validator_system_can_drop_messages() {
     );
 }
 
-/// The lightyear-owned `AuthorizeInputs` pass runs *before* the user
-/// `ValidateInputs` seam, so a validation system never sees spoofed targets.
+/// Example: a *game-supplied* `ValidateInputs` system implements input-target
+/// authorization itself — lightyear does not enforce `ControlledBy` (it's an
+/// optional helper). The validator drops any `InputTarget::Entity` the sender
+/// doesn't control (via `ControlledByRemote` + `retain_messages`).
 ///
 /// Client 0 controls entity A and forges an input also targeting entity B
-/// (which it does not control). A validation system records every target it
-/// observes; it must see A but never B — B's target was stripped by
-/// `authorize_input_targets` before the seam ran. B's server `ActionState`
-/// must also be unaffected.
+/// (uncontrolled). The validator must let A's input through (non-overblocking)
+/// and drop B's — so A's server `ActionState` is pressed and B's is not.
 #[test]
-fn test_authorization_runs_before_validation() {
-    use bevy::ecs::resource::Resource;
-    use bevy::ecs::system::{Query, ResMut};
+fn test_user_validator_can_authorize_targets() {
+    use bevy::ecs::relationship::RelationshipTarget;
+    use bevy::ecs::system::Query;
     use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_core::id::RemoteId;
     use lightyear_inputs::input_message::{InputMessage, InputTarget};
     use lightyear_inputs::prelude::server::InputValidationAppExt;
     use lightyear_messages::prelude::MessageReceiver;
+    use lightyear_replication::control::ControlledByRemote;
     use lightyear_replication::prelude::ControlledBy;
 
-    #[derive(Resource, Default)]
-    struct ObservedTargets(Vec<bevy::prelude::Entity>);
-
-    // A validation system: records (without dropping) every entity target it
-    // sees in the received messages. Reads non-destructively via retain_messages
-    // returning `true`.
-    fn observe_targets(
-        mut observed: ResMut<ObservedTargets>,
-        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    // Game-side authorization, expressed as an ordinary ValidateInputs system.
+    fn authorize_targets(
+        mut receivers: Query<(
+            &RemoteId,
+            Option<&ControlledByRemote>,
+            &mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>,
+        )>,
     ) {
-        for mut receiver in &mut receivers {
+        for (client_id, controlled, mut receiver) in &mut receivers {
+            if client_id.is_local() {
+                continue;
+            }
             receiver.retain_messages(|msg| {
-                for data in &msg.inputs {
-                    if let InputTarget::Entity(e) = data.target {
-                        observed.0.push(e);
+                msg.inputs.retain(|data| match data.target {
+                    InputTarget::Entity(e) => {
+                        controlled.is_some_and(|c| c.collection().contains(&e))
                     }
-                }
-                true
+                    InputTarget::PreSpawned(_) => true,
+                });
+                !msg.inputs.is_empty()
             });
         }
     }
 
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
-    stepper.server_app.init_resource::<ObservedTargets>();
-    stepper.server_app.add_input_validator(observe_targets);
+    stepper.server_app.add_input_validator(authorize_targets);
 
     let client_of_0 = stepper.client_of(0).id();
     // Entity A: controlled by client 0.
@@ -745,16 +748,18 @@ fn test_authorization_runs_before_validation() {
         .press(KeyCode::KeyA);
     stepper.frame_step(10);
 
-    let observed = &stepper.server_app.world().resource::<ObservedTargets>().0;
+    // Non-overblocking: A's authorized input reached the server.
     assert!(
-        observed.contains(&entity_a),
-        "the validation system never saw the authorized target A — setup issue",
+        stepper
+            .server_app
+            .world()
+            .entity(entity_a)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump),
+        "the authorized input for A did not land — the validator over-stripped",
     );
-    assert!(
-        !observed.contains(&entity_b),
-        "the validation system saw spoofed target B; AuthorizeInputs must strip \
-         unauthorized targets before ValidateInputs runs",
-    );
+    // The spoofed input for B was dropped by the validator.
     assert!(
         !stepper
             .server_app
