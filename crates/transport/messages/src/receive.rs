@@ -90,6 +90,19 @@ impl<M: Message> MessageReceiver<M> {
         self.recv.drain(..)
     }
 
+    /// Mutate and/or drop the buffered messages in place, *before* they are
+    /// consumed by the receiving system.
+    ///
+    /// This is the hook for validation/sanitization systems that run between
+    /// message receipt and whatever consumes the messages (e.g. server-side
+    /// input validation between `MessageSystems::Receive` and the input-buffer
+    /// apply). Returning `false` from `keep` drops that message; mutating the
+    /// `&mut M` rewrites it. Per-message metadata (remote tick, channel,
+    /// message id) is preserved automatically — unlike drain-then-re-push.
+    pub fn retain_messages(&mut self, mut keep: impl FnMut(&mut M) -> bool) {
+        self.recv.retain_mut(|received| keep(&mut received.data));
+    }
+
     pub fn num_messages(&self) -> usize {
         self.recv.len()
     }
