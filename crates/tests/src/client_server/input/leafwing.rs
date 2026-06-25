@@ -891,3 +891,89 @@ fn test_validator_can_read_message_metadata() {
         "input landed even though retain_received_messages dropped the message",
     );
 }
+
+/// `authorize_controlled_targets` passes `InputTarget::PreSpawned` through (it's
+/// identified by hash, not entity id, so the `ControlledByRemote` check doesn't
+/// apply). A client forges a message with a PreSpawned target; an observer
+/// validator chained *after* the helper confirms the target survived.
+#[test]
+fn test_authorize_controlled_targets_passes_through_prespawned() {
+    use bevy::ecs::resource::Resource;
+    use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy::ecs::system::{Query, ResMut};
+    use lightyear::input::leafwing::input_message::{LeafwingSequence, LeafwingSnapshot};
+    use lightyear_inputs::input_buffer::InputBuffer;
+    use lightyear_inputs::input_message::{
+        ActionStateSequence, InputMessage, InputTarget, PerTargetData,
+    };
+    use lightyear_inputs::prelude::InputChannel;
+    use lightyear_inputs::prelude::server::{InputSystems, authorize_controlled_targets};
+    use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+
+    #[derive(Resource, Default)]
+    struct SawPrespawn(bool);
+
+    // Observer chained after the helper: records whether a PreSpawned target
+    // survived the authorization pass (read-only — returns true).
+    fn observe_prespawn(
+        mut saw: ResMut<SawPrespawn>,
+        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    ) {
+        for mut receiver in &mut receivers {
+            receiver.retain_messages(|msg| {
+                if msg
+                    .inputs
+                    .iter()
+                    .any(|d| matches!(d.target, InputTarget::PreSpawned(_)))
+                {
+                    saw.0 = true;
+                }
+                true
+            });
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper.server_app.init_resource::<SawPrespawn>();
+    stepper.server_app.add_systems(
+        bevy::app::PreUpdate,
+        (
+            authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>,
+            observe_prespawn,
+        )
+            .chain()
+            .in_set(InputSystems::ValidateInputs),
+    );
+    stepper.frame_step(5);
+
+    // Forge a message whose only target is a PreSpawned hash (client 0 controls
+    // nothing — an `Entity` target here would be stripped, but PreSpawned passes).
+    let end_tick = stepper.server_tick() + 1;
+    let mut seq_buf = InputBuffer::<LeafwingSnapshot<LeafwingInput1>, LeafwingInput1>::default();
+    let mut snap = ActionState::<LeafwingInput1>::default();
+    snap.press(&LeafwingInput1::Jump);
+    seq_buf.set(end_tick, LeafwingSnapshot(snap));
+    let sequence =
+        LeafwingSequence::<LeafwingInput1>::build_from_input_buffer(&seq_buf, 1, end_tick)
+            .expect("sequence built from non-empty buffer");
+    let mut forged: InputMessage<LeafwingSequence<LeafwingInput1>> = InputMessage::new(end_tick);
+    forged.inputs.push(PerTargetData {
+        target: InputTarget::PreSpawned(0xDEAD_BEEF),
+        states: sequence,
+    });
+    {
+        let mut client_entity_mut = stepper.client_apps[0]
+            .world_mut()
+            .entity_mut(stepper.client_entities[0]);
+        let mut sender = client_entity_mut
+            .get_mut::<MessageSender<InputMessage<LeafwingSequence<LeafwingInput1>>>>()
+            .expect("client has a MessageSender for InputMessage<LeafwingSequence>");
+        sender.send::<InputChannel>(forged);
+    }
+    stepper.frame_step(3);
+
+    assert!(
+        stepper.server_app.world().resource::<SawPrespawn>().0,
+        "authorize_controlled_targets stripped a PreSpawned target — it must pass through",
+    );
+}
