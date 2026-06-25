@@ -160,12 +160,13 @@ impl InputValidationAppExt for App {
     }
 }
 
-/// Opt-in [`InputSystems::ValidateInputs`] system that drops every
+/// Opt-in [`InputSystems::ValidateInputs`] system that strips every
 /// `InputTarget::Entity` the sending peer is **not** authorized to control —
-/// i.e. not a member of its [`ControlledByRemote`]. A message left with no
-/// targets is dropped entirely. This is the spoofed-target defense: a modified
-/// client cannot forge `InputTarget::Entity(other_player)` to drive an entity
-/// it doesn't own.
+/// i.e. not a member of its [`ControlledByRemote`]. This is the spoofed-target
+/// defense: a modified client cannot forge `InputTarget::Entity(other_player)`
+/// to drive an entity it doesn't own. The message itself is kept (even if
+/// filtering emptied it) — an empty input message is a legitimate keepalive the
+/// receive path relies on; only the unauthorized targets are removed.
 ///
 /// lightyear does **not** enable this by default. `ControlledBy` is an optional
 /// helper for modeling input ownership, not a mandatory component, and some
@@ -195,12 +196,26 @@ pub fn authorize_controlled_targets<S: ActionStateSequence>(
             continue;
         }
         receiver.retain_messages(|message| {
+            let before = message.inputs.len();
             message.inputs.retain(|data| match data.target {
                 InputTarget::Entity(entity) => controlled_by_remote
                     .is_some_and(|controlled| controlled.collection().contains(&entity)),
                 InputTarget::PreSpawned(_) => true,
             });
-            !message.inputs.is_empty()
+            let dropped = before - message.inputs.len();
+            if dropped > 0 {
+                trace!(
+                    ?client_id,
+                    dropped, "authorize_controlled_targets: stripped unauthorized input targets"
+                );
+            }
+            // Keep the message even if filtering emptied it. An empty input
+            // message is a legitimate keepalive (it still carries `end_tick`,
+            // which the receive path needs — dropping it stalls the confirmed
+            // tick and can trigger a large rollback). Only the unauthorized
+            // *targets* are removed; the spoofed entries are already gone before
+            // any rebroadcast.
+            true
         });
     }
 }

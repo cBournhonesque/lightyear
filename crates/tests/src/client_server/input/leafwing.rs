@@ -743,6 +743,69 @@ fn test_authorize_controlled_targets_helper() {
     );
 }
 
+/// Regression guard for the empty-after-filter path: a client that controls
+/// nothing forges an input targeting an entity it doesn't own. Every target is
+/// stripped, but the helper must keep the (now-empty) message — dropping it
+/// would eat the keepalive the receive path relies on. We assert the spoofed
+/// input doesn't land and the pipeline keeps running (no panic / no stall).
+#[test]
+fn test_authorize_controlled_targets_keeps_emptied_message() {
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>);
+
+    // Entity replicated to client 0 but controlled by nobody — client 0's
+    // `ControlledByRemote` is empty, so its input for this entity is fully
+    // unauthorized.
+    let victim = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(5);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(victim)
+        .expect("victim replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    // Keep stepping: the receive pipeline must stay healthy across many ticks
+    // even though every input message from this client is fully stripped.
+    stepper.frame_step(20);
+
+    assert!(
+        !stepper
+            .server_app
+            .world()
+            .entity(victim)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump),
+        "fully-unauthorized input landed on the victim's ActionState",
+    );
+}
+
 /// `retain_received_messages` exposes per-message metadata (`remote_tick`,
 /// `channel_kind`, `message_id`) that `retain_messages` hides — needed for
 /// rate-limit / tick-window / replay validators. Here a validator reads
