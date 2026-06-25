@@ -8,12 +8,14 @@ use core::time::Duration;
 use lightyear_connection::client::{Client, Disconnect};
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
+use lightyear_core::timeline::Rollback;
 use lightyear_inputs::client::InputSystems;
 use lightyear_messages::prelude::{MessageSender, RemoteEvent};
 use lightyear_prediction::prelude::{
-    LastConfirmedInput, PredictionManager, PredictionSystems, StateRollbackMetadata,
+    LastConfirmedInput, PredictionManager, PredictionSystems, RollbackSystems,
+    StateRollbackMetadata,
 };
-use lightyear_prediction::rollback::CatchUpGated;
+use lightyear_prediction::rollback::{CatchUpGated, DisableRollback};
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::prelude::ReplicationSystems;
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
@@ -57,10 +59,12 @@ pub(crate) struct PendingCatchUpSnapshot {
 pub struct CatchUpManager {
     pub(crate) completed: bool,
     pub(crate) pending_snapshot: Option<PendingCatchUpSnapshot>,
+    /// Snapshot whose forced rollback has been requested and is waiting for
+    /// local activation after [`RollbackSystems::Prepare`] restores the
+    /// snapshot state.
+    pub(crate) activating_snapshot: Option<PendingCatchUpSnapshot>,
     pub(crate) requests_sent: u8,
     pub(crate) request_sent_at_tick: Option<Tick>,
-    pub(crate) request_input_safe_tick: Option<Tick>,
-    pub(crate) last_emitted_replicon_tick: Option<RepliconTick>,
     pub(crate) suppress_checksums: bool,
 }
 
@@ -87,12 +91,31 @@ pub(crate) fn build(app: &mut App) {
             .after(ReplicationSystems::Receive)
             .before(PredictionSystems::Rollback),
     );
+    app.configure_sets(
+        PreUpdate,
+        CatchUpSystems::ActivateCatchUp
+            .run_if(catchup_snapshot_is_activating)
+            .after(RollbackSystems::Prepare)
+            .before(RollbackSystems::Rollback),
+    );
     app.add_systems(
         PreUpdate,
         (
             send_catchup_request.in_set(CatchUpSystems::SendCatchUpRequest),
             trigger_snapshot_rollback.in_set(CatchUpSystems::TriggerCatchUpRollback),
         ),
+    );
+    app.add_systems(
+        PreUpdate,
+        // We first run RollbackSystems::Prepare when the catchup rollback is triggered
+        // and then we trigger `CatchUpSnapshotReady`. This is to only notify the user
+        // after the components have been restored to the snapshot state, but before the rollback replay starts.
+        (
+            trigger_catch_up_snapshot_activation,
+            finish_catch_up_snapshot_activation,
+        )
+            .chain()
+            .in_set(CatchUpSystems::ActivateCatchUp),
     );
 }
 
@@ -104,6 +127,10 @@ fn initial_catchup_is_active(
         return false;
     };
     *mode != CatchUpMode::InputOnly && manager.is_some_and(|manager| !manager.completed)
+}
+
+fn catchup_snapshot_is_activating(manager: Option<Single<&CatchUpManager, With<Client>>>) -> bool {
+    manager.is_some_and(|manager| !manager.completed && manager.activating_snapshot.is_some())
 }
 
 /// Client system: sends a [`CatchUpRequest`] once replicated input state is
@@ -142,7 +169,10 @@ pub(crate) fn send_catchup_request(
     let Some(input_safe_tick) = last_confirmed_input.get() else {
         return;
     };
-    if awaiting.is_empty() || manager.pending_snapshot.is_some() {
+    if awaiting.is_empty()
+        || manager.pending_snapshot.is_some()
+        || manager.activating_snapshot.is_some()
+    {
         return;
     }
     if manager
@@ -154,7 +184,6 @@ pub(crate) fn send_catchup_request(
     debug!(
         ?client_entity,
         ?input_safe_tick,
-        previous_input_safe_tick = ?manager.request_input_safe_tick,
         "sending CatchUpRequest to server"
     );
     sender.send::<MetadataChannel>(CatchUpRequest { input_safe_tick });
@@ -168,7 +197,6 @@ pub(crate) fn send_catchup_request(
         );
     }
     manager.request_sent_at_tick = Some(local_tick);
-    manager.request_input_safe_tick = Some(input_safe_tick);
     manager.suppress_checksums = true;
 }
 
@@ -243,12 +271,14 @@ pub(crate) fn trigger_snapshot_rollback(
     >,
     server_mutate_ticks: Res<ServerMutateTicks>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
-    gated: Query<Entity, With<CatchUpGated>>,
     mut commands: Commands,
 ) {
     let (client_entity, mut manager, last_confirmed_input, prediction_manager) =
         manager.into_inner();
     if manager.completed {
+        return;
+    }
+    if manager.activating_snapshot.is_some() {
         return;
     }
     let Some(snapshot) = manager.pending_snapshot.clone() else {
@@ -261,12 +291,8 @@ pub(crate) fn trigger_snapshot_rollback(
     if rollback_delta < 0 {
         return;
     }
-    // Local activation observers run before the forced rollback is requested,
-    // so the snapshot must still fit the rollback window on the next pass.
-    let activation_headroom =
-        i32::from(manager.last_emitted_replicon_tick != Some(snapshot_replicon_tick));
     let max_rollback_ticks = i32::from(prediction_manager.rollback_policy.max_rollback_ticks);
-    if rollback_delta + activation_headroom > max_rollback_ticks {
+    if rollback_delta > max_rollback_ticks {
         warn!(
             ?client_entity,
             ?local_tick,
@@ -281,27 +307,66 @@ pub(crate) fn trigger_snapshot_rollback(
         });
         return;
     }
-    if !last_confirmed_input.received_for_all_clients
-        || last_confirmed_input
-            .get()
-            .is_none_or(|t| t < snapshot_server_tick)
-    {
+    if !last_confirmed_input.received_for_all_clients {
         return;
     }
-    if manager.last_emitted_replicon_tick == Some(snapshot_replicon_tick) {
-        state_metadata.request_forced_rollback(snapshot_server_tick);
-        info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
-        complete_catch_up(&mut manager, &gated, &mut commands);
+    // No remote input buffers (last_confirmed_input is not set) means there are no remote inputs to wait for.
+    // The synced local timeline is safe to use as the catch-up coverage tick.
+    let input_safe_tick = last_confirmed_input.get().unwrap_or(local_tick);
+    if input_safe_tick < snapshot_server_tick {
         return;
     }
     if !server_mutate_ticks.contains(snapshot_replicon_tick) {
         return;
     }
-    manager.last_emitted_replicon_tick = Some(snapshot_replicon_tick);
+    state_metadata.request_forced_rollback(snapshot_server_tick);
+    state_metadata.clear_mismatch_history();
+    manager.pending_snapshot = None;
+    manager.activating_snapshot = Some(snapshot);
+    info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
+}
+
+/// Trigger local activation observers after rollback preparation has restored
+/// the snapshot components, but before rollback replay starts.
+/// This is so that when CatchUpSnapshotReady is observed, the CatchUpGated components are already restored
+/// to their snapshot state.
+fn trigger_catch_up_snapshot_activation(
+    client: Query<(&Rollback, &CatchUpManager), With<Client>>,
+    mut commands: Commands,
+) {
+    let Ok((rollback, manager)) = client.single() else {
+        return;
+    };
+    if manager.completed || !matches!(*rollback, Rollback::FromState) {
+        return;
+    }
+    let Some(snapshot) = manager.activating_snapshot.clone() else {
+        return;
+    };
+
     commands.trigger(CatchUpSnapshotReady {
-        replicon_tick: snapshot_replicon_tick,
-        server_tick: snapshot_server_tick,
+        replicon_tick: snapshot.replicon_tick,
+        server_tick: snapshot.server_tick,
     });
+}
+
+fn finish_catch_up_snapshot_activation(
+    mut client: Query<(&mut CatchUpManager, &mut PredictionManager), With<Client>>,
+    gated: Query<Entity, With<CatchUpGated>>,
+    mut commands: Commands,
+) {
+    let Ok((mut manager, mut prediction_manager)) = client.single_mut() else {
+        return;
+    };
+    if manager.completed || manager.activating_snapshot.is_none() {
+        return;
+    }
+
+    for (_, entity) in prediction_manager.deterministic_skip_despawn.drain(..) {
+        commands.entity(entity).try_remove::<DisableRollback>();
+    }
+
+    complete_catch_up(&mut manager, &gated, &mut commands);
 }
 
 fn complete_catch_up(
@@ -316,7 +381,6 @@ fn complete_catch_up(
     manager.pending_snapshot = None;
     manager.requests_sent = 0;
     manager.request_sent_at_tick = None;
-    manager.request_input_safe_tick = None;
-    manager.last_emitted_replicon_tick = None;
+    manager.activating_snapshot = None;
     manager.suppress_checksums = false;
 }

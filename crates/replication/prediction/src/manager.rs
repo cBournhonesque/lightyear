@@ -279,7 +279,7 @@ impl StateRollbackMetadata {
     }
 
     /// Clear all retained mismatch evidence.
-    pub(crate) fn clear_mismatch_history(&mut self) {
+    pub fn clear_mismatch_history(&mut self) {
         self.mismatch_mask = 0;
     }
 

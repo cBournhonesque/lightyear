@@ -1544,3 +1544,82 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     );
     compare_deterministic_motion_to_server(&mut stepper, &[peer_a, peer_b]);
 }
+
+/// Covers the deterministic_replication example sequence where every client
+/// disconnects, then peer 0 reconnects first and peer 1 late-joins afterward.
+#[test]
+fn test_state_based_catchup_reconnect_after_all_clients_disconnect() {
+    let mut stepper = DetStepper::new_server();
+    let _c0 = stepper.new_client();
+    let _c1 = stepper.new_client();
+
+    configure_stepper(&mut stepper, 50);
+
+    stepper.start();
+    stepper.connect_all();
+
+    let peer_a = PeerId::Netcode(0);
+    let peer_b = PeerId::Netcode(1);
+    let server_player_a =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    let server_player_b =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+
+    stepper.frame_step(200);
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+
+    despawn_server_player_and_action(&mut stepper, server_player_b);
+    despawn_server_player_and_action(&mut stepper, server_player_a);
+    stepper.disconnect_last_client();
+    stepper.disconnect_last_client();
+    stepper.frame_step(30);
+    assert_clean_stepper_player_entities(&mut stepper, &[]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+
+    let reconnected_a = stepper.new_client();
+    assert_eq!(reconnected_a, 0);
+    configure_client_app(stepper.client_app(reconnected_a), 3, 50);
+    stepper.connect_single(reconnected_a);
+
+    stepper.frame_step(120);
+    assert_clean_stepper_player_entities(&mut stepper, &[]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+
+    let server_player_a_reconnect =
+        spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
+    spawn_local_action_after_mapping(
+        &mut stepper,
+        reconnected_a,
+        server_player_a_reconnect,
+        peer_a,
+    );
+    stepper.frame_step(120);
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a]);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+
+    let reconnected_b = stepper.new_client();
+    assert_eq!(reconnected_b, 1);
+    configure_client_app(stepper.client_app(reconnected_b), 4, 50);
+    stepper.connect_single(reconnected_b);
+    let server_player_b_reconnect =
+        spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
+    spawn_local_action_after_mapping(
+        &mut stepper,
+        reconnected_b,
+        server_player_b_reconnect,
+        peer_b,
+    );
+
+    stepper.frame_step(220);
+    assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
+    assert_server_entity_unmapped(&mut stepper, server_player_a);
+    assert_server_entity_unmapped(&mut stepper, server_player_b);
+    assert_clean_stepper_ball_entities(&mut stepper);
+    assert_stepper_catchup_complete(&mut stepper);
+}

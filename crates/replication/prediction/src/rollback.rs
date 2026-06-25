@@ -879,7 +879,12 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             Option<&mut C>,
             &mut PredictionHistory<C>,
             Option<&mut ConfirmedHistory<C>>,
-            AnyOf<(&Predicted, &PreSpawned, &DeterministicPredicted)>,
+            AnyOf<(
+                &Predicted,
+                &PreSpawned,
+                &DeterministicPredicted,
+                &CatchUpGated,
+            )>,
         ),
         Without<DisableRollback>,
     >,
@@ -899,7 +904,7 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
         predicted_component,
         mut predicted_history,
         confirmed_history,
-        (predicted, _prespawned, _disable_state_rollback),
+        (_predicted, _prespawned, _deterministic_predicted, _catchup_gated),
     ) in predicted_query.iter_mut()
     {
         let is_state_rollback = matches!(rollback, Rollback::FromState);
