@@ -10,54 +10,54 @@ use bevy_replicon::shared::replication::diff::{
 use lightyear_core::prelude::{ConfirmedHistory, HistoryState, Tick};
 
 #[derive(Debug, Clone)]
-struct PendingPatchMessage<Patch> {
+struct PendingDiffMessage<Diff> {
     tick: Tick,
-    first_patch_index: DiffIndex,
-    patches: Vec<Patch>,
+    first_diff_index: DiffIndex,
+    diffs: Vec<Diff>,
 }
 
-impl<Patch> PendingPatchMessage<Patch> {
+impl<Diff> PendingDiffMessage<Diff> {
     fn base_cursor(&self) -> DiffIndex {
-        self.first_patch_index - 1
+        self.first_diff_index - 1
     }
 
     fn cursor(&self) -> Result<DiffIndex> {
         let offset = self
-            .patches
+            .diffs
             .len()
             .checked_sub(1)
-            .expect("empty patch messages are not queued");
+            .expect("empty diff messages are not queued");
         let offset = u16::try_from(offset).map_err(|_| {
             format!(
-                "too many patches in one message: first_patch_index={}, patch_count={}",
-                self.first_patch_index.get(),
-                self.patches.len()
+                "too many diffs in one message: first_diff_index={}, diff_count={}",
+                self.first_diff_index.get(),
+                self.diffs.len()
             )
         })?;
-        Ok(self.first_patch_index + offset)
+        Ok(self.first_diff_index + offset)
     }
 }
 
-/// Tracks patch cursors for materialized [`ConfirmedHistory`] entries.
+/// Tracks diff cursors for materialized [`ConfirmedHistory`] entries.
 ///
 /// This is deliberately separate from Replicon's live `DiffBuffer`: prediction
-/// and interpolation need to reconstruct historical confirmed values from patch
+/// and interpolation need to reconstruct historical confirmed values from diff
 /// messages without advancing a single live base cursor past older ticks that
 /// can still arrive later.
 ///
 /// Cursor model:
-/// - A patch cursor is the state after a patch has been applied.
-///   `None` is the pre-patch state before patch index `0`.
+/// - A diff cursor is the state after a diff has been applied.
+///   `None` is the pre-diff state before diff index `0`.
 /// - `base_cursor`/`base_tick` are the retained floor. They identify the
 ///   oldest cursor that can still be used as a base, and the lowest retained
 ///   confirmed-history tick whose value represents that cursor.
-/// - `patch_ticks` maps newer patch cursors to the confirmed-history tick that
+/// - `diff_ticks` maps newer diff cursors to the confirmed-history tick that
 ///   stores the materialized state for that cursor.
 ///
 /// Invariant:
 /// - If `base_tick` is present, it is the lowest retained tick in this receiver.
-/// - All keys in `patch_ticks` are strictly newer than `base_cursor`.
-/// - Every tick in `patch_ticks` is greater than or equal to `base_tick`.
+/// - All keys in `diff_ticks` are strictly newer than `base_cursor`.
+/// - Every tick in `diff_ticks` is greater than or equal to `base_tick`.
 /// - After pruning to a processed confirmed tick, the newest cursor at or
 ///   before the prune tick is promoted to `base_cursor`, and `base_tick` is
 ///   moved to the prune tick so the base can be fetched from `ConfirmedHistory`.
@@ -66,46 +66,46 @@ impl<Patch> PendingPatchMessage<Patch> {
 /// 1. The prediction/interpolation `write_fn` receives a [`ComponentDelta`](bevy_replicon::shared::replication::diff::ComponentDelta).
 /// 2. Snapshots are written directly into [`ConfirmedHistory`] and their cursor
 ///    is recorded with [`Self::record_cursor`].
-/// 3. Patch messages are added with [`Self::queue_patches`]. They may be
+/// 3. Diff messages are added with [`Self::queue_diffs`]. They may be
 ///    buffered if their base cursor is not materialized yet.
 /// 4. The `write_fn` calls [`Self::take_ready_update`] in a loop. Each ready
 ///    message fetches its base value from [`ConfirmedHistory`], applies the
-///    patches, records the new cursor, and returns the materialized value
+///    diffs, records the new cursor, and returns the materialized value
 ///    for insertion into [`ConfirmedHistory`].
 /// 5. After prediction/interpolation has processed a confirmed server tick,
 ///    [`Self::clear_before_tick`] promotes the newest usable cursor at that tick
 ///    to the retained base and drains older cursor/pending state.
 #[derive(Debug, Clone)]
-pub struct ConfirmedHistoryPatchReceiver<C: RepliconDiffable> {
+pub struct HistoryDiffReceiver<C: RepliconDiffable> {
     base_cursor: Option<DiffIndex>,
     base_tick: Option<Tick>,
-    patch_ticks: Vec<(DiffIndex, Tick)>,
-    pending: Vec<PendingPatchMessage<C::Diff>>,
+    diff_ticks: Vec<(DiffIndex, Tick)>,
+    pending: Vec<PendingDiffMessage<C::Diff>>,
     marker: PhantomData<fn() -> C>,
 }
 
-impl<C: RepliconDiffable> Default for ConfirmedHistoryPatchReceiver<C> {
+impl<C: RepliconDiffable> Default for HistoryDiffReceiver<C> {
     fn default() -> Self {
         Self {
             base_cursor: None,
             base_tick: None,
-            patch_ticks: Default::default(),
+            diff_ticks: Default::default(),
             pending: Default::default(),
             marker: PhantomData,
         }
     }
 }
 
-impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
+impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
     /// Records that confirmed history contains the state for `cursor` at `tick`.
     ///
-    /// `cursor` is the patch cursor after the confirmed state was produced:
-    /// - `None` for a snapshot with no patch base, i.e. the state before patch `0`.
-    /// - `Some(i)` for a snapshot or patch message whose value is the state
-    ///   after patch batch `i`.
+    /// `cursor` is the diff cursor after the confirmed state was produced:
+    /// - `None` for a snapshot with no diff base, i.e. the state before diff `0`.
+    /// - `Some(i)` for a snapshot or diff message whose value is the state
+    ///   after diff batch `i`.
     ///
     /// Cursors older than the retained base are ignored. Recording `None`
-    /// resets the receiver to a full-snapshot base for a new patch stream.
+    /// resets the receiver to a full-snapshot base for a new diff stream.
     pub fn record_cursor(&mut self, tick: Tick, cursor: Option<DiffIndex>) {
         match cursor {
             Some(cursor) => {
@@ -117,7 +117,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                         if self.base_tick.is_none_or(|base_tick| tick >= base_tick) {
                             self.base_tick = Some(tick);
                         }
-                        self.patch_ticks
+                        self.diff_ticks
                             .retain(|(index, _)| index.is_newer_than(cursor));
                         self.pending.retain(|pending| {
                             pending
@@ -128,13 +128,13 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                     }
                 }
                 if let Some((_, cursor_tick)) = self
-                    .patch_ticks
+                    .diff_ticks
                     .iter_mut()
                     .find(|(known_cursor, _)| *known_cursor == cursor)
                 {
                     *cursor_tick = tick;
                 } else {
-                    self.patch_ticks.push((cursor, tick));
+                    self.diff_ticks.push((cursor, tick));
                 }
                 self.pending.retain(|pending| {
                     pending
@@ -148,7 +148,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
                 }
                 self.base_cursor = None;
                 self.base_tick = Some(tick);
-                self.patch_ticks.clear();
+                self.diff_ticks.clear();
                 self.pending.clear();
             }
         }
@@ -160,7 +160,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
             return self.base_tick;
         }
         cursor.and_then(|cursor| {
-            self.patch_ticks
+            self.diff_ticks
                 .iter()
                 .find_map(|(known_cursor, tick)| (*known_cursor == cursor).then_some(*tick))
         })
@@ -172,7 +172,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
             .map(|base_tick| (self.base_cursor, base_tick))
             .into_iter()
             .chain(
-                self.patch_ticks
+                self.diff_ticks
                     .iter()
                     .map(|(cursor, cursor_tick)| (Some(*cursor), *cursor_tick)),
             )
@@ -185,7 +185,7 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         if let Some(tick) = &mut self.base_tick {
             *tick = *tick + delta;
         }
-        for (_, tick) in &mut self.patch_ticks {
+        for (_, tick) in &mut self.diff_ticks {
             *tick = *tick + delta;
         }
         for pending in &mut self.pending {
@@ -193,13 +193,13 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         }
     }
 
-    /// Drops cursor and pending-patch state older than `tick`.
+    /// Drops cursor and pending-diff state older than `tick`.
     ///
     /// The newest cursor at or before `tick` is promoted to the retained base.
-    /// This keeps one usable base for future patch messages without storing
+    /// This keeps one usable base for future diff messages without storing
     /// per-unchanged-tick cursor entries.
     pub fn clear_before_tick(&mut self, tick: Tick, history: &ConfirmedHistory<C>) {
-        if self.has_pending_patches() {
+        if self.has_pending_diffs() {
             return;
         }
         if self.base_tick.is_some_and(|base_tick| tick < base_tick) {
@@ -220,10 +220,10 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
             self.base_tick = None;
         }
         if let Some(base_cursor) = self.base_cursor {
-            self.patch_ticks
+            self.diff_ticks
                 .retain(|(cursor, _)| cursor.is_newer_than(base_cursor));
         }
-        self.patch_ticks
+        self.diff_ticks
             .retain(|(_, cursor_tick)| *cursor_tick >= tick);
         let base_cursor = self.base_cursor;
         self.pending.retain(|pending| {
@@ -233,22 +233,22 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         });
     }
 
-    /// Returns true while one or more patch messages are waiting for a base
+    /// Returns true while one or more diff messages are waiting for a base
     /// cursor to be materialized in confirmed history.
-    pub fn has_pending_patches(&self) -> bool {
+    pub fn has_pending_diffs(&self) -> bool {
         !self.pending.is_empty()
     }
 
-    /// Returns true when a patch message for `tick` is waiting for a base
+    /// Returns true when a diff message for `tick` is waiting for a base
     /// cursor to be materialized in confirmed history.
-    pub fn has_pending_patch_at_tick(&self, tick: Tick) -> bool {
+    pub fn has_pending_diff_at_tick(&self, tick: Tick) -> bool {
         self.pending.iter().any(|pending| pending.tick == tick)
     }
 
-    /// Queues a patch message for historical materialization.
+    /// Queues a diff message for historical materialization.
     ///
-    /// `queue_patches` only records the patch message. It does not apply the
-    /// patches immediately; callers should invoke [`Self::take_ready_update`]
+    /// `queue_diffs` only records the diff message. It does not apply the
+    /// diffs immediately; callers should invoke [`Self::take_ready_update`]
     /// afterwards, usually in a loop.
     ///
     /// The message is ignored when its final cursor is at or before the retained
@@ -256,21 +256,21 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     /// it is buffered until its `base_cursor` is available in this receiver.
     ///
     /// The method does not look up `ConfirmedHistory`; readiness is checked by
-    /// [`Self::take_ready_update`], which is why out-of-order patch ranges can
+    /// [`Self::take_ready_update`], which is why out-of-order diff ranges can
     /// be queued before their base state arrives.
-    pub fn queue_patches(
+    pub fn queue_diffs(
         &mut self,
         tick: Tick,
-        first_patch_index: DiffIndex,
-        patches: Vec<C::Diff>,
+        first_diff_index: DiffIndex,
+        diffs: Vec<C::Diff>,
     ) -> Result<()> {
-        if patches.is_empty() {
+        if diffs.is_empty() {
             return Ok(());
         }
-        let mut pending = PendingPatchMessage {
+        let mut pending = PendingDiffMessage {
             tick,
-            first_patch_index,
-            patches,
+            first_diff_index,
+            diffs,
         };
         let cursor = pending.cursor()?;
         if self.is_retired_cursor(cursor) || self.tick_for_cursor(Some(cursor)).is_some() {
@@ -280,21 +280,20 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         if let Some(base_cursor) = self.base_cursor
             && base_cursor.is_newer_than(pending.base_cursor())
         {
-            let retained_first_patch = base_cursor + 1;
-            let drop_count =
-                retained_first_patch.distance_after(pending.first_patch_index) as usize;
-            if drop_count >= pending.patches.len() {
+            let retained_first_diff = base_cursor + 1;
+            let drop_count = retained_first_diff.distance_after(pending.first_diff_index) as usize;
+            if drop_count >= pending.diffs.len() {
                 return Ok(());
             }
-            pending.patches.drain(0..drop_count);
-            pending.first_patch_index = retained_first_patch;
+            pending.diffs.drain(0..drop_count);
+            pending.first_diff_index = retained_first_diff;
         }
 
         let cursor = pending.cursor()?;
         if self.tick_for_cursor(Some(cursor)).is_some()
             || self.pending.iter().any(|queued| {
                 queued.tick == pending.tick
-                    && queued.first_patch_index == pending.first_patch_index
+                    && queued.first_diff_index == pending.first_diff_index
                     && queued.cursor().ok() == Some(cursor)
             })
         {
@@ -305,33 +304,28 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
     }
 
     /// Queues a Replicon diff message encoded as the final cursor plus all
-    /// patches needed to reach it.
-    pub fn queue_patch_diff(
-        &mut self,
-        tick: Tick,
-        index: DiffIndex,
-        patches: Vec<C::Diff>,
-    ) -> Result<()> {
-        if patches.is_empty() {
+    /// diffs needed to reach it.
+    pub fn queue_diff(&mut self, tick: Tick, index: DiffIndex, diffs: Vec<C::Diff>) -> Result<()> {
+        if diffs.is_empty() {
             return Ok(());
         }
-        let offset = patches.len() - 1;
+        let offset = diffs.len() - 1;
         let offset = u16::try_from(offset).map_err(|_| {
             format!(
-                "too many patches in one message: index={}, patch_count={}",
+                "too many diffs in one message: index={}, diff_count={}",
                 index.get(),
-                patches.len()
+                diffs.len()
             )
         })?;
         // DiffIndex arithmetic wraps, so this also handles ranges that cross
-        // u16::MAX, e.g. final index 3 with 10 patches starts at 65530.
-        let first_patch_index = index - offset;
-        self.queue_patches(tick, first_patch_index, patches)
+        // u16::MAX, e.g. final index 3 with 10 diffs starts at 65530.
+        let first_diff_index = index - offset;
+        self.queue_diffs(tick, first_diff_index, diffs)
     }
 
-    /// Attempts to materialize one queued patch message from `history`.
+    /// Attempts to materialize one queued diff message from `history`.
     ///
-    /// A patch message is ready when the receiver has a tick for its base cursor
+    /// A diff message is ready when the receiver has a tick for its base cursor
     /// and `ConfirmedHistory` can provide the corresponding base value.
     pub fn take_ready_update(&mut self, history: &ConfirmedHistory<C>) -> Result<Option<(Tick, C)>>
     where
@@ -356,8 +350,8 @@ impl<C: RepliconDiffable> ConfirmedHistoryPatchReceiver<C> {
         };
         let pending = self.pending.remove(pending_index);
         let cursor = pending.cursor()?;
-        for patch in &pending.patches {
-            value.apply_diff(patch)?;
+        for diff in &pending.diffs {
+            value.apply_diff(diff)?;
         }
         self.record_cursor(pending.tick, Some(cursor));
         Ok(Some((pending.tick, value)))
@@ -396,8 +390,8 @@ mod tests {
     impl RepliconDiffable for TestDiffValue {
         type Diff = u32;
 
-        fn apply_diff(&mut self, patch: &Self::Diff) -> Result<()> {
-            self.0 = *patch;
+        fn apply_diff(&mut self, diff: &Self::Diff) -> Result<()> {
+            self.0 = *diff;
             Ok(())
         }
     }
@@ -406,21 +400,21 @@ mod tests {
         DiffIndex::new(value)
     }
 
-    /// A patch message for `S3 -> S5` is buffered when the receiver has not
+    /// A diff message for `S3 -> S5` is buffered when the receiver has not
     /// materialized `S3` yet.
     ///
-    /// On the wire this is `first_patch_index = 4` with batches `4` and `5`:
+    /// On the wire this is `first_diff_index = 4` with batches `4` and `5`:
     /// batch `4` transforms cursor `3` into cursor `4`, and batch `5`
     /// transforms cursor `4` into cursor `5`.
     #[test]
-    fn buffers_patch_range_until_base_state_is_available() {
+    fn buffers_diff_range_until_base_state_is_available() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
 
-        receiver.queue_patches(Tick(5), idx(4), vec![4, 5]).unwrap();
+        receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
 
         assert_eq!(receiver.take_ready_update(&history).unwrap(), None);
         assert_eq!(receiver.pending.len(), 1);
@@ -428,22 +422,22 @@ mod tests {
         assert_eq!(receiver.tick_for_cursor(Some(idx(5))), None);
     }
 
-    /// Once the receiver has pruned through `S3`, a later `S1 -> S3` patch
+    /// Once the receiver has pruned through `S3`, a later `S1 -> S3` diff
     /// message is stale. Its final cursor is at the retained base, so it cannot
     /// produce a newer confirmed history value and is ignored.
     #[test]
-    fn ignores_patch_range_at_or_before_retained_base_cursor() {
+    fn ignores_diff_range_at_or_before_retained_base_cursor() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
         history.insert_present(Tick(3), TestDiffValue(3));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver.record_cursor(Tick(3), Some(idx(3)));
         receiver.clear_before_tick(Tick(3), &history);
 
         receiver
-            .queue_patches(Tick(3), idx(1), vec![1, 2, 3])
+            .queue_diffs(Tick(3), idx(1), vec![1, 2, 3])
             .unwrap();
 
         assert!(receiver.pending.is_empty());
@@ -457,20 +451,20 @@ mod tests {
     /// confirmed history entry as the base for `S5`.
     ///
     /// Here `S0` is represented by cursor `0`, so the older message is encoded
-    /// as `first_patch_index = 1` with batches `1`, `2`, and `3`.
+    /// as `first_diff_index = 1` with batches `1`, `2`, and `3`.
     #[test]
-    fn older_patch_range_materializes_buffered_newer_range() {
+    fn older_diff_range_materializes_buffered_newer_range() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
 
-        receiver.queue_patches(Tick(5), idx(4), vec![4, 5]).unwrap();
+        receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
         assert_eq!(receiver.take_ready_update(&history).unwrap(), None);
 
         receiver
-            .queue_patches(Tick(3), idx(1), vec![1, 2, 3])
+            .queue_diffs(Tick(3), idx(1), vec![1, 2, 3])
             .unwrap();
         let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
         assert_eq!(tick, Tick(3));
@@ -500,26 +494,26 @@ mod tests {
         assert_eq!(receiver.tick_for_cursor(Some(idx(5))), Some(Tick(5)));
     }
 
-    /// Receiver cleanup must not retire bases or discard pending patch messages
-    /// while a newer patch range is waiting for an older base. Otherwise an
+    /// Receiver cleanup must not retire bases or discard pending diff messages
+    /// while a newer diff range is waiting for an older base. Otherwise an
     /// unchanged history anchor can be carried forward and the later base
     /// message can no longer materialize the missing historical state.
     #[test]
-    fn pending_patch_range_blocks_receiver_cleanup_until_materialized() {
+    fn pending_diff_range_blocks_receiver_cleanup_until_materialized() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
 
-        receiver.queue_patches(Tick(5), idx(4), vec![4, 5]).unwrap();
+        receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
         receiver.clear_before_tick(Tick(6), &history);
 
         assert_eq!(receiver.pending.len(), 1);
         assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
 
         receiver
-            .queue_patches(Tick(3), idx(1), vec![1, 2, 3])
+            .queue_diffs(Tick(3), idx(1), vec![1, 2, 3])
             .unwrap();
         let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
         assert_eq!((tick, value.clone()), (Tick(3), TestDiffValue(3)));
@@ -530,22 +524,22 @@ mod tests {
     }
 
     /// Unchanged anchors are same-as-precedent markers, so they can safely be
-    /// inserted beyond a pending older patch range. When that older range
+    /// inserted beyond a pending older diff range. When that older range
     /// materializes, later unchanged anchors inherit the newly inserted value.
     #[test]
-    fn older_patch_range_updates_later_unchanged_anchor_when_materialized() {
+    fn older_diff_range_updates_later_unchanged_anchor_when_materialized() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
 
-        receiver.queue_patches(Tick(5), idx(4), vec![4, 5]).unwrap();
+        receiver.queue_diffs(Tick(5), idx(4), vec![4, 5]).unwrap();
         assert_eq!(receiver.take_ready_update(&history).unwrap(), None);
         assert_eq!(history.push_unchanged(Tick(6)), Some(Tick(0)));
 
         receiver
-            .queue_patches(Tick(3), idx(1), vec![1, 2, 3])
+            .queue_diffs(Tick(3), idx(1), vec![1, 2, 3])
             .unwrap();
         while let Some((tick, value)) = receiver.take_ready_update(&history).unwrap() {
             history.insert_present(tick, value);
@@ -564,22 +558,22 @@ mod tests {
     /// apply the suffix of that message from the retained base instead of
     /// waiting forever for a retired cursor.
     #[test]
-    fn overlapping_patch_range_is_trimmed_to_retained_base() {
+    fn overlapping_diff_range_is_trimmed_to_retained_base() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
         history.insert_present(Tick(3), TestDiffValue(3));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver.record_cursor(Tick(3), Some(idx(3)));
         receiver.clear_before_tick(Tick(3), &history);
 
         receiver
-            .queue_patches(Tick(5), idx(1), vec![1, 2, 3, 4, 5])
+            .queue_diffs(Tick(5), idx(1), vec![1, 2, 3, 4, 5])
             .unwrap();
 
         assert_eq!(receiver.pending.len(), 1);
-        assert_eq!(receiver.pending[0].first_patch_index, idx(4));
+        assert_eq!(receiver.pending[0].first_diff_index, idx(4));
         assert_eq!(receiver.pending[0].base_cursor(), idx(3));
 
         let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
@@ -588,18 +582,18 @@ mod tests {
         assert_eq!(receiver.tick_for_cursor(Some(idx(5))), Some(Tick(5)));
     }
 
-    /// Replicon's patch indexes wrap at u16::MAX. A message ending at cursor 3
-    /// with 10 patches starts at cursor 65530 and uses 65529 as its base.
+    /// Replicon's diff indexes wrap at u16::MAX. A message ending at cursor 3
+    /// with 10 diffs starts at cursor 65530 and uses 65529 as its base.
     #[test]
-    fn queue_patch_diff_handles_wrapped_patch_indexes() {
+    fn queue_diff_handles_wrapped_diff_indexes() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(0), TestDiffValue(0));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(u16::MAX - 6)));
 
         receiver
-            .queue_patch_diff(Tick(10), idx(3), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
+            .queue_diff(Tick(10), idx(3), vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10])
             .unwrap();
 
         let (tick, value) = receiver.take_ready_update(&history).unwrap().unwrap();
@@ -610,7 +604,7 @@ mod tests {
 
     /// Pruning promotes the newest known cursor at or before the processed tick
     /// to the retained base. `base_tick` becomes the lowest retained tick, and
-    /// `patch_ticks` only keeps newer cursors that may still be useful.
+    /// `diff_ticks` only keeps newer cursors that may still be useful.
     #[test]
     fn pruning_promotes_processed_tick_to_retained_base() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
@@ -618,7 +612,7 @@ mod tests {
         history.insert_present(Tick(3), TestDiffValue(3));
         history.insert_present(Tick(5), TestDiffValue(5));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver.record_cursor(Tick(3), Some(idx(3)));
         receiver.record_cursor(Tick(5), Some(idx(5)));
@@ -632,7 +626,7 @@ mod tests {
         assert_eq!(receiver.tick_for_cursor(Some(idx(5))), Some(Tick(5)));
         assert!(
             receiver
-                .patch_ticks
+                .diff_ticks
                 .iter()
                 .all(|(_, tick)| *tick >= receiver.base_tick.unwrap())
         );
@@ -640,14 +634,14 @@ mod tests {
 
     /// Cleanup can be called with an older completed tick after a newer
     /// snapshot was written in the same frame. That must not wipe the retained
-    /// base cursor, or the next patch range will be unable to find its base.
+    /// base cursor, or the next diff range will be unable to find its base.
     #[test]
     fn pruning_older_than_retained_base_is_noop() {
         let mut history = ConfirmedHistory::<TestDiffValue>::default();
         history.insert_present(Tick(126), TestDiffValue(0));
         history.insert_present(Tick(128), TestDiffValue(0));
 
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestDiffValue>::default();
+        let mut receiver = HistoryDiffReceiver::<TestDiffValue>::default();
         receiver.record_cursor(Tick(128), Some(idx(0)));
         receiver.clear_before_tick(Tick(128), &history);
 

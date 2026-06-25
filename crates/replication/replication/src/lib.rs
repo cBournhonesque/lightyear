@@ -129,7 +129,7 @@ pub mod prelude {
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
     pub use crate::checkpoint::ReplicationCheckpointMap;
     pub use crate::control::{Controlled, ControlledBy, Lifetime};
-    pub use crate::diff_history::ConfirmedHistoryPatchReceiver;
+    pub use crate::diff_history::HistoryDiffReceiver;
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
@@ -185,10 +185,7 @@ impl Plugin for SharedComponentRegistrationPlugin {
         app.replicate::<control::Controlled>();
         // ChildOf is registered for replication in HierarchySendPlugin (server-only),
         // but must also be registered on the client so FnsIds match.
-        app.replicate_with_priority(
-            0,
-            bevy_replicon::prelude::RuleFns::<bevy_ecs::prelude::ChildOf>::default(),
-        );
+        app.replicate::<bevy_ecs::prelude::ChildOf>();
 
         // ServerMutateTicks is normally only initialized by bevy_replicon's ClientPlugin,
         // but prediction systems on server-only builds also reference it. Init it here

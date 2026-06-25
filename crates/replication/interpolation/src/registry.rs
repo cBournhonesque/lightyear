@@ -26,7 +26,7 @@ use bevy_utils::prelude::DebugName;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
-use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
+use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
 use tracing::{error, trace};
@@ -198,7 +198,7 @@ fn register_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
         priority: 100,
         need_history: true,
     });
-    app.set_marker_fns::<Interpolated, C>(write_history_diff::<C>, remove_history_diff::<C>);
+    app.set_marker_fns::<Interpolated, C>(write_history_diff::<C>, remove_history::<C>);
     app.world_mut()
         .resource_mut::<InterpolatedMarkerFnRegistry>()
         .kinds
@@ -267,9 +267,7 @@ pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + R
                     storage
                         .get::<DiffBuffer<C>>(entity)
                         .and_then(DiffBuffer::<C>::last_applied),
-                    storage
-                        .get::<ConfirmedHistoryPatchReceiver<C>>(entity)
-                        .is_some(),
+                    storage.get::<HistoryDiffReceiver<C>>(entity).is_some(),
                 )
             })
             .unwrap_or_default();
@@ -293,11 +291,9 @@ pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + R
         if !has_receiver
             && let Some(cursor) = cursor
             && let Some(mut storage) = world.get_resource_mut::<ReplicationStorage>()
-            && storage
-                .get::<ConfirmedHistoryPatchReceiver<C>>(entity)
-                .is_none()
+            && storage.get::<HistoryDiffReceiver<C>>(entity).is_none()
         {
-            let mut receiver = ConfirmedHistoryPatchReceiver::<C>::default();
+            let mut receiver = HistoryDiffReceiver::<C>::default();
             receiver.record_cursor(tick, Some(cursor));
             storage.insert(entity, receiver);
         }
@@ -618,21 +614,18 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
             mut component,
         } => {
             C::map_entities(&mut component, ctx);
-            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
+            let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
             receiver.record_cursor(tick, Some(index));
             insert_interpolation_history_value(entity, &mut new_history, tick, component);
         }
-        ComponentDelta::Diffs {
-            index,
-            diffs: patches,
-        } => {
-            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
-            receiver.queue_patch_diff(tick, index, patches)?;
+        ComponentDelta::Diffs { index, diffs } => {
+            let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
+            receiver.queue_diff(tick, index, diffs)?;
         }
     }
 
     while let Some((tick, value)) = {
-        let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
+        let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
         if let Some(history) = new_history.as_ref() {
             receiver.take_ready_update(history)?
         } else {
@@ -727,13 +720,6 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
     }
 }
 
-fn remove_history_diff<C: SyncComponent + RepliconDiffable>(
-    ctx: &mut RemoveCtx,
-    entity: &mut DeferredEntity,
-) {
-    remove_history::<C>(ctx, entity);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -766,8 +752,8 @@ mod tests {
     impl RepliconDiffable for TestDiffComponent {
         type Diff = u32;
 
-        fn apply_diff(&mut self, patch: &Self::Diff) -> bevy_ecs::error::Result<()> {
-            self.0 = *patch;
+        fn apply_diff(&mut self, diff: &Self::Diff) -> bevy_ecs::error::Result<()> {
+            self.0 = *diff;
             Ok(())
         }
     }
@@ -800,11 +786,11 @@ mod tests {
         message.into()
     }
 
-    fn diff_patches(index: u16, patches: &[u32]) -> Bytes {
+    fn diff_message(index: u16, diffs: &[u32]) -> Bytes {
         let mut message = Vec::new();
         let wire = TestComponentDelta::Diffs {
             index: DiffIndex::new(index),
-            diffs: patches,
+            diffs,
         };
         postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
         message.into()
@@ -929,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_interpolation_buffers_newer_patch_until_older_base_arrives() {
+    fn diff_interpolation_buffers_newer_diff_until_older_base_arrives() {
         let (mut app, fns_id) = setup_interpolation_diff_app();
         let tick0 = record_checkpoint(&mut app, 0);
         let tick3 = record_checkpoint(&mut app, 3);
@@ -945,7 +931,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(entity)
-            .apply_write(diff_patches(5, &[4, 5]), fns_id, tick5);
+            .apply_write(diff_message(5, &[4, 5]), fns_id, tick5);
         {
             let entity_ref = app.world().entity(entity);
             let history = entity_ref
@@ -956,7 +942,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(entity)
-            .apply_write(diff_patches(3, &[1, 2, 3]), fns_id, tick3);
+            .apply_write(diff_message(3, &[1, 2, 3]), fns_id, tick3);
 
         let entity_ref = app.world().entity(entity);
         let history = entity_ref

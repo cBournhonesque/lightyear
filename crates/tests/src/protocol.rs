@@ -149,8 +149,8 @@ pub struct CompRepliconDiff(pub u32);
 impl RepliconDiffable for CompRepliconDiff {
     type Diff = u32;
 
-    fn apply_diff(&mut self, patch: &Self::Diff) -> Result<()> {
-        self.0 = *patch;
+    fn apply_diff(&mut self, diff: &Self::Diff) -> Result<()> {
+        self.0 = *diff;
         Ok(())
     }
 }

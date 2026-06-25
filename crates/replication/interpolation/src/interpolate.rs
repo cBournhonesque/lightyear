@@ -10,7 +10,7 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
+use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_sync::prelude::client::IsSynced;
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -91,11 +91,20 @@ pub(crate) fn update_confirmed_history<C: Component + Clone>(
     }
 }
 
+/// Advances interpolation history for components received through Replicon diffs.
+///
+/// Diff-replicated interpolated components use a custom `write_fn` because the
+/// client may need to apply a diff range to an older confirmed snapshot, not
+/// only to the latest live component state. Replicon's `DiffBuffer` tracks the
+/// live diff cursor, but interpolation history can receive out-of-order diffs
+/// whose base lives in [`ConfirmedHistory<C>`]. [`HistoryDiffReceiver`] keeps
+/// those historical cursors and pending diff messages so this system can
+/// materialize them once the matching older snapshot is available.
 pub(crate) fn update_confirmed_history_diff<C>(
     interpolation_registry: Res<InterpolationRegistry>,
     interpolation: Single<&InterpolationTimeline>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    mut patch_receivers: ResMut<ReplicationStorage>,
+    mut history_diff_receivers: ResMut<ReplicationStorage>,
     mut query: Query<(Entity, &mut ConfirmedHistory<C>, Has<C>), With<Interpolated>>,
     mut commands: Commands,
 ) where
@@ -105,13 +114,13 @@ pub(crate) fn update_confirmed_history_diff<C>(
     let server_complete_tick = checkpoints.last_confirmed_tick();
     let current_interpolate_tick = timeline.now().tick();
     for (entity, mut history, present) in query.iter_mut() {
-        let Some(patch_receiver) =
-            patch_receivers.get_mut::<ConfirmedHistoryPatchReceiver<C>>(entity)
+        let Some(history_diff_receiver) =
+            history_diff_receivers.get_mut::<HistoryDiffReceiver<C>>(entity)
         else {
             continue;
         };
         if let Some(server_complete_tick) = server_complete_tick
-            && !patch_receiver.has_pending_patch_at_tick(server_complete_tick)
+            && !history_diff_receiver.has_pending_diff_at_tick(server_complete_tick)
             && let Some(previous_newest_tick) = history.push_unchanged(server_complete_tick)
         {
             trace!(
@@ -128,7 +137,7 @@ pub(crate) fn update_confirmed_history_diff<C>(
             );
         }
 
-        if !patch_receiver.has_pending_patches() {
+        if !history_diff_receiver.has_pending_diffs() {
             while history.len() >= 3
                 && history
                     .get_nth_tick(1)
@@ -138,7 +147,7 @@ pub(crate) fn update_confirmed_history_diff<C>(
             }
 
             if let Some(server_complete_tick) = server_complete_tick {
-                patch_receiver.clear_before_tick(server_complete_tick, &history);
+                history_diff_receiver.clear_before_tick(server_complete_tick, &history);
             }
         }
 
@@ -203,7 +212,7 @@ mod tests {
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use lightyear_core::time::TickInstant;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-    use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
+    use lightyear_replication::diff_history::HistoryDiffReceiver;
     use serde::{Deserialize, Serialize};
 
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -212,8 +221,8 @@ mod tests {
     impl RepliconDiffable for TestComp {
         type Diff = f32;
 
-        fn apply_diff(&mut self, patch: &Self::Diff) -> bevy_ecs::error::Result<()> {
-            self.0 = *patch;
+        fn apply_diff(&mut self, diff: &Self::Diff) -> bevy_ecs::error::Result<()> {
+            self.0 = *diff;
             Ok(())
         }
     }
@@ -342,17 +351,17 @@ mod tests {
     }
 
     #[test]
-    fn diff_history_waits_when_completed_tick_patch_is_pending() {
+    fn diff_history_waits_when_completed_tick_diff_is_pending() {
         let mut app = setup_app(Tick(5), 40);
         app.add_systems(Update, update_confirmed_history_diff::<TestComp>);
         confirm_server_tick(&mut app, 1, Tick(5));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.insert_present(Tick(0), TestComp(0.0));
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestComp>::default();
+        let mut receiver = HistoryDiffReceiver::<TestComp>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver
-            .queue_patches(Tick(5), idx(4), vec![4.0, 5.0])
+            .queue_diffs(Tick(5), idx(4), vec![4.0, 5.0])
             .unwrap();
 
         let entity = app.world_mut().spawn((Interpolated, history)).id();
@@ -375,24 +384,24 @@ mod tests {
         let receiver = app
             .world()
             .resource::<ReplicationStorage>()
-            .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
+            .get::<HistoryDiffReceiver<TestComp>>(entity)
             .unwrap();
-        assert!(receiver.has_pending_patches());
+        assert!(receiver.has_pending_diffs());
         assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
     }
 
     #[test]
-    fn update_confirmed_history_diff_advances_when_only_older_patch_is_pending() {
+    fn update_confirmed_history_diff_advances_when_only_older_diff_is_pending() {
         let mut app = setup_app(Tick(6), 40);
         app.add_systems(Update, update_confirmed_history_diff::<TestComp>);
         confirm_server_tick(&mut app, 1, Tick(6));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.insert_present(Tick(0), TestComp(0.0));
-        let mut receiver = ConfirmedHistoryPatchReceiver::<TestComp>::default();
+        let mut receiver = HistoryDiffReceiver::<TestComp>::default();
         receiver.record_cursor(Tick(0), Some(idx(0)));
         receiver
-            .queue_patches(Tick(5), idx(4), vec![4.0, 5.0])
+            .queue_diffs(Tick(5), idx(4), vec![4.0, 5.0])
             .unwrap();
 
         let entity = app.world_mut().spawn((Interpolated, history)).id();
@@ -419,9 +428,9 @@ mod tests {
         let receiver = app
             .world()
             .resource::<ReplicationStorage>()
-            .get::<ConfirmedHistoryPatchReceiver<TestComp>>(entity)
+            .get::<HistoryDiffReceiver<TestComp>>(entity)
             .unwrap();
-        assert!(receiver.has_pending_patches());
+        assert!(receiver.has_pending_diffs());
         assert_eq!(receiver.tick_for_cursor(Some(idx(0))), Some(Tick(0)));
     }
 

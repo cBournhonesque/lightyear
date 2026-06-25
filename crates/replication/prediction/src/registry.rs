@@ -32,7 +32,7 @@ use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
-use lightyear_replication::diff_history::ConfirmedHistoryPatchReceiver;
+use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
@@ -906,13 +906,13 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             need_history: true,
         });
         self.app
-            .set_marker_fns::<Predicted, C>(write_history_diff::<C>, remove_history_diff::<C>);
+            .set_marker_fns::<Predicted, C>(write_history_diff::<C>, remove_history::<C>);
         self.app.register_marker_with::<PreSpawned>(MarkerConfig {
             priority: 100,
             need_history: true,
         });
         self.app
-            .set_marker_fns::<PreSpawned, C>(write_history_diff::<C>, remove_history_diff::<C>);
+            .set_marker_fns::<PreSpawned, C>(write_history_diff::<C>, remove_history::<C>);
         let prediction_history_id = self
             .app
             .world_mut()
@@ -1094,7 +1094,7 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
             mut component,
         } => {
             C::map_entities(&mut component, ctx);
-            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
+            let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
             receiver.record_cursor(tick, Some(index));
             let should_rollback =
                 add_resolved_confirmed_to_history(tick, Some(component), entity, true);
@@ -1105,17 +1105,14 @@ fn write_history_diff<C: SyncComponent + RepliconDiffable>(
                     .record_mismatch(tick);
             }
         }
-        ComponentDelta::Diffs {
-            index,
-            diffs: patches,
-        } => {
-            let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
-            receiver.queue_patch_diff(tick, index, patches)?;
+        ComponentDelta::Diffs { index, diffs } => {
+            let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
+            receiver.queue_diff(tick, index, diffs)?;
         }
     }
 
     while let Some((tick, value)) = {
-        let receiver = ctx.get_or_default::<ConfirmedHistoryPatchReceiver<C>>();
+        let receiver = ctx.get_or_default::<HistoryDiffReceiver<C>>();
         entity
             .get::<ConfirmedHistory<C>>()
             .map(|history| receiver.take_ready_update(history))
@@ -1287,13 +1284,6 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
             .resource_mut::<StateRollbackMetadata>()
             .record_mismatch(tick);
     }
-}
-
-fn remove_history_diff<C: SyncComponent + RepliconDiffable>(
-    ctx: &mut RemoveCtx,
-    entity: &mut DeferredEntity,
-) {
-    remove_history::<C>(ctx, entity);
 }
 
 /// Variant of [`write_history`] used by `add_confirmed_write`.
@@ -1482,8 +1472,8 @@ mod tests {
     impl RepliconDiffable for TestDiffComponent {
         type Diff = u32;
 
-        fn apply_diff(&mut self, patch: &Self::Diff) -> bevy_ecs::error::Result<()> {
-            self.0 = *patch;
+        fn apply_diff(&mut self, diff: &Self::Diff) -> bevy_ecs::error::Result<()> {
+            self.0 = *diff;
             Ok(())
         }
     }
@@ -1510,11 +1500,11 @@ mod tests {
         message.into()
     }
 
-    fn diff_patches(index: u16, patches: &[u32]) -> Bytes {
+    fn diff_message(index: u16, diffs: &[u32]) -> Bytes {
         let mut message = Vec::new();
         let wire = TestComponentDelta::Diffs {
             index: DiffIndex::new(index),
-            diffs: patches,
+            diffs,
         };
         postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
         message.into()
@@ -1597,7 +1587,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_prediction_buffers_newer_patch_until_older_base_arrives() {
+    fn diff_prediction_buffers_newer_diff_until_older_base_arrives() {
         let (mut app, fns_id) = setup_prediction_diff_app();
         let tick0 = record_checkpoint(&mut app, 0);
         let tick3 = record_checkpoint(&mut app, 3);
@@ -1613,7 +1603,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(entity)
-            .apply_write(diff_patches(5, &[4, 5]), fns_id, tick5);
+            .apply_write(diff_message(5, &[4, 5]), fns_id, tick5);
         {
             let entity_ref = app.world().entity(entity);
             let history = entity_ref
@@ -1624,7 +1614,7 @@ mod tests {
 
         app.world_mut()
             .entity_mut(entity)
-            .apply_write(diff_patches(3, &[1, 2, 3]), fns_id, tick3);
+            .apply_write(diff_message(3, &[1, 2, 3]), fns_id, tick3);
 
         let entity_ref = app.world().entity(entity);
         let history = entity_ref

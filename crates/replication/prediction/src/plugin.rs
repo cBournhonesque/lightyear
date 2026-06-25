@@ -10,11 +10,10 @@ use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
-    add_confirmed_history_patch_receiver, add_prediction_history,
-    apply_component_removal_predicted, handle_tick_event_confirmed_history,
-    handle_tick_event_confirmed_history_patch_receiver, handle_tick_event_prediction_history,
-    prune_confirmed_history_patch_receiver, snap_to_confirmed_during_rollback,
-    update_prediction_history,
+    add_history_diff_receiver, add_prediction_history, apply_component_removal_predicted,
+    handle_tick_event_confirmed_history, handle_tick_event_history_diff_receiver,
+    handle_tick_event_prediction_history, prune_history_diff_receiver,
+    snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
@@ -191,11 +190,11 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
 }
 
 pub(crate) fn add_prediction_diff_systems<C: SyncComponent + RepliconDiffable>(app: &mut App) {
-    app.add_observer(add_confirmed_history_patch_receiver::<C>);
-    app.add_observer(handle_tick_event_confirmed_history_patch_receiver::<C>);
+    app.add_observer(add_history_diff_receiver::<C>);
+    app.add_observer(handle_tick_event_history_diff_receiver::<C>);
     app.add_systems(
         PreUpdate,
-        prune_confirmed_history_patch_receiver::<C>.in_set(RollbackSystems::Prepare),
+        prune_history_diff_receiver::<C>.in_set(RollbackSystems::Prepare),
     );
 }
 

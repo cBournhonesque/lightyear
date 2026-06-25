@@ -42,7 +42,7 @@ fn newest_confirmed_value(app: &App, entity: Entity) -> Option<u32> {
 /// server-side `apply_diff` produces diff replication, and the client stores
 /// the materialized value in `ConfirmedHistory`.
 #[test]
-fn diff_prediction_records_confirmed_history_from_replicon_patches() {
+fn diff_prediction_records_confirmed_history_from_replicon_diffs() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
@@ -93,7 +93,7 @@ fn diff_prediction_records_confirmed_history_from_replicon_patches() {
 /// server-side `apply_diff` produces diff replication, and the client stores
 /// the materialized value in `ConfirmedHistory`.
 #[test]
-fn diff_interpolation_records_confirmed_history_from_replicon_patches() {
+fn diff_interpolation_records_confirmed_history_from_replicon_diffs() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     let server_entity = stepper
@@ -162,11 +162,11 @@ fn diff_snapshot(index: u16, component: CompRepliconDiff) -> Bytes {
     message.into()
 }
 
-fn diff_patches(index: u16, patches: &[u32]) -> Bytes {
+fn diff_message(index: u16, diffs: &[u32]) -> Bytes {
     let mut message = Vec::new();
     let wire = TestComponentDelta::Diffs {
         index: DiffIndex::new(index),
-        diffs: patches,
+        diffs,
     };
     postcard_utils::to_extend_mut(&wire, &mut message).unwrap();
     message.into()
@@ -227,11 +227,11 @@ fn record_checkpoint(app: &mut App, tick: u32) -> RepliconTick {
     replicon_tick
 }
 
-/// Verifies that prediction buffers a newer patch range when its historical
+/// Verifies that prediction buffers a newer diff range when its historical
 /// base is missing, then materializes both the older and newer states once the
-/// older base patch range arrives.
+/// older base diff range arrives.
 #[test]
-fn diff_prediction_materializes_older_patch_after_newer_patch_arrives_first() {
+fn diff_prediction_materializes_older_diff_after_newer_diff_arrives_first() {
     let (mut app, fns_id) = setup_prediction_receive_app();
     let tick0 = record_checkpoint(&mut app, 0);
     let tick3 = record_checkpoint(&mut app, 3);
@@ -245,7 +245,7 @@ fn diff_prediction_materializes_older_patch_after_newer_patch_arrives_first() {
     );
     app.world_mut()
         .entity_mut(entity)
-        .apply_write(diff_patches(5, &[4, 5]), fns_id, tick5);
+        .apply_write(diff_message(5, &[4, 5]), fns_id, tick5);
     assert_eq!(
         app.world()
             .entity(entity)
@@ -257,7 +257,7 @@ fn diff_prediction_materializes_older_patch_after_newer_patch_arrives_first() {
 
     app.world_mut()
         .entity_mut(entity)
-        .apply_write(diff_patches(3, &[1, 2, 3]), fns_id, tick3);
+        .apply_write(diff_message(3, &[1, 2, 3]), fns_id, tick3);
 
     let history = app
         .world()
@@ -278,11 +278,11 @@ fn diff_prediction_materializes_older_patch_after_newer_patch_arrives_first() {
     );
 }
 
-/// Verifies that interpolation buffers a newer patch range when its historical
+/// Verifies that interpolation buffers a newer diff range when its historical
 /// base is missing, then materializes both the older and newer states once the
-/// older base patch range arrives.
+/// older base diff range arrives.
 #[test]
-fn diff_interpolation_materializes_older_patch_after_newer_patch_arrives_first() {
+fn diff_interpolation_materializes_older_diff_after_newer_diff_arrives_first() {
     let (mut app, fns_id) = setup_interpolation_receive_app();
     let tick0 = record_checkpoint(&mut app, 0);
     let tick3 = record_checkpoint(&mut app, 3);
@@ -296,7 +296,7 @@ fn diff_interpolation_materializes_older_patch_after_newer_patch_arrives_first()
     );
     app.world_mut()
         .entity_mut(entity)
-        .apply_write(diff_patches(5, &[4, 5]), fns_id, tick5);
+        .apply_write(diff_message(5, &[4, 5]), fns_id, tick5);
     assert_eq!(
         app.world()
             .entity(entity)
@@ -308,7 +308,7 @@ fn diff_interpolation_materializes_older_patch_after_newer_patch_arrives_first()
 
     app.world_mut()
         .entity_mut(entity)
-        .apply_write(diff_patches(3, &[1, 2, 3]), fns_id, tick3);
+        .apply_write(diff_message(3, &[1, 2, 3]), fns_id, tick3);
 
     let history = app
         .world()
