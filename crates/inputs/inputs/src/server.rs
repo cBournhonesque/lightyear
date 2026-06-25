@@ -137,6 +137,10 @@ pub enum InputSystems {
 /// `Query<&mut MessageReceiver<InputMessage<S>>>` and calls
 /// [`MessageReceiver::retain_messages`]. This is sugar for
 /// `app.add_systems(PreUpdate, system.in_set(InputSystems::ValidateInputs))`.
+///
+/// Validators in the set are unordered relative to each other. To make one run
+/// before another, pass an ordered config — e.g.
+/// `app.add_input_validator(my_validator.after(other_validator))`.
 pub trait InputValidationAppExt {
     fn add_input_validator<M>(
         &mut self,
