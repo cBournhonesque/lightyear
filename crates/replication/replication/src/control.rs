@@ -73,8 +73,8 @@ impl ControlledBy {
         }
     }
 
-    fn on_replace(
-        trigger: On<Replace, ControlledBy>,
+    fn on_discard(
+        trigger: On<Discard, ControlledBy>,
         controlled_by: Query<&ControlledBy>,
         control_bit: Res<ControlBit>,
         mut sender: Query<&mut ClientVisibility, With<ReplicationSender>>,
@@ -173,7 +173,7 @@ impl Plugin for ControlPlugin {
         // Note: app.replicate::<Controlled>() is called in SharedComponentRegistrationPlugin
         // to ensure matching component IDs on both client and server.
         app.add_observer(ControlledBy::on_insert);
-        app.add_observer(ControlledBy::on_replace);
+        app.add_observer(ControlledBy::on_discard);
         app.add_observer(ControlledBy::handle_disconnection);
         app.add_observer(emulate_controlled_on_host_client_added);
         app.add_observer(emulate_controlled_on_add);

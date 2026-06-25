@@ -5,7 +5,7 @@
 /// - Correction/FrameInterpolation are a visual concern, so it would be better for them to be applied to Transform.
 ///
 /// At the end of a rollback, we will convert Position/Rotation to Transform so that we can do FrameInterpolation and Correction in Transform space.
-use avian3d::math::AsF32;
+use avian3d::math::{AdjustPrecision, AsF32};
 use avian3d::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_math::curve::{EaseFunction, EasingCurve};
@@ -140,7 +140,7 @@ pub(crate) fn add_visual_correction(
         .for_each(|(entity, mut component, mut visual_correction)| {
             if !prediction.should_rollback(
                 &Position::default(),
-                &Position(visual_correction.error.translation.into()),
+                &Position(Vec3::from(visual_correction.error.translation).adjust_precision()),
             ) && !prediction.should_rollback(
                 &Rotation::default(),
                 &Rotation::from(visual_correction.error.rotation),

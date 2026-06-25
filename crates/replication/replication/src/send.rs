@@ -103,7 +103,7 @@ pub type Replicate = ReplicationTarget<()>;
 #[derive(Component, Clone, Default, Debug, PartialEq, Reflect)]
 #[require(ReplicationState)]
 #[component(on_insert = ReplicationTarget::<T>::on_insert)]
-#[component(on_replace = ReplicationTarget::<T>::on_replace)]
+#[component(on_discard = ReplicationTarget::<T>::on_discard)]
 pub struct ReplicationTarget<T: ReplicationTargetT> {
     mode: ReplicationMode,
     #[reflect(ignore)]
@@ -213,7 +213,7 @@ pub trait ReplicationTargetT: private::Sealed + Send + Sync + 'static {
         host_client: bool,
     );
 
-    fn on_replace(world: DeferredWorld, context: HookContext);
+    fn on_discard(world: DeferredWorld, context: HookContext);
 }
 
 /// Marker component that indicates that the entity was replicated
@@ -289,7 +289,7 @@ impl ReplicationTargetT for () {
             });
     }
 
-    fn on_replace(mut world: DeferredWorld, context: HookContext) {
+    fn on_discard(mut world: DeferredWorld, context: HookContext) {
         let Ok(entity_ref) = world.get_entity(context.entity) else {
             return;
         };
@@ -379,7 +379,7 @@ mod prediction {
             *context = host_client;
         }
 
-        fn on_replace(mut world: DeferredWorld, context: HookContext) {
+        fn on_discard(mut world: DeferredWorld, context: HookContext) {
             let visibility_bit = *world.resource::<PredictedBit>().deref();
             if world.get_entity(context.entity).is_err() {
                 return;
@@ -450,7 +450,7 @@ mod interpolation {
             *context = host_client;
         }
 
-        fn on_replace(mut world: DeferredWorld, context: HookContext) {
+        fn on_discard(mut world: DeferredWorld, context: HookContext) {
             let visibility_bit = *world.resource::<InterpolatedBit>().deref();
             if world.get_entity(context.entity).is_err() {
                 return;
@@ -718,8 +718,8 @@ impl<T: ReplicationTargetT> ReplicationTarget<T> {
         });
     }
 
-    fn on_replace(world: DeferredWorld, context: HookContext) {
-        T::on_replace(world, context)
+    fn on_discard(world: DeferredWorld, context: HookContext) {
+        T::on_discard(world, context)
     }
 }
 

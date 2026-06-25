@@ -68,6 +68,5 @@ pub(crate) unsafe fn receive_event_typed<M: Message + Event>(
     commands.command_scope(|mut c| {
         c.trigger(trigger);
     });
-    // commands.trigger(trigger);
     Ok(())
 }

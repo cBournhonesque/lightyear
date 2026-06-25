@@ -91,13 +91,13 @@ fn label_changed(
                 if text_writer.text(child, 0).as_str() != label.text {
                     *text_writer.text(child, 0) = label.text.clone();
                 }
-                text_writer.font(child, 0).font_size = label.size;
+                text_writer.font(child, 0).font_size = FontSize::Px(label.size);
                 text_writer.color(child, 0).0 = label.color;
 
                 if text_writer.text(child, 1).as_str() != label.sub_text {
                     *text_writer.text(child, 1) = label.sub_text.clone();
                 }
-                text_writer.font(child, 1).font_size = label.size * 0.85;
+                text_writer.font(child, 1).font_size = FontSize::Px(label.size * 0.85);
                 text_writer.color(child, 1).0 = label.color.with_alpha(0.6);
 
                 *transform =

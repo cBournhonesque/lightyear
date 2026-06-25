@@ -601,7 +601,7 @@ fn setup_metrics_panel(
                     Button,
                     Text::new("Send"),
                     TextFont {
-                        font_size: 10.0,
+                        font_size: FontSize::Px(10.0),
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.0, 0.6, 0.0, settings.alpha)),
@@ -611,7 +611,7 @@ fn setup_metrics_panel(
                     Button,
                     Text::new("Receive"),
                     TextFont {
-                        font_size: 10.0,
+                        font_size: FontSize::Px(10.0),
                         ..default()
                     },
                     BackgroundColor(Color::srgba(0.0, 0.6, 0.0, settings.alpha)),
@@ -641,7 +641,7 @@ fn line(
         cmd.spawn((
             Text::new(spec.label.to_string()),
             TextFont {
-                font_size: 10.0,
+                font_size: FontSize::Px(10.0),
                 ..default()
             },
         ));
@@ -649,7 +649,7 @@ fn line(
             ValueText,
             Text::new("-"),
             TextFont {
-                font_size: 10.0,
+                font_size: FontSize::Px(10.0),
                 ..default()
             },
         ));
@@ -677,7 +677,7 @@ fn build_sections(
             cmd.spawn((
                 Text::new(format!("> {}", section.title)),
                 TextFont {
-                    font_size: 12.0,
+                    font_size: FontSize::Px(12.0),
                     ..default()
                 },
                 TextColor(Color::srgba(0.9, 0.9, 0.9, settings.alpha)),
@@ -711,7 +711,7 @@ fn build_sections(
                     cmd.spawn((
                         Text::new(format!("> {}", subsection.title)),
                         TextFont {
-                            font_size: 11.0,
+                            font_size: FontSize::Px(11.0),
                             ..default()
                         },
                     ));

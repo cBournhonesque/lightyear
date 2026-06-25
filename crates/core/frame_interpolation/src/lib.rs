@@ -286,7 +286,7 @@ pub(crate) fn update_visual_interpolation_status<
         //     );
         //     continue;
         // }
-        interpolate_status.current_value = Some(component.clone());
+        interpolate_status.current_value = Some((*component).clone());
         trace!(
             ?interpolate_status,
             "updating interpolate status current_value"
