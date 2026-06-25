@@ -103,6 +103,7 @@ pub mod checkpoint;
 #[cfg(feature = "client")]
 pub mod client;
 pub mod control;
+pub mod diff_history;
 pub mod hierarchy;
 pub mod metadata;
 pub mod prespawn;
@@ -128,6 +129,7 @@ pub mod prelude {
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
     pub use crate::checkpoint::ReplicationCheckpointMap;
     pub use crate::control::{Controlled, ControlledBy, Lifetime};
+    pub use crate::diff_history::HistoryDiffReceiver;
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
