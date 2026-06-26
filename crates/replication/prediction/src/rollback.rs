@@ -370,7 +370,7 @@ fn check_rollback(
     >,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
-    awaiting_catchup: Query<(), With<CatchUpGated>>,
+    awaiting_catchup: Query<(), (With<CatchUpGated>, With<ConfirmHistory>)>,
     deterministic_predicted: Query<&DeterministicPredicted>,
     parallel_commands: ParallelCommands,
     mut commands: Commands,
@@ -461,6 +461,12 @@ fn check_rollback(
         forced_rollback_requested = true;
     }
 
+    // Local-only resources can be marked `CatchUpGated` so that, when they are
+    // replicated as part of a catch-up snapshot, their components use the
+    // confirmed-history receive path. They should not pause ordinary input
+    // rollback in modes that never start a catch-up. A replicated gated entity
+    // has Replicon's `ConfirmHistory`, so use that as the pending-catch-up
+    // signal here.
     let has_pending_catchup = !awaiting_catchup.is_empty();
     if forced_rollback_requested {
         trace!(

@@ -4,8 +4,8 @@
 //! 1. Compare local predicted values with confirmed values from the server to detect mismatches
 //! 2. Rollback to a past local state and replay the simulation
 
-use crate::Predicted;
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
+use crate::{Predicted, SyncComponent};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -238,8 +238,9 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 
 /// When any of `C`, [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`],
 /// or [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`]
-/// is present, and if `C` has just been applied via an init message, seed
-/// [`ConfirmedHistory<C>`] at the server tick that produced the init.
+/// is present, and if `C` has just been applied via an init message on a
+/// marker that receives confirmed state, seed [`ConfirmedHistory<C>`] at the
+/// server tick that produced the init.
 ///
 /// # Why seeding is needed
 ///
@@ -283,6 +284,7 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
     if !catchup_gated && !(has_component && (predicted || prespawned || deterministic)) {
         return;
     }
+    let should_seed_confirmed_history = has_component && (catchup_gated || predicted || prespawned);
     trace!(
         target: "lightyear_debug::prediction",
         kind = "prediction_history_insert",
@@ -305,16 +307,20 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
         // when all of `C`, `ConfirmHistory`, and a checkpoint mapping
         // are present — i.e. when this is an init-message write.
         let seed: Option<(Tick, C)> = {
-            let component = entity_mut.get::<C>().cloned();
-            let confirm_last = entity_mut
-                .get::<lightyear_replication::prelude::ConfirmHistory>()
-                .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
-            match (component, confirm_last) {
-                (Some(component), Some(confirm_tick)) => world
-                    .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-                    .get(confirm_tick)
-                    .map(|tick| (tick, component)),
-                _ => None,
+            if should_seed_confirmed_history {
+                let component = entity_mut.get::<C>().cloned();
+                let confirm_last = entity_mut
+                    .get::<lightyear_replication::prelude::ConfirmHistory>()
+                    .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
+                match (component, confirm_last) {
+                    (Some(component), Some(confirm_tick)) => world
+                        .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+                        .get(confirm_tick)
+                        .map(|tick| (tick, component)),
+                    _ => None,
+                }
+            } else {
+                None
             }
         };
         // Re-fetch the entity after the world-level resource access above.

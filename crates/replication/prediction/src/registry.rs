@@ -80,7 +80,7 @@ type CheckRollbackFn = unsafe fn(
 
 /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
 /// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
-/// value returned by [`PredictionHistory::get`].
+/// value returned by the history buffer lookup.
 pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
 
 impl PredictionMetadata {
