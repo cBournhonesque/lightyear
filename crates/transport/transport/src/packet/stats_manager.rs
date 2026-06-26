@@ -70,10 +70,8 @@ pub(crate) mod packet {
 
         pub(crate) fn update(&mut self, real: Duration) {
             // remove stats older than stats buffer duration
-            let removed = self
-                .stats_buffer
-                .drain_until(&(real.saturating_sub(self.stats_buffer_duration)));
-            for (_, stats) in removed {
+            let oldest_retained = real.saturating_sub(self.stats_buffer_duration);
+            while let Some((_, stats)) = self.stats_buffer.pop_item(&oldest_retained) {
                 self.rolling_stats -= stats;
             }
             // add the current stats to the rolling stats

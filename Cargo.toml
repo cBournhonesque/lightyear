@@ -193,6 +193,8 @@ async-compat = "0.2"
 # dev deps
 mock_instant = "0.6"
 approx = "0.5.1"
+dhat = "0.3.3"
+stats_alloc = "0.1.10"
 
 # Bevy
 # (the full app is used for examples)

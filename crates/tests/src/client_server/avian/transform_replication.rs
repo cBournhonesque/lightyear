@@ -156,19 +156,9 @@ fn test_replicate_transform_child_collider() {
     config.frame_duration = Duration::from_millis(5);
     let mut stepper = ClientServerStepper::from_config(config);
 
-    // add colliders on the client to make sure that collider hierarchy systems work
-    stepper.client_app().add_observer(
-        |trigger: On<Add, Replicated>, q: Query<(), With<ChildOf>>, mut commands: Commands| {
-            if let Ok(()) = q.get(trigger.entity) {
-                commands
-                    .entity(trigger.entity)
-                    .insert(Collider::circle(1.0));
-            } else {
-                commands
-                    .entity(trigger.entity)
-                    .insert((Collider::circle(1.0), RigidBody::Kinematic));
-            }
-        },
+    stepper.client_app().add_systems(
+        PostUpdate,
+        add_client_physics_after_transform_propagate.after(TransformSystems::Propagate),
     );
 
     let server_parent = stepper
@@ -327,6 +317,12 @@ fn test_replicate_transform_child_collider() {
         .get_local(server_child)
         .unwrap();
     info!(?client_parent, ?client_child, "Received entities on client");
+
+    // The replicated ChildOf can be applied after the client's transform propagation for the
+    // frame that receives the spawn. Step one render frame so GlobalTransform reflects the
+    // replicated hierarchy before checking the collider setup.
+    stepper.frame_step_server_first(1);
+
     assert_relative_eq!(
         stepper
             .client_app()
@@ -369,4 +365,34 @@ fn test_replicate_transform_child_collider() {
             .x,
         4.0
     );
+}
+
+#[derive(Component)]
+struct ClientPhysicsAdded;
+
+fn add_client_physics_after_transform_propagate(
+    mut commands: Commands,
+    query: Query<
+        (Entity, Option<&ChildOf>),
+        (
+            With<Remote>,
+            With<Transform>,
+            With<GlobalTransform>,
+            Without<ClientPhysicsAdded>,
+        ),
+    >,
+) {
+    for (entity, child_of) in &query {
+        if child_of.is_some() {
+            commands
+                .entity(entity)
+                .insert((Collider::circle(1.0), ClientPhysicsAdded));
+        } else {
+            commands.entity(entity).insert((
+                Collider::circle(1.0),
+                RigidBody::Kinematic,
+                ClientPhysicsAdded,
+            ));
+        }
+    }
 }
