@@ -7,6 +7,8 @@ extern crate std;
 
 use bevy_ecs::component::{Component, Mutable};
 
+#[doc(hidden)]
+pub mod archetypes;
 /// Handles delayed despawns for interpolated entities.
 pub mod despawn;
 /// Contains interpolation logic.
@@ -21,7 +23,10 @@ pub mod prelude {
     pub use crate::Interpolated;
     pub use crate::interpolate::interpolation_fraction;
     pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSystems};
-    pub use crate::registry::{InterpolationRegistrationExt, InterpolationRegistry};
+    pub use crate::registry::{
+        AppInterpolationExt, InterpolationBundle, InterpolationFns, InterpolationRegistrationExt,
+        InterpolationRegistry, InterpolationRuleConfig, InterpolationRuleFilter,
+    };
     pub use crate::timeline::InterpolationTimeline;
 }
 
