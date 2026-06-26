@@ -31,9 +31,8 @@ We need:
 
  */
 
+use super::Predicted;
 use super::predicted_history::PredictionHistory;
-use super::resource_history::ResourceHistory;
-use super::{Predicted, SyncComponent};
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
@@ -65,7 +64,7 @@ use lightyear_core::tick::Tick;
 use lightyear_core::timeline::{Rollback, is_in_rollback};
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_replication::prelude::ConfirmHistory;
-use lightyear_replication::prespawn::{PreSpawned, PreSpawnedReceiver};
+use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
@@ -866,25 +865,21 @@ pub(crate) fn remove_prediction_disable(
 /// 3. Reverts the component to the value at rollback_tick
 #[allow(clippy::type_complexity)]
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn prepare_rollback<C: SyncComponent>(
+pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
     timeline: Res<LocalTimeline>,
     prediction_registry: Res<PredictionRegistry>,
     checkpoints: Res<ReplicationCheckpointMap>,
     mut commands: Commands,
     // We also snap the value of the component to the server state if we are in rollback
     // We use Option<> because the predicted component could have been removed while it still exists in Confirmed
+    // PredictionHistory is the rollback membership marker. Resource entities
+    // can lose CatchUpGated after activation but still need local rollback.
     mut predicted_query: Query<
         (
             Entity,
             Option<&mut C>,
             &mut PredictionHistory<C>,
             Option<&mut ConfirmedHistory<C>>,
-            AnyOf<(
-                &Predicted,
-                &PreSpawned,
-                &DeterministicPredicted,
-                &CatchUpGated,
-            )>,
         ),
         Without<DisableRollback>,
     >,
@@ -899,13 +894,8 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
     // The tick where ALL messages have been received, if known.
     let server_confirmed_tick = checkpoints.last_confirmed_tick();
 
-    for (
-        entity,
-        predicted_component,
-        mut predicted_history,
-        confirmed_history,
-        (_predicted, _prespawned, _deterministic_predicted, _catchup_gated),
-    ) in predicted_query.iter_mut()
+    for (entity, predicted_component, mut predicted_history, confirmed_history) in
+        predicted_query.iter_mut()
     {
         let is_state_rollback = matches!(rollback, Rollback::FromState);
         let is_completed_state_rollback =
@@ -958,7 +948,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
             rollback_tick = rollback_tick.0,
             confirmed_tick = server_confirmed_tick.map(|tick| tick.0),
             rollback = ?rollback,
-            restore_state = ?restore_state,
             history_len = predicted_history.len(),
             "prepared component rollback"
         );
@@ -1002,7 +991,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                                 component = ?kind,
                                 local_tick = current_tick.0,
                                 rollback_tick = rollback_tick.0,
-                                previous_visual = ?predicted_component,
                                 "stored previous visual for correction"
                             );
                         }
@@ -1013,73 +1001,6 @@ pub(crate) fn prepare_rollback<C: SyncComponent>(
                 };
             }
         };
-    }
-}
-
-// Revert `resource` to its value at the tick that the incoming rollback will rollback to.
-pub(crate) fn prepare_rollback_resource<R: Resource<Mutability = Mutable> + Clone>(
-    mut commands: Commands,
-    prediction_manager: Single<&PredictionManager, With<Rollback>>,
-    resource: Option<ResMut<R>>,
-    mut history: ResMut<ResourceHistory<R>>,
-) {
-    let kind = DebugName::type_name::<R>();
-    let _span = trace_span!("client prepare rollback for resource", ?kind);
-
-    let Some(rollback_tick) = prediction_manager.get_rollback_start_tick() else {
-        error!("prepare_rollback_resource should only be called when we are in rollback");
-        return;
-    };
-
-    let history_value = history.clear_except_tick(rollback_tick);
-
-    // 1. restore the resource to the historical value
-    //
-    // `None` and `Some(HistoryState::Removed)` mean very different things
-    // and must be handled separately:
-    //
-    // - `Some(HistoryState::Removed)`: we have an authoritative record
-    //   that the resource was absent at `rollback_tick`. Removing it from
-    //   the world is correct.
-    // - `None`: we have no record at or before `rollback_tick`. That
-    //   typically means history tracking simply hadn't started yet (e.g.
-    //   the resource was initialised before the first rollback, or the
-    //   rollback target predates the first `update_resource_history`
-    //   write on this peer). Removing the resource here would delete
-    //   valid current state for no good reason — and in the case of
-    //   rollback-tracked Avian resources like `ContactGraph`, it
-    //   panics the next Avian system that needs it. Leave it alone.
-    match history_value {
-        None => {
-            trace!(
-                ?kind,
-                ?rollback_tick,
-                "No history entry for resource at rollback tick; leaving current value in place"
-            );
-        }
-        Some(HistoryState::Removed) => {
-            if resource.is_some() {
-                debug!(
-                    ?kind,
-                    "Resource didn't exist at time of rollback, removing it"
-                );
-                // the resource didn't exist at the time, remove it!
-                commands.remove_resource::<R>();
-            }
-        }
-        Some(HistoryState::Updated(r)) => {
-            // the resource existed at the time, restore it!
-            if let Some(mut resource) = resource {
-                // update the resource to the corrected value
-                *resource = r.clone();
-            } else {
-                debug!(
-                    ?kind,
-                    "Resource for predicted entity existed at time of rollback, inserting it"
-                );
-                commands.insert_resource(r.clone());
-            }
-        }
     }
 }
 

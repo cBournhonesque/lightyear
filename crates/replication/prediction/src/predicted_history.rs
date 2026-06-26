@@ -4,8 +4,8 @@
 //! 1. Compare local predicted values with confirmed values from the server to detect mismatches
 //! 2. Rollback to a past local state and replay the simulation
 
+use crate::Predicted;
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
-use crate::{Predicted, SyncComponent};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -91,7 +91,7 @@ impl<C> PredictionHistory<C> {
 /// We store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
-pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
+pub(crate) fn update_prediction_history<T: Component + Clone>(
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
@@ -116,7 +116,6 @@ pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
                 component = ?DebugName::type_name::<T>(),
                 local_tick = tick.0,
                 history_len = history.len(),
-                value = ?component.deref(),
                 "recorded predicted component history"
             );
         }
@@ -256,7 +255,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// not overwrite existing local prediction history or existing authoritative
 /// samples. If there is no authoritative seed, no confirmed history is inserted:
 /// receive paths create it when a confirmed sample actually arrives.
-pub(crate) fn add_prediction_history<C: SyncComponent>(
+pub(crate) fn add_prediction_history<C: Component + Clone>(
     trigger: On<
         Add,
         (
@@ -336,7 +335,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
                 component = ?DebugName::type_name::<C>(),
                 "seeding ConfirmedHistory with confirmed value from init message"
             );
-            history.insert_present(tick, component);
+            history.insert_present_explicit(tick, component);
             entity_mut.insert(history);
         }
     });

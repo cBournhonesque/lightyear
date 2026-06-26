@@ -1,19 +1,13 @@
-use super::resource_history::{
-    ResourceHistory, handle_tick_event_resource_history, update_resource_history,
-    update_resource_history_on_prediction_manager_added,
-};
-use super::rollback::{
-    RollbackPlugin, RollbackSystems, prepare_rollback, prepare_rollback_resource,
-};
+use super::rollback::{RollbackPlugin, RollbackSystems, prepare_rollback};
 use crate::SyncComponent;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
-    add_history_diff_receiver, add_prediction_history, apply_component_removal_predicted,
-    handle_tick_event_confirmed_history, handle_tick_event_history_diff_receiver,
-    handle_tick_event_prediction_history, prune_history_diff_receiver,
-    snap_to_confirmed_during_rollback, update_prediction_history,
+    PredictionHistory, add_history_diff_receiver, add_prediction_history,
+    apply_component_removal_predicted, handle_tick_event_confirmed_history,
+    handle_tick_event_history_diff_receiver, handle_tick_event_prediction_history,
+    prune_history_diff_receiver, snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
@@ -30,6 +24,7 @@ use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
+use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_replication::prelude::ReplicationSystems;
 
 /// Plugin that enables client-side prediction
@@ -77,7 +72,11 @@ pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
 }
 
 /// Enable rollbacking a component even if the component is not networked
-pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
+pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + Clone>(
+    app: &mut App,
+) {
+    app.world_mut().register_component::<PredictionHistory<C>>();
+    app.world_mut().register_component::<ConfirmedHistory<C>>();
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(add_prediction_history::<C>);
     // Without this observer, the component's `PredictionHistory<C>` buffer
@@ -106,21 +105,9 @@ pub fn add_non_networked_rollback_systems<C: SyncComponent>(app: &mut App) {
 /// As a side note, the `Time<Fixed>` resource is already rollbacked internally
 /// by lightyear so that it can be used accurately within systems within the
 /// `FixedMain` schedule during a rollback.
+#[deprecated(note = "use `app.resource::<R>().local_rollback()` instead")]
 pub fn add_resource_rollback_systems<R: Resource<Mutability = Mutable> + Clone>(app: &mut App) {
-    // TODO: add these registrations if the type is reflect
-    // app.register_type::<HistoryState<R>>();
-    // app.register_type::<ResourceHistory<R>>();
-    app.insert_resource(ResourceHistory::<R>::default());
-    app.add_observer(handle_tick_event_resource_history::<R>);
-    app.add_observer(update_resource_history_on_prediction_manager_added::<R>);
-    app.add_systems(
-        PreUpdate,
-        prepare_rollback_resource::<R>.in_set(RollbackSystems::Prepare),
-    );
-    app.add_systems(
-        FixedPostUpdate,
-        update_resource_history::<R>.in_set(PredictionSystems::UpdateHistory),
-    );
+    add_non_networked_rollback_systems::<R>(app);
 }
 
 pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {

@@ -2,6 +2,7 @@ use crate::registry::ComponentRegistry;
 use bevy_app::App;
 use bevy_ecs::change_detection::Mut;
 use bevy_ecs::component::Component;
+use bevy_ecs::resource::Resource;
 use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
@@ -29,6 +30,13 @@ pub trait AppComponentExt {
     /// `replicate_with_priority`, `replicate_with_priority_filtered`,
     /// `replicate_as`, and `replicate_with`.
     fn component<C: Component>(&mut self) -> ComponentRegistration<'_, C>;
+
+    /// Registers a Bevy resource in Lightyear's component metadata registry.
+    ///
+    /// In Bevy 0.19 resources are components stored on resource entities, so
+    /// this returns the same builder as [`AppComponentExt::component`] with a
+    /// resource-specific bound.
+    fn resource<R: Resource>(&mut self) -> ComponentRegistration<'_, R>;
 
     /// Registers the component in the Registry
     /// This component can now be sent over the network.
@@ -86,6 +94,10 @@ impl AppComponentExt for App {
     fn component<C: Component>(&mut self) -> ComponentRegistration<'_, C> {
         register_component_metadata::<C>(self);
         ComponentRegistration::new(self)
+    }
+
+    fn resource<R: Resource>(&mut self) -> ComponentRegistration<'_, R> {
+        self.component::<R>()
     }
 
     fn register_component<C: Component<Mutability: MutWrite<C>> + Serialize + DeserializeOwned>(

@@ -1,6 +1,7 @@
+use alloc::vec::Vec;
 use bevy_ecs::prelude::*;
-use bevy_ecs::resource::Resource;
-use bevy_replicon::prelude::{FilterScope, RepliconTick};
+use bevy_replicon::prelude::{FilterScope, RepliconTick, SingleComponent};
+use core::any::TypeId;
 use lightyear_core::tick::Tick;
 use lightyear_inputs::input_message::ActionStateSequence;
 use serde::{Deserialize, Serialize};
@@ -61,47 +62,63 @@ impl CatchUpSnapshotReady {
     }
 }
 
-/// Tracks whether [`AppCatchUpExt::register_catchup`] has
-/// registered the Replicon visibility filter for catch-up components.
+/// Tracks which Replicon visibility filters were registered by
+/// [`AppCatchUpExt`].
 #[derive(Resource, Default)]
 pub struct CatchUpRegistry {
-    pub(crate) initialized: bool,
+    pub(crate) registered_filters: Vec<TypeId>,
 }
 
 impl CatchUpRegistry {
-    /// Returns true if the server-side catch-up visibility scope has been
+    /// Returns true if any server-side catch-up visibility scope has been
     /// registered.
     pub fn is_initialized(&self) -> bool {
-        self.initialized
+        !self.registered_filters.is_empty()
+    }
+
+    pub(crate) fn register_filter<F: 'static>(&mut self) -> bool {
+        let id = TypeId::of::<F>();
+        if self.registered_filters.contains(&id) {
+            return false;
+        }
+        self.registered_filters.push(id);
+        true
     }
 }
 
 /// Extension trait for registering deterministic catch-up.
 pub trait AppCatchUpExt {
-    /// Register the deterministic catch-up component scope and input type.
+    /// Register a single deterministic catch-up component/resource and input
+    /// type.
     ///
-    /// On server apps, `T` (typically a tuple of physics components, e.g.
-    /// `(Position, Rotation, LinearVelocity, AngularVelocity)`) becomes the
-    /// Replicon visibility scope hidden behind `CatchUpGated`.
+    /// On server apps, `C` is registered as Replicon's
+    /// [`SingleComponent<C>`] visibility scope hidden behind `CatchUpGated`.
+    /// Since Bevy resources are components stored on resource entities, the
+    /// same API applies to resources.
     ///
     /// On clients, `S` contributes the input-buffer coverage check used to
     /// decide when the client can safely request a catch-up snapshot.
     ///
-    /// The components in `T` must also be registered for replication
-    /// separately (typically via `replicate_once::<C>()` and
-    /// `add_rollback::<C>().add_confirmed_write()`).
+    /// The component/resource must also be registered for replication
+    /// separately.
     ///
-    /// Calling this more than once is a no-op for the server visibility scope.
-    fn register_catchup<T, S>(&mut self) -> &mut Self
+    /// Calling this more than once for the same scope is a no-op.
+    fn register_catchup<C, S>(&mut self) -> &mut Self
     where
-        T: CatchUpComponentScope + Send + Sync + 'static,
+        C: Component,
+        SingleComponent<C>: FilterScope + Send + Sync + 'static,
+        S: ActionStateSequence;
+
+    /// Register an arbitrary Replicon catch-up filter scope and input type.
+    ///
+    /// Use this for tuple scopes such as
+    /// `(Position, Rotation, LinearVelocity, AngularVelocity)`. For a single
+    /// component/resource, prefer [`AppCatchUpExt::register_catchup`].
+    fn register_catchup_filter<T, S>(&mut self) -> &mut Self
+    where
+        T: FilterScope + Send + Sync + 'static,
         S: ActionStateSequence;
 }
-
-#[doc(hidden)]
-pub trait CatchUpComponentScope: FilterScope {}
-
-impl<T: FilterScope> CatchUpComponentScope for T {}
 
 /// Server-side marker inserted on a client's link entity once gated catch-up
 /// state should be visible to that client.

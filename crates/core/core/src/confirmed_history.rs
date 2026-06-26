@@ -175,6 +175,18 @@ impl<C> ConfirmedHistory<C> {
         }
     }
 
+    /// Insert an explicit authoritative state without unchanged-state
+    /// compression.
+    pub fn insert_explicit(&mut self, tick: Tick, state: HistoryState<C>) {
+        self.insert_raw(tick, ConfirmedHistoryState::Explicit(state));
+    }
+
+    /// Insert an explicit present authoritative value without unchanged-state
+    /// compression.
+    pub fn insert_present_explicit(&mut self, tick: Tick, value: C) {
+        self.insert_explicit(tick, HistoryState::Updated(value));
+    }
+
     pub fn clear(&mut self) {
         self.buffer.clear();
     }

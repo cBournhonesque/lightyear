@@ -45,15 +45,20 @@ impl<T: FilterScope + Send + Sync + 'static> VisibilityFilter for CatchUpVisibil
 }
 
 pub(crate) fn register_catchup<T: FilterScope + Send + Sync + 'static>(app: &mut App) {
+    register_catchup_filter::<T>(app);
+}
+
+fn register_catchup_filter<T: FilterScope + Send + Sync + 'static>(app: &mut App) {
     app.init_resource::<FilterRegistry>();
     app.init_resource::<ReplicationRegistry>();
     app.init_resource::<CatchUpRegistry>();
-    if !app.world().resource::<CatchUpRegistry>().is_initialized() {
+    let should_register_filter = app
+        .world_mut()
+        .resource_mut::<CatchUpRegistry>()
+        .register_filter::<CatchUpVisibility<T>>();
+    if should_register_filter {
         app.add_visibility_filter::<CatchUpVisibility<T>>();
         app.register_required_components::<CatchUpGated, CatchUpVisibility<T>>();
-        app.world_mut()
-            .resource_mut::<CatchUpRegistry>()
-            .initialized = true;
     }
 }
 

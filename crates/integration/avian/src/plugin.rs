@@ -87,9 +87,12 @@ use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::prelude::InterpolationRegistry;
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
-    PredictionAppRegistrationExt, PredictionManager, PredictionRegistry, RollbackSystems,
+    PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, PredictionRegistry,
+    RollbackSystems,
 };
-use lightyear_replication::prelude::{ReplicationSystems, TransformLinearInterpolation};
+use lightyear_replication::prelude::{
+    AppComponentExt, ReplicationSystems, TransformLinearInterpolation,
+};
 
 /// Indicate which components you are replicating over the network
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -350,17 +353,18 @@ impl Plugin for LightyearAvianPlugin {
             .ok();
 
         if self.rollback_resources {
+            app.resource::<ContactGraph>().local_rollback();
+            app.resource::<ConstraintGraph>().local_rollback();
+            app.resource::<RollbackMovedProxies>().local_rollback();
+            app.resource::<PhysicsIslands>().local_rollback();
             app.init_resource::<ContactGraph>();
             app.init_resource::<ConstraintGraph>();
-            app.add_resource_rollback::<ContactGraph>();
-            app.add_resource_rollback::<ConstraintGraph>();
             app.local_rollback::<CollidingEntities>();
             // `ColliderTrees` cannot be cloned for rollback, but its leaf AABBs
             // are derived from these cloneable collider components.
             app.local_rollback::<ColliderAabb>();
             app.local_rollback::<EnlargedAabb>();
             app.init_resource::<RollbackMovedProxies>();
-            app.add_resource_rollback::<RollbackMovedProxies>();
             app.add_systems(
                 FixedPostUpdate,
                 Self::record_moved_proxies_for_rollback
@@ -387,7 +391,6 @@ impl Plugin for LightyearAvianPlugin {
 
 impl LightyearAvianPlugin {
     fn add_island_rollback(app: &mut App, rollback_sleeping: bool) {
-        app.add_resource_rollback::<PhysicsIslands>();
         app.local_rollback::<BodyIslandNode>();
         if rollback_sleeping {
             app.local_rollback::<Sleeping>();
