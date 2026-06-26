@@ -121,7 +121,7 @@ impl<F: ArchetypeFilter> InterpolationRuleFilter for F {}
 ///     InterpolationRuleConfig { priority: 100 },
 /// );
 /// ```
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Default, Clone, Copy)]
 pub struct InterpolationRuleConfig {
     /// Priority used to choose between matching interpolation rules.
     ///
@@ -132,12 +132,6 @@ pub struct InterpolationRuleConfig {
     /// Matching rules with the same priority use registration order, with
     /// earlier registrations selected first.
     pub priority: usize,
-}
-
-impl Default for InterpolationRuleConfig {
-    fn default() -> Self {
-        Self { priority: 0 }
-    }
 }
 
 /// Functions used by an interpolation rule.
@@ -403,63 +397,6 @@ pub trait InterpolationBundle: 'static {
 macro_rules! impl_interpolation_bundle {
     (
         $N:tt,
-        $((
-            $C:ident,
-            $component:ident,
-            $history:ident,
-            $start_tick:ident,
-            $start:ident,
-            $end:ident,
-            $end_tick:ident,
-            $end_value:ident,
-            $output:ident
-        )),+
-    ) => {
-        impl_interpolation_bundle_named!(
-            $N,
-            $((
-                $C,
-                $component,
-                $history,
-                $start_tick,
-                $start,
-                $end,
-                $end_tick,
-                $end_value,
-                $output
-            )),+
-        );
-    };
-}
-
-macro_rules! impl_interpolation_bundle_named {
-    (2usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(2usize, BundleInterpolationQuery2, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-    (3usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(3usize, BundleInterpolationQuery3, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-    (4usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(4usize, BundleInterpolationQuery4, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-    (5usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(5usize, BundleInterpolationQuery5, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-    (6usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(6usize, BundleInterpolationQuery6, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-    (7usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(7usize, BundleInterpolationQuery7, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-    (8usize, $(($C:ident, $component:ident, $history:ident, $start_tick:ident, $start:ident, $end:ident, $end_tick:ident, $end_value:ident, $output:ident)),+ $(,)?) => {
-        impl_interpolation_bundle_impl!(8usize, BundleInterpolationQuery8, $(($C, $component, $history, $start_tick, $start, $end, $end_tick, $end_value, $output)),+);
-    };
-}
-
-macro_rules! impl_interpolation_bundle_impl {
-    (
-        $N:expr,
-        $query:ident,
         (
             $C0:ident,
             $component0:ident,
@@ -486,25 +423,16 @@ macro_rules! impl_interpolation_bundle_impl {
         ),+
         $(,)?
     ) => {
-        #[derive(QueryData)]
-        #[query_data(mutable)]
-        #[doc(hidden)]
-        pub struct $query<$C0: SyncComponent, $($C: SyncComponent),+> {
-            archetype: &'static Archetype,
-            $component0: Option<&'static mut $C0>,
-            $history0: &'static ConfirmedHistory<$C0>,
-            $(
-                $component: Option<&'static mut $C>,
-                $history: &'static ConfirmedHistory<$C>,
-            )+
-        }
-
         impl<$C0, $($C),+> InterpolationBundle for ($C0, $($C,)+)
         where
             $C0: SyncComponent,
             $($C: SyncComponent),+
         {
-            type Query = $query<$C0, $($C),+>;
+            type Query = (
+                &'static Archetype,
+                (Option<&'static mut $C0>, &'static ConfirmedHistory<$C0>),
+                $((Option<&'static mut $C>, &'static ConfirmedHistory<$C>)),+
+            );
 
             const COMPONENT_COUNT: usize = $N;
 
@@ -519,9 +447,10 @@ macro_rules! impl_interpolation_bundle_impl {
                 interpolation_tick: Tick,
                 interpolation_overstep: f32,
             ) {
+                let (archetype, ($component0, $history0), $(($component, $history)),+) = item;
                 let kind = ComponentKind::of::<($C0, $($C,)+)>();
                 let Some(rule_id) =
-                    interpolated_archetypes.apply_rule_for(item.archetype.id(), kind)
+                    interpolated_archetypes.apply_rule_for(archetype.id(), kind)
                 else {
                     return;
                 };
@@ -533,13 +462,13 @@ macro_rules! impl_interpolation_bundle_impl {
                 }
 
                 let Some(($start_tick0, $start0, $end0)) =
-                    present_history_bracket(item.$history0, interpolation_tick)
+                    present_history_bracket($history0, interpolation_tick)
                 else {
                     return;
                 };
                 $(
                     let Some(($start_tick, $start, $end)) =
-                        present_history_bracket(item.$history, interpolation_tick)
+                        present_history_bracket($history, interpolation_tick)
                     else {
                         return;
                     };
@@ -576,11 +505,11 @@ macro_rules! impl_interpolation_bundle_impl {
                     _ => return,
                 };
 
-                let Some(mut $component0) = item.$component0 else {
+                let Some(mut $component0) = $component0 else {
                     return;
                 };
                 $(
-                    let Some(mut $component) = item.$component else {
+                    let Some(mut $component) = $component else {
                         return;
                     };
                 )+
