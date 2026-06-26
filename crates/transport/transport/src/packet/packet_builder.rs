@@ -7,10 +7,10 @@ use crate::packet::compression::{
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{FragmentData, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, Packet};
+use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, MessageMetadata, Packet};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_core::network::NetId;
@@ -26,6 +26,8 @@ pub const MAX_UNFRAGMENTED_PAYLOAD_SIZE: usize = FRAGMENT_SIZE;
 pub type Payload = Vec<u8>;
 
 const MAX_MESSAGES_PER_CHANNEL_BATCH: usize = u8::MAX as usize;
+const MAX_RETAINED_PACKET_LIST_CAPACITY: usize = 100;
+const MAX_RETAINED_MESSAGE_METADATA_CAPACITY: usize = 100;
 
 /// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
 /// packet without allocating.
@@ -40,8 +42,7 @@ pub type RecvPayload = Bytes;
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     current_packet: Option<Packet>,
-    /// Max size for a single packet
-    mtu: usize,
+    buffer_pool: BufferPool,
     // Pre-allocated buffer to encode/decode without allocation.
     // TODO: should this be associated with Packet?
     // cursor: Vec<u8>,
@@ -49,6 +50,98 @@ pub(crate) struct PacketBuilder {
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
     // prewritten_size: usize,
     // mid_packet: bool,
+}
+
+/// Reusable packet-builder buffers.
+///
+/// Packet building needs short-lived payloads and metadata vectors every send tick. Keeping them
+/// here lets the builder clear and reuse their heap allocations after warmup instead of allocating
+/// new buffers for each packet.
+#[derive(Debug)]
+pub(crate) struct BufferPool {
+    payload_capacity: usize,
+    payloads: Vec<Payload>,
+    packet_lists: Vec<Vec<Packet>>,
+    message_metadata: Vec<Vec<MessageMetadata>>,
+}
+
+impl BufferPool {
+    pub(crate) fn new(payload_capacity: usize) -> Self {
+        Self {
+            payload_capacity,
+            payloads: Vec::new(),
+            packet_lists: Vec::new(),
+            message_metadata: Vec::new(),
+        }
+    }
+
+    pub(crate) fn take_payload(&mut self) -> Payload {
+        self.payloads
+            .pop()
+            .map(|mut payload| {
+                debug_assert_eq!(payload.capacity(), self.payload_capacity);
+                payload.clear();
+                payload
+            })
+            .unwrap_or_else(|| Vec::with_capacity(self.payload_capacity))
+    }
+
+    pub(crate) fn take_packet_list(&mut self) -> Vec<Packet> {
+        self.packet_lists
+            .pop()
+            .map(|mut packets| {
+                packets.clear();
+                packets
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn take_message_metadata(&mut self) -> Vec<MessageMetadata> {
+        self.message_metadata
+            .pop()
+            .map(|mut messages| {
+                messages.clear();
+                messages
+            })
+            .unwrap_or_default()
+    }
+
+    pub(crate) fn recycle_packet(&mut self, packet: Packet) {
+        let Packet {
+            payload, messages, ..
+        } = packet;
+        self.recycle_payload(payload);
+        self.recycle_message_metadata(messages);
+    }
+
+    pub(crate) fn recycle_packets(&mut self, packets: impl IntoIterator<Item = Packet>) {
+        for packet in packets {
+            self.recycle_packet(packet);
+        }
+    }
+
+    fn recycle_payload(&mut self, mut payload: Payload) {
+        if payload.capacity() == self.payload_capacity {
+            payload.clear();
+            self.payloads.push(payload);
+        }
+    }
+
+    pub(crate) fn recycle_message_metadata(&mut self, mut messages: Vec<MessageMetadata>) {
+        let capacity = messages.capacity();
+        if (1..=MAX_RETAINED_MESSAGE_METADATA_CAPACITY).contains(&capacity) {
+            messages.clear();
+            self.message_metadata.push(messages);
+        }
+    }
+
+    pub(crate) fn recycle_packet_list(&mut self, mut packets: Vec<Packet>) {
+        self.recycle_packets(packets.drain(..));
+        let capacity = packets.capacity();
+        if (1..=MAX_RETAINED_PACKET_LIST_CAPACITY).contains(&capacity) {
+            self.packet_lists.push(packets);
+        }
+    }
 }
 
 impl Default for PacketBuilder {
@@ -62,7 +155,7 @@ impl PacketBuilder {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
             current_packet: None,
-            mtu: MAX_PACKET_SIZE,
+            buffer_pool: BufferPool::new(MAX_PACKET_SIZE),
             // cursor: Vec::with_capacity(PACKET_BUFFER_CAPACITY),
             // acks: Vec::new(),
 
@@ -73,9 +166,20 @@ impl PacketBuilder {
         }
     }
 
-    // TODO: get the vec from a pool of preallocated buffers
-    fn get_new_buffer(&self) -> Payload {
-        Vec::with_capacity(self.mtu)
+    pub(crate) fn recycle_packet(&mut self, packet: Packet) {
+        self.buffer_pool.recycle_packet(packet);
+    }
+
+    pub(crate) fn recycle_packets(&mut self, packets: impl IntoIterator<Item = Packet>) {
+        self.buffer_pool.recycle_packets(packets);
+    }
+
+    pub(crate) fn recycle_message_metadata_list(&mut self, messages: Vec<MessageMetadata>) {
+        self.buffer_pool.recycle_message_metadata(messages);
+    }
+
+    pub(crate) fn recycle_packet_list(&mut self, packets: Vec<Packet>) {
+        self.buffer_pool.recycle_packet_list(packets);
     }
 
     /// Start building new packet, we start with an empty packet
@@ -85,7 +189,8 @@ impl PacketBuilder {
         real: Duration,
         current_tick: Tick,
     ) -> Result<(), SerializationError> {
-        let mut cursor = self.get_new_buffer();
+        let mut cursor = self.buffer_pool.take_payload();
+        let messages = self.buffer_pool.take_message_metadata();
 
         // write the header
         let header =
@@ -94,7 +199,7 @@ impl PacketBuilder {
         header.to_bytes(&mut cursor)?;
         self.current_packet = Some(Packet {
             payload: cursor,
-            messages: vec![],
+            messages,
             packet_id: header.packet_id,
             prewritten_size: 0,
             compression: None,
@@ -109,7 +214,8 @@ impl PacketBuilder {
         fragment_data: &FragmentData,
         current_tick: Tick,
     ) -> Result<(), SerializationError> {
-        let mut cursor = self.get_new_buffer();
+        let mut cursor = self.buffer_pool.take_payload();
+        let messages = self.buffer_pool.take_message_metadata();
         // writer the header
         let header = self.header_manager.prepare_send_packet_header(
             PacketType::DataFragment,
@@ -121,8 +227,7 @@ impl PacketBuilder {
         fragment_data.to_bytes(&mut cursor)?;
         let mut packet = Packet {
             payload: cursor,
-            // TODO(perf): reuse this vec allocation instead of newly allocating!
-            messages: vec![],
+            messages,
             packet_id: header.packet_id,
             prewritten_size: 0,
             compression: None,
@@ -164,8 +269,7 @@ impl PacketBuilder {
         Self::finalize_packet(self.current_packet.take().unwrap())
     }
 
-    fn finalize_packet(mut packet: Packet) -> Packet {
-        packet.payload.shrink_to_fit();
+    fn finalize_packet(packet: Packet) -> Packet {
         packet
     }
 
@@ -240,7 +344,7 @@ impl PacketBuilder {
         fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)>,
         compression: CompressionConfig,
     ) -> Result<Vec<Packet>, PacketError> {
-        let mut packets: Vec<Packet> = vec![];
+        let mut packets = self.buffer_pool.take_packet_list();
 
         // indices in the main vec
         let mut single_data_idx = 0;
@@ -841,6 +945,7 @@ impl PacketBuilder {
 #[cfg(test)]
 mod tests {
     use alloc::collections::VecDeque;
+    use alloc::vec;
     use bevy_app::App;
     use bevy_reflect::TypePath;
     use bevy_utils::default;
@@ -912,6 +1017,46 @@ mod tests {
             payload.push((state & 0xff) as u8);
         }
         payload
+    }
+
+    #[test]
+    fn buffer_pool_reuses_message_metadata_up_to_retained_capacity() {
+        let mut pool = BufferPool::new(MAX_PACKET_SIZE);
+
+        pool.recycle_message_metadata(Vec::with_capacity(MAX_RETAINED_MESSAGE_METADATA_CAPACITY));
+        assert_eq!(
+            pool.take_message_metadata().capacity(),
+            MAX_RETAINED_MESSAGE_METADATA_CAPACITY
+        );
+    }
+
+    #[test]
+    fn buffer_pool_drops_oversized_message_metadata() {
+        let mut pool = BufferPool::new(MAX_PACKET_SIZE);
+
+        pool.recycle_message_metadata(Vec::with_capacity(
+            MAX_RETAINED_MESSAGE_METADATA_CAPACITY + 1,
+        ));
+        assert_eq!(pool.take_message_metadata().capacity(), 0);
+    }
+
+    #[test]
+    fn buffer_pool_reuses_packet_lists_up_to_retained_capacity() {
+        let mut pool = BufferPool::new(MAX_PACKET_SIZE);
+
+        pool.recycle_packet_list(Vec::with_capacity(MAX_RETAINED_PACKET_LIST_CAPACITY));
+        assert_eq!(
+            pool.take_packet_list().capacity(),
+            MAX_RETAINED_PACKET_LIST_CAPACITY
+        );
+    }
+
+    #[test]
+    fn buffer_pool_drops_oversized_packet_lists() {
+        let mut pool = BufferPool::new(MAX_PACKET_SIZE);
+
+        pool.recycle_packet_list(Vec::with_capacity(MAX_RETAINED_PACKET_LIST_CAPACITY + 1));
+        assert_eq!(pool.take_packet_list().capacity(), 0);
     }
 
     /// A bunch of small messages that all fit in the same packet

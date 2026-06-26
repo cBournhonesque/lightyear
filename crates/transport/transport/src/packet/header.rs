@@ -1,5 +1,6 @@
 use alloc::{vec, vec::Vec};
 use bevy_platform::hash::FixedHasher;
+use core::convert::TryInto;
 use core::time::Duration;
 use indexmap::IndexMap;
 use ringbuffer::{ConstGenericRingBuffer, RingBuffer};
@@ -74,6 +75,26 @@ impl PacketHeader {
     pub(crate) const BYTES: usize = 17;
     /// Offset of the packet type byte inside the serialized header.
     pub(crate) const PACKET_TYPE_OFFSET: usize = 0;
+
+    /// Parses a packet header from the start of a borrowed packet payload without taking ownership
+    /// of the payload or constructing a [`Reader`].
+    ///
+    /// This is used by allocation-sensitive tests that parse a sent packet from `&[u8]` and then
+    /// return the original `Vec<u8>` to `PacketBuilder`'s buffer pool. Normal receive code should
+    /// keep using [`PacketHeader::from_bytes`], which advances a `Reader` past the header.
+    #[doc(hidden)]
+    pub(crate) fn read_from_prefix(bytes: &[u8]) -> Result<Self, SerializationError> {
+        if bytes.len() < Self::BYTES {
+            return Err(SerializationError::InvalidValue);
+        }
+        Ok(Self {
+            packet_type: PacketType::try_from(bytes[Self::PACKET_TYPE_OFFSET])?,
+            packet_id: PacketId(u32::from_be_bytes(bytes[1..5].try_into().unwrap())),
+            last_ack_packet_id: PacketId(u32::from_be_bytes(bytes[5..9].try_into().unwrap())),
+            ack_bitfield: u32::from_be_bytes(bytes[9..13].try_into().unwrap()),
+            tick: Tick(u32::from_be_bytes(bytes[13..17].try_into().unwrap())),
+        })
+    }
 
     /// Get the value of the i-th bit in the bitfield (starting from the right-most bit, which is
     /// one PacketId below `last_ack_packet_id`

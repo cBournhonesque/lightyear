@@ -35,3 +35,6 @@ pub mod packet_builder;
 pub(crate) mod packet_type;
 pub mod priority_manager;
 pub(crate) mod stats_manager;
+
+#[cfg(feature = "test_utils")]
+pub mod test_utils;

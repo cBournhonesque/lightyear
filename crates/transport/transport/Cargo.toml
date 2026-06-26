@@ -52,6 +52,10 @@ ringbuffer.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
+[dev-dependencies]
+dhat.workspace = true
+stats_alloc.workspace = true
+
 [lints]
 workspace = true
 

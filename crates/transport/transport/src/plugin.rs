@@ -425,7 +425,7 @@ impl TransportPlugin {
 
             // build actual packets from these messages
             // TODO: swap to try_for_each when available
-            let Ok(packets) =
+            let Ok(mut packets) =
                 transport.packet_manager
                     .build_packets_with_compression(real_time.elapsed(), tick, single_data, fragment_data, transport.compression) else {
                 error!("Failed to build packets");
@@ -433,7 +433,8 @@ impl TransportPlugin {
             };
 
             let mut total_bytes_sent = 0;
-            for mut packet in packets {
+            let mut packet_drain = packets.drain(..);
+            while let Some(mut packet) = packet_drain.next() {
                 trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
                 let packet_id = packet.packet_id;
                 let num_messages = packet.num_messages();
@@ -450,6 +451,8 @@ impl TransportPlugin {
                     // Unsent unreliable messages are dropped for this tick. Reliable messages will
                     // be retried by their channel sender because their ack bookkeeping is only
                     // updated after a packet is accepted below.
+                    let rejected_packets = core::iter::once(packet).chain(packet_drain.by_ref());
+                    transport.packet_manager.recycle_packets(rejected_packets);
                     break;
                 }
                 #[cfg(feature = "metrics")]
@@ -493,8 +496,9 @@ impl TransportPlugin {
 
                 // TODO: should we update this to include fragment info as well?
                 // Update the packet_to_message_id_map (only for channels that care about acks)
-                core::mem::take(&mut packet.messages)
-                    .into_iter()
+                let mut packet_messages = core::mem::take(&mut packet.messages);
+                packet_messages
+                    .drain(..)
                     .try_for_each(|metadata| {
                         let channel_id = metadata.channel;
                         let channel_kind = channel_registry
@@ -529,12 +533,19 @@ impl TransportPlugin {
                             trace!(?transport.packet_to_message_map, "packet to message");
                         }
                         Ok::<(), PacketError>(())
-                    }).inspect_err(|e| error!("Error updating packet to message ack: {e:?}")).ok();
+                    })
+                    .inspect_err(|e| error!("Error updating packet to message ack: {e:?}"))
+                    .ok();
+                transport
+                    .packet_manager
+                    .recycle_message_metadata_list(packet_messages);
 
                 // Upload the packets to the link
                 total_bytes_sent += packet.payload.len() as u32;
                 link.send.push(Bytes::from(packet.payload));
             }
+            drop(packet_drain);
+            transport.packet_manager.recycle_packet_list(packets);
             if total_bytes_sent > 0 {
                 trace!(
                     target: "lightyear_debug::transport",
