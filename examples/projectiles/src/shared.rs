@@ -5,8 +5,6 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use bevy::time::Stopwatch;
 use bevy_enhanced_input::action::Action;
-use bevy_enhanced_input::action::TriggerState;
-use bevy_enhanced_input::action::mock::ActionMock;
 use bevy_enhanced_input::prelude::*;
 use core::ops::DerefMut;
 use core::time::Duration;
@@ -103,136 +101,54 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     Color::hsl(h, s, l)
 }
 
-/// Deterministic hash for BEI action entities spawned on both client and server.
-pub(crate) fn player_action_prespawn_hash(
-    client_id: PeerId,
-    replication_mode: GameReplicationMode,
-    salt: u64,
-) -> u64 {
-    client_id
-        .to_bits()
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add((replication_mode.room_id() as u64).wrapping_mul(31))
-        .wrapping_add(salt)
-}
-
-pub(crate) fn global_action_prespawn_hash(salt: u64) -> u64 {
-    0xC11E_1175_0000_0000u64.wrapping_add(salt)
-}
-
-pub(crate) fn spawn_global_actions(commands: &mut Commands, context: Entity, is_server: bool) {
-    let mut projectile_mode = commands.spawn((
+pub(crate) fn spawn_global_actions(commands: &mut Commands, context: Entity) {
+    commands.spawn((
         ActionOf::<ClientContext>::new(context),
         Action::<CycleProjectileMode>::new(),
-        bindings![KeyCode::KeyE],
-        PreSpawned::new(global_action_prespawn_hash(1)),
+        ReplicateLike { root: context },
     ));
-    if is_server {
-        projectile_mode.insert((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::manual(Vec::new()),
-            InterpolationTarget::manual(Vec::new()),
-        ));
-    } else {
-        projectile_mode
-            .insert(lightyear::prelude::input::bei::InputMarker::<ClientContext>::default());
-    }
 
-    let mut replication_mode = commands.spawn((
+    commands.spawn((
         ActionOf::<ClientContext>::new(context),
         Action::<CycleReplicationMode>::new(),
-        bindings![KeyCode::KeyR],
-        PreSpawned::new(global_action_prespawn_hash(2)),
+        ReplicateLike { root: context },
     ));
-    if is_server {
-        replication_mode.insert((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::manual(Vec::new()),
-            InterpolationTarget::manual(Vec::new()),
-        ));
-    } else {
-        replication_mode
-            .insert(lightyear::prelude::input::bei::InputMarker::<ClientContext>::default());
-    }
 
-    let mut weapon = commands.spawn((
+    commands.spawn((
         ActionOf::<ClientContext>::new(context),
         Action::<CycleWeapon>::new(),
-        bindings![KeyCode::KeyQ],
-        PreSpawned::new(global_action_prespawn_hash(3)),
+        ReplicateLike { root: context },
     ));
-    if is_server {
-        weapon.insert((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::manual(Vec::new()),
-            InterpolationTarget::manual(Vec::new()),
-        ));
-    } else {
-        weapon.insert(lightyear::prelude::input::bei::InputMarker::<ClientContext>::default());
-    }
 }
 
-/// Spawn the BEI player action entities on both sides so input messages can use PreSpawned targets.
-pub(crate) fn spawn_player_actions(
-    commands: &mut Commands,
-    player: Entity,
-    client_id: PeerId,
-    replication_mode: GameReplicationMode,
-    is_server: bool,
-) {
-    let mut movement = commands.spawn((
+/// Spawn the server-owned BEI player action entities.
+///
+/// Clients receive these through replication and add local-only bindings/input
+/// markers to the active local player's actions. The actions carry the same
+/// room filter as the player because [`ReplicateLike`] copies replication
+/// targets, but not room-based visibility filter components.
+#[cfg(feature = "server")]
+pub(crate) fn spawn_player_actions(commands: &mut Commands, player: Entity, room_id: RoomId) {
+    commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<MovePlayer>::new(),
-        Bindings::spawn(Cardinal::wasd_keys()),
-        PreSpawned::new(player_action_prespawn_hash(client_id, replication_mode, 1)),
+        ReplicateLike { root: player },
+        Rooms::single(room_id),
     ));
-    if is_server {
-        movement.insert((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::manual(Vec::new()),
-            InterpolationTarget::manual(Vec::new()),
-        ));
-    } else {
-        movement.insert(lightyear::prelude::input::bei::InputMarker::<PlayerContext>::default());
-    }
 
-    let mut cursor = commands.spawn((
+    commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<MoveCursor>::new(),
-        PreSpawned::new(player_action_prespawn_hash(client_id, replication_mode, 2)),
+        ReplicateLike { root: player },
+        Rooms::single(room_id),
     ));
-    if is_server {
-        cursor.insert((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::manual(Vec::new()),
-            InterpolationTarget::manual(Vec::new()),
-        ));
-    } else {
-        cursor.insert((
-            ActionMock::new(
-                TriggerState::Fired,
-                ActionValue::zero(ActionValueDim::Axis2D),
-                MockSpan::Manual,
-            ),
-            lightyear::prelude::input::bei::InputMarker::<PlayerContext>::default(),
-        ));
-    }
 
-    let mut shoot = commands.spawn((
+    commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<Shoot>::new(),
-        Bindings::spawn_one((Binding::from(KeyCode::Space), Name::from("Binding"))),
-        PreSpawned::new(player_action_prespawn_hash(client_id, replication_mode, 3)),
+        ReplicateLike { root: player },
+        Rooms::single(room_id),
     ));
-    if is_server {
-        shoot.insert((
-            Replicate::to_clients(NetworkTarget::All),
-            PredictionTarget::manual(Vec::new()),
-            InterpolationTarget::manual(Vec::new()),
-        ));
-    } else {
-        shoot.insert(lightyear::prelude::input::bei::InputMarker::<PlayerContext>::default());
-    }
 }
 
 fn projectile_prespawn_salt(player_id: PeerId, salt: u64) -> u64 {

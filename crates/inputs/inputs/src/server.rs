@@ -470,11 +470,8 @@ fn receive_input_message<S: ActionStateSequence>(
                     },
                     InputTarget::PreSpawned(hash) => {
                         debug!(?hash, "Received input for prespawned entity");
-                        // we cannot match using the PreSpawnedReceiver since it only stores hashes for entities
-                        // with no Replicate component.
-                        // Instead, since there shouldn't be many entities with inputs and PreSpawned, we just iterate
-                        // through the query. We don't need to do entity-mapping because as soon as the entity is mapped
-                        // on the client, PreSpawned is removed and the input will contain the mapped entity.
+                        // We cannot match using the PreSpawnedReceiver since it only stores hashes for entities
+                        // with no Replicate component, so resolve the input target against server-side input entities.
                         prespawned
                             .iter()
                             .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()

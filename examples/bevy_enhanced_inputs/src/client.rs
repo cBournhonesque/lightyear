@@ -8,12 +8,10 @@
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
-use lightyear::input::bei::prelude::{Action, ActionOf, Fire};
+use lightyear::input::bei::prelude::{Action, Actions, Bindings, Cardinal, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
-use lightyear::prelude::input::bei::InputMarker;
 use lightyear::prelude::*;
 
 pub struct ExampleClientPlugin;
@@ -23,7 +21,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_plugins(AutomationClientPlugin);
         app.add_systems(Startup, configure_input_delay);
         app.add_observer(handle_predicted_spawn);
-        app.add_observer(handle_controlled_spawn);
+        app.add_observer(add_bindings_to_controlled_actions);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(player_movement);
     }
@@ -41,14 +39,18 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
 fn player_movement(
     trigger: On<Fire<Movement>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    host_server: Query<(), With<HostServer>>,
-    server_actions: Query<(), (With<Action<Movement>>, With<Replicate>)>,
+    _host_server: Query<(), With<HostServer>>,
+    #[cfg(feature = "server")] server_actions: Query<
+        (),
+        (With<Action<Movement>>, With<crate::server::ServerAction>),
+    >,
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
 ) {
     if synced_client.is_empty() {
         return;
     }
-    if !host_server.is_empty() && server_actions.contains(trigger.action) {
+    #[cfg(feature = "server")]
+    if !_host_server.is_empty() && server_actions.contains(trigger.action) {
         return;
     }
     if let Ok(position) = position_query.get_mut(trigger.context) {
@@ -74,46 +76,38 @@ pub(crate) fn handle_predicted_spawn(
     }
 }
 
-/// Spawn local action entities once the local player is actually controlled by this client.
+/// Add local movement bindings when a player becomes controlled by this client.
 ///
-/// We intentionally key this off `Add<Controlled>`, not `Add<Predicted>`.
-/// In dedicated client/server mode the replicated entity often ends up with both markers,
-/// but in host-server mode the local entity is created in the same world through local
-/// insertion paths, not through Replicon's deferred receive bundle. In that mode there is no
-/// reliable guarantee that `Controlled` will already exist when `Predicted` is added, so
-/// checking `Has<Controlled>` inside `Add<Predicted>` is brittle.
-///
-/// `Controlled` is the actual semantic signal we care about for local input setup: once this
-/// marker appears, the entity belongs to this local client and it is safe to attach the
-/// `InputMarker` and spawn the local BEI action entities.
-fn handle_controlled_spawn(
+/// The movement action is spawned on the server and replicated with the player.
+/// Once the local predicted player is marked `Controlled`, its BEI `Actions`
+/// relationship contains the replicated movement action that should receive
+/// local-only bindings. Binding from `ActionOf<Player>`'s add event is too
+/// early for the local prediction/control path: the relationship can already be
+/// mapped while the predicted context has not yet been marked as controlled.
+fn add_bindings_to_controlled_actions(
     trigger: On<Add, Controlled>,
-    controlled_players: Query<
-        (&PlayerId, Has<InputMarker<Player>>, Option<&ControlledBy>),
-        With<Player>,
-    >,
+    controlled_players: Query<(Option<&ControlledBy>, Option<&Actions<Player>>), With<Player>>,
+    unbound_movement_actions: Query<(), (With<Action<Movement>>, Without<Bindings>)>,
     clients: Query<(), With<Client>>,
-    actions: Query<&ActionOf<Player>, With<Action<Movement>>>,
     mut commands: Commands,
 ) {
-    let entity = trigger.entity;
-    let Ok((player_id, has_input_marker, controlled_by)) = controlled_players.get(entity) else {
+    let Ok((controlled_by, Some(actions))) = controlled_players.get(trigger.entity) else {
         return;
     };
-    if let Some(controlled_by) = controlled_by {
-        if clients.get(controlled_by.owner).is_err() {
-            return;
-        }
-    }
-    if has_input_marker {
+    if controlled_by.is_some_and(|controlled_by| clients.get(controlled_by.owner).is_err()) {
         return;
     }
-    commands
-        .entity(entity)
-        .insert(InputMarker::<Player>::default());
-    if !actions.iter().any(|action_of| action_of.get() == entity) {
-        shared::spawn_action_entities(&mut commands, entity, player_id.0, false);
+    for action_entity in actions.iter() {
+        if unbound_movement_actions.contains(action_entity) {
+            add_bindings(action_entity, &mut commands);
+        }
     }
+}
+
+fn add_bindings(action_entity: Entity, commands: &mut Commands) {
+    commands
+        .entity(action_entity)
+        .insert(Bindings::spawn(Cardinal::wasd_keys()));
 }
 
 /// When the predicted copy of the client-owned entity is spawned, do stuff

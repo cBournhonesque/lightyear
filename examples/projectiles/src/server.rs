@@ -22,6 +22,7 @@ use lightyear::crossbeam::CrossbeamIo;
 use lightyear::input::config::InputConfig;
 use lightyear::input::server::{InputSystems as ServerInputSystems, ServerInputConfig};
 use lightyear::interpolation::plugin::InterpolationDelay;
+#[cfg(feature = "client")]
 use lightyear::netcode::NetcodeClient;
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -70,13 +71,9 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
         "Adding ReplicationSender to new ClientOf entity: {:?}",
         trigger.entity
     );
-    commands.entity(trigger.entity).insert((
-        ReplicationSender,
-        // We need a ReplicationReceiver on the server side because the Action entities are spawned
-        // on the client and replicated to the server.
-        ReplicationReceiver,
-        Name::from("ClientOf"),
-    ));
+    commands
+        .entity(trigger.entity)
+        .insert((ReplicationSender, Name::from("ClientOf")));
 }
 
 pub(crate) fn spawn_global_control(mut commands: Commands) {
@@ -99,7 +96,7 @@ pub(crate) fn spawn_global_control(mut commands: Commands) {
             Name::new("ClientContext"),
         ))
         .id();
-    shared::spawn_global_actions(&mut commands, global, true);
+    shared::spawn_global_actions(&mut commands, global);
 }
 
 fn apply_initial_input_config(
@@ -330,13 +327,7 @@ pub(crate) fn spawn_player(
         if is_bot {
             commands.entity(player_entity).insert(Bot);
         }
-        shared::spawn_player_actions(
-            &mut commands,
-            player_entity,
-            client_id,
-            replication_mode,
-            true,
-        );
+        shared::spawn_player_actions(&mut commands, player_entity, room_id);
         info!("Spawning player {player_entity:?} for room: {room_id:?}");
     }
 }

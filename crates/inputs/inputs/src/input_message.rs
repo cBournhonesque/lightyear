@@ -30,7 +30,7 @@ pub enum InputTarget {
     /// (Also when rebroadcast from server to client)
     Entity(Entity),
     /// The input is for a prespawned entity.
-    /// We wan the client to be able to send inputs for a prespawned entity before it gets matched with a server entity.
+    /// We want the client to be able to send inputs for a prespawned entity before it gets matched with a server entity.
     /// To achieve this, the client sends the PreSpawned hash and the server will map it to the correct server entity.
     /// When rebroadcasting from server to other client, we rebroadcast it as a normal Entity?
     PreSpawned(u64),

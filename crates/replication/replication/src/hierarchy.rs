@@ -14,7 +14,13 @@ use bevy_ecs::query::QueryData;
 use bevy_ecs::reflect::ReflectMapEntities;
 use bevy_ecs::relationship::Relationship;
 use bevy_reflect::Reflect;
-use bevy_replicon::prelude::SyncRelatedAppExt;
+use bevy_replicon::bytes::Bytes;
+use bevy_replicon::postcard_utils;
+use bevy_replicon::prelude::{RuleFns, SyncRelatedAppExt};
+use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, SerializeCtx, WriteCtx};
+#[cfg(feature = "client")]
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use core::fmt::Debug;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -32,6 +38,26 @@ pub enum RelationshipSystems {
 }
 
 pub(crate) struct HierarchyPlugin;
+
+/// Client-side placeholder for a replicated [`ChildOf`] whose parent entity
+/// has not been mapped yet.
+///
+/// Replicon's default entity mapping creates a buffered placeholder when a
+/// replicated component references an entity that has not appeared in the
+/// server-to-client map yet. That is unsafe for relationship components like
+/// [`ChildOf`], because inserting the relationship immediately runs Bevy's
+/// relationship hooks and leaves Replicon's placeholder buffer alive while the
+/// next component in the same entity bundle is decoded.
+#[derive(Component)]
+pub(crate) struct PendingChildOf {
+    server_parent: Entity,
+}
+
+impl PendingChildOf {
+    fn new(server_parent: Entity) -> Self {
+        Self { server_parent }
+    }
+}
 
 #[derive(QueryData)]
 struct PropagationQuery {
@@ -88,6 +114,82 @@ impl HierarchyPlugin {
 impl Plugin for HierarchyPlugin {
     fn build(&self, app: &mut App) {
         app.add_observer(Self::propagate_when_replicate_like_added);
+    }
+}
+
+/// Serializes the server parent entity targeted by [`ChildOf`].
+///
+/// Lightyear registers a custom rule for [`ChildOf`] so the receive path can
+/// inspect the raw server entity before mapping it. If the parent is not mapped
+/// yet, the receiver defers inserting the relationship instead of letting
+/// Replicon create a placeholder entity inside the relationship component.
+pub(crate) fn serialize_child_of(
+    _ctx: &mut SerializeCtx,
+    child_of: &ChildOf,
+    message: &mut Vec<u8>,
+) -> bevy_ecs::error::Result<()> {
+    postcard_utils::entity_to_extend_mut(&child_of.parent(), message)?;
+    Ok(())
+}
+
+/// Deserializes the raw server parent entity for stale-message consumption.
+///
+/// The active receive path uses [`write_child_of`] so it can defer insertion
+/// until the parent is mapped.
+pub(crate) fn deserialize_child_of(
+    _ctx: &mut WriteCtx,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<ChildOf> {
+    let server_parent = postcard_utils::entity_from_buf(message)?;
+    Ok(ChildOf(server_parent))
+}
+
+/// Receives [`ChildOf`] without using Replicon's placeholder entity mapper.
+///
+/// If the parent has already been mapped, this inserts the real Bevy hierarchy
+/// relationship. If not, it stores [`PendingChildOf`] and waits for
+/// [`resolve_pending_child_of`] to attach the relationship once the parent
+/// mapping is available.
+pub(crate) fn write_child_of(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<ChildOf>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<()> {
+    let server_parent = postcard_utils::entity_from_buf(message)?;
+    if let Some(&client_parent) = ctx.entity_map.to_client().get(&server_parent) {
+        entity.insert(ChildOf(client_parent));
+        entity.remove::<PendingChildOf>();
+    } else {
+        entity.insert(PendingChildOf::new(server_parent));
+        entity.remove::<ChildOf>();
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_child_of(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+    entity.remove::<ChildOf>();
+    entity.remove::<PendingChildOf>();
+}
+
+/// Attach delayed hierarchy relationships once Replicon has mapped the parent.
+#[cfg(feature = "client")]
+pub(crate) fn resolve_pending_child_of(
+    entity_map: Option<Res<ServerEntityMap>>,
+    pending: Query<(Entity, &PendingChildOf)>,
+    mut commands: Commands,
+) {
+    let Some(entity_map) = entity_map else {
+        return;
+    };
+    for (entity, pending) in &pending {
+        let Some(&client_parent) = entity_map.to_client().get(&pending.server_parent) else {
+            continue;
+        };
+        commands
+            .entity(entity)
+            .insert(ChildOf(client_parent))
+            .remove::<PendingChildOf>();
     }
 }
 

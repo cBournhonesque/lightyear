@@ -696,7 +696,6 @@ fn prepare_input_message<S: ActionStateSequence>(
             input_buffer
         );
 
-        // PreSpawned: the include the Prespawned Hash
         let target = if let Some(prespawned) = pre_spawned
             && let Some(hash) = prespawned.hash
         {
