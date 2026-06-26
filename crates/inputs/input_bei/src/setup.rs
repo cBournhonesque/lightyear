@@ -1,6 +1,5 @@
 use alloc::vec::Vec;
 use bevy_app::App;
-#[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_replicon::prelude::*;
