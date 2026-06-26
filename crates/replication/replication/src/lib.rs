@@ -175,7 +175,8 @@ struct SharedComponentRegistrationPlugin;
 
 impl Plugin for SharedComponentRegistrationPlugin {
     fn build(&self, app: &mut bevy_app::prelude::App) {
-        use bevy_replicon::prelude::AppRuleExt;
+        use bevy_ecs::prelude::ChildOf;
+        use bevy_replicon::prelude::{AppMarkerExt, AppRuleExt, RuleFns};
         // The order of app.replicate() calls must be identical on client and server.
         // These marker components are sent from server to client as part of entity replication.
         #[cfg(feature = "prediction")]
@@ -185,7 +186,11 @@ impl Plugin for SharedComponentRegistrationPlugin {
         app.replicate::<control::Controlled>();
         // ChildOf is registered for replication in HierarchySendPlugin (server-only),
         // but must also be registered on the client so FnsIds match.
-        app.replicate::<bevy_ecs::prelude::ChildOf>();
+        app.replicate_with(RuleFns::new(
+            hierarchy::serialize_child_of,
+            hierarchy::deserialize_child_of,
+        ))
+        .set_receive_fns::<ChildOf>(hierarchy::write_child_of, hierarchy::remove_child_of);
 
         // ServerMutateTicks is normally only initialized by bevy_replicon's ClientPlugin,
         // but prediction systems on server-only builds also reference it. Init it here
@@ -244,5 +249,9 @@ impl Plugin for LightyearRepliconClientBackend {
     fn build(&self, app: &mut bevy_app::prelude::App) {
         app.add_plugins(bevy_replicon::client::ClientPlugin);
         app.add_plugins(client::RepliconClientPlugin);
+        app.add_systems(
+            bevy_app::prelude::PreUpdate,
+            hierarchy::resolve_pending_child_of,
+        );
     }
 }

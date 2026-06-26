@@ -124,24 +124,30 @@ pub(crate) fn spawn_global_actions(commands: &mut Commands, context: Entity) {
 /// Spawn the server-owned BEI player action entities.
 ///
 /// Clients receive these through replication and add local-only bindings/input
-/// markers to the active local player's actions.
-pub(crate) fn spawn_player_actions(commands: &mut Commands, player: Entity) {
+/// markers to the active local player's actions. The actions carry the same
+/// room filter as the player because [`ReplicateLike`] copies replication
+/// targets, but not room-based visibility filter components.
+#[cfg(feature = "server")]
+pub(crate) fn spawn_player_actions(commands: &mut Commands, player: Entity, room_id: RoomId) {
     commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<MovePlayer>::new(),
         ReplicateLike { root: player },
+        Rooms::single(room_id),
     ));
 
     commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<MoveCursor>::new(),
         ReplicateLike { root: player },
+        Rooms::single(room_id),
     ));
 
     commands.spawn((
         ActionOf::<PlayerContext>::new(player),
         Action::<Shoot>::new(),
         ReplicateLike { root: player },
+        Rooms::single(room_id),
     ));
 }
 

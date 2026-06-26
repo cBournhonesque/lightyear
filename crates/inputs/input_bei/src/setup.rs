@@ -2,11 +2,13 @@ use alloc::vec::Vec;
 use bevy_app::App;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::prelude::*;
-#[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::relationship::Relationship;
-use bevy_replicon::bytes::Bytes;
 use bevy_replicon::prelude::*;
-use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
+use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, SerializeCtx, WriteCtx};
+#[cfg(feature = "client")]
+use bevy_replicon::shared::server_entity_map::ServerEntityMap;
+use bevy_replicon::{bytes::Bytes, postcard_utils};
 #[cfg(feature = "client")]
 use {
     bevy_enhanced_input::context::ExternallyMocked,
@@ -36,6 +38,27 @@ use {
     lightyear_inputs::server::ServerInputConfig,
     lightyear_replication::prelude::{InterpolationTarget, PredictionTarget, ReplicateLike},
 };
+
+/// Client-side placeholder for a replicated [`ActionOf<C>`] whose context
+/// entity has not been mapped yet.
+///
+/// This is deliberately local-only. Once the context entity appears in
+/// Replicon's server-to-client entity map, [`resolve_pending_action_of`]
+/// replaces this component with the real BEI relationship.
+#[derive(Component)]
+pub(crate) struct PendingActionOf<C: Component> {
+    server_context: Entity,
+    marker: core::marker::PhantomData<C>,
+}
+
+impl<C: Component> PendingActionOf<C> {
+    fn new(server_context: Entity) -> Self {
+        Self {
+            server_context,
+            marker: core::marker::PhantomData,
+        }
+    }
+}
 
 pub struct InputRegistryPlugin;
 
@@ -186,6 +209,86 @@ impl InputRegistryPlugin {
     }
 }
 
+/// Serializes the server context entity targeted by [`ActionOf<C>`].
+///
+/// This uses a custom rule instead of Replicon's default component
+/// serialization because [`ActionOf<C>`] is a relationship component. The
+/// default receive path would call [`EntityMapper::get_mapped`] for the context
+/// entity and create a placeholder if the context has not been mapped yet. That
+/// placeholder is unsafe for a relationship component: Bevy relationship hooks
+/// can observe the target during insertion, and Replicon also asserts if that
+/// buffered placeholder is still pending when the next component in the same
+/// entity bundle is decoded.
+pub(crate) fn serialize_action_of<C: Component>(
+    _ctx: &SerializeCtx,
+    action_of: &ActionOf<C>,
+    message: &mut Vec<u8>,
+) -> bevy_ecs::error::Result<()> {
+    postcard_utils::entity_to_extend_mut(&action_of.get(), message)?;
+    Ok(())
+}
+
+/// Deserializes the raw server context entity for stale-message consumption.
+///
+/// The active receive path uses [`write_action_of`] below. This function exists
+/// for Replicon's `RuleFns` contract and for consuming stale updates without
+/// creating mapped placeholder entities.
+pub(crate) fn deserialize_action_of<C: Component>(
+    _ctx: &mut WriteCtx,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<ActionOf<C>> {
+    let server_context = postcard_utils::entity_from_buf(message)?;
+    Ok(ActionOf::new(server_context))
+}
+
+/// Receives [`ActionOf<C>`] without using Replicon's placeholder entity mapper.
+///
+/// If the context entity is already mapped, this inserts the real BEI
+/// relationship immediately. If not, it stores [`PendingActionOf<C>`] so the
+/// relationship can be attached later by [`resolve_pending_action_of`].
+pub(crate) fn write_action_of<C: Component>(
+    ctx: &mut WriteCtx,
+    _rule_fns: &RuleFns<ActionOf<C>>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<()> {
+    let server_context = postcard_utils::entity_from_buf(message)?;
+    if let Some(&client_context) = ctx.entity_map.to_client().get(&server_context) {
+        entity.insert(ActionOf::<C>::new(client_context));
+        entity.remove::<PendingActionOf<C>>();
+    } else {
+        entity.insert(PendingActionOf::<C>::new(server_context));
+        entity.remove::<ActionOf<C>>();
+    }
+    Ok(())
+}
+
+pub(crate) fn remove_action_of<C: Component>(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+    entity.remove::<ActionOf<C>>();
+    entity.remove::<PendingActionOf<C>>();
+}
+
+/// Attach delayed BEI relationships once Replicon has mapped their context.
+#[cfg(feature = "client")]
+pub(crate) fn resolve_pending_action_of<C: Component>(
+    entity_map: Option<Res<ServerEntityMap>>,
+    pending: Query<(Entity, &PendingActionOf<C>)>,
+    mut commands: Commands,
+) {
+    let Some(entity_map) = entity_map else {
+        return;
+    };
+    for (entity, pending) in &pending {
+        let Some(&client_context) = entity_map.to_client().get(&pending.server_context) else {
+            continue;
+        };
+        commands
+            .entity(entity)
+            .insert(ActionOf::<C>::new(client_context))
+            .remove::<PendingActionOf<C>>();
+    }
+}
+
 /// Serializes only the presence and type of [`Action<A>`].
 ///
 /// The value stored inside BEI's [`Action<A>`] is local runtime state. Lightyear
@@ -193,11 +296,12 @@ impl InputRegistryPlugin {
 /// whose snapshots include the trigger state, action value, events, and timing.
 /// The [`Action<A>`] component also does not carry the context relationship:
 /// [`ActionOf<C>`] is replicated as its own component, and Replicon's default
-/// deserialize path calls [`Component::map_entities`] so Bevy's relationship
-/// entity is mapped through the prespawn/replication entity map. Therefore
-/// component replication only needs to create the correctly typed action
-/// component on the receiver, and [`deserialize_action`] can rebuild it from
-/// `Default`.
+/// mapping path is avoided there because it can create placeholder relationship
+/// targets when the context has not been mapped yet. Instead, Lightyear defers
+/// inserting [`ActionOf<C>`] until the context entity is present in the
+/// server-to-client map. Therefore component replication only needs to create
+/// the correctly typed action component on the receiver, and
+/// [`deserialize_action`] can rebuild it from `Default`.
 ///
 /// [`ActionOf<C>`]: bevy_enhanced_input::prelude::ActionOf
 fn serialize_action<A: InputAction>(

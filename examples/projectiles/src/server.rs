@@ -327,7 +327,7 @@ pub(crate) fn spawn_player(
         if is_bot {
             commands.entity(player_entity).insert(Bot);
         }
-        shared::spawn_player_actions(&mut commands, player_entity);
+        shared::spawn_player_actions(&mut commands, player_entity, room_id);
         info!("Spawning player {player_entity:?} for room: {room_id:?}");
     }
 }

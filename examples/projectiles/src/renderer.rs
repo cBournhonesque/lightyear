@@ -50,7 +50,15 @@ impl Plugin for ExampleRendererPlugin {
                 // mock the action before BEI evaluates it. BEI evaluated actions mocks in FixedPreUpdate
                 update_cursor_state_from_window,
             );
-            app.add_systems(Update, (display_score, render_hitscan_lines, display_info));
+            app.add_systems(
+                Update,
+                (
+                    display_score,
+                    render_hitscan_lines,
+                    display_info,
+                    sync_active_mode_visibility.after(add_player_visuals),
+                ),
+            );
         }
 
         #[cfg(feature = "server")]
@@ -153,13 +161,59 @@ fn display_info(
     );
 }
 
+fn is_active_mode(mode: Option<&GameReplicationMode>, active_mode: &GameReplicationMode) -> bool {
+    mode.is_some_and(|mode| mode == active_mode)
+}
+
 #[cfg(feature = "client")]
-fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent)>, mut gizmos: Gizmos) {
-    for (visual, color) in query.iter() {
+fn render_hitscan_lines(
+    active_mode: Query<&GameReplicationMode, With<ClientContext>>,
+    shooters: Query<&GameReplicationMode, With<PlayerMarker>>,
+    query: Query<(&HitscanVisual, &ColorComponent, &BulletMarker)>,
+    mut gizmos: Gizmos,
+) {
+    let Ok(active_mode) = active_mode.single() else {
+        return;
+    };
+    for (visual, color, marker) in query.iter() {
+        if !is_active_mode(shooters.get(marker.shooter).ok(), active_mode) {
+            continue;
+        }
         let progress = visual.lifetime / visual.max_lifetime;
         let alpha = (1.0 - progress).max(0.0);
         let line_color = color.0.with_alpha(alpha);
         gizmos.line_2d(visual.start, visual.end, line_color);
+    }
+}
+
+#[cfg(feature = "client")]
+fn sync_active_mode_visibility(
+    active_mode: Query<&GameReplicationMode, With<ClientContext>>,
+    shooters: Query<&GameReplicationMode, With<PlayerMarker>>,
+    mut players: Query<
+        (&GameReplicationMode, &mut Visibility),
+        (With<PlayerMarker>, With<PlayerId>, Without<BulletMarker>),
+    >,
+    mut projectiles: Query<(&BulletMarker, &mut Visibility), Without<PlayerMarker>>,
+) {
+    let Ok(active_mode) = active_mode.single() else {
+        return;
+    };
+
+    for (mode, mut visibility) in &mut players {
+        *visibility = if mode == active_mode {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
+    }
+
+    for (marker, mut visibility) in &mut projectiles {
+        *visibility = if is_active_mode(shooters.get(marker.shooter).ok(), active_mode) {
+            Visibility::Visible
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 
