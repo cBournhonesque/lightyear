@@ -552,6 +552,62 @@ fn test_future_confirmed_insert_is_not_checked_by_unchanged_completed_tick() {
     );
 }
 
+#[test]
+fn test_input_timeline_sync_does_not_shift_confirmed_history() {
+    use lightyear_sync::prelude::InputTimelineConfig;
+
+    let (mut stepper, predicted) = setup();
+
+    let confirmed_tick = Tick(10);
+    insert_confirmed(
+        stepper.client_app().world_mut(),
+        predicted,
+        confirmed_tick,
+        Some(CompFull(10.0)),
+    );
+
+    let predicted_tick = Tick(5);
+    let mut prediction_history = PredictionHistory::<CompFull>::default();
+    prediction_history.add_predicted(predicted_tick, Some(CompFull(5.0)));
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(predicted)
+        .insert(prediction_history);
+
+    stepper
+        .client_app()
+        .world_mut()
+        .trigger(lightyear_core::timeline::SyncEvent::<InputTimelineConfig>::new(predicted, 100));
+
+    let world = stepper.client_app().world();
+    let confirmed_history = world
+        .get::<ConfirmedHistory<CompFull>>(predicted)
+        .expect("confirmed history should still be present");
+    assert!(
+        confirmed_history.get_state_at(confirmed_tick).is_some(),
+        "confirmed history is already in authoritative server tick space and must not shift"
+    );
+    assert!(
+        confirmed_history
+            .get_state_at(confirmed_tick + 100)
+            .is_none(),
+        "timeline sync must not move authoritative confirmed samples into the future"
+    );
+
+    let prediction_history = world
+        .get::<PredictionHistory<CompFull>>(predicted)
+        .expect("prediction history should still be present");
+    assert!(
+        prediction_history.get_state(predicted_tick).is_none(),
+        "local prediction samples from before sync should be shifted"
+    );
+    assert!(
+        prediction_history.get_state(predicted_tick + 100).is_some(),
+        "prediction history should follow the input timeline sync"
+    );
+}
+
 /// A completed mutate tick is a global confirmation point. If one entity receives an
 /// explicit update at that tick and another entity does not, the unchanged entity should
 /// still be checked against its last confirmed value at the completed tick.

@@ -8,7 +8,6 @@ use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_enhanced_input::EnhancedInputSystems;
 use bevy_enhanced_input::action::TriggerState;
-use bevy_enhanced_input::bindings;
 use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_enhanced_input::prelude::{
     ActionMock, ActionValue, ActionValueDim, Binding, Bindings, Cardinal, MockSpan,
@@ -27,7 +26,6 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_deterministic_spawn);
-        app.add_observer(add_global_actions);
         app.add_systems(
             FixedPreUpdate,
             (
@@ -45,13 +43,10 @@ impl Plugin for ExampleClientPlugin {
 // - add physics components so that its movement can be predicted
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
-    client: Single<&LocalId, With<Client>>,
-    host_client: Option<Res<HostClientMode>>,
     mut commands: Commands,
-    mut player_query: Query<(&PlayerId, &Position, &GameReplicationMode), With<Predicted>>,
+    mut player_query: Query<&GameReplicationMode, With<Predicted>>,
 ) {
-    let client_id = client.into_inner().0;
-    if let Ok((player_id, pos, mode)) = player_query.get_mut(trigger.entity) {
+    if let Ok(mode) = player_query.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::AllInterpolated {
             return;
         };
@@ -66,45 +61,20 @@ pub(crate) fn handle_predicted_spawn(
             }
             _ => {}
         };
-        if player_id.0 != client_id {
-            return;
-        }
-        // add actions on the local entity (remote predicted entities will have actions propagated by the server)
-        if should_spawn_client_actions(&host_client) {
-            info!(
-                ?pos,
-                "Adding actions to predicted player {:?}", trigger.entity
-            );
-            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
-        }
     }
 }
 
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, (PlayerMarker, Interpolated)>,
-    client: Single<&LocalId, With<Client>>,
-    host_client: Option<Res<HostClientMode>>,
-    mut interpolated: Query<
-        (&PlayerId, &Interpolated, &GameReplicationMode),
-        (With<Interpolated>, With<PlayerMarker>),
-    >,
+    mut interpolated: Query<&GameReplicationMode, (With<Interpolated>, With<PlayerMarker>)>,
     mut commands: Commands,
 ) {
-    let client_id = client.into_inner();
-    if let Ok((player_id, interpolated, mode)) = interpolated.get_mut(trigger.entity) {
+    if let Ok(mode) = interpolated.get_mut(trigger.entity) {
         if mode == &GameReplicationMode::ClientSideHitDetection {
             // add these so we can do hit-detection on the client
             commands
                 .entity(trigger.entity)
                 .insert((Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),));
-        }
-        // In the interpolated case, the client sends inputs but doesn't apply them.
-        // Only the server applies the inputs, and the position changes are replicated back
-        if let GameReplicationMode::AllInterpolated = mode
-            && client_id.0 == player_id.0
-            && should_spawn_client_actions(&host_client)
-        {
-            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
         }
     }
 }
@@ -112,11 +82,8 @@ pub(crate) fn handle_interpolated_spawn(
 pub(crate) fn handle_deterministic_spawn(
     trigger: On<Add, PlayerMarker>,
     query: Query<(&PlayerId, &GameReplicationMode)>,
-    client: Single<&LocalId, With<Client>>,
-    host_client: Option<Res<HostClientMode>>,
     mut commands: Commands,
 ) {
-    let client_id = client.into_inner();
     if let Ok((player_id, mode)) = query.get(trigger.entity)
         && mode == &GameReplicationMode::OnlyInputsReplicated
     {
@@ -129,30 +96,7 @@ pub(crate) fn handle_deterministic_spawn(
             },
         ));
         info!("Adding PlayerContext for player {:?}", player_id);
-
-        // add actions for the local client
-        if player_id.0 == client_id.0 && should_spawn_client_actions(&host_client) {
-            info!(
-                "Spawning actions for DeterministicPredicted player {:?}",
-                player_id
-            );
-            shared::spawn_player_actions(&mut commands, trigger.entity, player_id.0, *mode, false);
-        }
     }
-}
-
-pub(crate) fn add_global_actions(
-    trigger: On<Add, ClientContext>,
-    host_client: Option<Res<HostClientMode>>,
-    mut commands: Commands,
-) {
-    if should_spawn_client_actions(&host_client) {
-        shared::spawn_global_actions(&mut commands, trigger.entity, false);
-    }
-}
-
-fn should_spawn_client_actions(host_client: &Option<Res<HostClientMode>>) -> bool {
-    host_client.is_none()
 }
 
 fn update_active_player_action_markers(

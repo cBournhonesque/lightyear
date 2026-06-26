@@ -17,7 +17,9 @@ use lightyear_link::Link;
 use lightyear_link::prelude::LinkConditionerConfig;
 use lightyear_messages::MessageManager;
 use lightyear_prediction::diagnostics::PredictionMetrics;
-use lightyear_replication::prelude::{PreSpawned, PredictionTarget, Replicate};
+use lightyear_replication::prelude::{
+    ControlledBy, PreSpawned, PredictionTarget, Replicate, ReplicateLike,
+};
 use lightyear_sync::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use test_log::test;
 use tracing::info;
@@ -77,26 +79,35 @@ fn spawn_action_pair(
     (client_action, server_action)
 }
 
-/// Check that we can insert actions on the client entity using PreSpawned
+/// Check that we can insert actions on a replicated client context using PreSpawned
 #[test]
-fn test_actions_on_client_entity() {
+fn test_actions_on_replicated_context_entity() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    let client_entity = stepper.client(0).id();
-    let client_of_entity = stepper.client_of(0).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
+        .id();
+    stepper.frame_step(3);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("context entity should be replicated to client");
 
     let (client_action, server_action) =
-        spawn_action_pair(&mut stepper, client_entity, client_of_entity, TEST_HASH);
-    stepper.frame_step(1);
+        spawn_action_pair(&mut stepper, client_entity, server_entity, TEST_HASH);
+    stepper.frame_step(2);
 
     // Add an InputMarker to the Context entity on the client
     stepper
         .client_app()
         .world_mut()
         .entity_mut(client_entity)
-        .insert((
-            BEIContext,
-            bei::prelude::InputMarker::<BEIContext>::default(),
-        ));
+        .insert(bei::prelude::InputMarker::<BEIContext>::default());
 
     // Check that the ActionOf component points to the correct entity on the server
     assert_eq!(
@@ -107,7 +118,19 @@ fn test_actions_on_client_entity() {
             .get::<ActionOf<BEIContext>>()
             .unwrap()
             .get(),
-        client_of_entity
+        server_entity
+    );
+
+    // Check that the replicated ActionOf component maps back to the local context on the client
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .entity(client_action)
+            .get::<ActionOf<BEIContext>>()
+            .unwrap()
+            .get(),
+        client_entity
     );
 
     info!("Mocking press on BEIAction1");
@@ -260,6 +283,84 @@ fn test_bound_action_spawned_from_received_context_sends_inputs_after_mapping() 
             .resource::<SawServerFiredAction>()
             .0,
         "server should eventually receive the fired action state via input messages"
+    );
+}
+
+/// Check that the owner can drive a server-spawned replicated action entity.
+///
+/// The client receives the action entity from replication, adds local-only
+/// bindings/input mock to that replicated entity, and input messages target the
+/// action entity through the normal client-to-server entity map.
+#[test]
+fn test_server_replicated_action_sends_inputs_after_client_adds_bindings() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    stepper.server_app.init_resource::<SawServerFiredAction>();
+    stepper.server_app.add_systems(
+        FixedPreUpdate,
+        record_server_fired_action
+            .before(lightyear::input::server::InputSystems::UpdateActionState),
+    );
+
+    let client_of_entity = stepper.client_of(0).id();
+    let client_id = stepper
+        .client_of(0)
+        .get::<lightyear_core::id::RemoteId>()
+        .unwrap()
+        .0;
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            BEIContext,
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::Single(client_id)),
+            ControlledBy {
+                owner: client_of_entity,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            ReplicateLike {
+                root: server_entity,
+            },
+        ))
+        .id();
+
+    stepper.frame_step(5);
+
+    let client_action = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_action)
+        .expect("action entity should be replicated to client");
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_action)
+        .insert((
+            ActionMock::once(TriggerState::Fired, true),
+            bindings![KeyCode::Space,],
+        ));
+
+    stepper.frame_step(5);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .resource::<SawServerFiredAction>()
+            .0,
+        "server should eventually receive the fired action state via mapped entity input messages"
     );
 }
 

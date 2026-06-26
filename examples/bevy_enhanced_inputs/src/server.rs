@@ -10,7 +10,7 @@ use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
-use bevy_enhanced_input::prelude::{Action, Fire};
+use bevy_enhanced_input::prelude::{Action, ActionOf, Fire};
 use lightyear::connection::client::Connected;
 use lightyear::connection::host::{HostClient, HostServer};
 use lightyear::prelude::server::*;
@@ -18,6 +18,9 @@ use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
 pub struct ExampleServerPlugin;
+
+#[derive(Component)]
+pub(crate) struct ServerAction;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
@@ -65,7 +68,7 @@ pub(crate) fn handle_connected(
             // Add the context component on the server; it will be replicated to the client
             Player,
             PlayerId(client_id),
-            PlayerPosition(Vec2::ZERO),
+            PlayerPosition(initial_player_position(client_id)),
             PlayerColor(color),
             // we replicate the Player entity to all clients that are connected to this server
             Replicate::to_clients(NetworkTarget::All),
@@ -81,14 +84,35 @@ pub(crate) fn handle_connected(
         "Create player entity {:?} for client {:?}",
         player_entity, client_id
     );
-    shared::spawn_action_entities(&mut commands, player_entity, client_id, true);
+    spawn_action_entities(&mut commands, player_entity);
+}
+
+fn initial_player_position(client_id: PeerId) -> Vec2 {
+    let slot = (client_id.to_bits() % 6) as f32;
+    Vec2::new((slot - 2.5) * 90.0, 0.0)
+}
+
+/// Spawn the BEI action entities for a player.
+///
+/// The server owns and replicates action entities so the owning client can
+/// target them in input messages and remote clients can receive rebroadcasted
+/// input for prediction.
+fn spawn_action_entities(commands: &mut Commands, player_entity: Entity) {
+    commands.spawn((
+        ActionOf::<Player>::new(player_entity),
+        Action::<Movement>::new(),
+        ReplicateLike {
+            root: player_entity,
+        },
+        ServerAction,
+    ));
 }
 
 /// Read client inputs and move players in server therefore giving a basis for other clients
 fn movement(
     trigger: On<Fire<Movement>>,
     host_server: Query<(), With<HostServer>>,
-    server_actions: Query<(), (With<Action<Movement>>, With<shared::ServerAction>)>,
+    server_actions: Query<(), (With<Action<Movement>>, With<ServerAction>)>,
     controlled_by: Query<&ControlledBy>,
     host_clients: Query<(), With<HostClient>>,
     mut position_query: Query<&mut PlayerPosition>,

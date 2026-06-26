@@ -5,9 +5,9 @@ use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
 use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
-    apply_component_removal_predicted, handle_tick_event_confirmed_history,
-    handle_tick_event_history_diff_receiver, handle_tick_event_prediction_history,
-    prune_history_diff_receiver, snap_to_confirmed_during_rollback, update_prediction_history,
+    apply_component_removal_predicted, handle_tick_event_history_diff_receiver,
+    handle_tick_event_prediction_history, prune_history_diff_receiver,
+    snap_to_confirmed_during_rollback, update_prediction_history,
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
@@ -83,8 +83,12 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     // would not get its tick values shifted on timeline-sync, so any
     // history entries accumulated pre-sync would point to stale
     // (pre-sync) ticks after the client clock jumps forward.
+    //
+    // Do not shift `ConfirmedHistory<C>` here: confirmed samples are resolved
+    // through `ReplicationCheckpointMap` and are already in authoritative
+    // server tick space. Shifting them can move an init-message seed into the
+    // future and make rollback prefer stale state over later server updates.
     app.add_observer(handle_tick_event_prediction_history::<C>);
-    app.add_observer(handle_tick_event_confirmed_history::<C>);
     app.add_systems(
         PreUpdate,
         prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
@@ -152,7 +156,6 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
 
     app.add_observer(apply_component_removal_predicted::<C>);
     app.add_observer(handle_tick_event_prediction_history::<C>);
-    app.add_observer(handle_tick_event_confirmed_history::<C>);
     app.add_observer(add_prediction_history::<C>);
 
     app.add_systems(

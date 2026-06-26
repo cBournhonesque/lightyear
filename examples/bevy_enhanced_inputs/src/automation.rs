@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use lightyear::prelude::*;
+#[cfg(feature = "client")]
 use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 use crate::protocol::{PlayerId, PlayerPosition};

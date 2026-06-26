@@ -1,9 +1,11 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::{BEIBuffer, BEIStateSequence};
 
+#[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use bevy_app::{PreUpdate, prelude::*};
+use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+#[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::IntoScheduleConfigs;
 #[cfg(all(feature = "client", feature = "server"))]
 use bevy_ecs::schedule::common_conditions::not;
@@ -12,10 +14,9 @@ use bevy_enhanced_input::EnhancedInputSystems;
 #[cfg(feature = "client")]
 use bevy_enhanced_input::action::TriggerState;
 use bevy_enhanced_input::context::InputContextAppExt;
-#[cfg(any(feature = "client", feature = "server"))]
 use bevy_enhanced_input::prelude::ActionOf;
 use bevy_reflect::TypePath;
-use bevy_replicon::prelude::{AppRuleExt, ReplicationMode, RuleFns};
+use bevy_replicon::prelude::AppRuleExt;
 use bevy_replicon::shared::replication::registry::receive_fns::MutWrite;
 use core::fmt::Debug;
 #[cfg(feature = "client")]
@@ -23,8 +24,6 @@ use lightyear_core::prelude::is_in_rollback;
 #[cfg(feature = "client")]
 use lightyear_inputs::client::InputSystems;
 use lightyear_inputs::config::InputConfig;
-use lightyear_messages::plugin::MessageSystems;
-use lightyear_replication::ReplicationSystems;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
@@ -45,33 +44,35 @@ use serde::de::DeserializeOwned;
 /// # Action entities
 ///
 /// BEI uses separate "action entities" with [`ActionOf<C>`] to represent
-/// individual actions. These entities need to exist on both client and server.
-/// Spawn them on both sides with [`PreSpawned`] so they can be matched via a
-/// deterministic hash; this plugin does not create action entities through
-/// client-to-server entity replication.
+/// individual actions. In the server-authoritative flow, spawn those action
+/// entities on the server and replicate them to clients along with the context
+/// entity. The owning client should add local-only [`Bindings`] once its local
+/// controlled context has the replicated [`Action`] entity in its
+/// [`ActionOf<C>`]/`Actions<C>` relationship.
 ///
-/// Server-to-client action entity replication is still useful. It confirms the
-/// owner's prespawned action entity and populates the entity maps used by input
-/// messages. If input rebroadcasting is enabled, it also lets other clients
-/// discover the remote player's action entity, its typed [`Action`] component,
-/// and its [`ActionOf<C>`] relationship so rebroadcasted input state has a
-/// local action buffer to target.
+/// Replicating the action entity is also what lets remote clients receive
+/// rebroadcasted BEI input. Rebroadcasted [`BEIStateSequence`] messages target
+/// action entities, so a remote client needs a corresponding replicated action
+/// entity to resolve the target and buffer the remote player's input state.
 ///
 /// The replicated [`Action`] component is structural: it recreates the typed BEI
 /// action entity on the receiver, but does not carry runtime input state. The
-/// action relationship is replicated through an internal network wrapper for
-/// [`ActionOf<C>`], and live action state is sent by [`BEIStateSequence`] input
-/// messages. The owning client adds [`InputMarker`] to local action entities,
-/// buffers BEI trigger state/value/time each tick, and sends those snapshots to
-/// the server. If input rebroadcasting is enabled, the server forwards those
-/// input messages to other clients so they can update remote action buffers for
-/// prediction.
+/// action relationship is replicated directly through [`ActionOf<C>`]. Bevy's
+/// relationship component maps the inner context entity through
+/// [`Component::map_entities`], and Replicon's default deserialize path calls
+/// that mapping after replication has populated the entity map.
+/// Live action state is sent by [`BEIStateSequence`] input messages. The owning
+/// client adds [`InputMarker`] to local action entities, buffers BEI trigger
+/// state/value/time each tick, and sends those snapshots to the server. If input
+/// rebroadcasting is enabled, the server forwards those input messages to other
+/// clients so they can update remote action buffers for prediction.
 ///
 /// [`Action`]: bevy_enhanced_input::prelude::Action
+/// [`Bindings`]: bevy_enhanced_input::prelude::Bindings
 /// [`BEIStateSequence`]: crate::input_message::BEIStateSequence
 /// [`ActionOf<C>`]: bevy_enhanced_input::prelude::ActionOf
 /// [`InputMarker`]: crate::marker::InputMarker
-/// [`PreSpawned`]: lightyear_replication::prelude::PreSpawned
+/// [`Replicate`]: lightyear_replication::prelude::Replicate
 pub struct InputPlugin<C> {
     pub config: InputConfig<C>,
 }
@@ -110,30 +111,7 @@ impl<
         app.add_input_context_to::<FixedPreUpdate, C>();
         // we register the context C entity so that it can be replicated from the server to the client
         app.replicate::<C>();
-
-        // We mirror ActionOf<C> into a separate component that stores the authoritative
-        // remote entity. That avoids depending on sender-side entity mapping in replicon's
-        // SerializeCtx.
-        app.replicate_with((
-            RuleFns::new(
-                crate::setup::serialize_network_action_of::<C>,
-                crate::setup::deserialize_network_action_of::<C>,
-            ),
-            ReplicationMode::default(),
-        ));
-        app.add_observer(InputRegistryPlugin::mirror_action_of_for_replication::<C>);
-        app.add_observer(InputRegistryPlugin::insert_action_of_from_network::<C>);
-        app.add_systems(
-            PreUpdate,
-            (
-                InputRegistryPlugin::resolve_pending_network_action_of::<C>,
-                InputRegistryPlugin::resolve_pending_action_of::<C>,
-            )
-                .chain()
-                .after(ReplicationSystems::Receive)
-                .before(MessageSystems::Receive),
-        );
-
+        app.replicate::<ActionOf<C>>();
         #[cfg(feature = "client")]
         {
             use crate::marker::{

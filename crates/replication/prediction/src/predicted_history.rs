@@ -144,27 +144,6 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
     }
 }
 
-/// If there is a TickEvent and the client tick suddenly changes, update confirmed-history ticks too.
-pub(crate) fn handle_tick_event_confirmed_history<C: Component>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
-    mut query: Query<&mut ConfirmedHistory<C>>,
-) {
-    for mut history in query.iter_mut() {
-        history.update_ticks(trigger.tick_delta);
-        trace!(
-            target: "lightyear_debug::prediction",
-            kind = "confirmed_history_tick_delta",
-            schedule = "PostUpdate",
-            sample_point = "PostUpdate",
-            entity = ?trigger.entity,
-            component = ?DebugName::type_name::<C>(),
-            tick_delta = trigger.tick_delta,
-            history_len = history.len(),
-            "shifted confirmed history ticks"
-        );
-    }
-}
-
 pub(crate) fn handle_tick_event_history_diff_receiver<C: RepliconDiffable>(
     trigger: On<SyncEvent<InputTimelineConfig>>,
     mut storage: ResMut<ReplicationStorage>,
@@ -212,7 +191,6 @@ pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
         }
     }
 }
-
 /// If a predicted component is removed on the [`Predicted`] entity, add the removal to the history.
 pub(crate) fn apply_component_removal_predicted<C: Component>(
     trigger: On<Remove, C>,
