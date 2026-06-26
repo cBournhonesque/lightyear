@@ -164,3 +164,81 @@ fn test_buffer_inputs_with_delay() {
             .just_released(&LeafwingInput1::Jump)
     );
 }
+
+/// `authorize_controlled_targets` exempts host-client inputs (`RemoteId::is_local`):
+/// they are trusted in-process and must not be filtered against `ControlledByRemote`.
+/// The host-client drives an entity with **no** `ControlledBy`; an observer chained
+/// after the helper must still see the host-client's input target (the helper
+/// skipped it). Were the `is_local` guard dropped, the target would be stripped
+/// (the host-client controls nothing) and the observer would see nothing.
+#[test]
+fn test_authorize_controlled_targets_exempts_host_client() {
+    use bevy::ecs::resource::Resource;
+    use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy::ecs::system::{Query, ResMut};
+    use bevy::prelude::Entity;
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::{InputMessage, InputTarget};
+    use lightyear_inputs::prelude::server::{InputSystems, authorize_controlled_targets};
+    use lightyear_messages::prelude::MessageReceiver;
+
+    #[derive(Resource, Default)]
+    struct ObservedTargets(Vec<Entity>);
+
+    fn observe(
+        mut observed: ResMut<ObservedTargets>,
+        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    ) {
+        for mut receiver in &mut receivers {
+            receiver.retain_messages(|msg| {
+                for data in &msg.inputs {
+                    if let InputTarget::Entity(e) = data.target {
+                        observed.0.push(e);
+                    }
+                }
+                true
+            });
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
+    stepper.server_app.init_resource::<ObservedTargets>();
+    stepper.server_app.add_systems(
+        bevy::app::PreUpdate,
+        (
+            authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>,
+            observe,
+        )
+            .chain()
+            .in_set(InputSystems::ValidateInputs),
+    );
+
+    // Host-client-controlled entity with NO `ControlledBy`.
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+            InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
+        ))
+        .id();
+    stepper.frame_step(2);
+    stepper
+        .server_app
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(5);
+
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .resource::<ObservedTargets>()
+            .0
+            .contains(&server_entity),
+        "the host-client's input target was stripped (or never reached validation); \
+         the is_local exemption is broken",
+    );
+}

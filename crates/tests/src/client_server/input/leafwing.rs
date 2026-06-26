@@ -647,52 +647,23 @@ fn test_input_validator_system_can_drop_messages() {
     );
 }
 
-/// Example: a *game-supplied* `ValidateInputs` system implements input-target
-/// authorization itself — lightyear does not enforce `ControlledBy` (it's an
-/// optional helper). The validator drops any `InputTarget::Entity` the sender
-/// doesn't control (via `ControlledByRemote` + `retain_messages`).
+/// lightyear's opt-in `authorize_controlled_targets` helper, when a game
+/// registers it in `ValidateInputs`, drops `InputTarget::Entity` the sender
+/// doesn't control — without lightyear enforcing it by default.
 ///
 /// Client 0 controls entity A and forges an input also targeting entity B
-/// (uncontrolled). The validator must let A's input through (non-overblocking)
+/// (uncontrolled). The helper must let A's input through (non-overblocking)
 /// and drop B's — so A's server `ActionState` is pressed and B's is not.
 #[test]
-fn test_user_validator_can_authorize_targets() {
-    use bevy::ecs::relationship::RelationshipTarget;
-    use bevy::ecs::system::Query;
+fn test_authorize_controlled_targets_helper() {
     use lightyear::input::leafwing::input_message::LeafwingSequence;
-    use lightyear_core::id::RemoteId;
-    use lightyear_inputs::input_message::{InputMessage, InputTarget};
-    use lightyear_inputs::prelude::server::InputValidationAppExt;
-    use lightyear_messages::prelude::MessageReceiver;
-    use lightyear_replication::control::ControlledByRemote;
+    use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
     use lightyear_replication::prelude::ControlledBy;
 
-    // Game-side authorization, expressed as an ordinary ValidateInputs system.
-    fn authorize_targets(
-        mut receivers: Query<(
-            &RemoteId,
-            Option<&ControlledByRemote>,
-            &mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>,
-        )>,
-    ) {
-        for (client_id, controlled, mut receiver) in &mut receivers {
-            if client_id.is_local() {
-                continue;
-            }
-            receiver.retain_messages(|msg| {
-                msg.inputs.retain(|data| match data.target {
-                    InputTarget::Entity(e) => {
-                        controlled.is_some_and(|c| c.collection().contains(&e))
-                    }
-                    InputTarget::PreSpawned(_) => true,
-                });
-                !msg.inputs.is_empty()
-            });
-        }
-    }
-
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
-    stepper.server_app.add_input_validator(authorize_targets);
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>);
 
     let client_of_0 = stepper.client_of(0).id();
     // Entity A: controlled by client 0.
@@ -769,6 +740,69 @@ fn test_user_validator_can_authorize_targets() {
             .unwrap()
             .pressed(&LeafwingInput1::Jump),
         "spoofed input landed on victim B's ActionState",
+    );
+}
+
+/// Regression guard for the empty-after-filter path: a client that controls
+/// nothing forges an input targeting an entity it doesn't own. Every target is
+/// stripped, but the helper must keep the (now-empty) message — dropping it
+/// would eat the keepalive the receive path relies on. We assert the spoofed
+/// input doesn't land and the pipeline keeps running (no panic / no stall).
+#[test]
+fn test_authorize_controlled_targets_keeps_emptied_message() {
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>);
+
+    // Entity replicated to client 0 but controlled by nobody — client 0's
+    // `ControlledByRemote` is empty, so its input for this entity is fully
+    // unauthorized.
+    let victim = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(5);
+
+    let local = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(victim)
+        .expect("victim replicated to client 0");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(local)
+        .insert(InputMap::<LeafwingInput1>::new([(
+            LeafwingInput1::Jump,
+            KeyCode::KeyA,
+        )]));
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    // Keep stepping: the receive pipeline must stay healthy across many ticks
+    // even though every input message from this client is fully stripped.
+    stepper.frame_step(20);
+
+    assert!(
+        !stepper
+            .server_app
+            .world()
+            .entity(victim)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap()
+            .pressed(&LeafwingInput1::Jump),
+        "fully-unauthorized input landed on the victim's ActionState",
     );
 }
 
@@ -855,5 +889,201 @@ fn test_validator_can_read_message_metadata() {
             .unwrap()
             .pressed(&LeafwingInput1::Jump),
         "input landed even though retain_received_messages dropped the message",
+    );
+}
+
+/// `authorize_controlled_targets` passes `InputTarget::PreSpawned` through (it's
+/// identified by hash, not entity id, so the `ControlledByRemote` check doesn't
+/// apply). A client forges a message with a PreSpawned target; an observer
+/// validator chained *after* the helper confirms the target survived.
+#[test]
+fn test_authorize_controlled_targets_passes_through_prespawned() {
+    use bevy::ecs::resource::Resource;
+    use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy::ecs::system::{Query, ResMut};
+    use lightyear::input::leafwing::input_message::{LeafwingSequence, LeafwingSnapshot};
+    use lightyear_inputs::input_buffer::InputBuffer;
+    use lightyear_inputs::input_message::{
+        ActionStateSequence, InputMessage, InputTarget, PerTargetData,
+    };
+    use lightyear_inputs::prelude::InputChannel;
+    use lightyear_inputs::prelude::server::{InputSystems, authorize_controlled_targets};
+    use lightyear_messages::prelude::{MessageReceiver, MessageSender};
+
+    #[derive(Resource, Default)]
+    struct SawPrespawn(bool);
+
+    // Observer chained after the helper: records whether a PreSpawned target
+    // survived the authorization pass (read-only — returns true).
+    fn observe_prespawn(
+        mut saw: ResMut<SawPrespawn>,
+        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    ) {
+        for mut receiver in &mut receivers {
+            receiver.retain_messages(|msg| {
+                if msg
+                    .inputs
+                    .iter()
+                    .any(|d| matches!(d.target, InputTarget::PreSpawned(_)))
+                {
+                    saw.0 = true;
+                }
+                true
+            });
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper.server_app.init_resource::<SawPrespawn>();
+    stepper.server_app.add_systems(
+        bevy::app::PreUpdate,
+        (
+            authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>,
+            observe_prespawn,
+        )
+            .chain()
+            .in_set(InputSystems::ValidateInputs),
+    );
+    stepper.frame_step(5);
+
+    // Forge a message whose only target is a PreSpawned hash (client 0 controls
+    // nothing — an `Entity` target here would be stripped, but PreSpawned passes).
+    let end_tick = stepper.server_tick() + 1;
+    let mut seq_buf = InputBuffer::<LeafwingSnapshot<LeafwingInput1>, LeafwingInput1>::default();
+    let mut snap = ActionState::<LeafwingInput1>::default();
+    snap.press(&LeafwingInput1::Jump);
+    seq_buf.set(end_tick, LeafwingSnapshot(snap));
+    let sequence =
+        LeafwingSequence::<LeafwingInput1>::build_from_input_buffer(&seq_buf, 1, end_tick)
+            .expect("sequence built from non-empty buffer");
+    let mut forged: InputMessage<LeafwingSequence<LeafwingInput1>> = InputMessage::new(end_tick);
+    forged.inputs.push(PerTargetData {
+        target: InputTarget::PreSpawned(0xDEAD_BEEF),
+        states: sequence,
+    });
+    {
+        let mut client_entity_mut = stepper.client_apps[0]
+            .world_mut()
+            .entity_mut(stepper.client_entities[0]);
+        let mut sender = client_entity_mut
+            .get_mut::<MessageSender<InputMessage<LeafwingSequence<LeafwingInput1>>>>()
+            .expect("client has a MessageSender for InputMessage<LeafwingSequence>");
+        sender.send::<InputChannel>(forged);
+    }
+    stepper.frame_step(3);
+
+    assert!(
+        stepper.server_app.world().resource::<SawPrespawn>().0,
+        "authorize_controlled_targets stripped a PreSpawned target — it must pass through",
+    );
+}
+
+/// Documents the recommended way to run your own validator *after* the
+/// `authorize_controlled_targets` helper, so it only sees authorized targets:
+/// register it with `.after(authorize_controlled_targets::<S>)`.
+///
+/// Client 0 controls A and forges a target on uncontrolled B. The custom
+/// validator, ordered after the helper, records the targets it sees: it must
+/// see A but never the spoofed B (already stripped). Were it unordered (or
+/// before), it could observe B.
+#[test]
+fn test_custom_validator_ordered_after_authorize() {
+    use bevy::ecs::resource::Resource;
+    use bevy::ecs::schedule::IntoScheduleConfigs;
+    use bevy::ecs::system::{Query, ResMut};
+    use bevy::prelude::Entity;
+    use lightyear::input::leafwing::input_message::LeafwingSequence;
+    use lightyear_inputs::input_message::{InputMessage, InputTarget};
+    use lightyear_inputs::prelude::server::{InputValidationAppExt, authorize_controlled_targets};
+    use lightyear_messages::prelude::MessageReceiver;
+    use lightyear_replication::prelude::ControlledBy;
+
+    #[derive(Resource, Default)]
+    struct SeenAfterAuth(Vec<Entity>);
+
+    fn record_after_auth(
+        mut seen: ResMut<SeenAfterAuth>,
+        mut receivers: Query<&mut MessageReceiver<InputMessage<LeafwingSequence<LeafwingInput1>>>>,
+    ) {
+        for mut receiver in &mut receivers {
+            receiver.retain_messages(|msg| {
+                for data in &msg.inputs {
+                    if let InputTarget::Entity(e) = data.target {
+                        seen.0.push(e);
+                    }
+                }
+                true
+            });
+        }
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(1));
+    stepper.server_app.init_resource::<SeenAfterAuth>();
+    // Recommended ordering: register your validator `.after` the helper.
+    stepper
+        .server_app
+        .add_input_validator(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>);
+    stepper.server_app.add_input_validator(
+        record_after_auth.after(authorize_controlled_targets::<LeafwingSequence<LeafwingInput1>>),
+    );
+
+    let client_of_0 = stepper.client_of(0).id();
+    let entity_a = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_0,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+    let entity_b = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionState::<LeafwingInput1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+    stepper.frame_step(10);
+
+    let local_a = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_a)
+        .expect("A replicated");
+    let local_b = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(entity_b)
+        .expect("B replicated");
+    for local in [local_a, local_b] {
+        stepper.client_apps[0].world_mut().entity_mut(local).insert(
+            InputMap::<LeafwingInput1>::new([(LeafwingInput1::Jump, KeyCode::KeyA)]),
+        );
+    }
+    stepper.frame_step(1);
+    stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<ButtonInput<KeyCode>>()
+        .press(KeyCode::KeyA);
+    stepper.frame_step(10);
+
+    let seen = &stepper.server_app.world().resource::<SeenAfterAuth>().0;
+    assert!(
+        seen.contains(&entity_a),
+        "custom validator never saw the authorized target A — setup/ordering issue",
+    );
+    assert!(
+        !seen.contains(&entity_b),
+        "custom validator saw the spoofed target B; it ran before authorize_controlled_targets \
+         (the `.after(authorize_controlled_targets::<S>)` ordering didn't take effect)",
     );
 }
