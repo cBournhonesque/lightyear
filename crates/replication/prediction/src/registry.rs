@@ -1,8 +1,6 @@
 use crate::SyncComponent;
 use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
-use crate::plugin::{
-    add_non_networked_rollback_systems, add_prediction_systems, add_resource_rollback_systems,
-};
+use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
 #[cfg(feature = "metrics")]
@@ -34,7 +32,9 @@ use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
-use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
+use lightyear_replication::registry::replication::{
+    AppComponentExt, ComponentRegistration, ComponentRegistrator,
+};
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
 use lightyear_utils::collections::HashMap;
 use tracing::{debug, error, trace, trace_span};
@@ -80,7 +80,7 @@ type CheckRollbackFn = unsafe fn(
 
 /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
 /// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
-/// value returned by [`PredictionHistory::get`].
+/// value returned by the history buffer lookup.
 pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
 
 impl PredictionMetadata {
@@ -693,6 +693,12 @@ pub trait PredictionBuilderExt<'a, C>: ComponentRegistrator<'a, C> {
     fn predict_diff(self) -> PredictedComponentRegistration<'a, C>
     where
         C: SyncComponent + RepliconDiffable;
+
+    /// Enable local rollback for a component or resource that is not handled
+    /// by Replicon's prediction marker writes.
+    fn local_rollback(self) -> LocalRollbackComponentRegistration<'a, C>
+    where
+        C: Component<Mutability = Mutable> + Clone;
 }
 
 impl<'a, C, R> PredictionBuilderExt<'a, C> for R
@@ -715,6 +721,15 @@ where
         PredictedComponentRegistration::new(
             self.into_component_registration().add_prediction_diff(),
         )
+    }
+
+    fn local_rollback(self) -> LocalRollbackComponentRegistration<'a, C>
+    where
+        C: Component<Mutability = Mutable> + Clone,
+    {
+        LocalRollbackComponentRegistration::new(add_local_rollback_systems(
+            self.into_component_registration(),
+        ))
     }
 }
 
@@ -792,6 +807,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !self.app.world().contains_resource::<PredictionRegistry>() {
             return self;
         }
+        register_prediction_metadata::<C>(self.app);
         // Only `CatchUpGated` routes replicated component state into history.
         // Initial values for non-gated deterministic entities should use the
         // default Replicon write path.
@@ -999,17 +1015,37 @@ pub trait PredictionAppRegistrationExt {
     #[deprecated(note = "use `app.local_rollback::<C>()` instead")]
     fn add_rollback<C: SyncComponent>(&mut self) -> ComponentRegistration<'_, C>;
 
+    #[deprecated(note = "use `app.resource::<R>().local_rollback()` instead")]
     fn add_resource_rollback<R: Resource<Mutability = Mutable> + Clone>(&mut self);
 }
 
-fn add_local_rollback<C: SyncComponent>(app: &mut App) -> ComponentRegistration<'_, C> {
+fn register_prediction_metadata<C: SyncComponent>(app: &mut App) {
     let prediction_history_id = app.world_mut().register_component::<PredictionHistory<C>>();
     let confirmed_history_id = app.world_mut().register_component::<ConfirmedHistory<C>>();
-    // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-    let Some(mut registry) = app.world_mut().get_resource_mut::<PredictionRegistry>() else {
+    if let Some(mut registry) = app.world_mut().get_resource_mut::<PredictionRegistry>() {
+        registry.register::<C>(prediction_history_id, confirmed_history_id);
+    }
+}
+
+fn add_local_rollback_systems<C: Component<Mutability = Mutable> + Clone>(
+    registration: ComponentRegistration<'_, C>,
+) -> ComponentRegistration<'_, C> {
+    if registration
+        .app
+        .world()
+        .get_resource::<PredictionRegistry>()
+        .is_some()
+    {
+        add_non_networked_rollback_systems::<C>(registration.app);
+    }
+    registration
+}
+
+fn add_local_rollback<C: SyncComponent>(app: &mut App) -> ComponentRegistration<'_, C> {
+    if app.world().get_resource::<PredictionRegistry>().is_none() {
         return ComponentRegistration::<C>::new(app);
-    };
-    registry.register::<C>(prediction_history_id, confirmed_history_id);
+    }
+    register_prediction_metadata::<C>(app);
     add_non_networked_rollback_systems::<C>(app);
     ComponentRegistration::<C>::new(app)
 }
@@ -1024,11 +1060,7 @@ impl PredictionAppRegistrationExt for App {
     }
 
     fn add_resource_rollback<R: Resource<Mutability = Mutable> + Clone>(&mut self) {
-        // skip if there is no PredictionRegistry (i.e. the PredictionPlugin wasn't added)
-        if self.world().get_resource::<PredictionRegistry>().is_none() {
-            return;
-        }
-        add_resource_rollback_systems::<R>(self);
+        self.resource::<R>().local_rollback();
     }
 }
 
@@ -1290,6 +1322,12 @@ mod tests {
     #[derive(Component, Clone, PartialEq, Debug)]
     struct LocalRollbackComponent(u32);
 
+    #[derive(Component, Clone, Debug)]
+    struct LocalRollbackOnlyComponent(u32);
+
+    #[derive(Resource, Clone, Debug)]
+    struct LocalRollbackOnlyResource(u32);
+
     fn prediction_app() -> App {
         let mut app = App::new();
         app.add_plugins((
@@ -1453,6 +1491,68 @@ mod tests {
             .resource_mut::<ReplicationCheckpointMap>()
             .record(replicon_tick, Tick(tick));
         replicon_tick
+    }
+
+    #[test]
+    fn component_builder_local_rollback_supports_non_sync_component() {
+        let mut app = prediction_app();
+
+        app.component::<LocalRollbackOnlyComponent>()
+            .local_rollback();
+
+        assert!(
+            app.world()
+                .component_id::<PredictionHistory<LocalRollbackOnlyComponent>>()
+                .is_some()
+        );
+        assert!(
+            app.world()
+                .component_id::<ConfirmedHistory<LocalRollbackOnlyComponent>>()
+                .is_some()
+        );
+        assert!(
+            !app.world()
+                .resource::<PredictionRegistry>()
+                .predicted::<LocalRollbackOnlyComponent>()
+        );
+    }
+
+    #[test]
+    fn resource_builder_local_rollback_supports_non_sync_resource() {
+        let mut app = prediction_app();
+
+        app.resource::<LocalRollbackOnlyResource>().local_rollback();
+
+        assert!(
+            app.world()
+                .component_id::<PredictionHistory<LocalRollbackOnlyResource>>()
+                .is_some()
+        );
+        assert!(
+            app.world()
+                .component_id::<ConfirmedHistory<LocalRollbackOnlyResource>>()
+                .is_some()
+        );
+        assert!(
+            !app.world()
+                .resource::<PredictionRegistry>()
+                .predicted::<LocalRollbackOnlyResource>()
+        );
+    }
+
+    #[test]
+    fn component_builder_confirmed_write_registers_prediction_metadata() {
+        let mut app = prediction_app();
+
+        app.component::<LocalRollbackComponent>()
+            .local_rollback()
+            .add_confirmed_write();
+
+        assert!(
+            app.world()
+                .resource::<PredictionRegistry>()
+                .predicted::<LocalRollbackComponent>()
+        );
     }
 
     #[test]

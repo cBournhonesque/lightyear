@@ -23,7 +23,11 @@
 //!    rebroadcasting inputs for those entities. Physics components
 //!    registered via `AppCatchUpExt::register_catchup` are
 //!    **hidden by default** via a replicon per-component visibility filter
-//!    until each client requests a catch-up snapshot.
+//!    until each client requests a catch-up snapshot. Single components and
+//!    resources registered via `AppCatchUpExt::register_catchup` use the same
+//!    mechanism when their entity has `CatchUpGated`: Bevy stores resources as
+//!    components on resource entities, so the resource component is revealed
+//!    with the catch-up snapshot.
 //!
 //! 2. On the client, catch-up entities are replicated with the `CatchUpGated`
 //!    marker component. Once the `InputTimeline` is synced and we have received
@@ -58,7 +62,9 @@
 //! exists and could not send the catch-up request (nor receive rebroadcast
 //! inputs). By keeping the entity visible but hiding only the physics
 //! components, the client sees the entity + marker components + rebroadcast
-//! inputs and can request the bundled snapshot.
+//! inputs and can request the bundled snapshot. The same applies to resource
+//! entities: only the resource value component is hidden, while the
+//! `CatchUpGated` marker can still drive the request flow.
 
 #[cfg(feature = "client")]
 mod client;
@@ -69,11 +75,13 @@ mod shared;
 #[cfg(feature = "client")]
 pub use client::{CatchUpClientTimeout, CatchUpManager};
 pub use shared::{
-    AppCatchUpExt, CatchUpComponentScope, CatchUpRegistry, CatchUpRequest, CatchUpSnapshotReady,
-    CatchUpSystems, HasCaughtUp,
+    AppCatchUpExt, CatchUpRegistry, CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,
+    HasCaughtUp,
 };
 
 use bevy_app::{App, Plugin};
+use bevy_ecs::component::Component;
+use bevy_replicon::prelude::{FilterScope, SingleComponent};
 use bevy_replicon::shared::{AuthMethod, RepliconSharedPlugin};
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_inputs::input_message::ActionStateSequence;
@@ -85,7 +93,8 @@ use lightyear_messages::prelude::{AppMessageExt, AppTriggerExt};
 /// This is a **per-entity marker component** (not a resource). The late-join
 /// plugin inserts it on catch-up-gated client entities while they are
 /// expecting the bundled snapshot, and removes it once the forced rollback is
-/// scheduled.
+/// scheduled. For catch-up resources, the marker is attached to Bevy's
+/// resource entity.
 pub use lightyear_prediction::rollback::CatchUpGated;
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::registry::replication::AppComponentExt;
@@ -112,9 +121,21 @@ impl Default for LateJoinCatchUpPlugin {
 }
 
 impl AppCatchUpExt for App {
-    fn register_catchup<T, S>(&mut self) -> &mut Self
+    fn register_catchup<C, S>(&mut self) -> &mut Self
     where
-        T: CatchUpComponentScope + Send + Sync + 'static,
+        C: Component,
+        SingleComponent<C>: FilterScope + Send + Sync + 'static,
+        S: ActionStateSequence,
+    {
+        #[cfg(feature = "server")]
+        server::register_catchup::<SingleComponent<C>>(self);
+
+        self
+    }
+
+    fn register_catchup_filter<T, S>(&mut self) -> &mut Self
+    where
+        T: FilterScope + Send + Sync + 'static,
         S: ActionStateSequence,
     {
         #[cfg(feature = "server")]

@@ -17,7 +17,6 @@ pub mod manager;
 pub mod plugin;
 pub mod predicted_history;
 pub mod registry;
-pub mod resource_history;
 pub mod rollback;
 
 mod deterministic;

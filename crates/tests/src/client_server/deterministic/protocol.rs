@@ -8,6 +8,10 @@
 //! are spawned locally on every peer as a deterministic init state.
 
 use avian2d::prelude::*;
+use avian2d::{
+    collision::contact_types::ContactGraph,
+    dynamics::solver::{constraint_graph::ConstraintGraph, islands::PhysicsIslands},
+};
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::*;
 use lightyear::frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
@@ -109,10 +113,11 @@ impl Plugin for DetProtocolPlugin {
         app.register_input_action::<DetMovement>();
 
         app.add_plugins(LateJoinCatchUpPlugin);
-        app.register_catchup::<
+        app.register_catchup_filter::<
             (Position, Rotation, LinearVelocity, AngularVelocity),
             BEIStateSequence<Player>,
         >();
+        register_avian_catchup_resources(app, self.enable_islands);
 
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
             replication_mode: lightyear_avian2d::plugin::AvianReplicationMode::Position,
@@ -171,6 +176,17 @@ impl Plugin for DetProtocolPlugin {
         app.add_systems(PreUpdate, update_player_activation_ticks);
 
         app.add_systems(Startup, init_shared);
+    }
+}
+
+fn register_avian_catchup_resources(app: &mut App, enable_islands: bool) {
+    app.register_catchup::<ContactGraph, BEIStateSequence<Player>>();
+    app.register_catchup::<ConstraintGraph, BEIStateSequence<Player>>();
+    app.register_required_components::<ContactGraph, CatchUpGated>();
+    app.register_required_components::<ConstraintGraph, CatchUpGated>();
+    if enable_islands {
+        app.register_catchup::<PhysicsIslands, BEIStateSequence<Player>>();
+        app.register_required_components::<PhysicsIslands, CatchUpGated>();
     }
 }
 

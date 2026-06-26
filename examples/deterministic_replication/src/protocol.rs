@@ -1,10 +1,14 @@
 use avian2d::prelude::*;
+use avian2d::{
+    collision::contact_types::ContactGraph,
+    dynamics::solver::{constraint_graph::ConstraintGraph, islands::PhysicsIslands},
+};
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::AppCatchUpExt;
+use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated};
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -93,10 +97,11 @@ impl Plugin for ProtocolPlugin {
         // ProtocolPlugin (loaded by SharedPlugin) so it runs before the
         // CLI spawns the networking entities.
         app.add_plugins(lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin);
-        app.register_catchup::<
+        app.register_catchup_filter::<
             (Position, Rotation, LinearVelocity, AngularVelocity),
             leafwing::LeafwingSequence<PlayerActions>,
         >();
+        register_avian_catchup_resources(app, false);
 
         // components
         app.component::<PlayerId>().replicate();
@@ -129,5 +134,16 @@ impl Plugin for ProtocolPlugin {
         app.component::<AngularVelocity>().replicate_once();
         app.local_rollback::<AngularVelocity>()
             .add_confirmed_write();
+    }
+}
+
+pub(crate) fn register_avian_catchup_resources(app: &mut App, enable_islands: bool) {
+    app.register_catchup::<ContactGraph, leafwing::LeafwingSequence<PlayerActions>>();
+    app.register_catchup::<ConstraintGraph, leafwing::LeafwingSequence<PlayerActions>>();
+    app.register_required_components::<ContactGraph, CatchUpGated>();
+    app.register_required_components::<ConstraintGraph, CatchUpGated>();
+    if enable_islands {
+        app.register_catchup::<PhysicsIslands, leafwing::LeafwingSequence<PlayerActions>>();
+        app.register_required_components::<PhysicsIslands, CatchUpGated>();
     }
 }

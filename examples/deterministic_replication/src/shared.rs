@@ -58,7 +58,6 @@ impl Plugin for SharedPlugin {
             warm_start_coefficient: 0.0,
             ..default()
         });
-
         // Game logic
         app.add_systems(FixedUpdate, player_movement);
 

@@ -28,35 +28,26 @@ You can find some of the other usages in the [advanced_replication](../advanced_
 ### Replicating resources
 
 You can also replicate bevy `Resource`s. This is useful when you want to update a `Resource` on the server and keep synced
-copies on the client. This only works for `Resources` that also implement `Clone`, and should be limited to resources which are cheap to clone.
+copies on the client. In Bevy 0.19, resources are components stored on Bevy's resource entities, and Lightyear relies on
+Replicon's resource replication API for this.
 
 To replicate a `Resource`:
-- Ensure that you have a [`Channel`](../reliability/channels.md) that the resource can be replicated over.
-  This can be done by creating a public struct that derives `Channel` and adding it to your protocol.
-- Next, define your resource and register it:
+- Define your resource and register it with Replicon on both peers:
     ```rust
-    #[derive(Channel)]
-    pub struct Channel1;
+    use bevy_replicon::prelude::AppRuleExt;
 
-    #[derive(Resource, Clone, Serialize, Deserialize)]
+    #[derive(Resource, Serialize, Deserialize)]
     pub struct MyResource(pub f32);
 
     pub fn plugin(app: &mut App) {
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..Default::default()
-        });
-
-        app.register_resource::<MyResource>(ChannelDirection::ServerToClient);
+        app.replicate_resource::<MyResource>();
     }
     ```
-- Finally, to replicate the `Resource`, you can use the `commands.replicate_resource::<R>(replicate)` method.
-  You will need to provide the channel and a `NetworkTarget` to specify how the replication should be done
-  (e.g. to which clients should the resource be replicated):
+- Insert the resource on the server:
     ```rust
-    commands.replicate_resource::<MyResource, Channel1>(NetworkTarget::All);
-    // This will be replicated to all clients; any changes to the resource will also be replicated
     commands.insert_resource(MyResource(1.0));
     ```
-- To stop replicating a `Resource`, you can use the `commands.stop_replicate_resource::<R>()` method.
-  Note that this won't delete the resource from the client, but it will stop updating it.
+
+Replicon also provides `replicate_resource_once`, `replicate_resource_as`, and diff-based variants. If a client creates a
+local copy of the same resource before the server replicates it, use Replicon's resource-entity mapping support to avoid
+spawning a duplicate resource entity.

@@ -91,7 +91,7 @@ impl<C> PredictionHistory<C> {
 /// We store every update on the predicted entity in the PredictionHistory
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
-pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
+pub(crate) fn update_prediction_history<T: Component + Clone>(
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
@@ -116,7 +116,6 @@ pub(crate) fn update_prediction_history<T: Component + Clone + Debug>(
                 component = ?DebugName::type_name::<T>(),
                 local_tick = tick.0,
                 history_len = history.len(),
-                value = ?component.deref(),
                 "recorded predicted component history"
             );
         }
@@ -239,8 +238,9 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 
 /// When any of `C`, [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`],
 /// or [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`]
-/// is present, and if `C` has just been applied via an init message, seed
-/// [`ConfirmedHistory<C>`] at the server tick that produced the init.
+/// is present, and if `C` has just been applied via an init message on a
+/// marker that receives confirmed state, seed [`ConfirmedHistory<C>`] at the
+/// server tick that produced the init.
 ///
 /// # Why seeding is needed
 ///
@@ -256,7 +256,7 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
 /// not overwrite existing local prediction history or existing authoritative
 /// samples. If there is no authoritative seed, no confirmed history is inserted:
 /// receive paths create it when a confirmed sample actually arrives.
-pub(crate) fn add_prediction_history<C: SyncComponent>(
+pub(crate) fn add_prediction_history<C: Component + Clone>(
     trigger: On<
         Add,
         (
@@ -284,6 +284,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
     if !catchup_gated && !(has_component && (predicted || prespawned || deterministic)) {
         return;
     }
+    let should_seed_confirmed_history = has_component && (catchup_gated || predicted || prespawned);
     trace!(
         target: "lightyear_debug::prediction",
         kind = "prediction_history_insert",
@@ -306,16 +307,20 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
         // when all of `C`, `ConfirmHistory`, and a checkpoint mapping
         // are present — i.e. when this is an init-message write.
         let seed: Option<(Tick, C)> = {
-            let component = entity_mut.get::<C>().cloned();
-            let confirm_last = entity_mut
-                .get::<lightyear_replication::prelude::ConfirmHistory>()
-                .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
-            match (component, confirm_last) {
-                (Some(component), Some(confirm_tick)) => world
-                    .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
-                    .get(confirm_tick)
-                    .map(|tick| (tick, component)),
-                _ => None,
+            if should_seed_confirmed_history {
+                let component = entity_mut.get::<C>().cloned();
+                let confirm_last = entity_mut
+                    .get::<lightyear_replication::prelude::ConfirmHistory>()
+                    .map(lightyear_replication::prelude::ConfirmHistory::last_tick);
+                match (component, confirm_last) {
+                    (Some(component), Some(confirm_tick)) => world
+                        .resource::<lightyear_replication::checkpoint::ReplicationCheckpointMap>()
+                        .get(confirm_tick)
+                        .map(|tick| (tick, component)),
+                    _ => None,
+                }
+            } else {
+                None
             }
         };
         // Re-fetch the entity after the world-level resource access above.
@@ -336,7 +341,7 @@ pub(crate) fn add_prediction_history<C: SyncComponent>(
                 component = ?DebugName::type_name::<C>(),
                 "seeding ConfirmedHistory with confirmed value from init message"
             );
-            history.insert_present(tick, component);
+            history.insert_present_explicit(tick, component);
             entity_mut.insert(history);
         }
     });
