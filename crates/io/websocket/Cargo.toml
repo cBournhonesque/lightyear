@@ -1,6 +1,6 @@
 [package]
 name = "lightyear_websocket"
-version = "0.27.0"
+version = "0.28.0"
 authors = [
   "cbournhonesque <charlesbour@gmail.com",
   "aecsocket <aecsocket@tutanota.com>",

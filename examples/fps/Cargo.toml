@@ -1,6 +1,6 @@
 [package]
 name = "fps"
-version = "0.27.0"
+version = "0.28.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
 publish = false
