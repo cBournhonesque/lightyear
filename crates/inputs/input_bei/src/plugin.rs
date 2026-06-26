@@ -1,13 +1,11 @@
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::input_message::{BEIBuffer, BEIStateSequence};
 
-#[cfg(feature = "client")]
-use crate::setup::resolve_pending_action_of;
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;
-use crate::setup::{
-    deserialize_action_of, remove_action_of, serialize_action_of, write_action_of,
-};
+#[cfg(feature = "client")]
+use crate::setup::resolve_pending_action_of;
+use crate::setup::{deserialize_action_of, remove_action_of, serialize_action_of, write_action_of};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
