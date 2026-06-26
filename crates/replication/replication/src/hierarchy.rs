@@ -124,7 +124,7 @@ impl Plugin for HierarchyPlugin {
 /// yet, the receiver defers inserting the relationship instead of letting
 /// Replicon create a placeholder entity inside the relationship component.
 pub(crate) fn serialize_child_of(
-    _ctx: &SerializeCtx,
+    _ctx: &mut SerializeCtx,
     child_of: &ChildOf,
     message: &mut Vec<u8>,
 ) -> bevy_ecs::error::Result<()> {

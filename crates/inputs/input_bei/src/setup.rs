@@ -220,7 +220,7 @@ impl InputRegistryPlugin {
 /// buffered placeholder is still pending when the next component in the same
 /// entity bundle is decoded.
 pub(crate) fn serialize_action_of<C: Component>(
-    _ctx: &SerializeCtx,
+    _ctx: &mut SerializeCtx,
     action_of: &ActionOf<C>,
     message: &mut Vec<u8>,
 ) -> bevy_ecs::error::Result<()> {
