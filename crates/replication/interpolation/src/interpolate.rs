@@ -191,7 +191,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
             drain_old_history(history, ctx.current_interpolate_tick);
 
             if let Some(server_complete_tick) = ctx.server_complete_tick {
-                history_diff_receiver.clear_before_tick(server_complete_tick, &history);
+                history_diff_receiver.clear_before_tick(server_complete_tick, history);
             }
         }
 
