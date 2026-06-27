@@ -40,8 +40,10 @@ bevy_reflect.workspace = true
 bevy_utils.workspace = true
 
 [dev-dependencies]
+dhat.workspace = true
 lightyear_link.workspace = true
 lightyear_transport = { workspace = true, features = ["test_utils"] }
+stats_alloc.workspace = true
 test-log.workspace = true
 
 [lints]

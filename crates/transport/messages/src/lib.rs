@@ -35,6 +35,9 @@ pub mod send;
 mod send_trigger;
 #[cfg(feature = "server")]
 pub mod server;
+#[cfg(feature = "test_utils")]
+#[doc(hidden)]
+pub mod test_utils;
 mod trigger;
 pub mod prelude {
     pub use crate::plugin::MessageSystems;

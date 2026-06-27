@@ -717,20 +717,20 @@ mod tests {
     #[test]
     fn test_tickdelta_accessors() {
         let delta = TickDelta::lit("-32768");
-        assert_eq!(delta.is_positive(), false);
-        assert_eq!(delta.is_negative(), true);
+        assert!(!delta.is_positive());
+        assert!(delta.is_negative());
         assert_eq!(delta.tick_diff(), 32768);
         assert_eq!(delta.overstep().to_f32(), 0.0);
 
         let delta = TickDelta::lit("-32767.75");
-        assert_eq!(delta.is_positive(), false);
-        assert_eq!(delta.is_negative(), true);
+        assert!(!delta.is_positive());
+        assert!(delta.is_negative());
         assert_eq!(delta.tick_diff(), 32767);
         assert_eq!(delta.overstep().to_f32(), 0.75);
 
         let delta = TickDelta::lit("32767.75");
-        assert_eq!(delta.is_positive(), true);
-        assert_eq!(delta.is_negative(), false);
+        assert!(delta.is_positive());
+        assert!(!delta.is_negative());
         assert_eq!(delta.tick_diff(), 32767);
         assert_eq!(delta.overstep().to_f32(), 0.75);
     }

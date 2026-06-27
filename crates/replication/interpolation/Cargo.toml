@@ -44,6 +44,8 @@ bevy_utils.workspace = true
 
 [dev-dependencies]
 bevy_state.workspace = true
+dhat.workspace = true
+stats_alloc.workspace = true
 
 [lints]
 workspace = true

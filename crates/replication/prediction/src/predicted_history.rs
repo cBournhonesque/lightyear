@@ -4,6 +4,7 @@
 //! 1. Compare local predicted values with confirmed values from the server to detect mismatches
 //! 2. Rollback to a past local state and replay the simulation
 
+use crate::manager::PredictionManager;
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
 use crate::{Predicted, SyncComponent};
 use bevy_ecs::component::Mutable;
@@ -32,6 +33,13 @@ use tracing::{debug, info, trace};
 /// Keeping this margin gives late diff messages a chance to find their
 /// historical base in [`ConfirmedHistory`] instead of forcing a snapshot.
 pub(crate) const DIFF_HISTORY_TICK_MARGIN: u32 = 12;
+
+/// Extra ticks retained past [`PredictionManager::rollback_policy.max_rollback_ticks`].
+///
+/// This cushions scheduling/order edges around fixed-tick history writes and
+/// rollback checks without letting prediction histories grow for the entire
+/// session.
+pub(crate) const PREDICTION_HISTORY_TICK_MARGIN: u32 = 2;
 
 /// Holds the history of locally predicted component states.
 ///
@@ -188,6 +196,68 @@ pub(crate) fn prune_history_diff_receiver<C: RepliconDiffable>(
         };
         if !receiver.has_pending_diffs() {
             receiver.clear_before_tick(prune_tick, history);
+        }
+    }
+}
+
+/// Prune prediction-side histories that are older than any accepted rollback.
+///
+/// `PredictionHistory<C>` can append every predicted tick. The rollback policy
+/// rejects rollback requests farther back than `max_rollback_ticks`, so older
+/// predicted samples are no longer useful for correction. Confirmed history is
+/// compacted to an anchor at the same cutoff, preserving the effective last
+/// authoritative value even when the server has not changed that component for
+/// a long time.
+pub(crate) fn prune_prediction_history<C: Component + Clone>(
+    timeline: Res<LocalTimeline>,
+    prediction_manager: Single<&PredictionManager>,
+    mut query: Query<(
+        Entity,
+        &mut PredictionHistory<C>,
+        Option<&mut ConfirmedHistory<C>>,
+    )>,
+) {
+    let retention_ticks = u32::from(prediction_manager.rollback_policy.max_rollback_ticks)
+        .saturating_add(PREDICTION_HISTORY_TICK_MARGIN);
+    let Some(prune_tick) = timeline.tick().0.checked_sub(retention_ticks).map(Tick) else {
+        return;
+    };
+
+    for (entity, mut predicted_history, confirmed_history) in query.iter_mut() {
+        let predicted_len_before = predicted_history.len();
+        predicted_history.clear_until_tick(prune_tick);
+        if predicted_history.len() != predicted_len_before {
+            trace!(
+                target: "lightyear_debug::prediction",
+                kind = "prediction_history_pruned",
+                schedule = "FixedPostUpdate",
+                sample_point = "FixedPostUpdate",
+                entity = ?entity,
+                component = ?DebugName::type_name::<C>(),
+                prune_tick = prune_tick.0,
+                history_len_before = predicted_len_before,
+                history_len_after = predicted_history.len(),
+                "pruned predicted component history"
+            );
+        }
+
+        if let Some(mut confirmed_history) = confirmed_history {
+            let confirmed_len_before = confirmed_history.len();
+            confirmed_history.clear_until_tick(prune_tick);
+            if confirmed_history.len() != confirmed_len_before {
+                trace!(
+                    target: "lightyear_debug::prediction",
+                    kind = "confirmed_history_pruned",
+                    schedule = "FixedPostUpdate",
+                    sample_point = "FixedPostUpdate",
+                    entity = ?entity,
+                    component = ?DebugName::type_name::<C>(),
+                    prune_tick = prune_tick.0,
+                    history_len_before = confirmed_len_before,
+                    history_len_after = confirmed_history.len(),
+                    "pruned prediction confirmed component history"
+                );
+            }
         }
     }
 }
@@ -465,7 +535,7 @@ pub(crate) fn snap_to_confirmed_during_rollback<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::StateRollbackMetadata;
+    use crate::manager::{PredictionManager, StateRollbackMetadata};
     use bevy_app::{App, Update};
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use serde::{Deserialize, Serialize};
@@ -475,6 +545,9 @@ mod tests {
 
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct TestDiffValue(u32);
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct TestComponent(u32);
 
     impl RepliconDiffable for TestDiffValue {
         type Diff = u32;
@@ -487,6 +560,63 @@ mod tests {
 
     fn idx(value: u16) -> DiffIndex {
         DiffIndex::new(value)
+    }
+
+    #[test]
+    fn prune_prediction_history_keeps_rollback_window_and_confirmed_anchor() {
+        let mut app = App::new();
+        let mut timeline = LocalTimeline::default();
+        timeline.apply_delta(150);
+        app.world_mut().insert_resource(timeline);
+
+        let mut prediction_manager = PredictionManager::default();
+        prediction_manager.rollback_policy.max_rollback_ticks = 10;
+        app.world_mut().spawn(prediction_manager);
+
+        let mut predicted_history = PredictionHistory::<TestComponent>::default();
+        for tick in 0..=150 {
+            predicted_history.add_predicted(Tick(tick), Some(TestComponent(tick)));
+        }
+
+        let mut confirmed_history = ConfirmedHistory::<TestComponent>::default();
+        confirmed_history.insert_present(Tick(5), TestComponent(5));
+        confirmed_history.insert_present(Tick(20), TestComponent(20));
+        confirmed_history.insert_present(Tick(130), TestComponent(130));
+
+        let entity = app
+            .world_mut()
+            .spawn((predicted_history, confirmed_history))
+            .id();
+        app.add_systems(Update, prune_prediction_history::<TestComponent>);
+        app.update();
+
+        let cutoff = Tick(150 - (10 + PREDICTION_HISTORY_TICK_MARGIN));
+        let entity_ref = app.world().entity(entity);
+        let predicted_history = entity_ref
+            .get::<PredictionHistory<TestComponent>>()
+            .unwrap();
+        assert_eq!(
+            predicted_history.oldest().map(|(tick, _)| *tick),
+            Some(cutoff)
+        );
+        assert_eq!(
+            predicted_history.get(cutoff),
+            Some(&TestComponent(cutoff.0))
+        );
+        assert_eq!(predicted_history.get(Tick(cutoff.0 - 1)), None);
+
+        let confirmed_history = entity_ref.get::<ConfirmedHistory<TestComponent>>().unwrap();
+        assert_eq!(confirmed_history.len(), 1);
+        assert_eq!(
+            confirmed_history.get_nth_tick(0),
+            Some(cutoff),
+            "confirmed history should be re-anchored at the prune tick"
+        );
+        assert_eq!(
+            confirmed_history.get_present(cutoff),
+            Some(&TestComponent(130)),
+            "confirmed pruning must preserve the last authoritative value even if it is old"
+        );
     }
 
     #[test]

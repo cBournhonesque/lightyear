@@ -347,27 +347,45 @@ impl<C: Clone> ConfirmedHistory<C> {
 
     /// Clear all states strictly older than `tick`.
     pub fn clear_until_tick(&mut self, tick: Tick) {
-        let state_at_cut = self.get_state_at_or_before(tick).cloned();
         let partition = self
             .buffer
             .partition_point(|(buffer_tick, _)| buffer_tick < &tick);
-        if partition > 0 {
-            self.buffer.drain(0..partition);
+
+        if partition == 0 {
+            return;
         }
-        if let Some(state) = state_at_cut {
-            match self.buffer.front() {
-                Some((front_tick, _)) if *front_tick == tick => {
-                    self.materialize_front_if_same_as_precedent(state);
-                }
-                Some((front_tick, _)) if *front_tick > tick => {
-                    self.buffer
-                        .push_front((tick, ConfirmedHistoryState::Explicit(state)));
-                }
-                None => {
-                    self.buffer
-                        .push_front((tick, ConfirmedHistoryState::Explicit(state)));
-                }
-                _ => {}
+
+        if self
+            .buffer
+            .get(partition)
+            .is_some_and(|(buffer_tick, _)| *buffer_tick == tick)
+        {
+            let state_at_cut = self
+                .buffer
+                .get(partition)
+                .is_some_and(|(_, state)| state.is_same_as_precedent())
+                .then(|| self.resolve_state_at_index(partition).cloned())
+                .flatten();
+            self.buffer.drain(0..partition);
+            if let Some(state) = state_at_cut {
+                self.materialize_front_if_same_as_precedent(state);
+            }
+            return;
+        }
+
+        let anchor_index = partition - 1;
+        let state_at_cut = self
+            .buffer
+            .get(anchor_index)
+            .is_some_and(|(_, state)| state.is_same_as_precedent())
+            .then(|| self.resolve_state_at_index(anchor_index).cloned())
+            .flatten();
+
+        self.buffer.drain(0..anchor_index);
+        if let Some((front_tick, raw_state)) = self.buffer.front_mut() {
+            *front_tick = tick;
+            if let Some(state) = state_at_cut {
+                *raw_state = ConfirmedHistoryState::Explicit(state);
             }
         }
     }
@@ -612,6 +630,32 @@ mod tests {
             ])
         );
         assert_eq!(effective_value_at(&history, Tick(8)), Some(2.0));
+    }
+
+    #[test]
+    fn clear_until_tick_reanchors_effective_confirmed_value() {
+        let mut history = ConfirmedHistory::<TestValue>::default();
+        history.insert_present(Tick(5), TestValue(5.0));
+        assert!(history.add_unchanged(Tick(7)));
+        history.insert_present(Tick(10), TestValue(10.0));
+
+        history.clear_until_tick(Tick(8));
+
+        assert_eq!(
+            history.buffer_raw(),
+            &VecDeque::from(vec![(Tick(8), explicit(5.0)), (Tick(10), explicit(10.0))])
+        );
+        assert_eq!(effective_value_at(&history, Tick(8)), Some(5.0));
+        assert_eq!(effective_value_at(&history, Tick(9)), Some(5.0));
+        assert_eq!(effective_value_at(&history, Tick(10)), Some(10.0));
+
+        history.clear_until_tick(Tick(12));
+
+        assert_eq!(
+            history.buffer_raw(),
+            &VecDeque::from(vec![(Tick(12), explicit(10.0))])
+        );
+        assert_eq!(effective_value_at(&history, Tick(12)), Some(10.0));
     }
 
     #[test]

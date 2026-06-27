@@ -1299,7 +1299,10 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
 mod tests {
     use super::*;
     use crate::plugin::PredictionPlugin;
+    use crate::predicted_history::{PREDICTION_HISTORY_TICK_MARGIN, prune_prediction_history};
     use alloc::vec::Vec;
+    use bevy_app::Update;
+    use bevy_ecs::system::{ParamBuilder, QueryParamBuilder};
     use bevy_replicon::prelude::{
         AuthMethod, RepliconPlugins, RepliconSharedPlugin, RepliconTick, RuleFns,
     };
@@ -1310,7 +1313,7 @@ mod tests {
     use core::hash::Hasher;
     use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-    use lightyear_replication::prelude::AppComponentExt;
+    use lightyear_replication::prelude::{AppComponentExt, ConfirmHistory};
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -1353,6 +1356,33 @@ mod tests {
         predicted: &LocalRollbackComponent,
     ) -> bool {
         confirmed.0 / 10 != predicted.0 / 10
+    }
+
+    #[derive(Resource, Default)]
+    struct RollbackCheckResult {
+        should_rollback: bool,
+    }
+
+    #[derive(Resource)]
+    struct LongIdleEntity(Entity);
+
+    const LONG_IDLE_CONFIRMED_TICK: Tick = Tick(1);
+    const LONG_IDLE_PREDICTED_CHANGE_TICK: Tick = Tick(201);
+    const LONG_IDLE_MAX_ROLLBACK_TICKS: u16 = 10;
+
+    fn check_long_idle_unchanged_rollback(
+        mut query: Query<(&ConfirmHistory, FilteredEntityMut)>,
+        registry: Res<PredictionRegistry>,
+        target: Res<LongIdleEntity>,
+        mut result: ResMut<RollbackCheckResult>,
+    ) {
+        let (_, mut entity_mut) = query.get_mut(target.0).unwrap();
+        result.should_rollback = unsafe {
+            registry.check_rollback_for_unchanged_component::<BuilderComponent>(
+                LONG_IDLE_PREDICTED_CHANGE_TICK,
+                &mut entity_mut,
+            )
+        };
     }
 
     #[test]
@@ -1571,6 +1601,103 @@ mod tests {
         assert!(
             PredictionRegistry::oldest_retained_tick(&history).unwrap() > Tick(10),
             "a confirmed update for tick 10 is older than retained prediction history"
+        );
+    }
+
+    #[test]
+    fn pruned_long_idle_confirmed_history_still_rolls_back_unchanged_component() {
+        let mut app = prediction_app();
+        let prediction_history_id = app
+            .world_mut()
+            .register_component::<PredictionHistory<BuilderComponent>>();
+        let confirmed_history_id = app
+            .world_mut()
+            .register_component::<ConfirmedHistory<BuilderComponent>>();
+        app.world_mut()
+            .resource_mut::<PredictionRegistry>()
+            .register::<BuilderComponent>(prediction_history_id, confirmed_history_id);
+
+        let mut timeline = LocalTimeline::default();
+        timeline.apply_delta(LONG_IDLE_PREDICTED_CHANGE_TICK.0 as i32);
+        app.world_mut().insert_resource(timeline);
+        app.world_mut()
+            .insert_resource(RollbackCheckResult::default());
+
+        let mut prediction_manager = PredictionManager::default();
+        prediction_manager.rollback_policy.max_rollback_ticks = LONG_IDLE_MAX_ROLLBACK_TICKS;
+        app.world_mut().spawn(prediction_manager);
+
+        let mut prediction_history = PredictionHistory::<BuilderComponent>::default();
+        prediction_history.add_predicted(LONG_IDLE_CONFIRMED_TICK, Some(BuilderComponent(10)));
+        prediction_history
+            .add_predicted(LONG_IDLE_PREDICTED_CHANGE_TICK, Some(BuilderComponent(11)));
+
+        let mut confirmed_history = ConfirmedHistory::<BuilderComponent>::default();
+        confirmed_history.insert_present(LONG_IDLE_CONFIRMED_TICK, BuilderComponent(10));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Predicted,
+                ConfirmHistory::new(RepliconTick::new(LONG_IDLE_CONFIRMED_TICK.0)),
+                BuilderComponent(11),
+                prediction_history,
+                confirmed_history,
+            ))
+            .id();
+        app.world_mut().insert_resource(LongIdleEntity(entity));
+
+        let check_rollback_system = (
+            QueryParamBuilder::new(|builder| {
+                builder.data::<&Predicted>();
+                builder.data::<&ConfirmHistory>();
+                builder.optional(|b| {
+                    b.mut_id(prediction_history_id);
+                    b.mut_id(confirmed_history_id);
+                });
+            }),
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+        )
+            .build_state(app.world_mut())
+            .build_system(check_long_idle_unchanged_rollback);
+        app.add_systems(
+            Update,
+            (
+                prune_prediction_history::<BuilderComponent>,
+                check_rollback_system,
+            )
+                .chain(),
+        );
+        app.update();
+
+        let prune_tick = Tick(
+            LONG_IDLE_PREDICTED_CHANGE_TICK.0
+                - (u32::from(LONG_IDLE_MAX_ROLLBACK_TICKS) + PREDICTION_HISTORY_TICK_MARGIN),
+        );
+        let entity_ref = app.world().entity(entity);
+        let confirmed_history = entity_ref
+            .get::<ConfirmedHistory<BuilderComponent>>()
+            .unwrap();
+        let result = app.world().resource::<RollbackCheckResult>();
+        assert!(
+            result.should_rollback,
+            "the old confirmed value must remain available after pruning so a later predicted divergence rolls back"
+        );
+        assert_eq!(confirmed_history.get_nth_tick(0), Some(prune_tick));
+        assert_eq!(
+            confirmed_history.get_present(prune_tick),
+            Some(&BuilderComponent(10))
+        );
+        assert_eq!(
+            confirmed_history.get_present(LONG_IDLE_PREDICTED_CHANGE_TICK),
+            Some(&BuilderComponent(10))
+        );
+        assert_eq!(
+            confirmed_history.get_nth_tick(1),
+            Some(LONG_IDLE_PREDICTED_CHANGE_TICK),
+            "the unchanged rollback check should materialize the latest confirmed tick"
         );
     }
 

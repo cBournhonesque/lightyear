@@ -210,6 +210,13 @@ impl<M: Message> MessageSender<M> {
     }
 }
 
+#[cfg(feature = "test_utils")]
+pub(crate) fn drain_buffered_messages_for_test<M: Message>(
+    sender: &mut MessageSender<M>,
+) -> impl Iterator<Item = (M, ChannelKind, &'static str, Priority)> + '_ {
+    sender.send.drain(..)
+}
+
 impl MessagePlugin {
     /// Take messages to send from the [`MessageSender<M>`] components
     /// Serialize them into bytes that are buffered in a [`Transport`]

@@ -224,6 +224,14 @@ impl<M: Message> MessageReceiver<M> {
     }
 }
 
+#[cfg(feature = "test_utils")]
+pub(crate) fn push_received_message_for_test<M: Message>(
+    receiver: &mut MessageReceiver<M>,
+    received: ReceivedMessage<M>,
+) {
+    receiver.recv.push(received);
+}
+
 impl MessagePlugin {
     fn receive_message_bytes(
         bytes: Bytes,
