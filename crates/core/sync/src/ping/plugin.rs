@@ -1,6 +1,6 @@
-use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
+use crate::ping::PingChannel;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
@@ -16,7 +16,6 @@ use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
-use lightyear_transport::plugin::PacketAcked;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -140,12 +139,6 @@ impl PingPlugin {
             manager.reset();
         }
     }
-
-    pub(crate) fn process_packet_ack(trigger: On<PacketAcked>, mut query: Query<&mut PingManager>) {
-        if let Ok(mut manager) = query.get_mut(trigger.entity) {
-            manager.process_packet_rtt_sample(trigger.rtt_sample);
-        }
-    }
 }
 
 impl Plugin for PingPlugin {
@@ -163,10 +156,9 @@ impl Plugin for PingPlugin {
         app.register_message_to_bytes::<Pong>()
             .add_direction(NetworkDirection::Bidirectional);
 
-        // NOTE: the Transport's PacketBuilder needs accurate LinkStats to function correctly.
-        //   Theoretically anything can modify the LinkStats but in practice it's done in the PingManager
-        //   so we make the Transport require a PingManager.
-        //   Maybe we should error if TransportPlugin is added without PingPlugin?
+        // NOTE: LinkStats is intentionally derived from ping/pong messages here. Ordinary packet
+        // acknowledgements are traffic-dependent, so bursty gameplay messages can bias the
+        // estimator and make the displayed RTT rise when more packets are sent.
 
         // We used to have Client -> InputTimeline -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
         // but it is not possible anymore since we also have a Transport -> PingManager dependency and cyclic dependencies are not allowed anymore.
@@ -189,6 +181,29 @@ impl Plugin for PingPlugin {
         app.add_systems(PostUpdate, Self::send.in_set(PingSystems::Send));
 
         app.add_observer(Self::handle_connect);
-        app.add_observer(Self::process_packet_ack);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_transport::plugin::PacketAcked;
+
+    #[test]
+    fn packet_acks_do_not_update_ping_estimator() {
+        let mut app = App::new();
+        app.add_plugins(PingPlugin);
+
+        let entity = app.world_mut().spawn(PingManager::default()).id();
+        app.world_mut().trigger(PacketAcked {
+            entity,
+            packet_id: 1,
+            rtt_sample: Duration::from_millis(250),
+        });
+
+        let manager = app.world().entity(entity).get::<PingManager>().unwrap();
+        assert_eq!(manager.latency_samples_recv(), 0);
+        assert_eq!(manager.rtt(), Duration::ZERO);
+        assert_eq!(manager.jitter(), Duration::ZERO);
     }
 }

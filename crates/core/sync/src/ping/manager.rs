@@ -45,13 +45,13 @@ pub struct PingManager {
     /// (when the connection's send_timer is ready)
     pongs_to_send: Vec<(Pong, Instant)>,
 
-    /// Estimator used to compute RTT/Jitter from pongs and packet acknowledgements.
+    /// Estimator used to compute RTT/Jitter from ping/pong messages.
     pub rtt_estimator_ewma: RttEstimatorEwma,
     /// The number of pings we have sent
     pub(crate) pings_sent: u32,
     /// The number of pongs we have received
     pub pongs_recv: u32,
-    /// The number of latency samples received from pongs or packet acknowledgements.
+    /// The number of latency samples used by the estimator.
     latency_samples_recv: u32,
 }
 
@@ -126,7 +126,10 @@ impl PingManager {
         self.rtt_estimator_ewma.update_with_new_sample(rtt_sample);
     }
 
-    /// Process an RTT sample measured from an ordinary packet acknowledgement.
+    /// Manually process an RTT sample measured from an ordinary packet acknowledgement.
+    ///
+    /// The default ping plugin does not feed transport ACK samples into this estimator because
+    /// ACK cadence depends on gameplay traffic volume.
     pub fn process_packet_rtt_sample(&mut self, rtt_sample: Duration) {
         self.record_rtt_sample(rtt_sample);
         trace!(

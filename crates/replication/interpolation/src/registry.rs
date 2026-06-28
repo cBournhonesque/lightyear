@@ -13,6 +13,7 @@ use alloc::vec::Vec;
 use bevy_app::{App, Update};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, StorageType};
+use bevy_ecs::entity::EntityHashMap;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::{ArchetypeFilter, QueryData, QueryFilter, QueryState};
 use bevy_ecs::schedule::IntoScheduleConfigs;
@@ -27,7 +28,7 @@ use bevy_replicon::bytes::Bytes;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_replicon::postcard_utils;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
-use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
+use bevy_replicon::shared::replication::deferred_entity::{DeferredEntity, EntityScratch};
 use bevy_replicon::shared::replication::diff::{
     ComponentDelta, DiffBuffer, Diffable as RepliconDiffable,
 };
@@ -78,9 +79,9 @@ fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
 ///     Position(start.0 + (end.0 - start.0) * t)
 /// }
 ///
-/// app.interpolate_filtered_with::<Position, With<VisualInterpolation>>(
+/// app.interpolate_with_priority_filtered::<Position, With<VisualInterpolation>>(
+///     100,
 ///     InterpolationFns::interpolate(lerp_position),
-///     InterpolationRuleConfig { priority: 100 },
 /// );
 /// ```
 pub trait InterpolationRuleFilter: QueryFilter {}
@@ -112,13 +113,10 @@ impl<F: ArchetypeFilter> InterpolationRuleFilter for F {}
 ///     Position(start.0 + (end.0 - start.0) * t)
 /// }
 ///
-/// app.interpolate_with::<Position>(
+/// app.interpolate_with::<Position>(InterpolationFns::interpolate(smooth_lerp));
+/// app.interpolate_with_priority_filtered::<Position, With<SmoothVisuals>>(
+///     100,
 ///     InterpolationFns::interpolate(smooth_lerp),
-///     InterpolationRuleConfig::default(),
-/// );
-/// app.interpolate_filtered_with::<Position, With<SmoothVisuals>>(
-///     InterpolationFns::interpolate(smooth_lerp),
-///     InterpolationRuleConfig { priority: 100 },
 /// );
 /// ```
 #[derive(Debug, Default, Clone, Copy)]
@@ -126,9 +124,9 @@ pub struct InterpolationRuleConfig {
     /// Priority used to choose between matching interpolation rules.
     ///
     /// Higher values are selected first. The default priority is `0` for
-    /// component rules. Bundle registrations interpret a `0` priority as the
-    /// number of components in the bundle, so a default `(Position, Rotation)`
-    /// rule wins over default single-component rules on the same archetype.
+    /// component and diff rules. Default bundle registrations use the number
+    /// of components in the bundle, so a default `(Position, Rotation)` rule
+    /// wins over default single-component rules on the same archetype.
     /// Matching rules with the same priority use registration order, with
     /// earlier registrations selected first.
     pub priority: usize,
@@ -163,10 +161,7 @@ pub struct InterpolationRuleConfig {
 ///     Position(start.0 + (end.0 - start.0) * t)
 /// }
 ///
-/// app.interpolate_with::<Position>(
-///     InterpolationFns::interpolate(lerp_position),
-///     InterpolationRuleConfig::default(),
-/// );
+/// app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
 /// ```
 ///
 /// Keep histories but run custom interpolation in your own system:
@@ -178,10 +173,7 @@ pub struct InterpolationRuleConfig {
 /// #[derive(Component, Clone, PartialEq)]
 /// struct Position(f32);
 ///
-/// app.interpolate_with::<Position>(
-///     InterpolationFns::history_only(),
-///     InterpolationRuleConfig::default(),
-/// );
+/// app.interpolate_with::<Position>(InterpolationFns::history_only());
 ///
 /// app.add_systems(Update, custom_interpolation.in_set(InterpolationSystems::Interpolate));
 /// ```
@@ -211,10 +203,7 @@ impl<C> InterpolationFns<C> {
     ///     Position(start.0 + (end.0 - start.0) * t)
     /// }
     ///
-    /// app.interpolate_with::<Position>(
-    ///     InterpolationFns::interpolate(lerp_position),
-    ///     InterpolationRuleConfig::default(),
-    /// );
+    /// app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
     /// ```
     pub fn interpolate(interpolation: LerpFn<C>) -> Self {
         Self {
@@ -239,10 +228,7 @@ impl<C> InterpolationFns<C> {
     /// # use lightyear_interpolation::prelude::*;
     /// # #[derive(Component, Clone, PartialEq)]
     /// # struct Position(f32);
-    /// app.interpolate_with::<Position>(
-    ///     InterpolationFns::history_only(),
-    ///     InterpolationRuleConfig::default(),
-    /// );
+    /// app.interpolate_with::<Position>(InterpolationFns::history_only());
     /// ```
     pub fn history_only() -> Self {
         Self {
@@ -271,7 +257,6 @@ impl<C> InterpolationFns<C> {
     /// # }
     /// app.interpolate_with::<Position>(
     ///     InterpolationFns::history_only_with_interpolator(lerp_position),
-    ///     InterpolationRuleConfig::default(),
     /// );
     /// ```
     pub fn history_only_with_interpolator(interpolation: LerpFn<C>) -> Self {
@@ -298,9 +283,9 @@ impl<C> InterpolationFns<C> {
     /// #[derive(Component)]
     /// struct SnapOnly;
     ///
-    /// app.interpolate_filtered_with::<Position, With<SnapOnly>>(
+    /// app.interpolate_with_priority_filtered::<Position, With<SnapOnly>>(
+    ///     100,
     ///     InterpolationFns::disabled(),
-    ///     InterpolationRuleConfig { priority: 100 },
     /// );
     /// ```
     pub fn disabled() -> Self {
@@ -349,7 +334,6 @@ impl<C> InterpolationFns<C> {
 ///
 /// app.interpolate_bundle_with::<(Position, Rotation)>(
 ///     InterpolationFns::interpolate(interpolate_transform),
-///     InterpolationRuleConfig::default(),
 /// );
 /// ```
 pub trait InterpolationBundle: 'static {
@@ -582,49 +566,119 @@ pub(crate) struct UpdateHistoryContext {
     pub(crate) server_complete_tick: Option<Tick>,
     pub(crate) current_interpolate_tick: Tick,
     pub(crate) interpolation_overstep: f32,
-    pub(crate) interpolation: Option<unsafe fn()>,
+    pub(crate) interpolation: Option<ErasedLerpFn>,
 }
 
-pub(crate) enum DeferredHistoryApply {
-    Remove {
-        entity: Entity,
-        remove: fn(&mut World, Entity),
-    },
-    Insert {
-        entity: Entity,
-        value: Box<dyn core::any::Any + Send + Sync>,
-        insert: fn(&mut World, Entity, Box<dyn core::any::Any + Send + Sync>),
-    },
-}
+/// Type-erased interpolation function stored by the interpolation registry.
+///
+/// Typed functions are registered as [`LerpFn<C>`] and erased internally so
+/// rules for different components and bundles can share the same cache.
+pub type ErasedInterpolationFn = unsafe fn();
 
-impl DeferredHistoryApply {
-    pub(crate) fn apply(self, world: &mut World) {
-        match self {
-            Self::Remove { entity, remove } => remove(world, entity),
-            Self::Insert {
-                entity,
-                value,
-                insert,
-            } => insert(world, entity, value),
-        }
-    }
-}
+pub(crate) type ErasedLerpFn = ErasedInterpolationFn;
 
+/// Returns the component ID for a typed component if that component is registered.
+pub(crate) type ComponentIdFn = fn(&World) -> Option<ComponentId>;
+
+/// Returns whether a cached interpolation rule matches an archetype.
+pub(crate) type MatchesArchetypeFn = fn(&World, &Archetype) -> bool;
+
+/// Type-erased function that updates histories for one component on one archetype.
+///
+/// The [`UnsafeWorldCell`] is used for direct table access to
+/// [`ConfirmedHistory`] and, for diff-replicated components, access to
+/// [`ReplicationStorage`]. Structural changes to the live component set are
+/// recorded into [`DeferredHistoryCommands`] and flushed after the archetype
+/// scan finishes.
 pub(crate) type ErasedUpdateHistoryFn = fn(
     UnsafeWorldCell,
     &Archetype,
     &CachedInterpolationComponent,
     UpdateHistoryContext,
-    &mut Vec<DeferredHistoryApply>,
+    &mut DeferredHistoryCommands,
 );
 
+trait DeferredHistoryMutation: Send + Sync + 'static {
+    fn apply(self: Box<Self>, entity: &mut DeferredEntity<'_>);
+}
+
+struct InsertHistoryComponent<C>(C);
+
+impl<C: Component> DeferredHistoryMutation for InsertHistoryComponent<C> {
+    fn apply(self: Box<Self>, entity: &mut DeferredEntity<'_>) {
+        entity.insert(self.0);
+    }
+}
+
+struct RemoveHistoryComponent<C>(PhantomData<fn(C)>);
+
+impl<C: Component> DeferredHistoryMutation for RemoveHistoryComponent<C> {
+    fn apply(self: Box<Self>, entity: &mut DeferredEntity<'_>) {
+        entity.remove::<C>();
+    }
+}
+
+/// Batched structural changes produced while preparing interpolation history.
+///
+/// History updates run over cached archetype table storage. Moving entities to
+/// new archetypes during that scan would invalidate the storage access, so live
+/// component insertions/removals are collected here and applied afterwards.
+/// Mutations are grouped by entity and flushed through Replicon's
+/// [`DeferredEntity`], so several component changes for the same entity become
+/// one removal bundle and one insertion bundle.
+#[derive(Default)]
+pub(crate) struct DeferredHistoryCommands {
+    entities: EntityHashMap<Vec<Box<dyn DeferredHistoryMutation>>>,
+}
+
+impl DeferredHistoryCommands {
+    pub(crate) fn insert<C: Component>(&mut self, entity: Entity, component: C) {
+        self.entities
+            .entry(entity)
+            .or_default()
+            .push(Box::new(InsertHistoryComponent(component)));
+    }
+
+    pub(crate) fn remove<C: Component>(&mut self, entity: Entity) {
+        self.entities
+            .entry(entity)
+            .or_default()
+            .push(Box::new(RemoveHistoryComponent::<C>(PhantomData)));
+    }
+
+    pub(crate) fn apply(self, world: &mut World) {
+        let mut scratch = EntityScratch::default();
+        for (entity, mutations) in self.entities {
+            let Ok(entity_mut) = world.get_entity_mut(entity) else {
+                continue;
+            };
+            let mut deferred = DeferredEntity::new(entity_mut, &mut scratch);
+            for mutation in mutations {
+                mutation.apply(&mut deferred);
+            }
+            deferred.flush();
+        }
+    }
+}
+
+/// Cached typed component metadata needed by the type-erased history updater.
+///
+/// One value is stored per selected history-owning rule on each cached
+/// interpolated archetype. It lets the update system jump directly to the
+/// `ConfirmedHistory<C>` column and decide whether the corresponding live
+/// component is currently present on that archetype.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CachedInterpolationComponent {
+    /// Component ID for `ConfirmedHistory<C>`.
     history_component_id: ComponentId,
+    /// Storage backing `ConfirmedHistory<C>` on the cached archetype.
     history_storage: StorageType,
+    /// Whether the live component `C` is present on the cached archetype.
     live_component_present: bool,
+    /// Type-erased history update function for `C`.
     update_history: ErasedUpdateHistoryFn,
-    interpolation: Option<unsafe fn()>,
+    /// Optional interpolation function used when sampling the history.
+    interpolation: Option<ErasedLerpFn>,
 }
 
 impl CachedInterpolationComponent {
@@ -644,27 +698,27 @@ impl CachedInterpolationComponent {
         self.update_history
     }
 
-    pub(crate) fn interpolation(&self) -> Option<unsafe fn()> {
+    pub(crate) fn interpolation(&self) -> Option<ErasedLerpFn> {
         self.interpolation
     }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ErasedInterpolationFns {
-    interpolation: Option<unsafe fn()>,
+    interpolation: Option<ErasedLerpFn>,
     history: bool,
     apply: bool,
     update_history: Option<ErasedUpdateHistoryFn>,
-    history_component_id: Option<fn(&World) -> Option<ComponentId>>,
-    live_component_id: fn(&World) -> Option<ComponentId>,
+    history_component_id: Option<ComponentIdFn>,
+    live_component_id: ComponentIdFn,
 }
 
 impl ErasedInterpolationFns {
     fn from_typed<S: 'static>(
         fns: InterpolationFns<S>,
         update_history: Option<ErasedUpdateHistoryFn>,
-        history_component_id: Option<fn(&World) -> Option<ComponentId>>,
-        live_component_id: fn(&World) -> Option<ComponentId>,
+        history_component_id: Option<ComponentIdFn>,
+        live_component_id: ComponentIdFn,
     ) -> Self {
         Self {
             interpolation: fns
@@ -691,13 +745,25 @@ fn no_component_id(_: &World) -> Option<ComponentId> {
     None
 }
 
+/// One interpolation rule registered by [`AppInterpolationExt`].
+///
+/// A rule has a `kind` used for cache lookup, a list of component `members`
+/// it owns or writes, erased functions describing which phases Lightyear runs,
+/// and an archetype filter. Rules are sorted by priority per `kind`, so
+/// [`InterpolationRegistry::select_rule_for_archetype`] can return the first
+/// matching rule.
 #[derive(Debug, Clone)]
 pub(crate) struct InterpolationRule {
+    /// Rule key used when selecting a rule for a component or bundle.
     kind: ComponentKind,
+    /// Components owned by this rule. Bundle rules have more than one member.
     members: Vec<ComponentKind>,
+    /// Higher-priority rules are selected before lower-priority rules.
     priority: usize,
+    /// Type-erased interpolation/history/apply functions for this rule.
     fns: ErasedInterpolationFns,
-    matches_archetype: fn(&World, &Archetype) -> bool,
+    /// Archetype-level filter predicate compiled from the rule filter type.
+    matches_archetype: MatchesArchetypeFn,
 }
 
 impl InterpolationRule {
@@ -743,7 +809,7 @@ pub struct InterpolationMetadata {
     /// This is retained for compatibility with the existing registry APIs and
     /// frame interpolation integration. New code should prefer
     /// [`InterpolationFns`] and [`AppInterpolationExt`].
-    pub interpolation: Option<unsafe fn()>,
+    pub interpolation: Option<ErasedInterpolationFn>,
     /// Whether Lightyear only maintains history and user code performs the
     /// actual interpolation.
     pub custom_interpolation: bool,
@@ -775,7 +841,6 @@ pub struct InterpolationRegistry {
     pub(crate) interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
     rules: Vec<InterpolationRule>,
     rules_by_component: HashMap<ComponentKind, Vec<InterpolationRuleId>>,
-    version: u64,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -806,18 +871,23 @@ impl InterpolationRegistry {
             .interpolation = Some(unsafe { core::mem::transmute(interpolation_fn) });
     }
 
-    pub(crate) fn version(&self) -> u64 {
-        self.version
-    }
-
+    /// Iterates over component or bundle kinds that have interpolation rules.
     pub(crate) fn rule_component_kinds(&self) -> impl Iterator<Item = ComponentKind> + '_ {
         self.rules_by_component.keys().copied()
     }
 
+    /// Returns a rule by ID.
     pub(crate) fn rule(&self, rule_id: InterpolationRuleId) -> Option<&InterpolationRule> {
         self.rules.get(rule_id.0)
     }
 
+    /// Selects the highest-priority matching rule for `kind` on `archetype`.
+    ///
+    /// Rules are pre-sorted by descending priority and ascending registration
+    /// order, so this returns the first matching rule. It only answers
+    /// "which rule owns this kind on this archetype"; overlap suppression for
+    /// live component writes is handled later by
+    /// `CachedInterpolatedArchetype::resolve_apply_rules`.
     pub(crate) fn select_rule_for_archetype(
         &self,
         world: &World,
@@ -835,6 +905,11 @@ impl InterpolationRegistry {
             })
     }
 
+    /// Builds cached history metadata for `rule_id` on `archetype`.
+    ///
+    /// Returns `None` when the rule does not own history, the history component
+    /// is not registered, or this archetype does not currently contain the
+    /// history component.
     pub(crate) fn cached_history_component(
         &self,
         world: &World,
@@ -906,7 +981,7 @@ impl InterpolationRegistry {
         let kind = ComponentKind::of::<C>();
         let history_component_id = fns
             .history
-            .then_some(confirmed_history_component_id::<C> as fn(&World) -> Option<ComponentId>);
+            .then_some(confirmed_history_component_id::<C> as ComponentIdFn);
         let fns = ErasedInterpolationFns::from_typed(
             fns,
             update_history,
@@ -943,8 +1018,6 @@ impl InterpolationRegistry {
         if fns.history || fns.apply {
             metadata.custom_interpolation = !fns.apply;
         }
-
-        self.version = self.version.wrapping_add(1);
         rule_id
     }
 
@@ -976,8 +1049,6 @@ impl InterpolationRegistry {
                 .cmp(&self.rules[a.0].priority)
                 .then_with(|| a.0.cmp(&b.0))
         });
-
-        self.version = self.version.wrapping_add(1);
         rule_id
     }
 
@@ -1063,7 +1134,7 @@ impl InterpolationRegistry {
 }
 
 pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
-    interpolation: Option<unsafe fn()>,
+    interpolation: Option<ErasedLerpFn>,
     history: &ConfirmedHistory<C>,
     interpolation_tick: Tick,
     interpolation_overstep: f32,
@@ -1128,8 +1199,8 @@ where
 ///
 /// The API mirrors Replicon's filtered rule registration style: the component
 /// type selects the history being managed, `F` selects matching archetypes, and
-/// [`InterpolationRuleConfig::priority`] decides which rule wins when several
-/// filters match.
+/// `*_with_priority` variants decide which rule wins when several filters
+/// match.
 ///
 /// Marker components are written as filters such as `With<MyMarker>`. They do
 /// not require a separate interpolation marker registration step.
@@ -1152,17 +1223,14 @@ where
 ///     Position(start.0 + (end.0 - start.0) * t)
 /// }
 ///
-/// app.interpolate_with::<Position>(
-///     InterpolationFns::interpolate(lerp_position),
-///     InterpolationRuleConfig::default(),
-/// );
-/// app.interpolate_filtered_with::<Position, With<ProjectileVisuals>>(
+/// app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
+/// app.interpolate_with_priority_filtered::<Position, With<ProjectileVisuals>>(
+///     100,
 ///     InterpolationFns::disabled(),
-///     InterpolationRuleConfig { priority: 100 },
 /// );
 /// ```
 pub trait AppInterpolationExt {
-    /// Registers an interpolation rule for component `C`.
+    /// Registers a default-priority interpolation rule for component `C`.
     ///
     /// If the selected [`InterpolationFns`] owns history, Lightyear receives
     /// authoritative updates into [`ConfirmedHistory<C>`]. If it owns apply,
@@ -1184,23 +1252,28 @@ pub trait AppInterpolationExt {
     ///     Position(start.0 + (end.0 - start.0) * t)
     /// }
     ///
-    /// app.interpolate_with::<Position>(
-    ///     InterpolationFns::interpolate(lerp_position),
-    ///     InterpolationRuleConfig::default(),
-    /// );
+    /// app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
     /// ```
-    fn interpolate_with<C>(
+    fn interpolate_with<C>(&mut self, fns: InterpolationFns<C>) -> &mut Self
+    where
+        C: SyncComponent,
+    {
+        self.interpolate_filtered_with::<C, ()>(fns)
+    }
+
+    /// Registers an interpolation rule for component `C` with explicit priority.
+    fn interpolate_with_priority<C>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<C>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         C: SyncComponent,
     {
-        self.interpolate_filtered_with::<C, ()>(fns, config)
+        self.interpolate_with_priority_filtered::<C, ()>(priority, fns)
     }
 
-    /// Registers an interpolation rule for component `C` and archetype filter `F`.
+    /// Registers a default-priority interpolation rule for component `C` and archetype filter `F`.
     ///
     /// Use [`Self::interpolate_with`] for the default unfiltered rule.
     ///
@@ -1224,19 +1297,31 @@ pub trait AppInterpolationExt {
     ///
     /// app.interpolate_filtered_with::<Position, With<VisualInterpolation>>(
     ///     InterpolationFns::interpolate(lerp_position),
-    ///     InterpolationRuleConfig { priority: 100 },
     /// );
     /// ```
-    fn interpolate_filtered_with<C, F>(
+    fn interpolate_filtered_with<C, F>(&mut self, fns: InterpolationFns<C>) -> &mut Self
+    where
+        C: SyncComponent,
+        F: InterpolationRuleFilter + 'static,
+    {
+        self.interpolate_with_priority_filtered::<C, F>(
+            InterpolationRuleConfig::default().priority,
+            fns,
+        )
+    }
+
+    /// Registers an interpolation rule for component `C`, archetype filter `F`,
+    /// and explicit priority.
+    fn interpolate_with_priority_filtered<C, F>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<C>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         C: SyncComponent,
         F: InterpolationRuleFilter + 'static;
 
-    /// Registers a bundle interpolation rule.
+    /// Registers a bundle interpolation rule with default bundle priority.
     ///
     /// Lightyear stores each component in its own [`ConfirmedHistory`], then
     /// samples their histories together and calls the tuple interpolation
@@ -1266,21 +1351,29 @@ pub trait AppInterpolationExt {
     ///
     /// app.interpolate_bundle_with::<(Position, Rotation)>(
     ///     InterpolationFns::interpolate(interpolate_transform),
-    ///     InterpolationRuleConfig::default(),
     /// );
     /// ```
-    fn interpolate_bundle_with<B>(
+    fn interpolate_bundle_with<B>(&mut self, fns: InterpolationFns<B>) -> &mut Self
+    where
+        B: InterpolationBundle,
+    {
+        self.interpolate_bundle_filtered_with::<B, ()>(fns)
+    }
+
+    /// Registers a bundle interpolation rule with explicit priority.
+    fn interpolate_bundle_with_priority<B>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<B>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         B: InterpolationBundle,
     {
-        self.interpolate_bundle_filtered_with::<B, ()>(fns, config)
+        self.interpolate_bundle_with_priority_filtered::<B, ()>(priority, fns)
     }
 
-    /// Registers a bundle interpolation rule for archetype filter `F`.
+    /// Registers a bundle interpolation rule for archetype filter `F` with
+    /// default bundle priority.
     ///
     /// Use [`Self::interpolate_bundle_with`] for the default unfiltered rule.
     ///
@@ -1308,21 +1401,31 @@ pub trait AppInterpolationExt {
     ///     )
     /// }
     ///
-    /// app.interpolate_bundle_filtered_with::<(Position, Rotation), With<VisualInterpolation>>(
+    /// app.interpolate_bundle_with_priority_filtered::<(Position, Rotation), With<VisualInterpolation>>(
+    ///     100,
     ///     InterpolationFns::interpolate(interpolate_transform),
-    ///     InterpolationRuleConfig { priority: 100 },
     /// );
     /// ```
-    fn interpolate_bundle_filtered_with<B, F>(
+    fn interpolate_bundle_filtered_with<B, F>(&mut self, fns: InterpolationFns<B>) -> &mut Self
+    where
+        B: InterpolationBundle,
+        F: InterpolationRuleFilter + 'static,
+    {
+        self.interpolate_bundle_with_priority_filtered::<B, F>(B::COMPONENT_COUNT, fns)
+    }
+
+    /// Registers a bundle interpolation rule for archetype filter `F` and
+    /// explicit priority.
+    fn interpolate_bundle_with_priority_filtered<B, F>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<B>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         B: InterpolationBundle,
         F: InterpolationRuleFilter + 'static;
 
-    /// Registers an interpolation rule for a diff-replicated component `C`.
+    /// Registers a default-priority interpolation rule for a diff-replicated component `C`.
     ///
     /// This is equivalent to [`Self::interpolate_with`], but installs the diff
     /// receive path so interpolation history can reconstruct authoritative
@@ -1339,29 +1442,49 @@ pub trait AppInterpolationExt {
     /// #[derive(Component, Clone, PartialEq)]
     /// struct Position(f32);
     ///
-    /// app.interpolate_diff_with::<Position>(
-    ///     InterpolationFns::history_only(),
-    ///     InterpolationRuleConfig::default(),
-    /// );
+    /// app.interpolate_diff_with::<Position>(InterpolationFns::history_only());
     /// ```
-    fn interpolate_diff_with<C>(
+    fn interpolate_diff_with<C>(&mut self, fns: InterpolationFns<C>) -> &mut Self
+    where
+        C: SyncComponent + RepliconDiffable,
+    {
+        self.interpolate_diff_filtered_with::<C, ()>(fns)
+    }
+
+    /// Registers an interpolation rule for a diff-replicated component `C`
+    /// with explicit priority.
+    fn interpolate_diff_with_priority<C>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<C>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
     {
-        self.interpolate_diff_filtered_with::<C, ()>(fns, config)
+        self.interpolate_diff_with_priority_filtered::<C, ()>(priority, fns)
     }
 
-    /// Registers an interpolation rule for a diff-replicated component `C` and filter `F`.
+    /// Registers a default-priority interpolation rule for a diff-replicated
+    /// component `C` and filter `F`.
     ///
     /// Use [`Self::interpolate_diff_with`] for the default unfiltered rule.
-    fn interpolate_diff_filtered_with<C, F>(
+    fn interpolate_diff_filtered_with<C, F>(&mut self, fns: InterpolationFns<C>) -> &mut Self
+    where
+        C: SyncComponent + RepliconDiffable,
+        F: InterpolationRuleFilter + 'static,
+    {
+        self.interpolate_diff_with_priority_filtered::<C, F>(
+            InterpolationRuleConfig::default().priority,
+            fns,
+        )
+    }
+
+    /// Registers an interpolation rule for a diff-replicated component `C`,
+    /// filter `F`, and explicit priority.
+    fn interpolate_diff_with_priority_filtered<C, F>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<C>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
@@ -1369,42 +1492,42 @@ pub trait AppInterpolationExt {
 }
 
 impl AppInterpolationExt for App {
-    fn interpolate_filtered_with<C, F>(
+    fn interpolate_with_priority_filtered<C, F>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<C>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         C: SyncComponent,
         F: InterpolationRuleFilter + 'static,
     {
-        add_interpolation_rule::<C, F>(self, fns, config);
+        add_interpolation_rule::<C, F>(self, fns, InterpolationRuleConfig { priority });
         self
     }
 
-    fn interpolate_bundle_filtered_with<B, F>(
+    fn interpolate_bundle_with_priority_filtered<B, F>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<B>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         B: InterpolationBundle,
         F: InterpolationRuleFilter + 'static,
     {
-        add_interpolation_bundle_rule::<B, F>(self, fns, config);
+        add_interpolation_bundle_rule::<B, F>(self, fns, InterpolationRuleConfig { priority });
         self
     }
 
-    fn interpolate_diff_filtered_with<C, F>(
+    fn interpolate_diff_with_priority_filtered<C, F>(
         &mut self,
+        priority: usize,
         fns: InterpolationFns<C>,
-        config: InterpolationRuleConfig,
     ) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
         F: InterpolationRuleFilter + 'static,
     {
-        add_interpolation_diff_rule::<C, F>(self, fns, config);
+        add_interpolation_diff_rule::<C, F>(self, fns, InterpolationRuleConfig { priority });
         self
     }
 }
@@ -1695,6 +1818,12 @@ fn ensure_interpolated_archetypes(app: &mut App) {
     app.init_resource::<InterpolatedArchetypes>();
 }
 
+fn invalidate_interpolated_archetypes(app: &mut App) {
+    if let Some(mut archetypes) = app.world_mut().get_resource_mut::<InterpolatedArchetypes>() {
+        archetypes.clear();
+    }
+}
+
 fn ensure_interpolation_system_registry(app: &mut App) {
     if !app
         .world()
@@ -1792,6 +1921,7 @@ fn add_interpolation_rule<C, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_rule::<C, F>(fns, config);
+    invalidate_interpolated_archetypes(app);
 }
 
 fn add_interpolation_diff_rule<C, F>(
@@ -1817,6 +1947,7 @@ fn add_interpolation_diff_rule<C, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_diff_rule::<C, F>(fns, config);
+    invalidate_interpolated_archetypes(app);
 }
 
 fn add_interpolation_bundle_rule<B, F>(
@@ -1827,7 +1958,6 @@ fn add_interpolation_bundle_rule<B, F>(
     B: InterpolationBundle,
     F: InterpolationRuleFilter + 'static,
 {
-    let config = bundle_rule_config::<B>(config);
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
     ensure_interpolated_archetypes(app);
@@ -1841,15 +1971,7 @@ fn add_interpolation_bundle_rule<B, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_bundle_rule::<B, F>(fns, config, B::component_kinds());
-}
-
-fn bundle_rule_config<B: InterpolationBundle>(
-    mut config: InterpolationRuleConfig,
-) -> InterpolationRuleConfig {
-    if config.priority == InterpolationRuleConfig::default().priority {
-        config.priority = B::COMPONENT_COUNT;
-    }
-    config
+    invalidate_interpolated_archetypes(app);
 }
 
 fn register_interpolation_fn_impl<'a, C>(

@@ -1,10 +1,9 @@
 use crate::archetypes::InterpolatedArchetypes;
 use crate::registry::{
-    CachedInterpolationComponent, DeferredHistoryApply, InterpolationBundle, InterpolationRegistry,
-    UpdateHistoryContext, sample_history_with_interpolation,
+    CachedInterpolationComponent, DeferredHistoryCommands, InterpolationBundle,
+    InterpolationRegistry, UpdateHistoryContext, sample_history_with_interpolation,
 };
 use crate::timeline::InterpolationTimeline;
-use alloc::{boxed::Box, vec::Vec};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{Mutable, StorageType};
 use bevy_ecs::prelude::*;
@@ -47,7 +46,7 @@ pub(crate) fn update_interpolation_histories(world: &mut World) {
         .resource::<ReplicationCheckpointMap>()
         .last_confirmed_tick();
 
-    let mut deferred_apply = Vec::new();
+    let mut deferred_apply = DeferredHistoryCommands::default();
     world.resource_scope(
         |world, interpolated_archetypes: Mut<InterpolatedArchetypes>| {
             let world = world.as_unsafe_world_cell();
@@ -78,9 +77,7 @@ pub(crate) fn update_interpolation_histories(world: &mut World) {
         },
     );
 
-    for apply in deferred_apply {
-        apply.apply(world);
-    }
+    deferred_apply.apply(world);
 }
 
 pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
@@ -88,7 +85,7 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
     archetype: &Archetype,
     component: &CachedInterpolationComponent,
     ctx: UpdateHistoryContext,
-    deferred_apply: &mut Vec<DeferredHistoryApply>,
+    deferred_apply: &mut DeferredHistoryCommands,
 ) {
     let StorageType::Table = component.history_storage() else {
         debug_assert!(
@@ -130,7 +127,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
     archetype: &Archetype,
     component: &CachedInterpolationComponent,
     ctx: UpdateHistoryContext,
-    deferred_apply: &mut Vec<DeferredHistoryApply>,
+    deferred_apply: &mut DeferredHistoryCommands,
 ) where
     C: Component + Clone + RepliconDiffable,
 {
@@ -254,7 +251,7 @@ fn drain_old_history<C: Component + Clone>(
 }
 
 fn queue_history_presence<C: Component + Clone>(
-    deferred_apply: &mut Vec<DeferredHistoryApply>,
+    deferred_apply: &mut DeferredHistoryCommands,
     entity: Entity,
     present: bool,
     sample: Option<HistoryState<C>>,
@@ -264,39 +261,12 @@ fn queue_history_presence<C: Component + Clone>(
     // and otherwise leave the current component value alone.
     match sample {
         None | Some(HistoryState::Removed) if present => {
-            deferred_apply.push(DeferredHistoryApply::Remove {
-                entity,
-                remove: remove_component::<C>,
-            });
+            deferred_apply.remove::<C>(entity);
         }
         Some(HistoryState::Updated(value)) if !present => {
-            deferred_apply.push(DeferredHistoryApply::Insert {
-                entity,
-                value: Box::new(value),
-                insert: insert_component::<C>,
-            });
+            deferred_apply.insert(entity, value);
         }
         _ => {}
-    }
-}
-
-fn remove_component<C: Component>(world: &mut World, entity: Entity) {
-    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-        entity_mut.remove::<C>();
-    }
-}
-
-fn insert_component<C: Component>(
-    world: &mut World,
-    entity: Entity,
-    value: Box<dyn core::any::Any + Send + Sync>,
-) {
-    let Ok(value) = value.downcast::<C>() else {
-        debug_assert!(false, "deferred interpolation insert value has wrong type");
-        return;
-    };
-    if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-        entity_mut.insert(*value);
     }
 }
 
@@ -410,7 +380,9 @@ mod tests {
     use bevy_ecs::archetype::Archetype;
     use bevy_ecs::component::Component;
     use bevy_ecs::query::QueryState;
-    use bevy_replicon::prelude::{Diffable as RepliconDiffable, RepliconPlugins, RepliconTick};
+    use bevy_replicon::prelude::{
+        Diffable as RepliconDiffable, RepliconPlugins, RepliconSharedPlugin, RepliconTick,
+    };
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
     use bevy_state::app::StatesPlugin;
     use bevy_time::TimePlugin;
@@ -542,6 +514,7 @@ mod tests {
 
     fn setup_app(current_tick: Tick, send_interval_ms: u64) -> App {
         let mut app = App::new();
+        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
         app.world_mut()
             .insert_resource(ReplicationCheckpointMap::default());
         app.world_mut()
@@ -686,13 +659,11 @@ mod tests {
         app.update();
         assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(5.0)));
 
-        QueryState::<&Archetype, With<SmoothRule>>::new(app.world_mut());
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .insert_rule::<TestComp, With<SmoothRule>>(
-                InterpolationFns::interpolate(marker_lerp),
-                InterpolationRuleConfig { priority: 100 },
-            );
+        app.component::<TestComp>();
+        app.interpolate_with_priority_filtered::<TestComp, With<SmoothRule>>(
+            100,
+            InterpolationFns::interpolate(marker_lerp),
+        );
         *app.world_mut().get_mut::<TestComp>(entity).unwrap() = TestComp(0.0);
 
         app.update();
@@ -724,10 +695,9 @@ mod tests {
         );
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
-        app.interpolate_bundle_with::<(TestComp, TestComp2)>(
-            InterpolationFns::interpolate(bundle_lerp),
-            InterpolationRuleConfig::default(),
-        );
+        app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
+            bundle_lerp,
+        ));
 
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
@@ -783,13 +753,11 @@ mod tests {
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.component::<TestBundleComp<3>>().replicate();
-        app.interpolate_bundle_with::<(TestComp, TestComp2)>(
-            InterpolationFns::interpolate(bundle2_priority_lerp),
-            InterpolationRuleConfig::default(),
-        );
+        app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
+            bundle2_priority_lerp,
+        ));
         app.interpolate_bundle_with::<(TestComp, TestComp2, TestBundleComp<3>)>(
             InterpolationFns::interpolate(bundle3_priority_lerp),
-            InterpolationRuleConfig::default(),
         );
 
         let mut timeline = InterpolationTimeline::default();
@@ -867,10 +835,7 @@ mod tests {
         app.component::<TestBundleComp<6>>().replicate();
         app.component::<TestBundleComp<7>>().replicate();
         app.component::<TestBundleComp<8>>().replicate();
-        app.interpolate_bundle_with::<Bundle8>(
-            InterpolationFns::interpolate(bundle8_lerp),
-            InterpolationRuleConfig::default(),
-        );
+        app.interpolate_bundle_with::<Bundle8>(InterpolationFns::interpolate(bundle8_lerp));
 
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
