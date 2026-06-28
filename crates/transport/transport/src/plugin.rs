@@ -61,6 +61,14 @@ pub struct PacketAcked {
     pub rtt_sample: Duration,
 }
 
+/// Event triggered once per received packet that acknowledged one or more sent packets.
+#[derive(EntityEvent)]
+pub struct PacketAcksReceived {
+    pub entity: Entity,
+    pub representative_rtt_sample: Duration,
+    pub acked_packet_count: u32,
+}
+
 pub struct TransportPlugin;
 
 impl TransportPlugin {
@@ -188,6 +196,17 @@ impl TransportPlugin {
                                     rtt_sample: *rtt_sample,
                                 });
                             });
+                            if let Some(representative_rtt_sample) = newly_acked_packets
+                                .iter()
+                                .map(|(_, rtt_sample)| *rtt_sample)
+                                .min()
+                            {
+                                commands.trigger(PacketAcksReceived {
+                                    entity,
+                                    representative_rtt_sample,
+                                    acked_packet_count: newly_acked_packets.len() as u32,
+                                });
+                            }
                             commands.trigger(PacketReceived { entity, remote_tick: tick });
                         });
                         #[cfg(not(feature = "std"))]
@@ -199,6 +218,17 @@ impl TransportPlugin {
                                     rtt_sample: *rtt_sample,
                                 });
                             });
+                            if let Some(representative_rtt_sample) = newly_acked_packets
+                                .iter()
+                                .map(|(_, rtt_sample)| *rtt_sample)
+                                .min()
+                            {
+                                commands.trigger(PacketAcksReceived {
+                                    entity,
+                                    representative_rtt_sample,
+                                    acked_packet_count: newly_acked_packets.len() as u32,
+                                });
+                            }
                             commands.trigger(PacketReceived { entity, remote_tick: tick });
                         }
 

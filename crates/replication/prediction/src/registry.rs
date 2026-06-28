@@ -809,16 +809,16 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         }
         register_prediction_metadata::<C>(self.app);
         // Only `CatchUpGated` routes replicated component state into history.
-        // Initial values for non-gated deterministic entities should use the
-        // default Replicon write path.
-        //
-        // Replicon chooses the receive function before applying incoming
-        // components. `CatchUpGated` is therefore the marker that can catch the
+        // While it is present, we care about authoritative state replication
+        // because the late-join flow will run a forced state rollback and
+        // materialize that history onto the live entity. `CatchUpGated` is
+        // registered as a marker so it takes precedence over Replicon's default
         // component write while the entity is awaiting catch-up.
         //
         // `DeterministicPredicted` is intentionally not registered here. Outside
         // catch-up there is no forced state rollback that would insert a
-        // `ConfirmedHistory<C>` value back into the live entity.
+        // history-only component, so those one-shot replicated components should
+        // use Replicon's normal live write/remove behavior.
         use crate::rollback::CatchUpGated;
         self.app.register_marker_with::<CatchUpGated>(MarkerConfig {
             priority: 110,
