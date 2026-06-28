@@ -126,34 +126,20 @@ impl PingManager {
         self.rtt_estimator_ewma.update_with_new_sample(rtt_sample);
     }
 
-    /// Process a representative RTT sample measured from an ordinary packet acknowledgement batch.
-    ///
-    /// A single inbound packet can acknowledge multiple outbound packets. Those ACK samples share
-    /// one receive time and are not independent network observations, so the ping plugin feeds one
-    /// representative sample per ACK batch into the EWMA.
-    pub fn process_packet_ack_batch_rtt_sample(
-        &mut self,
-        rtt_sample: Duration,
-        acked_packet_count: u32,
-    ) {
+    /// Process an RTT sample measured from an ordinary packet acknowledgement.
+    pub fn process_packet_rtt_sample(&mut self, rtt_sample: Duration) {
         self.record_rtt_sample(rtt_sample);
         trace!(
             target: "lightyear_debug::sync",
-            kind = "packet_ack_batch_rtt_sample",
+            kind = "packet_ack_rtt_sample",
             schedule = "PreUpdate",
             sample_point = "PreUpdate",
             rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
-            acked_packet_count,
             latency_samples_recv = self.latency_samples_recv,
             estimated_rtt_ms = self.rtt().as_secs_f64() * 1000.0,
             jitter_ms = self.jitter().as_secs_f64() * 1000.0,
-            "processed packet ack batch RTT sample"
+            "processed packet ack RTT sample"
         );
-    }
-
-    /// Process an RTT sample measured from one ordinary packet acknowledgement.
-    pub fn process_packet_rtt_sample(&mut self, rtt_sample: Duration) {
-        self.process_packet_ack_batch_rtt_sample(rtt_sample, 1);
     }
 
     /// Check if we are ready to send a ping to the remote

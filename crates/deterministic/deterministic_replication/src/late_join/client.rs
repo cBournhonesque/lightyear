@@ -1,5 +1,4 @@
 use crate::mode::CatchUpMode;
-use alloc::vec::Vec;
 use bevy_app::{App, PreUpdate};
 use bevy_ecs::entity::Entity;
 use bevy_ecs::prelude::*;
@@ -104,8 +103,19 @@ pub(crate) fn build(app: &mut App) {
         (
             send_catchup_request.in_set(CatchUpSystems::SendCatchUpRequest),
             trigger_snapshot_rollback.in_set(CatchUpSystems::TriggerCatchUpRollback),
-            activate_catch_up_snapshot.in_set(CatchUpSystems::ActivateCatchUp),
         ),
+    );
+    app.add_systems(
+        PreUpdate,
+        // We first run RollbackSystems::Prepare when the catchup rollback is triggered
+        // and then we trigger `CatchUpSnapshotReady`. This is to only notify the user
+        // after the components have been restored to the snapshot state, but before the rollback replay starts.
+        (
+            trigger_catch_up_snapshot_activation,
+            finish_catch_up_snapshot_activation,
+        )
+            .chain()
+            .in_set(CatchUpSystems::ActivateCatchUp),
     );
 }
 
@@ -300,7 +310,7 @@ pub(crate) fn trigger_snapshot_rollback(
     if !last_confirmed_input.received_for_all_clients {
         return;
     }
-    // No remote input buffers means there are no remote inputs to wait for.
+    // No remote input buffers (last_confirmed_input is not set) means there are no remote inputs to wait for.
     // The synced local timeline is safe to use as the catch-up coverage tick.
     let input_safe_tick = last_confirmed_input.get().unwrap_or(local_tick);
     if input_safe_tick < snapshot_server_tick {
@@ -316,65 +326,47 @@ pub(crate) fn trigger_snapshot_rollback(
     info!("Triggering catchup rollback since snapshot tick: {snapshot_server_tick:?}");
 }
 
-fn activate_catch_up_snapshot(world: &mut World) {
-    let Some((client_entity, snapshot)) = catch_up_snapshot_to_activate(world) else {
+/// Trigger local activation observers after rollback preparation has restored
+/// the snapshot components, but before rollback replay starts.
+/// This is so that when CatchUpSnapshotReady is observed, the CatchUpGated components are already restored
+/// to their snapshot state.
+fn trigger_catch_up_snapshot_activation(
+    client: Query<(&Rollback, &CatchUpManager), With<Client>>,
+    mut commands: Commands,
+) {
+    let Ok((rollback, manager)) = client.single() else {
+        return;
+    };
+    if manager.completed || !matches!(*rollback, Rollback::FromState) {
+        return;
+    }
+    let Some(snapshot) = manager.activating_snapshot.clone() else {
         return;
     };
 
-    world.trigger(CatchUpSnapshotReady {
+    commands.trigger(CatchUpSnapshotReady {
         replicon_tick: snapshot.replicon_tick,
         server_tick: snapshot.server_tick,
     });
-    // Apply local activation observer commands before rollback replay starts.
-    world.flush();
-
-    let mut gated_query = world.query_filtered::<Entity, With<CatchUpGated>>();
-    let gated = gated_query.iter(world).collect::<Vec<_>>();
-    for entity in gated {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.remove::<CatchUpGated>();
-        }
-    }
-
-    let skip_despawn_entities = world
-        .get_mut::<PredictionManager>(client_entity)
-        .map(|mut prediction_manager| {
-            prediction_manager
-                .deterministic_skip_despawn
-                .drain(..)
-                .map(|(_, entity)| entity)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
-    for entity in skip_despawn_entities {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.remove::<DisableRollback>();
-        }
-    }
-
-    if let Some(mut manager) = world.get_mut::<CatchUpManager>(client_entity) {
-        manager.completed = true;
-        manager.pending_snapshot = None;
-        manager.requests_sent = 0;
-        manager.request_sent_at_tick = None;
-        manager.activating_snapshot = None;
-        manager.suppress_checksums = false;
-    }
-    world.flush();
 }
 
-fn catch_up_snapshot_to_activate(world: &mut World) -> Option<(Entity, PendingCatchUpSnapshot)> {
-    let mut query = world.query_filtered::<(Entity, &Rollback, &CatchUpManager), With<Client>>();
-    let Ok((client_entity, rollback, manager)) = query.single(world) else {
-        return None;
+fn finish_catch_up_snapshot_activation(
+    mut client: Query<(&mut CatchUpManager, &mut PredictionManager), With<Client>>,
+    gated: Query<Entity, With<CatchUpGated>>,
+    mut commands: Commands,
+) {
+    let Ok((mut manager, mut prediction_manager)) = client.single_mut() else {
+        return;
     };
-    if manager.completed || !matches!(*rollback, Rollback::FromState) {
-        return None;
+    if manager.completed || manager.activating_snapshot.is_none() {
+        return;
     }
-    manager
-        .activating_snapshot
-        .clone()
-        .map(|snapshot| (client_entity, snapshot))
+
+    for (_, entity) in prediction_manager.deterministic_skip_despawn.drain(..) {
+        commands.entity(entity).try_remove::<DisableRollback>();
+    }
+
+    complete_catch_up(&mut manager, &gated, &mut commands);
 }
 
 fn complete_catch_up(

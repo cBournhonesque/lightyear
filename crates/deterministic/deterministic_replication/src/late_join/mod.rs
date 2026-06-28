@@ -46,12 +46,11 @@
 //! 4. The client waits until Replicon's mutate completion state reports that
 //!    the accepted Replicon checkpoint is fully confirmed. At that point all
 //!    mutation messages for the catch-up reveal have landed, so the plugin
-//!    schedules one forced rollback to the accepted server tick. After
-//!    rollback preparation restores the snapshot components, it emits
-//!    `CatchUpSnapshotReady` for local-only setup before replay begins. If that
-//!    checkpoint becomes too old for the configured rollback window before it
-//!    is usable, the client logs and disconnects; that should not happen in a
-//!    healthy catch-up flow.
+//!    emits `CatchUpSnapshotReady` for local-only setup and schedules one
+//!    forced rollback to the accepted server tick. If that checkpoint becomes
+//!    too old for the configured rollback window before it is usable, the
+//!    client logs and disconnects; that should not happen in a healthy
+//!    catch-up flow.
 //!
 //! 5. `HasCaughtUp` is not removed. After the initial catch-up, the rest of
 //!    the simulation is deterministic, so later catch-up-gated components are
@@ -93,9 +92,9 @@ use lightyear_messages::prelude::{AppMessageExt, AppTriggerExt};
 ///
 /// This is a **per-entity marker component** (not a resource). The late-join
 /// plugin inserts it on catch-up-gated client entities while they are
-/// expecting the bundled snapshot, and removes it once local activation has
-/// run during the forced rollback. For catch-up resources, the marker is
-/// attached to Bevy's resource entity.
+/// expecting the bundled snapshot, and removes it once the forced rollback is
+/// scheduled. For catch-up resources, the marker is attached to Bevy's
+/// resource entity.
 pub use lightyear_prediction::rollback::CatchUpGated;
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::registry::replication::AppComponentExt;
@@ -110,9 +109,9 @@ use crate::mode::CatchUpMode;
 /// buffers covering a safe replay tick. The server accepts by inserting
 /// [`HasCaughtUp`] and sending a replicated [`CatchUpSnapshotReady`] event.
 /// The client waits for the accepted Replicon checkpoint to be fully
-/// confirmed, drives rollback preparation, then re-triggers
-/// [`CatchUpSnapshotReady`] locally for activation observers before replay. The
-/// [`HasCaughtUp`] marker is kept after success.
+/// confirmed, re-triggers [`CatchUpSnapshotReady`] locally for activation
+/// observers, and then drives the forced rollback. The [`HasCaughtUp`] marker
+/// is kept after success.
 pub struct LateJoinCatchUpPlugin;
 
 impl Default for LateJoinCatchUpPlugin {

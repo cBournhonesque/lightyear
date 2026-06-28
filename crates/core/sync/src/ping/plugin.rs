@@ -16,7 +16,7 @@ use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
-use lightyear_transport::plugin::PacketAcksReceived;
+use lightyear_transport::plugin::PacketAcked;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -141,15 +141,9 @@ impl PingPlugin {
         }
     }
 
-    pub(crate) fn process_packet_acks(
-        trigger: On<PacketAcksReceived>,
-        mut query: Query<&mut PingManager>,
-    ) {
+    pub(crate) fn process_packet_ack(trigger: On<PacketAcked>, mut query: Query<&mut PingManager>) {
         if let Ok(mut manager) = query.get_mut(trigger.entity) {
-            manager.process_packet_ack_batch_rtt_sample(
-                trigger.representative_rtt_sample,
-                trigger.acked_packet_count,
-            );
+            manager.process_packet_rtt_sample(trigger.rtt_sample);
         }
     }
 }
@@ -195,40 +189,6 @@ impl Plugin for PingPlugin {
         app.add_systems(PostUpdate, Self::send.in_set(PingSystems::Send));
 
         app.add_observer(Self::handle_connect);
-        app.add_observer(Self::process_packet_acks);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lightyear_transport::plugin::PacketAcked;
-
-    #[test]
-    fn ping_estimator_consumes_one_sample_per_ack_batch() {
-        let mut app = App::new();
-        app.add_plugins(PingPlugin);
-
-        let entity = app.world_mut().spawn(PingManager::default()).id();
-        for packet_id in 0..10 {
-            app.world_mut().trigger(PacketAcked {
-                entity,
-                packet_id,
-                rtt_sample: Duration::from_millis(100 + u64::from(packet_id)),
-            });
-        }
-
-        let manager = app.world().entity(entity).get::<PingManager>().unwrap();
-        assert_eq!(manager.latency_samples_recv(), 0);
-
-        app.world_mut().trigger(PacketAcksReceived {
-            entity,
-            representative_rtt_sample: Duration::from_millis(50),
-            acked_packet_count: 10,
-        });
-
-        let manager = app.world().entity(entity).get::<PingManager>().unwrap();
-        assert_eq!(manager.latency_samples_recv(), 1);
-        assert_eq!(manager.rtt(), Duration::from_millis(50));
+        app.add_observer(Self::process_packet_ack);
     }
 }
