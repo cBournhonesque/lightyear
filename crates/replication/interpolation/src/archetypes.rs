@@ -19,14 +19,28 @@ use lightyear_replication::registry::ComponentKind;
 pub struct InterpolatedArchetypes {
     generation: ArchetypeGeneration,
     interpolated_component_id: ComponentId,
-    registry_version: u64,
     archetypes: HashMap<ArchetypeId, CachedInterpolatedArchetype>,
 }
 
+/// Cached interpolation policy for one archetype containing [`Interpolated`].
+///
+/// The cache separates rule selection from component application:
+///
+/// - `selected_rules` stores the highest-priority matching rule for each rule
+///   kind. These rules decide ownership of history updates, including
+///   history-only rules that never write live components.
+/// - `apply_rules` stores the selected rules that are allowed to write live
+///   components after overlapping bundle/component rules have been resolved.
+///   For example, a selected `(Position, Rotation)` bundle rule suppresses
+///   application by overlapping selected single-component rules.
 pub(crate) struct CachedInterpolatedArchetype {
+    /// ID of the archetype this cache entry describes.
     id: ArchetypeId,
+    /// Highest-priority matching rule for each rule kind on this archetype.
     selected_rules: HashMap<ComponentKind, InterpolationRuleId>,
+    /// Selected apply rules that are not shadowed by higher-priority overlaps.
     apply_rules: HashMap<ComponentKind, InterpolationRuleId>,
+    /// Components whose interpolation history is managed by Lightyear.
     history_components: Vec<CachedInterpolationComponent>,
 }
 
@@ -54,20 +68,28 @@ impl FromWorld for InterpolatedArchetypes {
         Self {
             generation: ArchetypeGeneration::initial(),
             interpolated_component_id: world.register_component::<Interpolated>(),
-            registry_version: 0,
             archetypes: HashMap::default(),
         }
     }
 }
 
 impl InterpolatedArchetypes {
-    pub(crate) fn update(&mut self, world: &World, registry: &InterpolationRegistry) {
-        if self.registry_version != registry.version() {
-            self.registry_version = registry.version();
-            self.generation = ArchetypeGeneration::initial();
-            self.archetypes.clear();
-        }
+    /// Clears all cached archetype rule selections.
+    ///
+    /// Call this after registering a new interpolation rule. The next cache
+    /// update will rescan every interpolated archetype and rebuild
+    /// `selected_rules`, `apply_rules`, and history component metadata.
+    pub(crate) fn clear(&mut self) {
+        self.generation = ArchetypeGeneration::initial();
+        self.archetypes.clear();
+    }
 
+    /// Resolves interpolation rules for newly-created interpolated archetypes.
+    ///
+    /// Existing entries are kept until [`Self::clear`] is called. Rule
+    /// registration calls clear explicitly, so this method does not need to
+    /// track a registry version.
+    pub(crate) fn update(&mut self, world: &World, registry: &InterpolationRegistry) {
         let archetypes = world.archetypes();
         let old_generation = core::mem::replace(&mut self.generation, archetypes.generation());
         for archetype in archetypes[old_generation..]
@@ -90,6 +112,12 @@ impl InterpolatedArchetypes {
         }
     }
 
+    /// Returns the cached rule that should write `kind` on `archetype_id`.
+    ///
+    /// This reads from `apply_rules`, not `selected_rules`, because component
+    /// application must respect overlap suppression. A single-component rule
+    /// can be selected for history ownership while still being absent here if a
+    /// higher-priority bundle rule writes the same live component.
     pub(crate) fn apply_rule_for(
         &self,
         archetype_id: ArchetypeId,
@@ -100,12 +128,18 @@ impl InterpolatedArchetypes {
             .and_then(|cached| cached.apply_rules.get(&kind).copied())
     }
 
+    /// Iterates over cached interpolated archetypes.
     pub(crate) fn iter(&self) -> impl Iterator<Item = &CachedInterpolatedArchetype> {
         self.archetypes.values()
     }
 }
 
 impl CachedInterpolatedArchetype {
+    /// Builds `apply_rules` from `selected_rules`.
+    ///
+    /// A selected rule is removed from `apply_rules` when another selected
+    /// apply rule overlaps one of its member components and wins by priority
+    /// or registration order.
     fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
         self.apply_rules.clear();
         for (&kind, &rule_id) in &self.selected_rules {
