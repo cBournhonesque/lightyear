@@ -110,19 +110,18 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
         match cursor {
             Some(cursor) => {
                 if let Some(base_cursor) = self.base_cursor {
-                    if cursor != base_cursor && !cursor.is_newer_than(base_cursor) {
+                    if cursor != base_cursor && !cursor.is_newer(base_cursor) {
                         return;
                     }
                     if cursor == base_cursor {
                         if self.base_tick.is_none_or(|base_tick| tick >= base_tick) {
                             self.base_tick = Some(tick);
                         }
-                        self.diff_ticks
-                            .retain(|(index, _)| index.is_newer_than(cursor));
+                        self.diff_ticks.retain(|(index, _)| index.is_newer(cursor));
                         self.pending.retain(|pending| {
                             pending
                                 .cursor()
-                                .is_ok_and(|pending_cursor| pending_cursor.is_newer_than(cursor))
+                                .is_ok_and(|pending_cursor| pending_cursor.is_newer(cursor))
                         });
                         return;
                     }
@@ -139,7 +138,7 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
                 self.pending.retain(|pending| {
                     pending
                         .cursor()
-                        .is_ok_and(|pending_cursor| pending_cursor.is_newer_than(cursor))
+                        .is_ok_and(|pending_cursor| pending_cursor.is_newer(cursor))
                 });
             }
             None => {
@@ -221,14 +220,14 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
         }
         if let Some(base_cursor) = self.base_cursor {
             self.diff_ticks
-                .retain(|(cursor, _)| cursor.is_newer_than(base_cursor));
+                .retain(|(cursor, _)| cursor.is_newer(base_cursor));
         }
         self.diff_ticks
             .retain(|(_, cursor_tick)| *cursor_tick >= tick);
         let base_cursor = self.base_cursor;
         self.pending.retain(|pending| {
             pending.cursor().is_ok_and(|cursor| {
-                base_cursor.is_none_or(|base_cursor| cursor.is_newer_than(base_cursor))
+                base_cursor.is_none_or(|base_cursor| cursor.is_newer(base_cursor))
             })
         });
     }
@@ -278,7 +277,7 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
         }
 
         if let Some(base_cursor) = self.base_cursor
-            && base_cursor.is_newer_than(pending.base_cursor())
+            && base_cursor.is_newer(pending.base_cursor())
         {
             let retained_first_diff = base_cursor + 1;
             let drop_count = retained_first_diff.distance_after(pending.first_diff_index) as usize;
@@ -359,7 +358,7 @@ impl<C: RepliconDiffable> HistoryDiffReceiver<C> {
 
     fn is_retired_cursor(&self, cursor: DiffIndex) -> bool {
         self.base_cursor
-            .is_some_and(|base_cursor| cursor == base_cursor || !cursor.is_newer_than(base_cursor))
+            .is_some_and(|base_cursor| cursor == base_cursor || !cursor.is_newer(base_cursor))
     }
 
     fn has_removal_between(

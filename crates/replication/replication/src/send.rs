@@ -27,8 +27,6 @@ use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
-#[cfg(any(feature = "prediction", feature = "interpolation"))]
-use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use bevy_time::Time;
 use core::ops::Deref;
 use lightyear_connection::client::PeerMetadata;
@@ -1088,15 +1086,6 @@ impl Plugin for SendPlugin {
         );
         #[cfg(feature = "server")]
         app.add_observer(emulate_replicate_on_host_client_added);
-
-        #[cfg(any(feature = "prediction", feature = "interpolation"))]
-        // We enable this replicon setting that does a few things:
-        // - replication mutations are sent every RepliconTick, even if there were 0 mutations. This is to avoid
-        //   situations where a client mispredicted something, and there is no correct since the sender didn't send
-        //   any further updates
-        // - it adds a `ServerMutateTicks` resource on the receiver that keeps track of the ticks where the receiver
-        //   received any messages
-        app.track_mutate_messages();
 
         // make sure that any ordering relative to ReplicationSystems is also applied to ServerSystems
         app.configure_sets(

@@ -240,7 +240,7 @@ leafwing-input-manager = { version = "0.21", default-features = false, features 
 ] }
 
 # replication
-bevy_replicon = { version = "0.41" }
+bevy_replicon = { git = "https://github.com/simgine/bevy_replicon", branch = "master" }
 
 # physics
 avian2d = { version = "0.7", default-features = false }

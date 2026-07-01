@@ -227,8 +227,15 @@ pub struct LightyearRepliconServerBackend;
 #[cfg(feature = "server")]
 impl Plugin for LightyearRepliconServerBackend {
     fn build(&self, app: &mut bevy_app::prelude::App) {
+        // We enable this Replicon setting when prediction/interpolation is active:
+        // - replication mutations are sent every RepliconTick, even if there were 0 mutations.
+        //   This avoids situations where a client mispredicted something, and the sender does
+        //   not send any further corrections because nothing changed.
+        // - it adds a `ServerMutateTicks` resource on the receiver that keeps track of the ticks
+        //   where the receiver received any messages.
         app.add_plugins(bevy_replicon::server::ServerPlugin {
             tick_schedule: None,
+            track_mutate_messages: cfg!(any(feature = "prediction", feature = "interpolation")),
             ..Default::default()
         });
         app.add_plugins(server::RepliconServerPlugin);

@@ -10,14 +10,12 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::server::{Started, Stopped};
 use lightyear_core::id::RemoteId;
-use lightyear_core::prelude::LocalTimeline;
 use lightyear_link::prelude::Server;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
-use crate::checkpoint::{SERVER_PAYLOAD_HEADER_LEN, wrap_server_payload};
 use lightyear_messages::plugin::MessageSystems;
 use tracing::trace;
 
@@ -47,7 +45,10 @@ impl Plugin for RepliconServerPlugin {
         );
         app.add_systems(
             PostUpdate,
-            send_server_packets.in_set(ServerSystems::SendPackets),
+            (
+                crate::checkpoint::write_authoritative_tick_userdata.before(ServerSystems::Send),
+                send_server_packets.in_set(ServerSystems::SendPackets),
+            ),
         );
 
         app.configure_sets(
@@ -80,8 +81,8 @@ fn on_client_connected(
     for (entity, remote_id) in remotes.iter() {
         commands.entity(entity).insert((
             ConnectedClient {
-                max_size: lightyear_transport::packet::packet_builder::MAX_UNFRAGMENTED_PAYLOAD_SIZE
-                    - SERVER_PAYLOAD_HEADER_LEN,
+                max_size:
+                    lightyear_transport::packet::packet_builder::MAX_UNFRAGMENTED_PAYLOAD_SIZE,
             },
             NetworkId::new(remote_id.to_bits()),
         ));
@@ -133,19 +134,11 @@ fn receive_server_packets(
 /// Drains `ServerMessages` and sends on server_channels (Updates, Mutations).
 fn send_server_packets(
     channel_map: Res<RepliconChannelMap>,
-    timeline: Res<LocalTimeline>,
     mut server_messages: ResMut<ServerMessages>,
     mut transports: Query<&mut Transport, With<ClientOf>>,
 ) {
     for (client, channel_idx, message) in server_messages.drain_sent() {
         let (channel_kind, _) = channel_map.server_channels[channel_idx];
-        let message = match channel_idx {
-            // Replicon channels 0/1 feed ConfirmHistory / ServerMutateTicks on the client.
-            // Prefix them with the authoritative server Lightyear tick so prediction can later
-            // translate Replicon checkpoint ticks back into simulation time.
-            0 | 1 => wrap_server_payload(timeline.tick(), message),
-            _ => message,
-        };
         trace!(
             "send_server_packets: sending {} bytes on channel_idx={} to {:?}",
             message.len(),

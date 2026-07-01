@@ -234,17 +234,6 @@ fn test_bound_action_spawned_from_received_context_sends_inputs_after_mapping() 
         .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
         .id();
 
-    let server_action = stepper
-        .server_app
-        .world_mut()
-        .spawn((
-            ActionOf::<BEIContext>::new(server_entity),
-            Action::<BEIAction1>::default(),
-            PreSpawned::new(TEST_HASH),
-            Replicate::to_clients(NetworkTarget::All),
-        ))
-        .id();
-
     stepper.frame_step(3);
 
     let client_entity = stepper
@@ -254,6 +243,13 @@ fn test_bound_action_spawned_from_received_context_sends_inputs_after_mapping() 
         .entity_mapper
         .get_local(server_entity)
         .expect("context entity should be replicated to client");
+
+    stepper.server_app.world_mut().spawn((
+        ActionOf::<BEIContext>::new(server_entity),
+        Action::<BEIAction1>::default(),
+        PreSpawned::new(TEST_HASH),
+        Replicate::to_clients(NetworkTarget::All),
+    ));
 
     let client_action = stepper
         .client_app()

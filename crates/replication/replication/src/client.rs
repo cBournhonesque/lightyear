@@ -16,9 +16,7 @@ use lightyear_transport::prelude::Transport;
 #[cfg(any(feature = "prediction", feature = "interpolation"))]
 use crate::ReplicationSystems;
 use crate::channels::RepliconChannelMap;
-use crate::checkpoint::{
-    ReplicationCheckpointMap, extract_server_replicon_tick, unwrap_server_payload,
-};
+use crate::checkpoint::ReplicationCheckpointMap;
 use crate::prelude::Replicated;
 use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
@@ -35,11 +33,7 @@ pub struct RepliconClientPlugin;
 
 impl Plugin for RepliconClientPlugin {
     fn build(&self, app: &mut App) {
-        #[cfg(any(feature = "prediction", feature = "interpolation"))]
-        {
-            use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
-            app.track_mutate_messages();
-        }
+        app.add_observer(crate::checkpoint::record_authoritative_tick_userdata);
 
         // State management
         app.add_systems(
@@ -149,37 +143,13 @@ fn sync_client_state(
 fn receive_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,
-    mut checkpoints: ResMut<ReplicationCheckpointMap>,
     mut transports: Query<&mut Transport, With<Client>>,
 ) {
     for mut transport in transports.iter_mut() {
         for (idx, &(_, channel_id)) in channel_map.server_channels.iter().enumerate() {
             if let Some(receiver) = transport.receivers.get_mut(&channel_id) {
                 while let Some((_, message, _)) = receiver.receiver.read_message() {
-                    if idx <= 1 {
-                        // Server update / mutation packets are wrapped by Lightyear with the
-                        // authoritative simulation tick. We unwrap, record the
-                        // RepliconTick -> Tick mapping for prediction/rollback, then hand the
-                        // original inner bytes back to Replicon unchanged.
-                        match unwrap_server_payload(message).and_then(|(header, inner)| {
-                            let replicon_tick = extract_server_replicon_tick(idx, &inner)?;
-                            Ok((header, inner, replicon_tick))
-                        }) {
-                            Ok((header, inner, replicon_tick)) => {
-                                checkpoints.record(replicon_tick, header.authoritative_tick);
-                                client_messages.insert_received(idx, inner);
-                            }
-                            Err(error_kind) => {
-                                error!(
-                                    ?error_kind,
-                                    channel_idx = idx,
-                                    "dropping malformed wrapped replicon server payload"
-                                );
-                            }
-                        }
-                    } else {
-                        client_messages.insert_received(idx, message);
-                    }
+                    client_messages.insert_received(idx, message);
                 }
             }
         }

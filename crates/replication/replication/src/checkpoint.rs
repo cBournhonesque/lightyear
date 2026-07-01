@@ -14,19 +14,15 @@
 //! authoritative server simulation.
 //!
 //! # How the mapping is carried
-//! Lightyear does not modify Replicon's internal message format. Instead, the Lightyear transport
-//! bridge wraps Replicon server payloads on the wire:
+//! Lightyear stores the authoritative [`Tick`] in Replicon's replication userdata:
 //!
-//! 1. On the server, [`wrap_server_payload`] prefixes the raw Replicon bytes with a lightweight
-//!    Lightyear header containing the authoritative [`Tick`].
-//! 2. On the client, [`unwrap_server_payload`] strips that header back off before forwarding the
-//!    original bytes to Replicon.
-//! 3. Before forwarding, [`extract_server_replicon_tick`] reads the Replicon checkpoint identifier
-//!    from the inner payload and [`ReplicationCheckpointMap::record`] stores the
-//!    `RepliconTick -> Tick` association.
-//!
-//! The wrapped bytes are only used at the Lightyear bridge boundary. Replicon still receives the
-//! original payload unchanged.
+//! 1. On the server, [`write_authoritative_tick_userdata`] writes the current Lightyear tick into
+//!    [`ReplicationUserdata`](bevy_replicon::server::ReplicationUserdata) before Replicon builds
+//!    replication messages.
+//! 2. Replicon serializes those bytes into its update and mutation messages.
+//! 3. On the client, Replicon triggers
+//!    [`UserdataReceived`](bevy_replicon::client::UserdataReceived) before applying the message,
+//!    and [`record_authoritative_tick_userdata`] stores the `RepliconTick -> Tick` association.
 //!
 //! # Which tick to use
 //! - Use [`RepliconTick`] for Replicon protocol concerns only: packet ordering, completeness, and
@@ -39,49 +35,39 @@
 //! [`ConfirmHistory`]: bevy_replicon::client::confirm_history::ConfirmHistory
 //! [`ServerMutateTicks`]: bevy_replicon::client::server_mutate_ticks::ServerMutateTicks
 use alloc::collections::VecDeque;
-use bytes::{Buf, Bytes, BytesMut};
 
+#[cfg(feature = "client")]
+use bevy_ecs::prelude::On;
+#[cfg(feature = "server")]
+use bevy_ecs::prelude::Res;
+#[cfg(any(feature = "client", feature = "server"))]
+use bevy_ecs::prelude::ResMut;
 use bevy_ecs::prelude::Resource;
 use bevy_platform::collections::HashMap;
+#[cfg(feature = "client")]
+use bevy_replicon::client::UserdataReceived;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_replicon::prelude::RepliconTick;
+#[cfg(feature = "server")]
+use bevy_replicon::server::ReplicationUserdata;
+#[cfg(feature = "server")]
+use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
+#[cfg(feature = "client")]
+use tracing::error;
 
-const CHECKPOINT_MAGIC: [u8; 2] = *b"LY";
-const CHECKPOINT_VERSION: u8 = 1;
-pub const SERVER_PAYLOAD_HEADER_LEN: usize = 7;
+pub const CHECKPOINT_USERDATA_LEN: usize = core::mem::size_of::<Tick>();
 const MAX_STORED_CHECKPOINTS: usize = 256;
-
-/// Lightyear-owned header prepended to wrapped Replicon server payloads.
-///
-/// This header is carried only across the Lightyear transport bridge. Replicon never sees it:
-/// the client unwraps the payload and forwards the original inner bytes to Replicon unchanged.
-///
-/// `authoritative_tick` is the server-side Lightyear simulation tick that the wrapped Replicon
-/// checkpoint represents.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ReplicationCheckpointHeader {
-    pub version: u8,
-    pub authoritative_tick: Tick,
-}
-
-impl ReplicationCheckpointHeader {
-    pub const fn new(authoritative_tick: Tick) -> Self {
-        Self {
-            version: CHECKPOINT_VERSION,
-            authoritative_tick,
-        }
-    }
-}
 
 /// Receiver-side translation table from Replicon checkpoint ticks to authoritative server ticks.
 ///
-/// This resource is populated when the client receives wrapped Replicon server packets. For each
-/// payload on Replicon's update/mutation channels, the bridge:
+/// This resource is populated when Replicon triggers
+/// [`UserdataReceived`](bevy_replicon::client::UserdataReceived). For each payload on Replicon's
+/// update/mutation channels, the bridge:
 ///
-/// 1. reads the Lightyear header to recover the authoritative server [`Tick`]
-/// 2. reads the inner Replicon payload to recover the corresponding [`RepliconTick`]
-/// 3. records the association here before handing the original bytes to Replicon
+/// 1. reads the Lightyear [`Tick`] from the Replicon userdata bytes
+/// 2. uses Replicon's `message_tick` as the corresponding [`RepliconTick`]
+/// 3. records the association here before Replicon applies the message
 ///
 /// Prediction and rollback code should use this resource whenever they need to interpret
 /// [`ConfirmHistory`] or
@@ -180,97 +166,58 @@ pub fn resolve_confirm_history_tick(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CheckpointError {
-    MissingHeader,
-    InvalidMagic,
-    UnsupportedVersion(u8),
-    UnsupportedChannel(usize),
-    InvalidPayload,
+    InvalidUserdataLength(usize),
 }
 
-/// Prefix a Replicon server payload with the authoritative Lightyear simulation tick.
-///
-/// This is done in the Lightyear server bridge immediately before the payload is handed to the
-/// transport layer. Replicon's serialized bytes are preserved verbatim after the header.
-pub fn wrap_server_payload(authoritative_tick: Tick, payload: Bytes) -> Bytes {
-    let mut wrapped = BytesMut::with_capacity(SERVER_PAYLOAD_HEADER_LEN + payload.len());
-    wrapped.extend_from_slice(&CHECKPOINT_MAGIC);
-    wrapped.extend_from_slice(&[CHECKPOINT_VERSION]);
-    wrapped.extend_from_slice(&authoritative_tick.0.to_le_bytes());
-    wrapped.extend_from_slice(&payload);
-    wrapped.freeze()
+pub fn encode_authoritative_tick(authoritative_tick: Tick) -> [u8; CHECKPOINT_USERDATA_LEN] {
+    authoritative_tick.0.to_le_bytes()
 }
 
-/// Remove the Lightyear checkpoint header from a wrapped Replicon server payload.
-///
-/// The returned [`Bytes`] are the original Replicon payload and should be forwarded to Replicon
-/// unchanged.
-pub fn unwrap_server_payload(
-    payload: Bytes,
-) -> Result<(ReplicationCheckpointHeader, Bytes), CheckpointError> {
-    if payload.len() < SERVER_PAYLOAD_HEADER_LEN {
-        return Err(CheckpointError::MissingHeader);
+pub fn decode_authoritative_tick(bytes: &[u8]) -> Result<Tick, CheckpointError> {
+    if bytes.len() != CHECKPOINT_USERDATA_LEN {
+        return Err(CheckpointError::InvalidUserdataLength(bytes.len()));
     }
-    if payload[0..2] != CHECKPOINT_MAGIC {
-        return Err(CheckpointError::InvalidMagic);
-    }
-    let version = payload[2];
-    if version != CHECKPOINT_VERSION {
-        return Err(CheckpointError::UnsupportedVersion(version));
-    }
-    let authoritative_tick = Tick(u32::from_le_bytes([
-        payload[3], payload[4], payload[5], payload[6],
-    ]));
-    Ok((
-        ReplicationCheckpointHeader {
-            version,
-            authoritative_tick,
-        },
-        payload.slice(SERVER_PAYLOAD_HEADER_LEN..),
-    ))
+    Ok(Tick(u32::from_le_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3],
+    ])))
 }
 
-/// Extract the Replicon checkpoint identifier from a wrapped server payload's inner bytes.
-///
-/// Replicon uses different payload layouts on its server update and mutation channels:
-///
-/// - channel `0` carries update packets whose leading Replicon tick is the checkpoint id
-/// - channel `1` carries mutation packets with both `update_tick` and `message_tick`; the latter
-///   is the completeness checkpoint used by [`ConfirmHistory`] /
-///   [`ServerMutateTicks`](bevy_replicon::client::server_mutate_ticks::ServerMutateTicks)
-///
-/// The returned [`RepliconTick`] should not be used directly for rollback or prediction. It is
-/// only the lookup key into [`ReplicationCheckpointMap`].
-pub fn extract_server_replicon_tick(
-    channel_idx: usize,
-    payload: &Bytes,
-) -> Result<RepliconTick, CheckpointError> {
-    let mut payload = payload.clone();
-    match channel_idx {
-        0 => {
-            if payload.is_empty() {
-                return Err(CheckpointError::InvalidPayload);
-            }
-            payload.advance(1);
-            bevy_replicon::postcard_utils::from_buf(&mut payload)
-                .map_err(|_| CheckpointError::InvalidPayload)
+/// Write the authoritative Lightyear simulation tick into Replicon's replication userdata.
+#[cfg(feature = "server")]
+pub(crate) fn write_authoritative_tick_userdata(
+    timeline: Res<LocalTimeline>,
+    mut userdata: ResMut<ReplicationUserdata>,
+) {
+    userdata.clear();
+    userdata.extend_from_slice(&encode_authoritative_tick(timeline.tick()));
+}
+
+/// Record the authoritative Lightyear simulation tick carried by Replicon userdata.
+#[cfg(feature = "client")]
+pub(crate) fn record_authoritative_tick_userdata(
+    received: On<UserdataReceived>,
+    mut checkpoints: ResMut<ReplicationCheckpointMap>,
+) {
+    match decode_authoritative_tick(received.bytes.as_ref()) {
+        Ok(authoritative_tick) => checkpoints.record(received.message_tick, authoritative_tick),
+        Err(error_kind) => {
+            error!(
+                ?error_kind,
+                replicon_tick = ?received.message_tick,
+                userdata_len = received.bytes.len(),
+                "dropping invalid replicon checkpoint userdata"
+            );
+            debug_assert!(
+                false,
+                "invalid authoritative checkpoint userdata: {error_kind:?}"
+            );
         }
-        1 => {
-            let _: RepliconTick = bevy_replicon::postcard_utils::from_buf(&mut payload)
-                .map_err(|_| CheckpointError::InvalidPayload)?;
-            let message_tick: RepliconTick = bevy_replicon::postcard_utils::from_buf(&mut payload)
-                .map_err(|_| CheckpointError::InvalidPayload)?;
-            Ok(message_tick)
-        }
-        _ => Err(CheckpointError::UnsupportedChannel(channel_idx)),
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::vec::Vec;
-
-    use bevy_replicon::postcard_utils;
 
     #[test]
     fn checkpoint_map_prunes_old_entries() {
@@ -331,54 +278,17 @@ mod tests {
     }
 
     #[test]
-    fn update_payload_roundtrip_preserves_bytes_and_tick() {
-        let replicon_tick = RepliconTick::new(77);
-        let mut payload = Vec::new();
-        payload.push(0b0000_1000);
-        postcard_utils::to_extend_mut(&replicon_tick, &mut payload).unwrap();
-        payload.extend_from_slice(&[1, 2, 3, 4]);
-        let payload = Bytes::from(payload);
+    fn authoritative_tick_userdata_roundtrips() {
+        let bytes = encode_authoritative_tick(Tick(42));
 
-        let wrapped = wrap_server_payload(Tick(42), payload.clone());
-        let (header, inner) = unwrap_server_payload(wrapped).unwrap();
-
-        assert_eq!(header, ReplicationCheckpointHeader::new(Tick(42)));
-        assert_eq!(inner, payload);
-        assert_eq!(
-            extract_server_replicon_tick(0, &inner).unwrap(),
-            replicon_tick
-        );
+        assert_eq!(decode_authoritative_tick(&bytes), Ok(Tick(42)));
     }
 
     #[test]
-    fn mutation_payload_roundtrip_preserves_bytes_and_tick() {
-        let update_tick = RepliconTick::new(10);
-        let message_tick = RepliconTick::new(11);
-        let mut payload = Vec::new();
-        postcard_utils::to_extend_mut(&update_tick, &mut payload).unwrap();
-        postcard_utils::to_extend_mut(&message_tick, &mut payload).unwrap();
-        postcard_utils::to_extend_mut(&3usize, &mut payload).unwrap();
-        payload.extend_from_slice(&[9, 8, 7]);
-        let payload = Bytes::from(payload);
-
-        let wrapped = wrap_server_payload(Tick(55), payload.clone());
-        let (header, inner) = unwrap_server_payload(wrapped).unwrap();
-
-        assert_eq!(header, ReplicationCheckpointHeader::new(Tick(55)));
-        assert_eq!(inner, payload);
+    fn invalid_authoritative_tick_userdata_is_rejected() {
         assert_eq!(
-            extract_server_replicon_tick(1, &inner).unwrap(),
-            message_tick
-        );
-    }
-
-    #[test]
-    fn malformed_payload_is_rejected() {
-        let payload = Bytes::from_static(b"bad");
-
-        assert_eq!(
-            unwrap_server_payload(payload),
-            Err(CheckpointError::MissingHeader)
+            decode_authoritative_tick(&[1, 2, 3]),
+            Err(CheckpointError::InvalidUserdataLength(3))
         );
     }
 }
