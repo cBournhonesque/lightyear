@@ -1,18 +1,25 @@
 //! Check various replication scenarios between 2 peers only
 
-use crate::protocol::{CompA, CompCustomInterp, CompCustomReplicateOnce, CompReplicateOnce};
+use crate::protocol::{
+    CompA, CompCustomInterp, CompCustomReplicateOnce, CompReplicateOnce, CompSimple,
+};
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
 use bevy_replicon::prelude::Replicated as RepliconReplicated;
-use lightyear::prelude::ConfirmedHistory;
+use lightyear::prelude::{
+    AppInterpolationExt, ConfirmedHistory, InterpolationFns, InterpolationTimeline,
+};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::tick::Tick;
+use lightyear_core::time::TickInstant;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
 use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::IsSynced;
 use test_log::test;
 use tracing::info;
 
@@ -390,6 +397,65 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
     assert!(
         history.start_present().is_some(),
         "custom-interpolated history should contain at least one confirmed update"
+    );
+}
+
+#[test]
+fn test_bundle_interpolation_applies_tuple_function() {
+    fn bundle_lerp(
+        start: (CompA, CompSimple),
+        end: (CompA, CompSimple),
+        t: f32,
+    ) -> (CompA, CompSimple) {
+        (
+            CompA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
+            CompSimple(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+        )
+    }
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    stepper
+        .client_app()
+        .interpolate_bundle_with::<(CompA, CompSimple)>(InterpolationFns::interpolate(bundle_lerp));
+
+    let mut history_a = ConfirmedHistory::<CompA>::default();
+    history_a.insert_present(Tick(10), CompA(0.0));
+    history_a.insert_present(Tick(20), CompA(10.0));
+
+    let mut history_b = ConfirmedHistory::<CompSimple>::default();
+    history_b.insert_present(Tick(10), CompSimple(0.0));
+    history_b.insert_present(Tick(20), CompSimple(20.0));
+
+    let entity = {
+        let app = stepper.client_app();
+        let world = app.world_mut();
+        let mut timelines = world
+            .query_filtered::<&mut InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>();
+        timelines
+            .single_mut(world)
+            .unwrap()
+            .set_now(TickInstant::from(Tick(15)));
+
+        world
+            .spawn((
+                Interpolated,
+                CompA(-1.0),
+                CompSimple(-1.0),
+                history_a,
+                history_b,
+            ))
+            .id()
+    };
+
+    stepper.client_app().update();
+
+    assert_eq!(
+        stepper.client_apps[0].world().get::<CompA>(entity),
+        Some(&CompA(105.0))
+    );
+    assert_eq!(
+        stepper.client_apps[0].world().get::<CompSimple>(entity),
+        Some(&CompSimple(210.0))
     );
 }
 

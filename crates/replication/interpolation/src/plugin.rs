@@ -1,6 +1,7 @@
 use crate::SyncComponent;
+use crate::archetypes::{InterpolatedArchetypes, update_interpolated_archetypes};
 use crate::despawn::configure_delayed_interpolated_despawn;
-use crate::interpolate::{interpolate, update_confirmed_history, update_confirmed_history_diff};
+use crate::interpolate::{interpolate, update_interpolation_histories};
 use crate::registry::{
     InterpolationRegistry, insert_confirmed_history_on_interpolated,
     insert_confirmed_history_on_interpolated_diff,
@@ -85,6 +86,9 @@ pub enum InterpolationSystems {
     Sync,
 
     // Update
+    /// Resolve interpolation rules for newly-created interpolated archetypes.
+    Cache,
+
     /// Update component history
     /// (add new values from confirmed updates and pop values that are older than interpolation)
     ///
@@ -103,24 +107,12 @@ pub enum InterpolationSystems {
 pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(app: &mut App) {
     // TODO: maybe create an overarching prediction set that contains all others?
     app.add_observer(insert_confirmed_history_on_interpolated::<C>);
-    app.add_systems(
-        Update,
-        update_confirmed_history::<C>
-            .chain()
-            .in_set(InterpolationSystems::Prepare),
-    );
 }
 
 pub(crate) fn add_prepare_interpolation_diff_systems<C: SyncComponent + RepliconDiffable>(
     app: &mut App,
 ) {
     app.add_observer(insert_confirmed_history_on_interpolated_diff::<C>);
-    app.add_systems(
-        Update,
-        update_confirmed_history_diff::<C>
-            .chain()
-            .in_set(InterpolationSystems::Prepare),
-    );
 }
 
 // We add the interpolate system in different function because we might not want to add them
@@ -141,6 +133,7 @@ impl Plugin for InterpolationPlugin {
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
+        app.init_resource::<InterpolatedArchetypes>();
         configure_delayed_interpolated_despawn(app);
 
         // Host-Clients have no interpolation delay
@@ -158,11 +151,20 @@ impl Plugin for InterpolationPlugin {
             Update,
             (
                 // PrepareInterpolation uses the sync values (which are used to compute interpolation)
-                InterpolationSystems::Prepare.after(SyncSystems::Sync),
+                InterpolationSystems::Cache.after(SyncSystems::Sync),
+                InterpolationSystems::Prepare,
                 InterpolationSystems::Interpolate,
             )
                 .in_set(InterpolationSystems::All)
                 .chain(),
+        );
+        app.add_systems(
+            Update,
+            update_interpolated_archetypes.in_set(InterpolationSystems::Cache),
+        );
+        app.add_systems(
+            Update,
+            update_interpolation_histories.in_set(InterpolationSystems::Prepare),
         );
     }
 }
