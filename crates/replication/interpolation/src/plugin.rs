@@ -13,7 +13,6 @@ use bevy_ecs::{
 };
 use bevy_reflect::Reflect;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
-use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::Tick;
 use lightyear_core::time::PositiveTickDelta;
@@ -135,9 +134,6 @@ pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
-
-        // REPLICON
-        app.track_mutate_messages();
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();

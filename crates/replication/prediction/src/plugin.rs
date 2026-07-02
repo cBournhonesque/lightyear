@@ -19,7 +19,6 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
-use bevy_replicon::shared::replication::track_mutate_messages::TrackAppExt;
 #[cfg(feature = "metrics")]
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
@@ -192,9 +191,6 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
-
-        // REPLICON
-        app.track_mutate_messages();
 
         // Custom entity disabling
         let rollback_disable_id = app
