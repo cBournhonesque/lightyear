@@ -47,7 +47,7 @@ jobs:
           shared-key: platform-build-${{ runner.os }}
 
       - name: Build lightyear
-        run: cargo build --locked -p lightyear
+        run: cargo build -p lightyear
 
   wasm:
     name: Build WASM
@@ -70,7 +70,7 @@ jobs:
 
       - name: Build lightyear for WASM
         run: >
-          cargo build --locked -p lightyear
+          cargo build -p lightyear
           --target wasm32-unknown-unknown
           --no-default-features
           --features "std client replication prediction interpolation netcode websocket webtransport"
