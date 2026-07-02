@@ -61,6 +61,14 @@ pub struct PacketAcked {
     pub rtt_sample: Duration,
 }
 
+/// Event triggered on a [`Transport`] entity when a sent packet is presumed lost
+/// (its acknowledgement did not arrive before the nack timeout).
+#[derive(EntityEvent)]
+pub struct PacketLost {
+    pub entity: Entity,
+    pub packet_id: u32,
+}
+
 pub struct TransportPlugin;
 
 impl TransportPlugin {
@@ -122,6 +130,18 @@ impl TransportPlugin {
                             packet_loss = true,
                             "transport packet marked lost"
                         );
+                        #[cfg(feature = "std")]
+                        par_commands.command_scope(|mut commands| {
+                            commands.trigger(PacketLost {
+                                entity,
+                                packet_id: lost_packet.0,
+                            });
+                        });
+                        #[cfg(not(feature = "std"))]
+                        commands.trigger(PacketLost {
+                            entity,
+                            packet_id: lost_packet.0,
+                        });
                         if let Some(message_map) =
                             transport.packet_to_message_map.remove(&lost_packet)
                         {

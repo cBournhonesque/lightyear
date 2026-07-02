@@ -282,6 +282,10 @@ pub mod steam {
     pub use lightyear_steam::*;
 }
 
+pub mod transport {
+    pub use lightyear_transport::*;
+}
+
 #[cfg(feature = "webtransport")]
 pub mod webtransport {
     pub use lightyear_webtransport::*;
