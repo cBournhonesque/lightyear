@@ -261,10 +261,14 @@ egui_extras = "0.34"
 # WASM things
 console_error_panic_hook = "0.1.7"
 web-time = "1.1.0"
+# Direct feature shims for transitive crates that still span multiple getrandom versions.
 getrandom = { version = "0.3", features = [
   "wasm_js", # feature 'js' is required for wasm, see https://github.com/rust-random/getrandom?tab=readme-ov-file#webassembly-support
 ] }
 getrandom_02 = { version = "0.2", features = ["js"], package = "getrandom" }
+getrandom_04 = { version = "0.4", features = [
+  "wasm_js",
+], package = "getrandom" }
 
 [workspace.lints.rust]
 dead_code = "allow"

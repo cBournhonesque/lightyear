@@ -1,0 +1,76 @@
+name: Platform builds
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - ".gitignore"
+      - ".github/dependabot.yml"
+      - "**.md"
+  pull_request:
+    paths-ignore:
+      - ".gitignore"
+      - ".github/dependabot.yml"
+      - "**.md"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  native:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux
+            os: ubuntu-latest
+          - name: macOS
+            os: macos-latest
+          - name: Windows
+            os: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache crates
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-all-crates: true
+          shared-key: platform-build-${{ runner.os }}
+
+      - name: Build lightyear
+        run: cargo build --locked -p lightyear
+
+  wasm:
+    name: Build WASM
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache crates
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-all-crates: true
+          shared-key: platform-build-wasm
+
+      - name: Build lightyear for WASM
+        run: >
+          cargo build --locked -p lightyear
+          --target wasm32-unknown-unknown
+          --no-default-features
+          --features "std client replication prediction interpolation netcode websocket webtransport"
