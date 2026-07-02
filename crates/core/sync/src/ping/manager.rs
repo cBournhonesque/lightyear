@@ -30,7 +30,7 @@ impl Default for PingConfig {
 }
 
 /// The [`PingManager`] is responsible for sending regular pings to the remote machine,
-/// and monitor pongs in order to estimate statistics (rtt, jitter) about the connection.
+/// and monitoring pongs in order to estimate statistics (RTT, jitter) about the connection.
 #[derive(Debug, Component)]
 #[require(MessageSender<Ping>, MessageReceiver<Ping>, MessageSender<Pong>, MessageReceiver<Pong>)]
 pub struct PingManager {
@@ -45,13 +45,13 @@ pub struct PingManager {
     /// (when the connection's send_timer is ready)
     pongs_to_send: Vec<(Pong, Instant)>,
 
-    /// Estimator used to compute RTT/Jitter from pongs and packet acknowledgements.
+    /// Estimator used to compute RTT/Jitter from explicit Ping/Pong messages.
     pub rtt_estimator_ewma: RttEstimatorEwma,
     /// The number of pings we have sent
     pub(crate) pings_sent: u32,
     /// The number of pongs we have received
     pub pongs_recv: u32,
-    /// The number of latency samples received from pongs or packet acknowledgements.
+    /// The number of Ping/Pong latency samples used by the estimator.
     latency_samples_recv: u32,
 }
 
@@ -124,22 +124,6 @@ impl PingManager {
     fn record_rtt_sample(&mut self, rtt_sample: Duration) {
         self.latency_samples_recv += 1;
         self.rtt_estimator_ewma.update_with_new_sample(rtt_sample);
-    }
-
-    /// Process an RTT sample measured from an ordinary packet acknowledgement.
-    pub fn process_packet_rtt_sample(&mut self, rtt_sample: Duration) {
-        self.record_rtt_sample(rtt_sample);
-        trace!(
-            target: "lightyear_debug::sync",
-            kind = "packet_ack_rtt_sample",
-            schedule = "PreUpdate",
-            sample_point = "PreUpdate",
-            rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
-            latency_samples_recv = self.latency_samples_recv,
-            estimated_rtt_ms = self.rtt().as_secs_f64() * 1000.0,
-            jitter_ms = self.jitter().as_secs_f64() * 1000.0,
-            "processed packet ack RTT sample"
-        );
     }
 
     /// Check if we are ready to send a ping to the remote
@@ -234,123 +218,4 @@ impl PingManager {
     pub(crate) fn take_pending_pongs(&mut self) -> Vec<(Pong, Instant)> {
         core::mem::take(&mut self.pongs_to_send)
     }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn packet_ack_rtt_samples_update_latency_stats_without_pongs() {
-        let mut ping_manager = PingManager::default();
-
-        ping_manager.process_packet_rtt_sample(Duration::from_millis(50));
-
-        assert_eq!(ping_manager.pongs_recv, 0);
-        assert_eq!(ping_manager.latency_samples_recv(), 1);
-        assert_eq!(ping_manager.rtt(), Duration::from_millis(50));
-        assert_eq!(
-            ping_manager.jitter(),
-            Duration::from_millis(12) + Duration::from_micros(500)
-        );
-    }
-
-    // #[test]
-    // fn test_send_pings() {
-    //     let config = PingConfig {
-    //         ping_interval: Duration::from_millis(100),
-    //         stats_buffer_duration: Duration::from_secs(4),
-    //     };
-    //     let mut ping_manager = PingManager::new(config, Duration::default());
-    //     let mut real = Time::<Real>::default();
-    //     real.update();
-    //
-    //     assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
-    //
-    //     let delta = Duration::from_millis(100);
-    //     real.update_with_duration(delta);
-    //     ping_manager.update(&real);
-    //
-    //     // send pings
-    //     assert_eq!(
-    //         ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
-    //         Some(Ping { id: PingId(0) })
-    //     );
-    //     let delta = Duration::from_millis(60);
-    //     real.update_with_duration(delta);
-    //     ping_manager.update(&real);
-    //
-    //     // ping timer hasn't gone off yet, send nothing
-    //     assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
-    //     real.update_with_duration(delta);
-    //     ping_manager.update(&real);
-    //     assert_eq!(
-    //         ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
-    //         Some(Ping { id: PingId(1) })
-    //     );
-    //
-    //     let delta = Duration::from_millis(100);
-    //     real.update_with_duration(delta);
-    //     ping_manager.update(&real);
-    //     assert_eq!(
-    //         ping_manager.maybe_prepare_ping(real.last_update().unwrap()),
-    //         Some(Ping { id: PingId(2) })
-    //     );
-    //
-    //     // we sent all the pings we need
-    //     assert_eq!(ping_manager.maybe_prepare_ping(real.last_update().unwrap()), None);
-    //
-    //     // check ping store
-    //     assert_eq!(
-    //         ping_manager.ping_store.remove(PingId(0)),
-    //         Some(Duration::from_millis(100))
-    //     );
-    //     assert_eq!(
-    //         ping_manager.ping_store.remove(PingId(1)),
-    //         Some(Duration::from_millis(220))
-    //     );
-    //     assert_eq!(
-    //         ping_manager.ping_store.remove(PingId(2)),
-    //         Some(Duration::from_millis(320))
-    //     );
-    //
-    //     // receive pongs
-    //     // TODO
-    // }
-
-    // #[test]
-    // fn test_ping_manager() {
-    //     let ping_config = PingConfig {
-    //         ping_interval_ms: Duration::from_millis(100),
-    //         rtt_ms_initial_estimate: Duration::from_millis(10),
-    //         jitter_ms_initial_estimate: Default::default(),
-    //         rtt_smoothing_factor: 0.0,
-    //     };
-    //     let mut ping_manager = PingManager::new(&ping_config);
-    //     // let tick_config = TickConfig::new(Duration::from_millis(16));
-    //     let mut time_manager = TimeManager::new(Duration::default());
-    //
-    //     assert!(!ping_manager.should_send_ping());
-    //     let delta = Duration::from_millis(100);
-    //     ping_manager.update(delta);
-    //     time_manager.update(delta, Duration::default());
-    //     assert!(ping_manager.should_send_ping());
-    //
-    //     let ping_message = ping_manager.prepare_ping(&time_manager);
-    //     assert!(!ping_manager.should_send_ping());
-    //     assert_eq!(ping_message.id, PingId(0));
-    //
-    //     let delta = Duration::from_millis(20);
-    //     ping_manager.update(delta);
-    //     time_manager.update(delta, Duration::default());
-    //     let pong_message = Pong {
-    //         ping_id: PingId(0),
-    //         tick: Default::default(),
-    //         offset_sec: 0.0,
-    //     };
-    //     ping_manager.process_pong(pong_message, &time_manager);
-    //
-    //     assert_eq!(ping_manager.rtt_ms_average, 0.9 * 10.0 + 0.1 * 20.0);
-    //     assert_eq!(ping_manager.jitter_ms_average, 0.9 * 0.0 + 0.1 * 5.0);
-    // }
 }

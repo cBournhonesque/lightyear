@@ -35,7 +35,7 @@ impl PingDiagnosticsPlugin {
     pub const PONGS_RECEIVED: DiagnosticPath =
         DiagnosticPath::const_new("ping.pong_received_count");
 
-    /// Number of RTT samples received from pongs or packet acknowledgements.
+    /// Number of RTT samples received from pongs.
     pub const LATENCY_SAMPLES_RECEIVED: DiagnosticPath =
         DiagnosticPath::const_new("ping.latency_sample_count");
 

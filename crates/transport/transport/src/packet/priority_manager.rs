@@ -228,3 +228,55 @@ impl PriorityManager {
         true
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::channel::builder::{ChannelMode, ChannelSettings};
+    use bytes::Bytes;
+
+    struct PingLikeChannel;
+    struct TurnTrafficChannel;
+
+    #[test]
+    fn infinite_priority_messages_are_ordered_before_traffic_bursts() {
+        let mut registry = ChannelRegistry::default();
+        let (_, ping_channel) = registry.add_channel::<PingLikeChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            priority: f32::INFINITY,
+            ..Default::default()
+        });
+        let (_, traffic_channel) = registry.add_channel::<TurnTrafficChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            priority: 1.0,
+            ..Default::default()
+        });
+        let mut manager = PriorityManager::new(PriorityConfig::new(1024));
+
+        manager.buffer_messages(
+            traffic_channel,
+            (0..120)
+                .map(|index| SendMessage {
+                    priority: 1.0,
+                    data: SingleData::new(None, Bytes::from(vec![index as u8; 8])).into(),
+                })
+                .collect(),
+            VecDeque::new(),
+        );
+        manager.buffer_messages(
+            ping_channel,
+            VecDeque::from([SendMessage {
+                priority: 1.0,
+                data: SingleData::new(None, Bytes::from_static(b"ping")).into(),
+            }]),
+            VecDeque::new(),
+        );
+
+        let (single_data, fragment_data) = manager.prioritize(&registry);
+
+        assert!(fragment_data.is_empty());
+        let (channel, messages) = single_data.first().expect("expected at least one message");
+        assert_eq!(*channel, ping_channel);
+        assert_eq!(messages[0].bytes, Bytes::from_static(b"ping"));
+    }
+}
