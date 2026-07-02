@@ -232,6 +232,9 @@ lightyear_udp = { workspace = true, optional = true }
 
 [target."cfg(target_family = \"wasm\")".dependencies]
 console_error_panic_hook.workspace = true
+getrandom.workspace = true
+getrandom_02.workspace = true
+getrandom_04.workspace = true
 lightyear_web.workspace = true
 
 [package.metadata.docs.rs]

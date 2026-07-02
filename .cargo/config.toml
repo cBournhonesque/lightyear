@@ -8,7 +8,7 @@ clip = "clippy --workspace --features=lightyear_core/not_mock,avian3d/f32 --excl
 linker = "/usr/bin/gcc"
 
 [env]
-CC = "/usr/bin/gcc"
+CC_x86_64_unknown_linux_gnu = "/usr/bin/gcc"
 PKG_CONFIG_PATH = "/tmp"
 
 [unstable]
