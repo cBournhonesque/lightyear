@@ -1,22 +1,24 @@
 use crate::SyncComponent;
-use crate::archetypes::InterpolatedArchetypes;
+use crate::archetypes::InterpolationWorld;
 use crate::registry::{
-    ApplyInterpolationContext, CachedInterpolationComponent, DeferredHistoryCommands,
-    InterpolationRegistry, InterpolationRuleId, UpdateHistoryContext,
-    sample_history_with_interpolation,
+    ApplyInterpolationContext, CachedInterpolationComponent, InterpolationRegistry,
+    InterpolationRuleId, UpdateHistoryContext, sample_history_with_interpolation,
 };
 use crate::timeline::InterpolationTimeline;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::StorageType;
 use bevy_ecs::prelude::*;
+use bevy_ecs::storage::Table;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_utils::prelude::DebugName;
+use core::cell::UnsafeCell;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, NetworkTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 #[allow(unused_imports)]
 use tracing::{info, trace};
@@ -28,76 +30,65 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
 
 /// Updates interpolation histories and applies Lightyear-owned interpolation.
 ///
-/// This is intentionally archetype-driven: a local [`InterpolatedArchetypes`]
-/// cache stores the highest-priority matching rule per archetype/component and
-/// the type-erased functions that should run for each cached archetype.
+/// This is intentionally archetype-driven: a local
+/// [`InterpolatedArchetypes`](crate::archetypes::InterpolatedArchetypes) cache
+/// stores the highest-priority matching rule per archetype/component and the
+/// type-erased functions that should run for each cached archetype.
 pub(crate) fn update_interpolation(
-    world: &mut World,
-    mut interpolated_archetypes: Local<InterpolatedArchetypes>,
+    mut interpolation_world: InterpolationWorld,
+    clients: Query<&InterpolationTimeline, Without<Interpolated>>,
+    interpolation_registry: Res<InterpolationRegistry>,
+    checkpoints: Res<ReplicationCheckpointMap>,
+    mut replication_storage: Option<ResMut<ReplicationStorage>>,
+    mut commands: Commands,
 ) {
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
-    let (current_interpolate_tick, interpolation_overstep) = {
-        let mut timelines = world.query::<&InterpolationTimeline>();
-        let Ok(timeline) = timelines.single(world) else {
-            return;
-        };
-        (timeline.now().tick(), timeline.overstep().to_f32())
+    let Ok(timeline) = clients.single() else {
+        return;
     };
-    let server_complete_tick = world
-        .resource::<ReplicationCheckpointMap>()
-        .last_confirmed_tick();
+    let current_interpolate_tick = timeline.now().tick();
+    let interpolation_overstep = timeline.overstep().to_f32();
+    let server_complete_tick = checkpoints.last_confirmed_tick();
 
-    let registry = world.resource::<InterpolationRegistry>() as *const InterpolationRegistry;
-    let registry = unsafe { &*registry };
-    interpolated_archetypes.update(world.archetypes(), world.components(), registry);
-
-    let mut deferred_apply = DeferredHistoryCommands::default();
-    {
-        let world = world.as_unsafe_world_cell();
-        let archetypes = world.archetypes();
-        for cached_archetype in interpolated_archetypes.iter() {
-            if cached_archetype.history_components().is_empty() {
-                continue;
-            }
-            let Some(archetype) = archetypes.get(cached_archetype.id()) else {
-                continue;
-            };
-            for component in cached_archetype.history_components() {
-                let ctx = UpdateHistoryContext {
-                    server_complete_tick,
-                    current_interpolate_tick,
-                    interpolation_overstep,
-                    interpolation: component.interpolation(),
-                };
-                (component.update_history())(world, archetype, component, ctx, &mut deferred_apply);
-            }
-        }
-    }
-
-    deferred_apply.apply(world);
-
-    let registry = world.resource::<InterpolationRegistry>() as *const InterpolationRegistry;
-    let registry = unsafe { &*registry };
-    interpolated_archetypes.update(world.archetypes(), world.components(), registry);
-
+    let mut deferred_apply = DeferredEntityCommands::default();
     let ctx = ApplyInterpolationContext {
         interpolation_tick: current_interpolate_tick,
         interpolation_overstep,
     };
-    let world = world.as_unsafe_world_cell();
-    let archetypes = world.archetypes();
-    for cached_archetype in interpolated_archetypes.iter() {
-        if cached_archetype.apply_components().is_empty() {
-            continue;
+
+    interpolation_world.update_archetypes(&interpolation_registry);
+    let world = interpolation_world.world;
+    for (archetype, cached_archetype) in interpolation_world.iter_archetypes() {
+        for component in cached_archetype.history_components() {
+            let ctx = UpdateHistoryContext {
+                server_complete_tick,
+                current_interpolate_tick,
+                interpolation_overstep,
+                interpolation: component.interpolation(),
+            };
+            (component.update_history())(
+                world,
+                archetype,
+                component,
+                ctx,
+                replication_storage.as_deref_mut(),
+                &mut deferred_apply,
+            );
         }
-        let Some(archetype) = archetypes.get(cached_archetype.id()) else {
-            continue;
-        };
         for component in cached_archetype.apply_components() {
-            (component.apply_interpolation())(world, archetype, registry, component.rule_id(), ctx);
+            (component.apply_interpolation())(
+                world,
+                archetype,
+                &interpolation_registry,
+                component.rule_id(),
+                ctx,
+                &mut deferred_apply,
+            );
         }
     }
+
+    deferred_apply.apply(&mut commands);
 }
 
 pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
@@ -105,7 +96,8 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
     archetype: &Archetype,
     component: &CachedInterpolationComponent,
     ctx: UpdateHistoryContext,
-    deferred_apply: &mut DeferredHistoryCommands,
+    _replication_storage: Option<&mut ReplicationStorage>,
+    deferred_apply: &mut DeferredEntityCommands,
 ) {
     let StorageType::Table = component.history_storage() else {
         debug_assert!(
@@ -114,31 +106,34 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
         );
         return;
     };
-    let table_id = archetype.table_id();
-    // SAFETY: `component` was cached from this archetype after verifying the
-    // history component is present and table-stored.
-    let histories = unsafe {
-        world
-            .storages()
-            .tables
-            .get(table_id)
-            .unwrap_unchecked()
-            .get_data_slice_for::<ConfirmedHistory<C>>(component.history_component_id())
-            .unwrap_unchecked()
+    let Some(table) = table_for_archetype(world, archetype) else {
+        return;
+    };
+    let Some(histories) = (unsafe {
+        table.get_data_slice_for::<ConfirmedHistory<C>>(component.history_component_id())
+    }) else {
+        return;
     };
     let present = component.live_component_present();
+    let apply_controls_live_insert = component.apply_controls_live_insert();
     for entity in archetype.entities() {
+        let entity_id = entity.id();
         let row = entity.table_row().index();
-        // SAFETY: this archetype's table row indexes the cached history column.
         let history = unsafe { &mut *histories.get_unchecked(row).get() };
-        update_history_inner::<C>(history, entity.id(), ctx);
+        update_history_inner::<C>(history, entity_id, ctx);
         let sample = sample_history_with_interpolation(
             ctx.interpolation,
             history,
             ctx.current_interpolate_tick,
             ctx.interpolation_overstep,
         );
-        queue_history_presence::<C>(deferred_apply, entity.id(), present, sample);
+        queue_history_presence::<C>(
+            deferred_apply,
+            entity_id,
+            present,
+            sample,
+            apply_controls_live_insert,
+        );
     }
 }
 
@@ -147,7 +142,8 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
     archetype: &Archetype,
     component: &CachedInterpolationComponent,
     ctx: UpdateHistoryContext,
-    deferred_apply: &mut DeferredHistoryCommands,
+    replication_storage: Option<&mut ReplicationStorage>,
+    deferred_apply: &mut DeferredEntityCommands,
 ) where
     C: Component + Clone + RepliconDiffable,
 {
@@ -158,24 +154,19 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
         );
         return;
     };
-    let table_id = archetype.table_id();
-    // SAFETY: `component` was cached from this archetype after verifying the
-    // history component is present and table-stored.
-    let histories = unsafe {
-        world
-            .storages()
-            .tables
-            .get(table_id)
-            .unwrap_unchecked()
-            .get_data_slice_for::<ConfirmedHistory<C>>(component.history_component_id())
-            .unwrap_unchecked()
+    let Some(table) = table_for_archetype(world, archetype) else {
+        return;
     };
-    // SAFETY: `ReplicationStorage` is a resource and does not alias component
-    // storage accessed above.
-    let Some(mut storage) = (unsafe { world.get_resource_mut::<ReplicationStorage>() }) else {
+    let Some(histories) = (unsafe {
+        table.get_data_slice_for::<ConfirmedHistory<C>>(component.history_component_id())
+    }) else {
+        return;
+    };
+    let Some(storage) = replication_storage else {
         return;
     };
     let present = component.live_component_present();
+    let apply_controls_live_insert = component.apply_controls_live_insert();
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let Some(history_diff_receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity_id)
@@ -183,7 +174,6 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
             continue;
         };
         let row = entity.table_row().index();
-        // SAFETY: this archetype's table row indexes the cached history column.
         let history = unsafe { &mut *histories.get_unchecked(row).get() };
 
         if let Some(server_complete_tick) = ctx.server_complete_tick
@@ -218,7 +208,13 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
             ctx.current_interpolate_tick,
             ctx.interpolation_overstep,
         );
-        queue_history_presence::<C>(deferred_apply, entity_id, present, sample);
+        queue_history_presence::<C>(
+            deferred_apply,
+            entity_id,
+            present,
+            sample,
+            apply_controls_live_insert,
+        );
     }
 }
 
@@ -271,10 +267,11 @@ fn drain_old_history<C: Component + Clone>(
 }
 
 fn queue_history_presence<C: Component + Clone>(
-    deferred_apply: &mut DeferredHistoryCommands,
+    deferred_apply: &mut DeferredEntityCommands,
     entity: Entity,
     present: bool,
     sample: Option<HistoryState<C>>,
+    apply_controls_live_insert: bool,
 ) {
     // Apply the history state for the current interpolation time to the live component set:
     // insert once the add/update tick becomes visible, remove once a removal tick is reached,
@@ -283,54 +280,80 @@ fn queue_history_presence<C: Component + Clone>(
         None | Some(HistoryState::Removed) if present => {
             deferred_apply.remove::<C>(entity);
         }
-        Some(HistoryState::Updated(value)) if !present => {
+        Some(HistoryState::Updated(value)) if !present && !apply_controls_live_insert => {
             deferred_apply.insert(entity, value);
         }
         _ => {}
     }
 }
 
-/// Applies one selected component interpolation rule to one cached archetype.
+#[derive(Clone, Copy)]
+enum ComponentColumn<'w, C> {
+    Table(&'w [UnsafeCell<C>]),
+    Missing,
+    NonTable,
+}
+
+fn table_for_archetype<'w>(world: UnsafeWorldCell<'w>, archetype: &Archetype) -> Option<&'w Table> {
+    unsafe { world.storages().tables.get(archetype.table_id()) }
+}
+
+fn live_component_column<'w, C: Component>(
+    world: UnsafeWorldCell<'w>,
+    archetype: &Archetype,
+    table: &'w Table,
+) -> ComponentColumn<'w, C> {
+    let Some(component_id) = world.components().component_id::<C>() else {
+        return ComponentColumn::Missing;
+    };
+    if !archetype.contains(component_id) {
+        return ComponentColumn::Missing;
+    }
+    let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
+        return ComponentColumn::NonTable;
+    };
+    unsafe {
+        table
+            .get_data_slice_for::<C>(component_id)
+            .map_or(ComponentColumn::NonTable, ComponentColumn::Table)
+    }
+}
+
+/// Applies one selected component interpolation rule to one archetype.
 pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
     interpolation_registry: &InterpolationRegistry,
     rule_id: InterpolationRuleId,
     ctx: ApplyInterpolationContext,
+    deferred_apply: &mut DeferredEntityCommands,
 ) {
-    let components = world.components();
-    let Some(history_component_id) = components.component_id::<ConfirmedHistory<C>>() else {
+    let Some(history_component_id) = world.components().component_id::<ConfirmedHistory<C>>()
+    else {
         return;
     };
-    let Some(live_component_id) = components.component_id::<C>() else {
-        return;
-    };
-    if !archetype.contains(history_component_id) || !archetype.contains(live_component_id) {
+    if !archetype.contains(history_component_id) {
         return;
     }
-    let StorageType::Table = archetype.get_storage_type(history_component_id).unwrap() else {
+    let Some(StorageType::Table) = archetype.get_storage_type(history_component_id) else {
         debug_assert!(
             false,
             "ConfirmedHistory components are expected to use table storage"
         );
         return;
     };
-    let table_id = archetype.table_id();
-    // SAFETY: the history component ID was verified against this archetype and
-    // ConfirmedHistory is table-stored.
-    let histories = unsafe {
-        world
-            .storages()
-            .tables
-            .get(table_id)
-            .unwrap_unchecked()
-            .get_data_slice_for::<ConfirmedHistory<C>>(history_component_id)
-            .unwrap_unchecked()
+    let Some(table) = table_for_archetype(world, archetype) else {
+        return;
     };
+    let Some(histories) =
+        (unsafe { table.get_data_slice_for::<ConfirmedHistory<C>>(history_component_id) })
+    else {
+        return;
+    };
+    let components = live_component_column::<C>(world, archetype, table);
 
     for entity in archetype.entities() {
         let row = entity.table_row().index();
-        // SAFETY: this archetype's table row indexes the cached history column.
         let history = unsafe { &*histories.get_unchecked(row).get() };
         let Some(HistoryState::Updated(interpolated)) = interpolation_registry.sample_for_rule(
             rule_id,
@@ -340,12 +363,7 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
         ) else {
             continue;
         };
-        let Ok(entity_cell) = world.get_entity(entity.id()) else {
-            continue;
-        };
-        let Some(mut component) = (unsafe { entity_cell.get_mut::<C>() }) else {
-            continue;
-        };
+
         trace!(
             target: "lightyear_debug::interpolation",
             kind = "interpolation_apply",
@@ -357,7 +375,16 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
             history_len = history.len(),
             "applied interpolation"
         );
-        *component = interpolated;
+        match components {
+            ComponentColumn::Table(components) => {
+                let component = unsafe { &mut *components.get_unchecked(row).get() };
+                *component = interpolated;
+            }
+            ComponentColumn::Missing => {
+                deferred_apply.insert(entity.id(), interpolated);
+            }
+            ComponentColumn::NonTable => {}
+        }
     }
 }
 
@@ -578,7 +605,7 @@ mod tests {
     }
 
     fn add_interpolation_test_systems(app: &mut App) {
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(app);
     }
 
     fn two_point_history() -> ConfirmedHistory<TestComp> {
@@ -696,10 +723,7 @@ mod tests {
             )
                 .chain(),
         );
-        app.add_systems(
-            Update,
-            update_interpolation.in_set(crate::plugin::InterpolationSystems::Prepare),
-        );
+        crate::plugin::add_update_interpolation_system(&mut app);
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
@@ -733,6 +757,47 @@ mod tests {
     }
 
     #[test]
+    fn bundle_interpolation_inserts_tuple_interpolated_components() {
+        let mut app = App::new();
+        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.configure_sets(
+            Update,
+            (
+                crate::plugin::InterpolationSystems::Cache,
+                crate::plugin::InterpolationSystems::Prepare,
+                crate::plugin::InterpolationSystems::Interpolate,
+            )
+                .chain(),
+        );
+        crate::plugin::add_update_interpolation_system(&mut app);
+        app.component::<TestComp>().replicate();
+        app.component::<TestComp2>().replicate();
+        app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
+            bundle_lerp,
+        ));
+
+        let mut timeline = InterpolationTimeline::default();
+        timeline.set_now(TickInstant::from(Tick(15)));
+        timeline.remote_send_interval = core::time::Duration::from_millis(40);
+        app.world_mut()
+            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+
+        let entity = app
+            .world_mut()
+            .spawn((Interpolated, two_point_history(), two_point_history2()))
+            .id();
+
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(105.0)));
+        assert_eq!(
+            app.world().get::<TestComp2>(entity),
+            Some(&TestComp2(205.0))
+        );
+    }
+
+    #[test]
     fn larger_default_bundle_priority_suppresses_smaller_overlapping_bundle() {
         BUNDLE2_PRIORITY_CALLS.store(0, Ordering::SeqCst);
         BUNDLE3_PRIORITY_CALLS.store(0, Ordering::SeqCst);
@@ -749,10 +814,7 @@ mod tests {
             )
                 .chain(),
         );
-        app.add_systems(
-            Update,
-            update_interpolation.in_set(crate::plugin::InterpolationSystems::Prepare),
-        );
+        crate::plugin::add_update_interpolation_system(&mut app);
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.component::<TestBundleComp<3>>().replicate();
@@ -798,6 +860,51 @@ mod tests {
     }
 
     #[test]
+    fn earlier_non_apply_member_rule_suppresses_same_priority_bundle_apply() {
+        let mut app = App::new();
+        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.configure_sets(
+            Update,
+            (
+                crate::plugin::InterpolationSystems::Cache,
+                crate::plugin::InterpolationSystems::Prepare,
+                crate::plugin::InterpolationSystems::Interpolate,
+            )
+                .chain(),
+        );
+        crate::plugin::add_update_interpolation_system(&mut app);
+        app.component::<TestComp>().replicate();
+        app.component::<TestComp2>().replicate();
+        app.interpolate_with_priority::<TestComp>(2, InterpolationFns::history_only());
+        app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
+            bundle_lerp,
+        ));
+
+        let mut timeline = InterpolationTimeline::default();
+        timeline.set_now(TickInstant::from(Tick(15)));
+        timeline.remote_send_interval = core::time::Duration::from_millis(40);
+        app.world_mut()
+            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                TestComp(-1.0),
+                TestComp2(-1.0),
+                two_point_history(),
+                two_point_history2(),
+            ))
+            .id();
+
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(-1.0)));
+        assert_eq!(app.world().get::<TestComp2>(entity), Some(&TestComp2(-1.0)));
+    }
+
+    #[test]
     fn bundle_interpolation_supports_eight_component_tuple_api() {
         type Bundle8 = (
             TestBundleComp<1>,
@@ -822,10 +929,7 @@ mod tests {
             )
                 .chain(),
         );
-        app.add_systems(
-            Update,
-            update_interpolation.in_set(crate::plugin::InterpolationSystems::Prepare),
-        );
+        crate::plugin::add_update_interpolation_system(&mut app);
         app.component::<TestBundleComp<1>>().replicate();
         app.component::<TestBundleComp<2>>().replicate();
         app.component::<TestBundleComp<3>>().replicate();
@@ -906,7 +1010,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_advances_to_latest_empty_mutate_tick_when_idle() {
         let mut app = setup_app(Tick(30), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
         confirm_server_tick(&mut app, 1, Tick(30));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -937,7 +1041,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_records_repeated_empty_mutate_ticks() {
         let mut app = setup_app(Tick(25), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
         confirm_server_tick(&mut app, 1, Tick(30));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -972,7 +1076,7 @@ mod tests {
     fn diff_history_waits_when_completed_tick_diff_is_pending() {
         let mut app = setup_app(Tick(5), 40);
         use_diff_history_rule(&mut app);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
         confirm_server_tick(&mut app, 1, Tick(5));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1013,7 +1117,7 @@ mod tests {
     fn diff_history_without_receiver_does_not_remove_live_component() {
         let mut app = setup_app(Tick(5), 40);
         use_diff_history_rule(&mut app);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app
             .world_mut()
@@ -1033,7 +1137,7 @@ mod tests {
     fn update_confirmed_history_diff_advances_when_only_older_diff_is_pending() {
         let mut app = setup_app(Tick(6), 40);
         use_diff_history_rule(&mut app);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
         confirm_server_tick(&mut app, 1, Tick(6));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1077,7 +1181,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_does_not_move_history_backwards() {
         let mut app = setup_app(Tick(30), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
         confirm_server_tick(&mut app, 1, Tick(100));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -1101,7 +1205,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_advances_from_server_mutate_ticks_without_entity_confirm_history() {
         let mut app = setup_app(Tick(30), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
         confirm_server_tick(&mut app, 1, Tick(20));
         confirm_server_tick(&mut app, 2, Tick(30));
 
@@ -1126,7 +1230,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_keeps_bracketing_pair_during_loss_gap() {
         let mut app = setup_app(Tick(25), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn(TestComp(999.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1157,7 +1261,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_waits_to_insert_component_until_start_tick() {
         let mut app = setup_app(Tick(9), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1173,7 +1277,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_removes_component_until_start_tick() {
         let mut app = setup_app(Tick(9), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1189,7 +1293,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_inserts_and_interpolates_when_start_tick_is_reached() {
         let mut app = setup_app(Tick(15), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1205,7 +1309,7 @@ mod tests {
     #[test]
     fn component_removal_waits_until_interpolation_tick_reaches_remove_tick() {
         let mut app = setup_app(Tick(15), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1224,7 +1328,7 @@ mod tests {
     #[test]
     fn component_reinsert_after_removal_waits_until_insert_tick() {
         let mut app = setup_app(Tick(15), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1243,7 +1347,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_seeds_component_at_current_interpolation_sample() {
         let mut app = setup_app(Tick(15), 40);
-        app.add_systems(Update, update_interpolation);
+        crate::plugin::add_update_interpolation_system(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();

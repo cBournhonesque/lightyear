@@ -1,14 +1,12 @@
 //! Check various replication scenarios between 2 peers only
 
 use crate::protocol::{
-    CompA, CompCustomInterp, CompCustomReplicateOnce, CompReplicateOnce, CompSimple,
+    CompA, CompBundleA, CompBundleB, CompCustomInterp, CompCustomReplicateOnce, CompReplicateOnce,
 };
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
 use bevy_replicon::prelude::Replicated as RepliconReplicated;
-use lightyear::prelude::{
-    AppInterpolationExt, ConfirmedHistory, InterpolationFns, InterpolationTimeline,
-};
+use lightyear::prelude::{ConfirmedHistory, InterpolationTimeline};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
@@ -402,29 +400,15 @@ fn test_custom_interpolation_component_gets_confirmed_history() {
 
 #[test]
 fn test_bundle_interpolation_applies_tuple_function() {
-    fn bundle_lerp(
-        start: (CompA, CompSimple),
-        end: (CompA, CompSimple),
-        t: f32,
-    ) -> (CompA, CompSimple) {
-        (
-            CompA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
-            CompSimple(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
-        )
-    }
-
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    stepper
-        .client_app()
-        .interpolate_bundle_with::<(CompA, CompSimple)>(InterpolationFns::interpolate(bundle_lerp));
 
-    let mut history_a = ConfirmedHistory::<CompA>::default();
-    history_a.insert_present(Tick(10), CompA(0.0));
-    history_a.insert_present(Tick(20), CompA(10.0));
+    let mut history_a = ConfirmedHistory::<CompBundleA>::default();
+    history_a.insert_present(Tick(10), CompBundleA(0.0));
+    history_a.insert_present(Tick(20), CompBundleA(10.0));
 
-    let mut history_b = ConfirmedHistory::<CompSimple>::default();
-    history_b.insert_present(Tick(10), CompSimple(0.0));
-    history_b.insert_present(Tick(20), CompSimple(20.0));
+    let mut history_b = ConfirmedHistory::<CompBundleB>::default();
+    history_b.insert_present(Tick(10), CompBundleB(0.0));
+    history_b.insert_present(Tick(20), CompBundleB(20.0));
 
     let entity = {
         let app = stepper.client_app();
@@ -439,8 +423,8 @@ fn test_bundle_interpolation_applies_tuple_function() {
         world
             .spawn((
                 Interpolated,
-                CompA(-1.0),
-                CompSimple(-1.0),
+                CompBundleA(-1.0),
+                CompBundleB(-1.0),
                 history_a,
                 history_b,
             ))
@@ -450,12 +434,12 @@ fn test_bundle_interpolation_applies_tuple_function() {
     stepper.client_app().update();
 
     assert_eq!(
-        stepper.client_apps[0].world().get::<CompA>(entity),
-        Some(&CompA(105.0))
+        stepper.client_apps[0].world().get::<CompBundleA>(entity),
+        Some(&CompBundleA(105.0))
     );
     assert_eq!(
-        stepper.client_apps[0].world().get::<CompSimple>(entity),
-        Some(&CompSimple(210.0))
+        stepper.client_apps[0].world().get::<CompBundleB>(entity),
+        Some(&CompBundleB(210.0))
     );
 }
 

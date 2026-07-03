@@ -3,15 +3,17 @@ use crate::interpolate::{
     apply_interpolation_archetype_erased, present_history_bracket, update_history_archetype_erased,
     update_history_diff_archetype_erased,
 };
-use crate::plugin::{add_prepare_interpolation_diff_systems, add_prepare_interpolation_systems};
-use alloc::boxed::Box;
+use crate::plugin::{
+    add_prepare_interpolation_diff_systems, add_prepare_interpolation_systems,
+    refresh_update_interpolation_system_if_finalized,
+};
 use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components, StorageType};
-use bevy_ecs::entity::EntityHashMap;
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::{ArchetypeFilter, QueryFilter, QueryState};
+use bevy_ecs::storage::Table;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_math::{
     Curve,
@@ -23,7 +25,7 @@ use bevy_replicon::bytes::Bytes;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
 use bevy_replicon::postcard_utils;
 use bevy_replicon::prelude::{AppMarkerExt, RuleFns};
-use bevy_replicon::shared::replication::deferred_entity::{DeferredEntity, EntityScratch};
+use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::diff::{
     ComponentDelta, DiffBuffer, Diffable as RepliconDiffable,
 };
@@ -31,11 +33,13 @@ use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
+use core::cell::UnsafeCell;
 use core::cmp::Ordering;
 use core::marker::PhantomData;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
@@ -294,6 +298,9 @@ impl<C> InterpolationFns<C> {
     }
 }
 
+/// Returns the component ID for a typed component if that component is registered.
+pub(crate) type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
+
 /// Tuple of components that can be interpolated together as one rule.
 ///
 /// Bundle interpolation stores each component in its own
@@ -345,7 +352,11 @@ pub trait InterpolationBundle: 'static {
     #[doc(hidden)]
     fn component_kinds() -> Vec<ComponentKind>;
 
-    /// Applies interpolation for one cached archetype.
+    /// Component ID lookup functions for the live components written by the bundle.
+    #[doc(hidden)]
+    fn component_id_fns() -> Vec<ComponentIdFn>;
+
+    /// Applies interpolation for one cached archetype that selected this rule.
     #[doc(hidden)]
     fn apply_archetype(
         world: UnsafeWorldCell,
@@ -353,6 +364,7 @@ pub trait InterpolationBundle: 'static {
         interpolation_registry: &InterpolationRegistry,
         rule_id: InterpolationRuleId,
         ctx: ApplyInterpolationContext,
+        deferred_apply: &mut DeferredEntityCommands,
     );
 
     /// Adds per-component history rules for every component in the bundle.
@@ -361,9 +373,45 @@ pub trait InterpolationBundle: 'static {
     where
         F: InterpolationRuleFilter + 'static;
 
+    /// Registers the live component IDs written by bundle apply rules.
+    #[doc(hidden)]
+    fn register_live_components(app: &mut App);
+
     /// Marks every member component as interpolated in Lightyear's component registry.
     #[doc(hidden)]
     fn mark_interpolated(app: &mut App);
+}
+
+#[derive(Clone, Copy)]
+enum ComponentTableColumn<'w, C> {
+    Table(&'w [UnsafeCell<C>]),
+    Missing,
+    NonTable,
+}
+
+fn table_for_archetype<'w>(world: UnsafeWorldCell<'w>, archetype: &Archetype) -> Option<&'w Table> {
+    unsafe { world.storages().tables.get(archetype.table_id()) }
+}
+
+fn component_table_column<'w, C: Component>(
+    world: UnsafeWorldCell<'w>,
+    archetype: &Archetype,
+    table: &'w Table,
+) -> ComponentTableColumn<'w, C> {
+    let Some(component_id) = world.components().component_id::<C>() else {
+        return ComponentTableColumn::Missing;
+    };
+    if !archetype.contains(component_id) {
+        return ComponentTableColumn::Missing;
+    }
+    let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
+        return ComponentTableColumn::NonTable;
+    };
+    unsafe {
+        table
+            .get_data_slice_for::<C>(component_id)
+            .map_or(ComponentTableColumn::NonTable, ComponentTableColumn::Table)
+    }
 }
 
 macro_rules! impl_interpolation_bundle {
@@ -406,89 +454,59 @@ macro_rules! impl_interpolation_bundle {
                 alloc::vec![ComponentKind::of::<$C0>(), $(ComponentKind::of::<$C>()),+]
             }
 
+            fn component_id_fns() -> Vec<ComponentIdFn> {
+                alloc::vec![
+                    live_component_id::<$C0> as ComponentIdFn,
+                    $(live_component_id::<$C> as ComponentIdFn),+
+                ]
+            }
+
             fn apply_archetype(
                 world: UnsafeWorldCell,
                 archetype: &Archetype,
                 interpolation_registry: &InterpolationRegistry,
                 rule_id: InterpolationRuleId,
                 ctx: ApplyInterpolationContext,
+                deferred_apply: &mut DeferredEntityCommands,
             ) {
+                let Some(table) = table_for_archetype(world, archetype) else {
+                    return;
+                };
                 let components = world.components();
                 let Some($history0) = components.component_id::<ConfirmedHistory<$C0>>() else {
                     return;
                 };
+                let Some($history0) = (unsafe {
+                    table.get_data_slice_for::<ConfirmedHistory<$C0>>($history0)
+                }) else {
+                    return;
+                };
+                let $component0 = component_table_column::<$C0>(world, archetype, table);
                 $(
                     let Some($history) = components.component_id::<ConfirmedHistory<$C>>() else {
                         return;
                     };
-                )+
-                let Some($component0) = components.component_id::<$C0>() else {
-                    return;
-                };
-                $(
-                    let Some($component) = components.component_id::<$C>() else {
+                    let Some($history) = (unsafe {
+                        table.get_data_slice_for::<ConfirmedHistory<$C>>($history)
+                    }) else {
                         return;
                     };
-                )+
-                if !archetype.contains($component0) $(|| !archetype.contains($component))+ {
-                    return;
-                }
-                if !archetype.contains($history0) $(|| !archetype.contains($history))+ {
-                    return;
-                }
-                let StorageType::Table = archetype.get_storage_type($history0).unwrap() else {
-                    debug_assert!(
-                        false,
-                        "ConfirmedHistory components are expected to use table storage"
-                    );
-                    return;
-                };
-                $(
-                    let StorageType::Table = archetype.get_storage_type($history).unwrap() else {
-                        debug_assert!(
-                            false,
-                            "ConfirmedHistory components are expected to use table storage"
-                        );
-                        return;
-                    };
-                )+
-                let table_id = archetype.table_id();
-                let table = unsafe {
-                    world
-                        .storages()
-                        .tables
-                        .get(table_id)
-                        .unwrap_unchecked()
-                };
-                let $history0 = unsafe {
-                    table
-                        .get_data_slice_for::<ConfirmedHistory<$C0>>($history0)
-                        .unwrap_unchecked()
-                };
-                $(
-                    let $history = unsafe {
-                        table
-                            .get_data_slice_for::<ConfirmedHistory<$C>>($history)
-                            .unwrap_unchecked()
-                    };
+                    let $component = component_table_column::<$C>(world, archetype, table);
                 )+
 
                 for entity in archetype.entities() {
                     let row = entity.table_row().index();
                     let $history0 = unsafe { &*$history0.get_unchecked(row).get() };
-                    $(
-                        let $history = unsafe { &*$history.get_unchecked(row).get() };
-                    )+
-
-                    let Some(($start_tick0, $start0, $end0)) =
+                    let Some(($start_tick0, $start0, $end0)) = ({
                         present_history_bracket($history0, ctx.interpolation_tick)
-                    else {
+                    }) else {
                         continue;
                     };
                     $(
-                        let Some(($start_tick, $start, $end)) =
+                        let $history = unsafe { &*$history.get_unchecked(row).get() };
+                        let Some(($start_tick, $start, $end)) = ({
                             present_history_bracket($history, ctx.interpolation_tick)
-                        else {
+                        }) else {
                             continue;
                         };
                     )+
@@ -524,19 +542,24 @@ macro_rules! impl_interpolation_bundle {
                         _ => continue,
                     };
 
-                    let Ok(entity_cell) = world.get_entity(entity.id()) else {
-                        continue;
-                    };
                     let ($output0, $($output,)+) = interpolated;
-                    let Some(mut $component0) = (unsafe { entity_cell.get_mut::<$C0>() }) else {
-                        continue;
-                    };
-                    *$component0 = $output0;
+                    match $component0 {
+                        ComponentTableColumn::Table($component0) => {
+                            let $component0 = unsafe { &mut *$component0.get_unchecked(row).get() };
+                            *$component0 = $output0;
+                        }
+                        ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output0),
+                        ComponentTableColumn::NonTable => {}
+                    }
                     $(
-                        let Some(mut $component) = (unsafe { entity_cell.get_mut::<$C>() }) else {
-                            continue;
-                        };
-                        *$component = $output;
+                        match $component {
+                            ComponentTableColumn::Table($component) => {
+                            let $component = unsafe { &mut *$component.get_unchecked(row).get() };
+                                *$component = $output;
+                            }
+                            ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output),
+                            ComponentTableColumn::NonTable => {}
+                        }
                     )+
                 }
             }
@@ -557,6 +580,11 @@ macro_rules! impl_interpolation_bundle {
                         config,
                     );
                 )+
+            }
+
+            fn register_live_components(app: &mut App) {
+                app.world_mut().register_component::<$C0>();
+                $(app.world_mut().register_component::<$C>();)+
             }
 
             fn mark_interpolated(app: &mut App) {
@@ -608,25 +636,20 @@ pub type ErasedInterpolationFn = unsafe fn();
 
 pub(crate) type ErasedLerpFn = ErasedInterpolationFn;
 
-/// Returns the component ID for a typed component if that component is registered.
-pub(crate) type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
-
 /// Returns whether a cached interpolation rule matches an archetype.
 pub(crate) type MatchesArchetypeFn = fn(&Components, &Archetype) -> bool;
 
-/// Type-erased function that updates histories for one component on one archetype.
+/// Type-erased function that updates history for one component on one archetype.
 ///
-/// The [`UnsafeWorldCell`] is used for direct table access to
-/// [`ConfirmedHistory`] and, for diff-replicated components, access to
-/// [`ReplicationStorage`]. Structural changes to the live component set are
-/// recorded into [`DeferredHistoryCommands`] and flushed after the archetype
-/// scan finishes.
+/// Structural changes to the live component set are recorded into
+/// [`DeferredEntityCommands`] and flushed after the query scan finishes.
 pub(crate) type ErasedUpdateHistoryFn = fn(
     UnsafeWorldCell,
     &Archetype,
     &CachedInterpolationComponent,
     UpdateHistoryContext,
-    &mut DeferredHistoryCommands,
+    Option<&mut ReplicationStorage>,
+    &mut DeferredEntityCommands,
 );
 
 /// Context passed to type-erased interpolation apply functions.
@@ -648,85 +671,26 @@ pub(crate) type ErasedApplyInterpolationFn = fn(
     &InterpolationRegistry,
     InterpolationRuleId,
     ApplyInterpolationContext,
+    &mut DeferredEntityCommands,
 );
-
-trait DeferredHistoryMutation: Send + Sync + 'static {
-    fn apply(self: Box<Self>, entity: &mut DeferredEntity<'_>);
-}
-
-struct InsertHistoryComponent<C>(C);
-
-impl<C: Component> DeferredHistoryMutation for InsertHistoryComponent<C> {
-    fn apply(self: Box<Self>, entity: &mut DeferredEntity<'_>) {
-        entity.insert(self.0);
-    }
-}
-
-struct RemoveHistoryComponent<C>(PhantomData<fn(C)>);
-
-impl<C: Component> DeferredHistoryMutation for RemoveHistoryComponent<C> {
-    fn apply(self: Box<Self>, entity: &mut DeferredEntity<'_>) {
-        entity.remove::<C>();
-    }
-}
-
-/// Batched structural changes produced while preparing interpolation history.
-///
-/// History updates run over cached archetype table storage. Moving entities to
-/// new archetypes during that scan would invalidate the storage access, so live
-/// component insertions/removals are collected here and applied afterwards.
-/// Mutations are grouped by entity and flushed through Replicon's
-/// [`DeferredEntity`], so several component changes for the same entity become
-/// one removal bundle and one insertion bundle.
-#[derive(Default)]
-pub(crate) struct DeferredHistoryCommands {
-    entities: EntityHashMap<Vec<Box<dyn DeferredHistoryMutation>>>,
-}
-
-impl DeferredHistoryCommands {
-    pub(crate) fn insert<C: Component>(&mut self, entity: Entity, component: C) {
-        self.entities
-            .entry(entity)
-            .or_default()
-            .push(Box::new(InsertHistoryComponent(component)));
-    }
-
-    pub(crate) fn remove<C: Component>(&mut self, entity: Entity) {
-        self.entities
-            .entry(entity)
-            .or_default()
-            .push(Box::new(RemoveHistoryComponent::<C>(PhantomData)));
-    }
-
-    pub(crate) fn apply(self, world: &mut World) {
-        let mut scratch = EntityScratch::default();
-        for (entity, mutations) in self.entities {
-            let Ok(entity_mut) = world.get_entity_mut(entity) else {
-                continue;
-            };
-            let mut deferred = DeferredEntity::new(entity_mut, &mut scratch);
-            for mutation in mutations {
-                mutation.apply(&mut deferred);
-            }
-            deferred.flush();
-        }
-    }
-}
 
 /// Cached typed component metadata needed by the type-erased history updater.
 ///
 /// One value is stored per selected history-owning rule on each cached
-/// interpolated archetype. It lets the update system jump directly to the
-/// `ConfirmedHistory<C>` column and decide whether the corresponding live
-/// component is currently present on that archetype.
+/// interpolated archetype. It lets the update system decide whether the
+/// corresponding live component is currently present on that archetype.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CachedInterpolationComponent {
+    /// Component kind whose history is updated.
+    kind: ComponentKind,
     /// Component ID for `ConfirmedHistory<C>`.
     history_component_id: ComponentId,
     /// Storage backing `ConfirmedHistory<C>` on the cached archetype.
     history_storage: StorageType,
     /// Whether the live component `C` is present on the cached archetype.
     live_component_present: bool,
+    /// Whether a selected apply rule is responsible for inserting this live component.
+    apply_controls_live_insert: bool,
     /// Type-erased history update function for `C`.
     update_history: ErasedUpdateHistoryFn,
     /// Optional interpolation function used when sampling the history.
@@ -734,6 +698,10 @@ pub(crate) struct CachedInterpolationComponent {
 }
 
 impl CachedInterpolationComponent {
+    pub(crate) fn kind(&self) -> ComponentKind {
+        self.kind
+    }
+
     pub(crate) fn history_component_id(&self) -> ComponentId {
         self.history_component_id
     }
@@ -744,6 +712,14 @@ impl CachedInterpolationComponent {
 
     pub(crate) fn live_component_present(&self) -> bool {
         self.live_component_present
+    }
+
+    pub(crate) fn apply_controls_live_insert(&self) -> bool {
+        self.apply_controls_live_insert
+    }
+
+    pub(crate) fn set_apply_controls_live_insert(&mut self) {
+        self.apply_controls_live_insert = true;
     }
 
     pub(crate) fn update_history(&self) -> ErasedUpdateHistoryFn {
@@ -777,7 +753,7 @@ impl CachedInterpolationApply {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct ErasedInterpolationFns {
     interpolation: Option<ErasedLerpFn>,
     history: bool,
@@ -786,6 +762,7 @@ pub(crate) struct ErasedInterpolationFns {
     apply_interpolation: Option<ErasedApplyInterpolationFn>,
     history_component_id: Option<ComponentIdFn>,
     live_component_id: ComponentIdFn,
+    write_component_ids: Vec<ComponentIdFn>,
 }
 
 impl ErasedInterpolationFns {
@@ -795,6 +772,7 @@ impl ErasedInterpolationFns {
         apply_interpolation: Option<ErasedApplyInterpolationFn>,
         history_component_id: Option<ComponentIdFn>,
         live_component_id: ComponentIdFn,
+        write_component_ids: Vec<ComponentIdFn>,
     ) -> Self {
         Self {
             interpolation: fns
@@ -806,6 +784,7 @@ impl ErasedInterpolationFns {
             apply_interpolation,
             history_component_id,
             live_component_id,
+            write_component_ids,
         }
     }
 }
@@ -920,6 +899,7 @@ pub struct InterpolationRegistry {
     pub(crate) interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
     rules: Vec<InterpolationRule>,
     rules_by_component: HashMap<ComponentKind, Vec<InterpolationRuleId>>,
+    finalized: bool,
 }
 
 #[derive(Resource, Debug, Default)]
@@ -934,6 +914,21 @@ struct RegisteredInterpolationSystems {
 }
 
 impl InterpolationRegistry {
+    const FINALIZED_RULE_REGISTRATION_ERROR: &'static str =
+        "cannot register interpolation rules after InterpolationRegistry has been finalized";
+
+    pub(crate) fn finalize(&mut self) {
+        self.finalized = true;
+    }
+
+    fn assert_not_finalized(&self) {
+        assert!(
+            !self.finalized,
+            "{}",
+            Self::FINALIZED_RULE_REGISTRATION_ERROR
+        );
+    }
+
     pub fn set_linear_interpolation<C: Component + Clone + Ease>(&mut self) {
         self.set_interpolation(lerp::<C>);
     }
@@ -966,6 +961,27 @@ impl InterpolationRegistry {
     /// has already run.
     pub(crate) fn rule_count(&self) -> usize {
         self.rules.len()
+    }
+
+    /// Returns component IDs that the type-erased interpolation system may write.
+    ///
+    /// The custom interpolation system param uses this to declare access before
+    /// it reads or writes component columns through [`UnsafeWorldCell`].
+    pub(crate) fn component_write_ids(&self, components: &Components) -> Vec<ComponentId> {
+        let mut ids = Vec::new();
+        for rule in &self.rules {
+            for component_id in rule
+                .fns
+                .write_component_ids
+                .iter()
+                .filter_map(|component_id| component_id(components))
+            {
+                if !ids.contains(&component_id) {
+                    ids.push(component_id);
+                }
+            }
+        }
+        ids
     }
 
     /// Compares two rules using interpolation precedence.
@@ -1031,9 +1047,11 @@ impl InterpolationRegistry {
         let live_component_present = (rule.fns.live_component_id)(components)
             .is_some_and(|component_id| archetype.contains(component_id));
         Some(CachedInterpolationComponent {
+            kind: rule.kind,
             history_component_id,
             history_storage,
             live_component_present,
+            apply_controls_live_insert: false,
             update_history: rule.fns.update_history?,
             interpolation: rule.fns.interpolation,
         })
@@ -1066,6 +1084,7 @@ impl InterpolationRegistry {
         C: SyncComponent,
         F: InterpolationRuleFilter + 'static,
     {
+        self.assert_not_finalized();
         self.insert_rule_with_update_history::<C, F>(
             fns,
             config,
@@ -1082,6 +1101,7 @@ impl InterpolationRegistry {
         C: SyncComponent + RepliconDiffable,
         F: InterpolationRuleFilter + 'static,
     {
+        self.assert_not_finalized();
         self.insert_rule_with_update_history::<C, F>(
             fns,
             config,
@@ -1100,19 +1120,32 @@ impl InterpolationRegistry {
         F: InterpolationRuleFilter + 'static,
     {
         let kind = ComponentKind::of::<C>();
+        let owns_history = fns.history;
+        let applies_component = fns.apply;
         let history_component_id = fns
             .history
             .then_some(confirmed_history_component_id::<C> as ComponentIdFn);
         let apply_interpolation = fns
             .apply
             .then_some(apply_interpolation_archetype_erased::<C> as ErasedApplyInterpolationFn);
+        let mut write_component_ids = Vec::new();
+        if owns_history {
+            write_component_ids.push(confirmed_history_component_id::<C> as ComponentIdFn);
+        }
+        if owns_history || applies_component {
+            write_component_ids.push(live_component_id::<C> as ComponentIdFn);
+        }
         let fns = ErasedInterpolationFns::from_typed(
             fns,
             update_history,
             apply_interpolation,
             history_component_id,
             live_component_id::<C>,
+            write_component_ids,
         );
+        let interpolation = fns.interpolation;
+        let owns_history = fns.history;
+        let applies_component = fns.apply;
         let rule_id = InterpolationRuleId(self.rules.len());
         self.rules.push(InterpolationRule {
             kind,
@@ -1130,11 +1163,11 @@ impl InterpolationRegistry {
                     interpolation: None,
                     custom_interpolation: false,
                 });
-        if let Some(interpolation) = fns.interpolation {
+        if let Some(interpolation) = interpolation {
             metadata.interpolation = Some(interpolation);
         }
-        if fns.history || fns.apply {
-            metadata.custom_interpolation = !fns.apply;
+        if owns_history || applies_component {
+            metadata.custom_interpolation = !applies_component;
         }
         rule_id
     }
@@ -1144,12 +1177,14 @@ impl InterpolationRegistry {
         fns: InterpolationFns<S>,
         config: InterpolationRuleConfig,
         members: Vec<ComponentKind>,
+        write_component_ids: Vec<ComponentIdFn>,
         apply_interpolation: Option<ErasedApplyInterpolationFn>,
     ) -> InterpolationRuleId
     where
         S: 'static,
         F: InterpolationRuleFilter + 'static,
     {
+        self.assert_not_finalized();
         let kind = ComponentKind::of::<S>();
         let fns = ErasedInterpolationFns::from_typed(
             fns,
@@ -1157,6 +1192,7 @@ impl InterpolationRegistry {
             apply_interpolation,
             None,
             no_component_id,
+            write_component_ids,
         );
         let rule_id = InterpolationRuleId(self.rules.len());
         self.rules.push(InterpolationRule {
@@ -2006,6 +2042,12 @@ fn add_interpolation_rule<C, F>(
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
     if fns.history {
+        app.world_mut().register_component::<ConfirmedHistory<C>>();
+    }
+    if fns.history || fns.apply {
+        app.world_mut().register_component::<C>();
+    }
+    if fns.history {
         register_interpolated_marker_fns::<C>(app);
         add_prepare_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
@@ -2016,6 +2058,7 @@ fn add_interpolation_rule<C, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_rule::<C, F>(fns, config);
+    refresh_update_interpolation_system_if_finalized(app);
 }
 
 fn add_interpolation_diff_rule<C, F>(
@@ -2029,6 +2072,12 @@ fn add_interpolation_diff_rule<C, F>(
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
     if fns.history {
+        app.world_mut().register_component::<ConfirmedHistory<C>>();
+    }
+    if fns.history || fns.apply {
+        app.world_mut().register_component::<C>();
+    }
+    if fns.history {
         register_interpolated_diff_marker_fns::<C>(app);
         add_prepare_interpolation_diff_systems_once::<C>(app);
         mark_interpolated::<C>(app);
@@ -2039,6 +2088,7 @@ fn add_interpolation_diff_rule<C, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_diff_rule::<C, F>(fns, config);
+    refresh_update_interpolation_system_if_finalized(app);
 }
 
 fn add_interpolation_bundle_rule<B, F>(
@@ -2051,18 +2101,29 @@ fn add_interpolation_bundle_rule<B, F>(
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    if fns.history {
-        B::add_history_rules::<F>(app, config);
-    }
+    let owns_history = fns.history;
+    let applies_component = fns.apply;
     let apply_interpolation = fns
         .apply
         .then_some(B::apply_archetype as ErasedApplyInterpolationFn);
-    if fns.apply {
+    let write_component_ids = fns.apply.then(B::component_id_fns).unwrap_or_default();
+    if applies_component {
+        B::register_live_components(app);
         B::mark_interpolated(app);
     }
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
-        .insert_bundle_rule::<B, F>(fns, config, B::component_kinds(), apply_interpolation);
+        .insert_bundle_rule::<B, F>(
+            fns,
+            config,
+            B::component_kinds(),
+            write_component_ids,
+            apply_interpolation,
+        );
+    if owns_history {
+        B::add_history_rules::<F>(app, config);
+    }
+    refresh_update_interpolation_system_if_finalized(app);
 }
 
 fn register_interpolation_fn_impl<'a, C>(
@@ -2427,6 +2488,19 @@ mod tests {
         let registry = app.world().resource::<InterpolationRegistry>();
         assert!(registry.interpolated::<TestDiffComponent>());
         assert!(registry.has_interpolation_fn::<TestDiffComponent>());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "cannot register interpolation rules after InterpolationRegistry has been finalized"
+    )]
+    fn finalized_registry_rejects_rule_registration() {
+        let mut registry = InterpolationRegistry::default();
+        registry.finalize();
+        registry.insert_rule::<TestComp, ()>(
+            InterpolationFns::history_only(),
+            InterpolationRuleConfig::default(),
+        );
     }
 
     fn record_checkpoint(app: &mut App, tick: u32) -> RepliconTick {

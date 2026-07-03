@@ -5,9 +5,12 @@ use crate::registry::{
 use alloc::vec::Vec;
 use bevy_ecs::{
     archetype::{ArchetypeGeneration, ArchetypeId, Archetypes},
+    change_detection::Tick as ChangeTick,
     component::{ComponentId, Components},
     prelude::*,
-    world::FromWorld,
+    query::{FilteredAccess, FilteredAccessSet},
+    system::{SystemMeta, SystemParam, SystemParamValidationError},
+    world::{FromWorld, unsafe_world_cell::UnsafeWorldCell},
 };
 use bevy_platform::collections::HashMap;
 use lightyear_core::prelude::Interpolated;
@@ -23,6 +26,81 @@ pub struct InterpolatedArchetypes {
     rule_count: usize,
     interpolated_component_id: ComponentId,
     archetypes: HashMap<ArchetypeId, CachedInterpolatedArchetype>,
+}
+
+/// System param exposing the cached interpolated archetypes and world cell.
+///
+/// The param declares access to [`Interpolated`], every registered history
+/// component, and every live component written by selected interpolation
+/// rules. This lets the update system use low-level archetype/table access
+/// without taking `&mut World`.
+pub(crate) struct InterpolationWorld<'w, 's> {
+    pub(crate) world: UnsafeWorldCell<'w>,
+    state: &'s mut InterpolatedArchetypes,
+}
+
+impl InterpolationWorld<'_, '_> {
+    /// Refreshes the local cache for newly-created interpolated archetypes.
+    pub(crate) fn update_archetypes(&mut self, registry: &InterpolationRegistry) {
+        self.state
+            .update(self.world.archetypes(), self.world.components(), registry);
+    }
+
+    /// Iterates cached interpolation metadata together with live archetypes.
+    ///
+    /// Call [`Self::update_archetypes`] first so newly-created archetypes are
+    /// included in this frame's scan.
+    pub(crate) fn iter_archetypes(
+        &self,
+    ) -> impl Iterator<
+        Item = (
+            &bevy_ecs::archetype::Archetype,
+            &CachedInterpolatedArchetype,
+        ),
+    > {
+        self.state.iter().filter_map(|cached_archetype| {
+            self.world
+                .archetypes()
+                .get(cached_archetype.id())
+                .map(|archetype| (archetype, cached_archetype))
+        })
+    }
+}
+
+unsafe impl SystemParam for InterpolationWorld<'_, '_> {
+    type State = InterpolatedArchetypes;
+    type Item<'world, 'state> = InterpolationWorld<'world, 'state>;
+
+    fn init_state(world: &mut World) -> Self::State {
+        InterpolatedArchetypes::from_world(world)
+    }
+
+    fn init_access(
+        state: &Self::State,
+        _system_meta: &mut SystemMeta,
+        component_access_set: &mut FilteredAccessSet,
+        world: &mut World,
+    ) {
+        let mut filtered_access = FilteredAccess::default();
+        filtered_access.add_read(state.interpolated_component_id);
+
+        if let Some(registry) = world.get_resource::<InterpolationRegistry>() {
+            for component_id in registry.component_write_ids(world.components()) {
+                filtered_access.add_write(component_id);
+            }
+        }
+
+        component_access_set.add(filtered_access);
+    }
+
+    unsafe fn get_param<'world, 'state>(
+        state: &'state mut Self::State,
+        _system_meta: &SystemMeta,
+        world: UnsafeWorldCell<'world>,
+        _change_tick: ChangeTick,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        Ok(InterpolationWorld { world, state })
+    }
 }
 
 /// Cached interpolation policy for one archetype containing [`Interpolated`].
@@ -141,27 +219,23 @@ impl InterpolatedArchetypes {
 impl CachedInterpolatedArchetype {
     /// Builds `apply_components` from `selected_rules` in priority order.
     ///
-    /// This mirrors Replicon's rule precedence model: candidates are sorted by
-    /// descending priority and ascending registration order, then each apply
-    /// rule claims its member components. Later overlapping candidates are
-    /// skipped because one of their members was already claimed.
+    /// This mirrors Replicon's rule precedence model: selected rules are sorted
+    /// by descending priority and ascending registration order, then each rule
+    /// claims its member components. Later overlapping rules are skipped
+    /// regardless of whether the earlier rule owns the apply phase.
     fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
         self.apply_components.clear();
 
         let mut candidates = self
             .selected_rules
             .iter()
-            .filter_map(|(&kind, &rule_id)| {
-                registry
-                    .rule(rule_id)
-                    .is_some_and(|rule| rule.applies_component())
-                    .then_some((kind, rule_id))
-            })
+            .filter_map(|(&kind, &rule_id)| registry.rule(rule_id).map(|_| (kind, rule_id)))
             .collect::<Vec<_>>();
         candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
 
         let mut claimed_members = Vec::new();
-        for (kind, rule_id) in candidates {
+        let mut apply_controlled_members = Vec::new();
+        for (_, rule_id) in candidates {
             let Some(rule) = registry.rule(rule_id) else {
                 continue;
             };
@@ -174,7 +248,13 @@ impl CachedInterpolatedArchetype {
             }
             claimed_members.extend(rule.members().iter().copied());
             if let Some(component) = registry.cached_apply_component(rule_id) {
+                apply_controlled_members.extend(rule.members().iter().copied());
                 self.apply_components.push(component);
+            }
+        }
+        for component in &mut self.history_components {
+            if apply_controlled_members.contains(&component.kind()) {
+                component.set_apply_controls_live_insert();
             }
         }
     }
