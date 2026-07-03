@@ -72,8 +72,12 @@ fn add_visual_interpolation_components(
     // we know that Predicted is already present on the entity
     trigger: On<Add, Position>,
     query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
+    clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
+    if clients.is_empty() {
+        return;
+    }
     if !query.contains(trigger.entity) {
         return;
     }
