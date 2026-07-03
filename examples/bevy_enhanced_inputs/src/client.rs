@@ -8,9 +8,10 @@
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
+use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
-use lightyear::input::bei::prelude::{Action, Actions, Bindings, Cardinal, Fire};
+use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
 
@@ -76,37 +77,22 @@ pub(crate) fn handle_predicted_spawn(
     }
 }
 
-/// Add local movement bindings when a player becomes controlled by this client.
-///
-/// The movement action is spawned on the server and replicated with the player.
-/// Once the local predicted player is marked `Controlled`, its BEI `Actions`
-/// relationship contains the replicated movement action that should receive
-/// local-only bindings. Binding from `ActionOf<Player>`'s add event is too
-/// early for the local prediction/control path: the relationship can already be
-/// mapped while the predicted context has not yet been marked as controlled.
+/// Add local movement bindings when we receive an Action entity for a player
+/// that we control.
 fn add_bindings_to_controlled_actions(
-    trigger: On<Add, Controlled>,
-    controlled_players: Query<(Option<&ControlledBy>, Option<&Actions<Player>>), With<Player>>,
-    unbound_movement_actions: Query<(), (With<Action<Movement>>, Without<Bindings>)>,
-    clients: Query<(), With<Client>>,
+    trigger: On<Add, (Action<Movement>, ActionOf<Player>)>,
+    actions: Query<(&ActionOf<Player>, Has<Bindings>), With<Action<Movement>>>,
+    controlled_players: Query<(), (With<Player>, With<Controlled>)>,
     mut commands: Commands,
 ) {
-    let Ok((controlled_by, Some(actions))) = controlled_players.get(trigger.entity) else {
+    let Ok((action_of, has_bindings)) = actions.get(trigger.entity) else {
         return;
     };
-    if controlled_by.is_some_and(|controlled_by| clients.get(controlled_by.owner).is_err()) {
+    if has_bindings || controlled_players.get(action_of.get()).is_err() {
         return;
     }
-    for action_entity in actions.iter() {
-        if unbound_movement_actions.contains(action_entity) {
-            add_bindings(action_entity, &mut commands);
-        }
-    }
-}
-
-fn add_bindings(action_entity: Entity, commands: &mut Commands) {
     commands
-        .entity(action_entity)
+        .entity(trigger.entity)
         .insert(Bindings::spawn(Cardinal::wasd_keys()));
 }
 
