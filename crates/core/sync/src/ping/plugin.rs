@@ -212,6 +212,5 @@ mod tests {
         assert_eq!(manager.pongs_recv, 0);
         assert_eq!(manager.latency_samples_recv(), 0);
         assert_eq!(manager.rtt(), Duration::ZERO);
-        assert_eq!(manager.jitter(), Duration::ZERO);
     }
 }

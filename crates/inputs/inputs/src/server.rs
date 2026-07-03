@@ -10,7 +10,6 @@ use crate::input_message::{
 use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
 use alloc::format;
-use alloc::vec::Vec;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
@@ -346,7 +345,9 @@ fn receive_input_message<S: ActionStateSequence>(
         //  should we just read instead?
         let server_entity = link_of.server;
         let tick = timeline.tick();
-        receiver.receive().try_for_each(|mut message| {
+        receiver.receive().try_for_each(|message| {
+            #[cfg(feature = "prediction")]
+            let mut message = message;
             // ignore input messages from the local client (if running in host-server mode)
             // if we're not doing rebroadcasting
             if client_id.is_local() && !config.rebroadcast_inputs {
@@ -401,57 +402,20 @@ fn receive_input_message<S: ActionStateSequence>(
                 commands.entity(client_entity).insert(interpolation_delay);
             }
 
-            let mut resolved_from_prespawned: Vec<bool> = Vec::with_capacity(message.inputs.len());
-            let mut input_index = 0;
-            while input_index < message.inputs.len() {
-                let (entity, from_prespawned) = match message.inputs[input_index].target {
-                    InputTarget::Entity(entity) => (Some(entity), false),
-                    InputTarget::PreSpawned(hash) => {
-                        debug!(?hash, "Received input for prespawned entity");
-                        // We cannot match using the PreSpawnedReceiver since it only stores hashes for entities
-                        // with no Replicate component, so resolve the input target against server-side input entities.
-                        let entity = prespawned
-                            .iter()
-                            .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e));
-                        (entity, true)
-                    }
-                };
-                let Some(entity) = entity else {
-                    let data = message.inputs.remove(input_index);
-                    debug!(?data.states, ?data.target, end_tick = ?message.end_tick, "received input message for unrecognized entity");
-                    continue;
-                };
-                message.inputs[input_index].target = InputTarget::Entity(entity);
-
-                if let Some(existing_index) =
-                    message.inputs[..input_index]
-                        .iter()
-                        .position(|data| match data.target {
-                            InputTarget::Entity(existing_entity) => existing_entity == entity,
-                            InputTarget::PreSpawned(_) => unreachable!(),
-                        })
-                {
-                    // A prespawned action can temporarily be present twice on
-                    // the client: once as a stale replicated entity target and
-                    // once as the local prespawned target. Prefer the
-                    // prespawned data because it is the locally driven action.
-                    if from_prespawned || !resolved_from_prespawned[existing_index] {
-                        let data = message.inputs.remove(input_index);
-                        message.inputs[existing_index] = data;
-                        resolved_from_prespawned[existing_index] = from_prespawned;
-                    } else {
-                        message.inputs.remove(input_index);
-                    }
-                } else {
-                    resolved_from_prespawned.push(from_prespawned);
-                    input_index += 1;
-                }
-            }
-
             #[cfg(feature = "prediction")]
             if config.rebroadcast_inputs && let Ok(server) = server.get(server_entity) {
                 // only rebroadcast if the message is not already a rebroadcast
                 if !message.rebroadcast {
+                    // Resolve PreSpawned targets to server entities before rebroadcasting,
+                    // so that other clients can resolve them via normal entity mapping.
+                    for input in message.inputs.iter_mut() {
+                        if let InputTarget::PreSpawned(hash) = input.target
+                            && let Some(server_e) = prespawned.iter()
+                                .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                        {
+                            input.target = InputTarget::Entity(server_e);
+                        }
+                    }
                     debug!(action = ?DebugName::type_name::<S>().shortname(), "Rebroadcast input message {message:?} from client {client_id:?} with rebroadcaster {rebroadcaster:?}");
                     message.rebroadcast = true;
                     trace!(
@@ -500,8 +464,21 @@ fn receive_input_message<S: ActionStateSequence>(
             }
 
             for data in message.inputs {
-                let InputTarget::Entity(entity) = data.target else {
-                    unreachable!("input target should be resolved before updating input buffers");
+                let Some(entity) = (match data.target {
+                    InputTarget::Entity(entity) => {
+                        Some(entity)
+                    },
+                    InputTarget::PreSpawned(hash) => {
+                        debug!(?hash, "Received input for prespawned entity");
+                        // We cannot match using the PreSpawnedReceiver since it only stores hashes for entities
+                        // with no Replicate component, so resolve the input target against server-side input entities.
+                        prespawned
+                            .iter()
+                            .filter_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e)).next()
+                    }
+                }) else {
+                    debug!(?data.states, ?data.target, end_tick = ?message.end_tick, "received input message for unrecognized entity");
+                    continue
                 };
                 if let Ok(buffer) = query.get_mut(entity) {
                     if let Some(mut buffer) = buffer {

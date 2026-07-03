@@ -1,22 +1,17 @@
 use crate::SyncComponent;
-use crate::archetypes::InterpolatedArchetypes;
 use crate::interpolate::{
-    interpolate_bundle, present_history_bracket, update_history_archetype_erased,
+    apply_interpolation_archetype_erased, present_history_bracket, update_history_archetype_erased,
     update_history_diff_archetype_erased,
 };
-use crate::plugin::{
-    InterpolationSystems, add_interpolation_systems, add_prepare_interpolation_diff_systems,
-    add_prepare_interpolation_systems,
-};
+use crate::plugin::{add_prepare_interpolation_diff_systems, add_prepare_interpolation_systems};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use bevy_app::{App, Update};
+use bevy_app::App;
 use bevy_ecs::archetype::Archetype;
-use bevy_ecs::component::{ComponentId, StorageType};
+use bevy_ecs::component::{ComponentId, Components, StorageType};
 use bevy_ecs::entity::EntityHashMap;
 use bevy_ecs::prelude::*;
-use bevy_ecs::query::{ArchetypeFilter, QueryData, QueryFilter, QueryState};
-use bevy_ecs::schedule::IntoScheduleConfigs;
+use bevy_ecs::query::{ArchetypeFilter, QueryFilter, QueryState};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_math::{
     Curve,
@@ -346,27 +341,19 @@ pub trait InterpolationBundle: 'static {
     #[doc(hidden)]
     const COMPONENT_COUNT: usize;
 
-    /// Query used by the bundle interpolation apply system.
-    #[doc(hidden)]
-    type Query: QueryData;
-
     /// Component kinds written by the bundle interpolation apply system.
     #[doc(hidden)]
     fn component_kinds() -> Vec<ComponentKind>;
 
-    /// Applies interpolation to one query item.
+    /// Applies interpolation for one cached archetype.
     #[doc(hidden)]
-    fn apply_item(
-        item: <Self::Query as QueryData>::Item<'_, '_>,
+    fn apply_archetype(
+        world: UnsafeWorldCell,
+        archetype: &Archetype,
         interpolation_registry: &InterpolationRegistry,
-        interpolated_archetypes: &InterpolatedArchetypes,
-        interpolation_tick: Tick,
-        interpolation_overstep: f32,
+        rule_id: InterpolationRuleId,
+        ctx: ApplyInterpolationContext,
     );
-
-    /// Adds the typed interpolation apply system for this bundle.
-    #[doc(hidden)]
-    fn add_apply_system(app: &mut App);
 
     /// Adds per-component history rules for every component in the bundle.
     #[doc(hidden)]
@@ -413,103 +400,145 @@ macro_rules! impl_interpolation_bundle {
             $C0: SyncComponent,
             $($C: SyncComponent),+
         {
-            type Query = (
-                &'static Archetype,
-                (Option<&'static mut $C0>, &'static ConfirmedHistory<$C0>),
-                $((Option<&'static mut $C>, &'static ConfirmedHistory<$C>)),+
-            );
-
             const COMPONENT_COUNT: usize = $N;
 
             fn component_kinds() -> Vec<ComponentKind> {
                 alloc::vec![ComponentKind::of::<$C0>(), $(ComponentKind::of::<$C>()),+]
             }
 
-            fn apply_item(
-                item: <Self::Query as QueryData>::Item<'_, '_>,
+            fn apply_archetype(
+                world: UnsafeWorldCell,
+                archetype: &Archetype,
                 interpolation_registry: &InterpolationRegistry,
-                interpolated_archetypes: &InterpolatedArchetypes,
-                interpolation_tick: Tick,
-                interpolation_overstep: f32,
+                rule_id: InterpolationRuleId,
+                ctx: ApplyInterpolationContext,
             ) {
-                let (archetype, ($component0, $history0), $(($component, $history)),+) = item;
-                let kind = ComponentKind::of::<($C0, $($C,)+)>();
-                let Some(rule_id) =
-                    interpolated_archetypes.apply_rule_for(archetype.id(), kind)
-                else {
-                    return;
-                };
-                let Some(rule) = interpolation_registry.rule(rule_id) else {
-                    return;
-                };
-                if !rule.applies_component() {
-                    return;
-                }
-
-                let Some(($start_tick0, $start0, $end0)) =
-                    present_history_bracket($history0, interpolation_tick)
-                else {
+                let components = world.components();
+                let Some($history0) = components.component_id::<ConfirmedHistory<$C0>>() else {
                     return;
                 };
                 $(
-                    let Some(($start_tick, $start, $end)) =
-                        present_history_bracket($history, interpolation_tick)
-                    else {
+                    let Some($history) = components.component_id::<ConfirmedHistory<$C>>() else {
                         return;
                     };
                 )+
-                if false $(|| $start_tick0 != $start_tick)+ {
+                let Some($component0) = components.component_id::<$C0>() else {
+                    return;
+                };
+                $(
+                    let Some($component) = components.component_id::<$C>() else {
+                        return;
+                    };
+                )+
+                if !archetype.contains($component0) $(|| !archetype.contains($component))+ {
                     return;
                 }
+                if !archetype.contains($history0) $(|| !archetype.contains($history))+ {
+                    return;
+                }
+                let StorageType::Table = archetype.get_storage_type($history0).unwrap() else {
+                    debug_assert!(
+                        false,
+                        "ConfirmedHistory components are expected to use table storage"
+                    );
+                    return;
+                };
+                $(
+                    let StorageType::Table = archetype.get_storage_type($history).unwrap() else {
+                        debug_assert!(
+                            false,
+                            "ConfirmedHistory components are expected to use table storage"
+                        );
+                        return;
+                    };
+                )+
+                let table_id = archetype.table_id();
+                let table = unsafe {
+                    world
+                        .storages()
+                        .tables
+                        .get(table_id)
+                        .unwrap_unchecked()
+                };
+                let $history0 = unsafe {
+                    table
+                        .get_data_slice_for::<ConfirmedHistory<$C0>>($history0)
+                        .unwrap_unchecked()
+                };
+                $(
+                    let $history = unsafe {
+                        table
+                            .get_data_slice_for::<ConfirmedHistory<$C>>($history)
+                            .unwrap_unchecked()
+                    };
+                )+
 
-                let interpolated = match ($end0, $($end,)+) {
-                    (
-                        Some(($end_tick0, $end_value0)),
-                        $(Some(($end_tick, $end_value)),)+
-                    ) if true $(&& $end_tick0 == $end_tick)+ => {
-                        let fraction = (((interpolation_tick - $start_tick0) as f32
-                            + interpolation_overstep)
-                            / ($end_tick0 - $start_tick0) as f32)
-                            .clamp(0.0, 1.0);
-                        if let Some(interpolation) =
-                            interpolation_registry
-                                .interpolation_for_rule::<($C0, $($C,)+)>(rule_id)
-                        {
-                            interpolation(
-                                ($start0, $($start,)+),
-                                ($end_value0, $($end_value,)+),
-                                fraction,
-                            )
-                        } else {
+                for entity in archetype.entities() {
+                    let row = entity.table_row().index();
+                    let $history0 = unsafe { &*$history0.get_unchecked(row).get() };
+                    $(
+                        let $history = unsafe { &*$history.get_unchecked(row).get() };
+                    )+
+
+                    let Some(($start_tick0, $start0, $end0)) =
+                        present_history_bracket($history0, ctx.interpolation_tick)
+                    else {
+                        continue;
+                    };
+                    $(
+                        let Some(($start_tick, $start, $end)) =
+                            present_history_bracket($history, ctx.interpolation_tick)
+                        else {
+                            continue;
+                        };
+                    )+
+                    if false $(|| $start_tick0 != $start_tick)+ {
+                        continue;
+                    }
+
+                    let interpolated = match ($end0, $($end,)+) {
+                        (
+                            Some(($end_tick0, $end_value0)),
+                            $(Some(($end_tick, $end_value)),)+
+                        ) if true $(&& $end_tick0 == $end_tick)+ => {
+                            let fraction = (((ctx.interpolation_tick - $start_tick0) as f32
+                                + ctx.interpolation_overstep)
+                                / ($end_tick0 - $start_tick0) as f32)
+                                .clamp(0.0, 1.0);
+                            if let Some(interpolation) =
+                                interpolation_registry
+                                    .interpolation_for_rule::<($C0, $($C,)+)>(rule_id)
+                            {
+                                interpolation(
+                                    ($start0, $($start,)+),
+                                    ($end_value0, $($end_value,)+),
+                                    fraction,
+                                )
+                            } else {
+                                ($start0, $($start,)+)
+                            }
+                        }
+                        ($end0, $($end,)+) if $end0.is_none() $(&& $end.is_none())+ => {
                             ($start0, $($start,)+)
                         }
-                    }
-                    ($end0, $($end,)+) if $end0.is_none() $(&& $end.is_none())+ => {
-                        ($start0, $($start,)+)
-                    }
-                    _ => return,
-                };
-
-                let Some(mut $component0) = $component0 else {
-                    return;
-                };
-                $(
-                    let Some(mut $component) = $component else {
-                        return;
+                        _ => continue,
                     };
-                )+
-                let ($output0, $($output,)+) = interpolated;
-                *$component0 = $output0;
-                $(
-                    *$component = $output;
-                )+
-            }
 
-            fn add_apply_system(app: &mut App) {
-                app.add_systems(
-                    Update,
-                    interpolate_bundle::<($C0, $($C,)+)>.in_set(InterpolationSystems::Interpolate),
-                );
+                    let Ok(entity_cell) = world.get_entity(entity.id()) else {
+                        continue;
+                    };
+                    let ($output0, $($output,)+) = interpolated;
+                    let Some(mut $component0) = (unsafe { entity_cell.get_mut::<$C0>() }) else {
+                        continue;
+                    };
+                    *$component0 = $output0;
+                    $(
+                        let Some(mut $component) = (unsafe { entity_cell.get_mut::<$C>() }) else {
+                            continue;
+                        };
+                        *$component = $output;
+                    )+
+                }
             }
 
             fn add_history_rules<F>(app: &mut App, config: InterpolationRuleConfig)
@@ -554,7 +583,8 @@ variadics_please::all_tuples_with_size!(
 );
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-pub(crate) struct InterpolationRuleId(usize);
+#[doc(hidden)]
+pub struct InterpolationRuleId(usize);
 
 impl InterpolationRuleId {
     pub(crate) fn index(self) -> usize {
@@ -579,10 +609,10 @@ pub type ErasedInterpolationFn = unsafe fn();
 pub(crate) type ErasedLerpFn = ErasedInterpolationFn;
 
 /// Returns the component ID for a typed component if that component is registered.
-pub(crate) type ComponentIdFn = fn(&World) -> Option<ComponentId>;
+pub(crate) type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
 
 /// Returns whether a cached interpolation rule matches an archetype.
-pub(crate) type MatchesArchetypeFn = fn(&World, &Archetype) -> bool;
+pub(crate) type MatchesArchetypeFn = fn(&Components, &Archetype) -> bool;
 
 /// Type-erased function that updates histories for one component on one archetype.
 ///
@@ -597,6 +627,27 @@ pub(crate) type ErasedUpdateHistoryFn = fn(
     &CachedInterpolationComponent,
     UpdateHistoryContext,
     &mut DeferredHistoryCommands,
+);
+
+/// Context passed to type-erased interpolation apply functions.
+#[derive(Debug, Clone, Copy)]
+#[doc(hidden)]
+pub struct ApplyInterpolationContext {
+    pub(crate) interpolation_tick: Tick,
+    pub(crate) interpolation_overstep: f32,
+}
+
+/// Type-erased function that applies one selected interpolation rule to one archetype.
+///
+/// Component and bundle rules use the same function shape. The cached
+/// archetype stores these after priority and overlap resolution, so the apply
+/// phase only needs to call each function in order.
+pub(crate) type ErasedApplyInterpolationFn = fn(
+    UnsafeWorldCell,
+    &Archetype,
+    &InterpolationRegistry,
+    InterpolationRuleId,
+    ApplyInterpolationContext,
 );
 
 trait DeferredHistoryMutation: Send + Sync + 'static {
@@ -704,12 +755,35 @@ impl CachedInterpolationComponent {
     }
 }
 
+/// Cached type-erased apply metadata for one selected interpolation rule.
+///
+/// Values are stored on [`crate::archetypes::CachedInterpolatedArchetype`]
+/// after rule priority and bundle/component overlap have been resolved.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct CachedInterpolationApply {
+    /// ID of the selected rule whose interpolation function should run.
+    rule_id: InterpolationRuleId,
+    /// Type-erased function that writes this rule's live component(s).
+    apply_interpolation: ErasedApplyInterpolationFn,
+}
+
+impl CachedInterpolationApply {
+    pub(crate) fn rule_id(&self) -> InterpolationRuleId {
+        self.rule_id
+    }
+
+    pub(crate) fn apply_interpolation(&self) -> ErasedApplyInterpolationFn {
+        self.apply_interpolation
+    }
+}
+
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ErasedInterpolationFns {
     interpolation: Option<ErasedLerpFn>,
     history: bool,
     apply: bool,
     update_history: Option<ErasedUpdateHistoryFn>,
+    apply_interpolation: Option<ErasedApplyInterpolationFn>,
     history_component_id: Option<ComponentIdFn>,
     live_component_id: ComponentIdFn,
 }
@@ -718,6 +792,7 @@ impl ErasedInterpolationFns {
     fn from_typed<S: 'static>(
         fns: InterpolationFns<S>,
         update_history: Option<ErasedUpdateHistoryFn>,
+        apply_interpolation: Option<ErasedApplyInterpolationFn>,
         history_component_id: Option<ComponentIdFn>,
         live_component_id: ComponentIdFn,
     ) -> Self {
@@ -728,21 +803,24 @@ impl ErasedInterpolationFns {
             history: fns.history,
             apply: fns.apply,
             update_history,
+            apply_interpolation,
             history_component_id,
             live_component_id,
         }
     }
 }
 
-fn confirmed_history_component_id<C: Component + Clone>(world: &World) -> Option<ComponentId> {
-    world.component_id::<ConfirmedHistory<C>>()
+fn confirmed_history_component_id<C: Component + Clone>(
+    components: &Components,
+) -> Option<ComponentId> {
+    components.component_id::<ConfirmedHistory<C>>()
 }
 
-fn live_component_id<C: Component>(world: &World) -> Option<ComponentId> {
-    world.component_id::<C>()
+fn live_component_id<C: Component>(components: &Components) -> Option<ComponentId> {
+    components.component_id::<C>()
 }
 
-fn no_component_id(_: &World) -> Option<ComponentId> {
+fn no_component_id(_: &Components) -> Option<ComponentId> {
     None
 }
 
@@ -853,7 +931,6 @@ struct InterpolatedMarkerFnRegistry {
 struct RegisteredInterpolationSystems {
     prepare: HashSet<ComponentKind>,
     prepare_diff: HashSet<ComponentKind>,
-    apply: HashSet<ComponentKind>,
 }
 
 impl InterpolationRegistry {
@@ -882,6 +959,15 @@ impl InterpolationRegistry {
         self.rules.get(rule_id.0)
     }
 
+    /// Returns the number of registered rules.
+    ///
+    /// [`crate::archetypes::InterpolatedArchetypes`] uses this to invalidate
+    /// its local cache when rules are registered after the interpolation system
+    /// has already run.
+    pub(crate) fn rule_count(&self) -> usize {
+        self.rules.len()
+    }
+
     /// Compares two rules using interpolation precedence.
     ///
     /// Higher priority sorts first. Rules with equal priority keep
@@ -907,7 +993,7 @@ impl InterpolationRegistry {
     /// `CachedInterpolatedArchetype::resolve_apply_rules`.
     pub(crate) fn select_rule_for_archetype(
         &self,
-        world: &World,
+        components: &Components,
         archetype: &Archetype,
         kind: ComponentKind,
     ) -> Option<InterpolationRuleId> {
@@ -918,7 +1004,7 @@ impl InterpolationRegistry {
             .find(|rule_id| {
                 self.rules
                     .get(rule_id.0)
-                    .is_some_and(|rule| (rule.matches_archetype)(world, archetype))
+                    .is_some_and(|rule| (rule.matches_archetype)(components, archetype))
             })
     }
 
@@ -929,7 +1015,7 @@ impl InterpolationRegistry {
     /// history component.
     pub(crate) fn cached_history_component(
         &self,
-        world: &World,
+        components: &Components,
         archetype: &Archetype,
         rule_id: InterpolationRuleId,
     ) -> Option<CachedInterpolationComponent> {
@@ -937,12 +1023,12 @@ impl InterpolationRegistry {
         if !rule.owns_history() {
             return None;
         }
-        let history_component_id = (rule.fns.history_component_id?)(world)?;
+        let history_component_id = (rule.fns.history_component_id?)(components)?;
         if !archetype.contains(history_component_id) {
             return None;
         }
         let history_storage = archetype.get_storage_type(history_component_id)?;
-        let live_component_present = (rule.fns.live_component_id)(world)
+        let live_component_present = (rule.fns.live_component_id)(components)
             .is_some_and(|component_id| archetype.contains(component_id));
         Some(CachedInterpolationComponent {
             history_component_id,
@@ -950,6 +1036,24 @@ impl InterpolationRegistry {
             live_component_present,
             update_history: rule.fns.update_history?,
             interpolation: rule.fns.interpolation,
+        })
+    }
+
+    /// Builds cached apply metadata for `rule_id`.
+    ///
+    /// The caller has already selected this rule for the archetype and resolved
+    /// overlaps with higher-priority bundle/component rules.
+    pub(crate) fn cached_apply_component(
+        &self,
+        rule_id: InterpolationRuleId,
+    ) -> Option<CachedInterpolationApply> {
+        let rule = self.rules.get(rule_id.0)?;
+        if !rule.applies_component() {
+            return None;
+        }
+        Some(CachedInterpolationApply {
+            rule_id,
+            apply_interpolation: rule.fns.apply_interpolation?,
         })
     }
 
@@ -999,9 +1103,13 @@ impl InterpolationRegistry {
         let history_component_id = fns
             .history
             .then_some(confirmed_history_component_id::<C> as ComponentIdFn);
+        let apply_interpolation = fns
+            .apply
+            .then_some(apply_interpolation_archetype_erased::<C> as ErasedApplyInterpolationFn);
         let fns = ErasedInterpolationFns::from_typed(
             fns,
             update_history,
+            apply_interpolation,
             history_component_id,
             live_component_id::<C>,
         );
@@ -1036,13 +1144,20 @@ impl InterpolationRegistry {
         fns: InterpolationFns<S>,
         config: InterpolationRuleConfig,
         members: Vec<ComponentKind>,
+        apply_interpolation: Option<ErasedApplyInterpolationFn>,
     ) -> InterpolationRuleId
     where
         S: 'static,
         F: InterpolationRuleFilter + 'static,
     {
         let kind = ComponentKind::of::<S>();
-        let fns = ErasedInterpolationFns::from_typed(fns, None, None, no_component_id);
+        let fns = ErasedInterpolationFns::from_typed(
+            fns,
+            None,
+            apply_interpolation,
+            None,
+            no_component_id,
+        );
         let rule_id = InterpolationRuleId(self.rules.len());
         self.rules.push(InterpolationRule {
             kind,
@@ -1205,12 +1320,12 @@ pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
     )))
 }
 
-fn matches_filter<F>(world: &World, archetype: &Archetype) -> bool
+fn matches_filter<F>(components: &Components, archetype: &Archetype) -> bool
 where
     F: InterpolationRuleFilter + 'static,
 {
-    QueryState::<&Archetype, F>::try_new(world)
-        .is_some_and(|query| query.matches_component_set(&|id| archetype.contains(id)))
+    F::get_state(components)
+        .is_some_and(|state| F::matches_component_set(&state, &|id| archetype.contains(id)))
 }
 
 /// Extension trait for registering interpolation rules on [`App`].
@@ -1253,7 +1368,7 @@ pub trait AppInterpolationExt {
     /// If the selected [`InterpolationFns`] owns history, Lightyear receives
     /// authoritative updates into [`ConfirmedHistory<C>`]. If it owns apply,
     /// Lightyear samples that history and writes the live component during
-    /// [`InterpolationSystems::Interpolate`].
+    /// [`crate::plugin::InterpolationSystems::Prepare`].
     ///
     /// # Examples
     ///
@@ -1832,16 +1947,6 @@ fn ensure_interpolation_registry(app: &mut App) {
     }
 }
 
-fn ensure_interpolated_archetypes(app: &mut App) {
-    app.init_resource::<InterpolatedArchetypes>();
-}
-
-fn invalidate_interpolated_archetypes(app: &mut App) {
-    if let Some(mut archetypes) = app.world_mut().get_resource_mut::<InterpolatedArchetypes>() {
-        archetypes.clear();
-    }
-}
-
 fn ensure_interpolation_system_registry(app: &mut App) {
     if !app
         .world()
@@ -1878,32 +1983,6 @@ fn add_prepare_interpolation_diff_systems_once<C: SyncComponent + RepliconDiffab
     }
 }
 
-fn add_interpolation_systems_once<C: SyncComponent>(app: &mut App) {
-    ensure_interpolation_system_registry(app);
-    let kind = ComponentKind::of::<C>();
-    let should_add = app
-        .world_mut()
-        .resource_mut::<RegisteredInterpolationSystems>()
-        .apply
-        .insert(kind);
-    if should_add {
-        add_interpolation_systems::<C>(app);
-    }
-}
-
-fn add_interpolation_bundle_systems_once<B: InterpolationBundle>(app: &mut App) {
-    ensure_interpolation_system_registry(app);
-    let kind = ComponentKind::of::<B>();
-    let should_add = app
-        .world_mut()
-        .resource_mut::<RegisteredInterpolationSystems>()
-        .apply
-        .insert(kind);
-    if should_add {
-        B::add_apply_system(app);
-    }
-}
-
 fn mark_interpolated<C: SyncComponent>(app: &mut App) {
     let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
     registry
@@ -1926,20 +2005,17 @@ fn add_interpolation_rule<C, F>(
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    ensure_interpolated_archetypes(app);
     if fns.history {
         register_interpolated_marker_fns::<C>(app);
         add_prepare_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
     if fns.apply {
-        add_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_rule::<C, F>(fns, config);
-    invalidate_interpolated_archetypes(app);
 }
 
 fn add_interpolation_diff_rule<C, F>(
@@ -1952,20 +2028,17 @@ fn add_interpolation_diff_rule<C, F>(
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    ensure_interpolated_archetypes(app);
     if fns.history {
         register_interpolated_diff_marker_fns::<C>(app);
         add_prepare_interpolation_diff_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
     if fns.apply {
-        add_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_diff_rule::<C, F>(fns, config);
-    invalidate_interpolated_archetypes(app);
 }
 
 fn add_interpolation_bundle_rule<B, F>(
@@ -1978,18 +2051,18 @@ fn add_interpolation_bundle_rule<B, F>(
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    ensure_interpolated_archetypes(app);
     if fns.history {
         B::add_history_rules::<F>(app, config);
     }
+    let apply_interpolation = fns
+        .apply
+        .then_some(B::apply_archetype as ErasedApplyInterpolationFn);
     if fns.apply {
-        add_interpolation_bundle_systems_once::<B>(app);
         B::mark_interpolated(app);
     }
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
-        .insert_bundle_rule::<B, F>(fns, config, B::component_kinds());
-    invalidate_interpolated_archetypes(app);
+        .insert_bundle_rule::<B, F>(fns, config, B::component_kinds(), apply_interpolation);
 }
 
 fn register_interpolation_fn_impl<'a, C>(

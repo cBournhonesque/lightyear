@@ -1,7 +1,6 @@
 use crate::SyncComponent;
-use crate::archetypes::{InterpolatedArchetypes, update_interpolated_archetypes};
 use crate::despawn::configure_delayed_interpolated_despawn;
-use crate::interpolate::{interpolate, update_interpolation_histories};
+use crate::interpolate::update_interpolation;
 use crate::registry::{
     InterpolationRegistry, insert_confirmed_history_on_interpolated,
     insert_confirmed_history_on_interpolated_diff,
@@ -85,17 +84,25 @@ pub enum InterpolationSystems {
     Sync,
 
     // Update
-    /// Resolve interpolation rules for newly-created interpolated archetypes.
+    /// Reserved for systems that should run before interpolation preparation.
+    ///
+    /// Interpolated archetypes are cached by the combined prepare system, so
+    /// Lightyear does not install a built-in system in this set.
     Cache,
 
-    /// Update component history
-    /// (add new values from confirmed updates and pop values that are older than interpolation)
+    /// Update component histories and apply Lightyear-owned interpolation.
+    ///
+    /// This adds new values from confirmed updates, pops values that are older
+    /// than interpolation, applies pending component insertions/removals, and
+    /// writes interpolated values for rules that enabled the apply phase.
     ///
     /// This can be in Update since we use the confirmed.tick to add values to the history, which is independent
     /// from the local tick.
     Prepare,
-    /// Interpolate between last 2 server states. Has to be overridden if
-    /// `InterpolationConfig.custom_interpolation_logic` is set to true
+    /// Run user interpolation systems after Lightyear has prepared histories.
+    ///
+    /// Use this set for custom interpolation rules registered with
+    /// `InterpolationFns::history_only`.
     Interpolate,
 
     /// SystemSet encompassing all other interpolation sets
@@ -114,13 +121,10 @@ pub(crate) fn add_prepare_interpolation_diff_systems<C: SyncComponent + Replicon
     app.add_observer(insert_confirmed_history_on_interpolated_diff::<C>);
 }
 
-// We add the interpolate system in different function because we might not want to add them
-// in case there is custom interpolation logic.
-pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
-    app.add_systems(
-        Update,
-        interpolate::<C>.in_set(InterpolationSystems::Interpolate),
-    );
+// Kept for compatibility with older internal callers. Default interpolation is
+// now driven by the type-erased `update_interpolation` system.
+pub fn add_interpolation_systems<C: SyncComponent>(_app: &mut App) {
+    let _ = core::any::TypeId::of::<C>();
 }
 
 impl Plugin for InterpolationPlugin {
@@ -129,7 +133,6 @@ impl Plugin for InterpolationPlugin {
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
-        app.init_resource::<InterpolatedArchetypes>();
         configure_delayed_interpolated_despawn(app);
 
         // Host-Clients have no interpolation delay
@@ -156,11 +159,7 @@ impl Plugin for InterpolationPlugin {
         );
         app.add_systems(
             Update,
-            update_interpolated_archetypes.in_set(InterpolationSystems::Cache),
-        );
-        app.add_systems(
-            Update,
-            update_interpolation_histories.in_set(InterpolationSystems::Prepare),
+            update_interpolation.in_set(InterpolationSystems::Prepare),
         );
     }
 }

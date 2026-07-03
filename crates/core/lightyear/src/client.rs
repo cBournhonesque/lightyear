@@ -64,10 +64,8 @@ impl PluginGroup for ClientPlugins {
 
         #[cfg(target_family = "wasm")]
         let builder = builder.add(lightyear_web::WebKeepalivePlugin {
-            // The interval is in milliseconds. Keep hidden browser tabs close
-            // to foreground cadence so fixed-timestep clients do not return
-            // from background tabs with large catch-up bursts.
-            wake_delay: 1000.0 / 60.0,
+            // The interval is in milliseconds. We can run app.update() infrequently when in the background
+            wake_delay: 100.0,
         });
 
         builder
