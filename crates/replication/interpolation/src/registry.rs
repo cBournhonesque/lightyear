@@ -36,6 +36,7 @@ use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
+use core::cmp::Ordering;
 use core::marker::PhantomData;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
@@ -881,6 +882,22 @@ impl InterpolationRegistry {
         self.rules.get(rule_id.0)
     }
 
+    /// Compares two rules using interpolation precedence.
+    ///
+    /// Higher priority sorts first. Rules with equal priority keep
+    /// registration order, with earlier registrations sorting first.
+    pub(crate) fn cmp_rule_precedence(
+        &self,
+        lhs: InterpolationRuleId,
+        rhs: InterpolationRuleId,
+    ) -> Ordering {
+        let lhs_priority = self.rule(lhs).map(InterpolationRule::priority);
+        let rhs_priority = self.rule(rhs).map(InterpolationRule::priority);
+        rhs_priority
+            .cmp(&lhs_priority)
+            .then_with(|| lhs.index().cmp(&rhs.index()))
+    }
+
     /// Selects the highest-priority matching rule for `kind` on `archetype`.
     ///
     /// Rules are pre-sorted by descending priority and ascending registration
@@ -996,14 +1013,7 @@ impl InterpolationRegistry {
             fns,
             matches_archetype: matches_filter::<F>,
         });
-        let rules = self.rules_by_component.entry(kind).or_default();
-        rules.push(rule_id);
-        rules.sort_by(|a, b| {
-            self.rules[b.0]
-                .priority
-                .cmp(&self.rules[a.0].priority)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        self.insert_rule_id_for_kind(kind, rule_id);
 
         let metadata =
             self.interpolation_map
@@ -1041,15 +1051,23 @@ impl InterpolationRegistry {
             fns,
             matches_archetype: matches_filter::<F>,
         });
-        let rules = self.rules_by_component.entry(kind).or_default();
-        rules.push(rule_id);
-        rules.sort_by(|a, b| {
-            self.rules[b.0]
-                .priority
-                .cmp(&self.rules[a.0].priority)
-                .then_with(|| a.0.cmp(&b.0))
-        });
+        self.insert_rule_id_for_kind(kind, rule_id);
         rule_id
+    }
+
+    /// Inserts `rule_id` into the per-kind index in precedence order.
+    ///
+    /// This follows Replicon's rule insertion model: higher-priority rules are
+    /// placed before lower-priority rules, while equal-priority rules are
+    /// appended after existing equal-priority registrations.
+    fn insert_rule_id_for_kind(&mut self, kind: ComponentKind, rule_id: InterpolationRuleId) {
+        let priority = self.rules[rule_id.0].priority;
+        let rules = self.rules_by_component.entry(kind).or_default();
+        let higher_priority_count =
+            rules.partition_point(|existing| self.rules[existing.0].priority > priority);
+        let equal_priority_count = rules[higher_priority_count..]
+            .partition_point(|existing| self.rules[existing.0].priority == priority);
+        rules.insert(higher_priority_count + equal_priority_count, rule_id);
     }
 
     /// Returns True if the component `C` is interpolated

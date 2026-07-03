@@ -1,6 +1,6 @@
+use crate::ping::PingChannel;
 use crate::ping::manager::PingManager;
 use crate::ping::message::{Ping, Pong};
-use crate::ping::PingChannel;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};

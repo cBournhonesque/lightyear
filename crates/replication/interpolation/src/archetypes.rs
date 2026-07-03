@@ -38,7 +38,7 @@ pub(crate) struct CachedInterpolatedArchetype {
     id: ArchetypeId,
     /// Highest-priority matching rule for each rule kind on this archetype.
     selected_rules: HashMap<ComponentKind, InterpolationRuleId>,
-    /// Selected apply rules that are not shadowed by higher-priority overlaps.
+    /// Selected apply rules that won an unclaimed component/member set.
     apply_rules: HashMap<ComponentKind, InterpolationRuleId>,
     /// Components whose interpolation history is managed by Lightyear.
     history_components: Vec<CachedInterpolationComponent>,
@@ -135,50 +135,43 @@ impl InterpolatedArchetypes {
 }
 
 impl CachedInterpolatedArchetype {
-    /// Builds `apply_rules` from `selected_rules`.
+    /// Builds `apply_rules` from `selected_rules` in priority order.
     ///
-    /// A selected rule is removed from `apply_rules` when another selected
-    /// apply rule overlaps one of its member components and wins by priority
-    /// or registration order.
+    /// This mirrors Replicon's rule precedence model: candidates are sorted by
+    /// descending priority and ascending registration order, then each apply
+    /// rule claims its member components. Later overlapping candidates are
+    /// skipped because one of their members was already claimed.
     fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
         self.apply_rules.clear();
-        for (&kind, &rule_id) in &self.selected_rules {
+
+        let mut candidates = self
+            .selected_rules
+            .iter()
+            .filter_map(|(&kind, &rule_id)| {
+                registry
+                    .rule(rule_id)
+                    .is_some_and(|rule| rule.applies_component())
+                    .then_some((kind, rule_id))
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
+
+        let mut claimed_members = Vec::new();
+        for (kind, rule_id) in candidates {
             let Some(rule) = registry.rule(rule_id) else {
                 continue;
             };
-            if !rule.applies_component() {
+            if rule
+                .members()
+                .iter()
+                .any(|member| claimed_members.contains(member))
+            {
                 continue;
             }
-            let shadowed = self.selected_rules.values().copied().any(|other_id| {
-                if other_id == rule_id {
-                    return false;
-                }
-                let Some(other_rule) = registry.rule(other_id) else {
-                    return false;
-                };
-                other_rule.applies_component()
-                    && rules_overlap(rule.members(), other_rule.members())
-                    && rule_preempts(other_id, other_rule, rule_id, rule)
-            });
-            if !shadowed {
-                self.apply_rules.insert(kind, rule_id);
-            }
+            claimed_members.extend(rule.members().iter().copied());
+            self.apply_rules.insert(kind, rule_id);
         }
     }
-}
-
-fn rules_overlap(a: &[ComponentKind], b: &[ComponentKind]) -> bool {
-    a.iter().any(|kind| b.contains(kind))
-}
-
-fn rule_preempts(
-    lhs_id: InterpolationRuleId,
-    lhs: &crate::registry::InterpolationRule,
-    rhs_id: InterpolationRuleId,
-    rhs: &crate::registry::InterpolationRule,
-) -> bool {
-    lhs.priority() > rhs.priority()
-        || (lhs.priority() == rhs.priority() && lhs_id.index() < rhs_id.index())
 }
 
 pub(crate) fn update_interpolated_archetypes(world: &mut World) {
