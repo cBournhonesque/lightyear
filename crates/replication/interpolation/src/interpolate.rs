@@ -430,12 +430,16 @@ mod tests {
     use super::*;
     use crate::registry::AppInterpolationExt;
     use crate::registry::{InterpolationRegistry, InterpolationRuleComponentIds};
-    use crate::rules::{InterpolationFns, InterpolationRuleConfig};
+    use crate::rules::{InterpolationFns, InterpolationFnsExt, InterpolationRuleConfig};
     use alloc::vec;
     use bevy_app::{App, Update};
     use bevy_ecs::archetype::Archetype;
     use bevy_ecs::component::Component;
     use bevy_ecs::query::{QueryFilter, QueryState};
+    use bevy_math::{
+        Curve,
+        curve::{Ease, FunctionCurve, Interval},
+    };
     use bevy_replicon::prelude::{
         Diffable as RepliconDiffable, RepliconPlugins, RepliconSharedPlugin, RepliconTick,
     };
@@ -454,6 +458,14 @@ mod tests {
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct TestComp(f32);
 
+    impl Ease for TestComp {
+        fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+            FunctionCurve::new(Interval::UNIT, move |t| {
+                TestComp(start.0 + (end.0 - start.0) * t)
+            })
+        }
+    }
+
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct TestComp2(f32);
 
@@ -465,6 +477,9 @@ mod tests {
 
     #[derive(Component)]
     struct HistoryOnlyRule;
+
+    #[derive(Component)]
+    struct DisabledRule;
 
     static BUNDLE2_PRIORITY_CALLS: AtomicUsize = AtomicUsize::new(0);
     static BUNDLE3_PRIORITY_CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -698,13 +713,65 @@ mod tests {
     }
 
     #[test]
+    fn disabled_filtered_rule_blocks_broader_default_rule() {
+        let mut app = setup_app(Tick(15), 40);
+        add_interpolation_test_systems(&mut app);
+        QueryState::<&Archetype, With<DisabledRule>>::new(app.world_mut());
+        insert_rule::<TestComp, With<DisabledRule>>(
+            &mut app,
+            InterpolationFns::disabled(),
+            InterpolationRuleConfig { priority: 100 },
+        );
+
+        let default_entity = app.world_mut().spawn(TestComp(0.0)).id();
+        insert_confirmed_history(&mut app, default_entity, two_point_history());
+        let disabled_entity = app.world_mut().spawn((TestComp(7.0), DisabledRule)).id();
+        insert_confirmed_history(&mut app, disabled_entity, two_point_history());
+
+        app.update();
+
+        assert_eq!(
+            app.world().get::<TestComp>(default_entity),
+            Some(&TestComp(5.0))
+        );
+        assert_eq!(
+            app.world().get::<TestComp>(disabled_entity),
+            Some(&TestComp(7.0))
+        );
+    }
+
+    #[test]
+    fn app_linear_interpolate_registers_ease_rule() {
+        let mut app = App::new();
+        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
+        app.world_mut()
+            .insert_resource(ReplicationCheckpointMap::default());
+        app.component::<TestComp>().replicate();
+        app.linear_interpolate::<TestComp>();
+        add_interpolation_test_systems(&mut app);
+
+        let mut timeline = InterpolationTimeline::default();
+        timeline.set_now(TickInstant::from(Tick(15)));
+        timeline.remote_send_interval = core::time::Duration::from_millis(40);
+        app.world_mut()
+            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+
+        let entity = app.world_mut().spawn(TestComp(0.0)).id();
+        insert_confirmed_history(&mut app, entity, two_point_history());
+
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(5.0)));
+    }
+
+    #[test]
     fn selected_history_only_rule_suppresses_default_apply() {
         let mut app = setup_app(Tick(15), 40);
         add_interpolation_test_systems(&mut app);
         QueryState::<&Archetype, With<HistoryOnlyRule>>::new(app.world_mut());
         insert_rule::<TestComp, With<HistoryOnlyRule>>(
             &mut app,
-            InterpolationFns::history_only_with_interpolator(marker_lerp),
+            InterpolationFns::history_only().interpolate(marker_lerp),
             InterpolationRuleConfig { priority: 100 },
         );
 
@@ -1403,251 +1470,3 @@ mod tests {
         assert!(app.world().get_entity(entity).is_err());
     }
 }
-//
-//     use std::net::SocketAddr;
-//     use std::str::FromStr;
-//     use bevy::utils::{Duration, Instant};
-//
-//     use bevy::log::LogPlugin;
-//     use bevy::prelude::*;
-//     use bevy::time::TimeUpdateStrategy;
-//     use bevy::{DefaultPlugins, MinimalPlugins};
-//     use tracing::{debug, info};
-//     use tracing_subscriber::fmt::format::FmtSpan;
-//
-//     use crate::_reexport::*;
-//     use crate::prelude::client::*;
-//     use crate::prelude::*;
-//     use crate::tests::protocol::*;
-//     use crate::tests::stepper::{BevyStepper};
-//
-//     fn setup() -> (BevyStepper, Entity, Entity) {
-//         let frame_duration = Duration::from_millis(10);
-//         let tick_duration = Duration::from_millis(10);
-//         let shared_config = SharedConfig {
-//             enable_replication: false,
-//             tick: TickConfig::new(tick_duration),
-//             ..Default::default()
-//         };
-//         let link_conditioner = LinkConditionerConfig {
-//             incoming_latency: Duration::from_millis(40),
-//             incoming_jitter: Duration::from_millis(5),
-//             incoming_loss: 0.05,
-//         };
-//         let sync_config = SyncConfig::default().speedup_factor(1.0);
-//         let prediction_config = PredictionConfig::default().disable(true);
-//         let interpolation_delay = Duration::from_millis(100);
-//         let interpolation_config = InterpolationConfig::default().with_delay(InterpolationDelay {
-//             min_delay: interpolation_delay,
-//             send_interval_ratio: 0.0,
-//         });
-//         let mut stepper = BevyStepper::new(
-//             shared_config,
-//             sync_config,
-//             prediction_config,
-//             interpolation_config,
-//             link_conditioner,
-//             frame_duration,
-//         );
-//         stepper.init();
-//
-//         // Create a confirmed entity on the server
-//         let server_entity = stepper
-//             .server_app
-//             .world_mut()
-//             .spawn((Component1(0.0), ShouldBeInterpolated))
-//             .id();
-//
-//         // Set the latest received server tick
-//         let confirmed_tick = stepper.client_app().world_mut().resource_mut::<ClientConnectionManager>()
-//             .replication_receiver
-//             .remote_entity_map
-//             .get_confirmed_tick(confirmed_entity)
-//             .unwrap();
-//
-//         // Tick once
-//         stepper.frame_step();
-//         let tick = stepper.client_tick();
-//         let interpolated = stepper
-//             .client_app
-//             .world()//             .get::<Confirmed>(confirmed)
-//             .unwrap()
-//             .interpolated
-//             .unwrap();
-//
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<Component1>(confirmed)
-//                 .unwrap(),
-//             &Component1(0.0)
-//         );
-//
-//         // check that the interpolated entity got spawned
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<Interpolated>(interpolated)
-//                 .unwrap()
-//                 .confirmed_entity,
-//             confirmed
-//         );
-//
-//         // check that the component history got created and is empty
-//         let history = ConfirmedHistory::<Component1>::new();
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<ConfirmedHistory<Component1>>(interpolated)
-//                 .unwrap(),
-//             &history,
-//         );
-//         // check that the confirmed component got replicated
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<Component1>(interpolated)
-//                 .unwrap(),
-//             &Component1(0.0)
-//         );
-//         // check that the interpolate status got updated
-//         let interpolation_tick = stepper.interpolation_tick();
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
-//                 .unwrap(),
-//             &InterpolateStatus::<Component1> {
-//                 start: None,
-//                 end: (tick, Component1(0.0)).into(),
-//                 current: interpolation_tick,
-//             }
-//         );
-//         (stepper, confirmed, interpolated)
-//     }
-//
-//     // Test interpolation
-//     #[test]
-//     fn test_interpolation() -> anyhow::Result<()> {
-//         let (mut stepper, confirmed, interpolated) = setup();
-//         let start_tick = stepper.client_tick();
-//         // reach interpolation start tick
-//         stepper.frame_step();
-//         stepper.frame_step();
-//
-//         // check that the interpolate status got updated (end becomes start)
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
-//                 .unwrap(),
-//             &InterpolateStatus::<Component1> {
-//                 start: (Tick(0), Component1(0.0)).into(),
-//                 end: None,
-//                 current: Tick(3),
-//                 // current: Tick(3) - interpolation_tick_delay,
-//             }
-//         );
-//
-//         // receive server update
-//         // stepper
-//         //     .client_mut()
-//         //     .set_latest_received_server_tick(Tick(2));
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .get_entity_mut(confirmed)
-//             .unwrap()
-//             .get_mut::<Component1>()
-//             .unwrap()
-//             .0 = 2.0;
-//
-//         stepper.frame_step();
-//         // check that interpolation is working correctly
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
-//                 .unwrap(),
-//             &InterpolateStatus::<Component1> {
-//                 start: (Tick(0), Component1(0.0)).into(),
-//                 end: (Tick(2), Component1(2.0)).into(),
-//                 current: Tick(4),
-//                 // current: Tick(4) - interpolation_tick_delay,
-//             }
-//         );
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<Component1>(interpolated)
-//                 .unwrap(),
-//             &Component1(1.0)
-//         );
-//         stepper.frame_step();
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
-//                 .unwrap(),
-//             &InterpolateStatus::<Component1> {
-//                 start: (Tick(2), Component1(2.0)).into(),
-//                 end: None,
-//                 current: Tick(5),
-//                 // current: Tick(5) - interpolation_tick_delay,
-//             }
-//         );
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<Component1>(interpolated)
-//                 .unwrap(),
-//             &Component1(2.0)
-//         );
-//         Ok(())
-//     }
-//
-//     // We are in the situation: S1 < I
-//     // where S1 is a confirmed ticks, and I is the interpolated tick
-//     // and we receive S1 < S2 < I
-//     // Then we should now start interpolating from S2
-//     #[test]
-//     fn test_received_more_recent_start() -> anyhow::Result<()> {
-//         let (mut stepper, confirmed, interpolated) = setup();
-//
-//         // reach interpolation start tick
-//         stepper.frame_step();
-//         stepper.frame_step();
-//         stepper.frame_step();
-//         stepper.frame_step();
-//         assert_eq!(stepper.client_tick(), Tick(5));
-//
-//         // receive server update
-//         // stepper
-//         //     .client_mut()
-//         //     .set_latest_received_server_tick(Tick(1));
-//         stepper
-//             .client_app
-//             .world_mut()
-//             .get_entity_mut(confirmed)
-//             .unwrap()
-//             .get_mut::<Component1>()
-//             .unwrap()
-//             .0 = 1.0;
-//
-//         stepper.frame_step();
-//         // check the status uses the more recent server update
-//         assert_eq!(
-//             stepper
-//                 .client_app
-//                 .world()//                 .get::<InterpolateStatus<Component1>>(interpolated)
-//                 .unwrap(),
-//             &InterpolateStatus::<Component1> {
-//                 start: (Tick(1), Component1(1.0)).into(),
-//                 end: None,
-//                 current: Tick(6),
-//                 // current: Tick(6) - interpolation_tick_delay,
-//             }
-//         );
-//         Ok(())
-//     }
-// }

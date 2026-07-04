@@ -87,14 +87,16 @@ pub struct InterpolationRuleConfig {
 /// - [`Self::history_only`] stores and prepares history but does not apply the
 ///   live component. This is the usual choice when a user system performs
 ///   custom interpolation.
-/// - [`Self::history_only_with_interpolator`] stores and prepares history and
-///   keeps an interpolation function. Delayed interpolation still does not
-///   apply the live component, but frame interpolation can reuse the function.
+/// - [`Self::history_only`] combined with
+///   [`InterpolationFnsExt::interpolate`] stores and prepares history and keeps
+///   an interpolation function. Delayed interpolation still does not apply the
+///   live component, but frame interpolation can reuse the function.
 /// - [`Self::no_history`] registers an interpolation function without owning
-///   delayed interpolation history, so frame interpolation can reuse the same
-///   rule on entities with [`FrameInterpolate`].
-/// - [`Self::disabled`] intentionally opts matching entities out of Lightyear
-///   interpolation for this component.
+///   delayed interpolation history or delayed live-component presence. Frame
+///   interpolation and correction can still reuse the same rule.
+/// - [`Self::disabled`] registers no history and no interpolation function. Use
+///   it as a high-priority filtered rule to opt matching entities out of a
+///   broader interpolation rule.
 ///
 /// # Examples
 ///
@@ -196,41 +198,14 @@ impl<C> InterpolationFns<C> {
         }
     }
 
-    /// Stores and prepares delayed interpolation history and keeps an interpolation function.
-    ///
-    /// This does not apply `C` during delayed interpolation, so a custom system
-    /// can still sample the history and write components itself. If an entity
-    /// has [`FrameInterpolate`], frame interpolation can reuse the stored
-    /// interpolation function to smooth fixed-update changes.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// # use bevy_ecs::prelude::*;
-    /// # use lightyear_interpolation::prelude::*;
-    /// # #[derive(Component, Clone, PartialEq)]
-    /// # struct Position(f32);
-    /// # fn lerp_position(start: Position, end: Position, t: f32) -> Position {
-    /// #     Position(start.0 + (end.0 - start.0) * t)
-    /// # }
-    /// app.interpolate_with::<Position>(
-    ///     InterpolationFns::history_only_with_interpolator(lerp_position),
-    /// );
-    /// ```
-    pub fn history_only_with_interpolator(interpolation: LerpFn<C>) -> Self {
-        Self {
-            interpolation: Some(interpolation),
-            pipeline: InterpolationPipeline::HistoryOnly,
-            _marker: PhantomData,
-        }
-    }
-
     /// Registers an interpolation function without delayed interpolation history.
     ///
     /// This is useful when a component is not delayed-interpolated through
     /// [`Interpolated`], but entities with [`FrameInterpolate`] should still
     /// reuse the same interpolation function for visual smoothing and
-    /// correction.
+    /// correction. Unlike [`Self::disabled`], this still participates in
+    /// frame interpolation and correction because it stores an interpolation
+    /// function.
     ///
     /// # Examples
     ///
@@ -255,7 +230,15 @@ impl<C> InterpolationFns<C> {
     /// Disables Lightyear interpolation work for matching entities.
     ///
     /// A disabled high-priority rule can be used to exclude a filtered set of
-    /// entities from a broader default interpolation rule.
+    /// entities from a broader default interpolation rule. If the disabled rule
+    /// is selected for an archetype, Lightyear does not fall back to lower
+    /// priority matching rules for that component. Unlike [`Self::no_history`],
+    /// this does not register an interpolation function for frame interpolation
+    /// or correction.
+    ///
+    /// This is useful when most entities should interpolate but a marked subset
+    /// should snap, be driven by a custom visual system, or temporarily opt out
+    /// during a mode change.
     ///
     /// # Examples
     ///
@@ -267,6 +250,10 @@ impl<C> InterpolationFns<C> {
     /// #[derive(Component)]
     /// struct SnapOnly;
     ///
+    /// app.linear_interpolate::<Position>();
+    ///
+    /// // Entities with `SnapOnly` match both rules. This rule has higher
+    /// // priority, so it blocks the broader default `Position` interpolation.
     /// app.interpolate_with_priority_filtered::<Position, With<SnapOnly>>(
     ///     100,
     ///     InterpolationFns::disabled(),
@@ -323,36 +310,52 @@ impl<C> InterpolationFns<C> {
     }
 }
 
-impl<C> InterpolationFns<C>
-where
-    C: Ease + Clone,
-{
-    /// Stores delayed interpolation history and keeps a linear interpolation function.
-    ///
-    /// This is the linear [`Ease`] equivalent of
-    /// [`Self::history_only_with_interpolator`]. Delayed interpolation stores
-    /// history without applying the live component, while frame interpolation
-    /// can reuse the same linear function.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// # use bevy_ecs::prelude::*;
-    /// # use bevy_math::{Curve, curve::Ease};
-    /// # use lightyear_interpolation::prelude::*;
-    /// # #[derive(Component, Clone, PartialEq)]
-    /// # struct Position(f32);
-    /// # impl Ease for Position {
-    /// #     fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-    /// #         bevy_math::curve::FunctionCurve::new(bevy_math::Interval::UNIT, move |t| {
-    /// #             Position(start.0 + (end.0 - start.0) * t)
-    /// #         })
-    /// #     }
-    /// # }
-    /// app.interpolate_with::<Position>(InterpolationFns::linear_history_only());
-    /// ```
-    pub fn linear_history_only() -> Self {
-        Self::history_only_with_interpolator(linear_lerp::<C>)
+/// Fluent helpers for adding interpolation functions to [`InterpolationFns`].
+///
+/// These are most useful with [`InterpolationFns::history_only`], where
+/// Lightyear should own history/presence but a custom system owns delayed
+/// interpolation while frame interpolation and correction can still reuse the
+/// interpolation function.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use bevy_ecs::prelude::*;
+/// use lightyear_interpolation::prelude::*;
+///
+/// #[derive(Component, Clone, PartialEq)]
+/// struct Position(f32);
+///
+/// fn lerp_position(start: Position, end: Position, t: f32) -> Position {
+///     Position(start.0 + (end.0 - start.0) * t)
+/// }
+///
+/// app.interpolate_with::<Position>(
+///     InterpolationFns::history_only().interpolate(lerp_position),
+/// );
+/// ```
+pub trait InterpolationFnsExt<C> {
+    /// Stores `interpolation` on this rule without changing which pipeline
+    /// stages the rule owns.
+    fn interpolate(self, interpolation: LerpFn<C>) -> Self;
+
+    /// Stores a linear [`Ease`] interpolation function on this rule.
+    fn linear_interpolate(self) -> Self
+    where
+        C: Ease + Clone;
+}
+
+impl<C> InterpolationFnsExt<C> for InterpolationFns<C> {
+    fn interpolate(mut self, interpolation: LerpFn<C>) -> Self {
+        self.interpolation = Some(interpolation);
+        self
+    }
+
+    fn linear_interpolate(self) -> Self
+    where
+        C: Ease + Clone,
+    {
+        self.interpolate(linear_lerp::<C>)
     }
 }
 

@@ -28,7 +28,9 @@ pub mod prelude {
     pub use crate::registry::{
         AppInterpolationExt, InterpolationRegistrationExt, InterpolationRegistry,
     };
-    pub use crate::rules::{InterpolationBundle, InterpolationFns, InterpolationRuleConfig};
+    pub use crate::rules::{
+        InterpolationBundle, InterpolationFns, InterpolationFnsExt, InterpolationRuleConfig,
+    };
     pub use crate::timeline::InterpolationTimeline;
 }
 

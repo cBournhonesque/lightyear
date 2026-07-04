@@ -707,6 +707,45 @@ pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
 /// );
 /// ```
 pub trait AppInterpolationExt {
+    /// Registers a full interpolation rule for component `C` using its linear [`Ease`] curve.
+    fn linear_interpolate<C>(&mut self) -> &mut Self
+    where
+        C: SyncComponent + Ease,
+    {
+        self.linear_interpolate_filtered::<C, ()>()
+    }
+
+    /// Registers a full linear interpolation rule for component `C` with explicit priority.
+    fn linear_interpolate_with_priority<C>(&mut self, priority: usize) -> &mut Self
+    where
+        C: SyncComponent + Ease,
+    {
+        self.linear_interpolate_with_priority_filtered::<C, ()>(priority)
+    }
+
+    /// Registers a default-priority full linear interpolation rule for component `C`
+    /// and archetype filter `F`.
+    fn linear_interpolate_filtered<C, F>(&mut self) -> &mut Self
+    where
+        C: SyncComponent + Ease,
+        F: QueryFilter + 'static,
+    {
+        self.linear_interpolate_with_priority_filtered::<C, F>(SINGLE_COMPONENT_RULE_PRIORITY)
+    }
+
+    /// Registers a full linear interpolation rule for component `C`, archetype
+    /// filter `F`, and explicit priority.
+    fn linear_interpolate_with_priority_filtered<C, F>(&mut self, priority: usize) -> &mut Self
+    where
+        C: SyncComponent + Ease,
+        F: QueryFilter + 'static,
+    {
+        self.interpolate_with_priority_filtered::<C, F>(
+            priority,
+            InterpolationFns::interpolate(lerp::<C>),
+        )
+    }
+
     /// Registers a default-priority interpolation rule for component `C`.
     ///
     /// If the selected [`InterpolationFns`] owns history, Lightyear receives

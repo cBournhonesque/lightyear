@@ -243,8 +243,4 @@ impl TransformLinearInterpolation {
         );
         res
     }
-
-    pub fn lerp_ref(start: &Transform, other: &Transform, t: f32) -> Transform {
-        Self::lerp(*start, *other, t)
-    }
 }
