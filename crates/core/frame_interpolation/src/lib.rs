@@ -15,7 +15,7 @@
 //! - register an interpolation rule for the component or bundle. Existing
 //!   interpolation rules are reused by default; if the component should not use
 //!   delayed interpolation history, register it with
-//!   [`InterpolationFns::no_history`](lightyear_interpolation::rule::InterpolationFns::no_history).
+//!   [`InterpolationFns::no_history`](lightyear_interpolation::rules::InterpolationFns::no_history).
 //! - FrameInterpolation is not enabled by default; add [`FrameInterpolationPlugin`] manually
 //! - To enable FrameInterpolation on a given entity, add the type-erased [`FrameInterpolate`] marker to it manually
 //! ```rust,ignore
@@ -59,7 +59,7 @@ use bevy_time::{Fixed, Time};
 pub use lightyear_core::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_interpolation::registry::InterpolationRegistry;
-use lightyear_interpolation::rule::FrameInterpolationContext;
+use lightyear_interpolation::rules::frame_interpolate::FrameInterpolationContext;
 use lightyear_replication::ReplicationSystems;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use serde::{Deserialize, Serialize};
@@ -248,9 +248,9 @@ mod tests {
     use super::*;
     use bevy_app::{App, PostUpdate};
     use core::time::Duration;
-    use lightyear_core::prelude::{ConfirmedHistory, Interpolated};
+    use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_interpolation::registry::AppInterpolationExt;
-    use lightyear_interpolation::rule::{InterpolationFns, InterpolationRuleFilter, RulePhase};
+    use lightyear_interpolation::rules::InterpolationFns;
 
     #[derive(Component, Clone, Debug, PartialEq)]
     struct FrameA(f32);
@@ -266,21 +266,6 @@ mod tests {
     }
 
     #[test]
-    fn marker_filters_restrict_rule_phase() {
-        let network = <With<Interpolated> as InterpolationRuleFilter>::phase_mask();
-        assert!(network.includes(RulePhase::Interpolation));
-        assert!(!network.includes(RulePhase::Frame));
-
-        let frame = <With<FrameInterpolate> as InterpolationRuleFilter>::phase_mask();
-        assert!(!frame.includes(RulePhase::Interpolation));
-        assert!(frame.includes(RulePhase::Frame));
-
-        let shared = <With<FrameA> as InterpolationRuleFilter>::phase_mask();
-        assert!(shared.includes(RulePhase::Interpolation));
-        assert!(shared.includes(RulePhase::Frame));
-    }
-
-    #[test]
     fn frame_bundle_interpolation_uses_tuple_rule() {
         let mut app = App::new();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
@@ -288,9 +273,7 @@ mod tests {
             .resource_mut::<Time<Fixed>>()
             .accumulate_overstep(Duration::from_millis(500));
         app.add_plugins(FrameInterpolationPlugin);
-        app.frame_interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::interpolate(
-            bundle_lerp,
-        ));
+        app.interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::no_history(bundle_lerp));
 
         let entity = app
             .world_mut()
@@ -349,47 +332,5 @@ mod tests {
         app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(12.0)));
-    }
-
-    #[test]
-    fn frame_interpolation_reuses_history_only_interpolator_rule() {
-        let mut app = App::new();
-        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
-        app.world_mut()
-            .resource_mut::<Time<Fixed>>()
-            .accumulate_overstep(Duration::from_millis(250));
-        app.add_plugins(FrameInterpolationPlugin);
-        app.frame_interpolate_with::<FrameA>(InterpolationFns::history_only_with_interpolator(
-            |start, end, t| FrameA(20.0 + start.0 + (end.0 - start.0) * t),
-        ));
-
-        assert!(
-            app.world()
-                .components()
-                .component_id::<ConfirmedHistory<FrameA>>()
-                .is_none()
-        );
-        assert!(
-            app.world()
-                .components()
-                .component_id::<FrameInterpolationHistory<FrameA>>()
-                .is_some()
-        );
-
-        let entity = app
-            .world_mut()
-            .spawn((
-                FrameInterpolate,
-                FrameA(-1.0),
-                FrameInterpolationHistory::<FrameA> {
-                    previous_value: Some(FrameA(4.0)),
-                    current_value: Some(FrameA(12.0)),
-                },
-            ))
-            .id();
-
-        app.world_mut().run_schedule(PostUpdate);
-
-        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(26.0)));
     }
 }

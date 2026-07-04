@@ -17,7 +17,7 @@ pub mod interpolate;
 pub mod plugin;
 pub mod registry;
 /// Interpolation rule types and bundle support.
-pub mod rule;
+pub mod rules;
 pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
@@ -28,9 +28,7 @@ pub mod prelude {
     pub use crate::registry::{
         AppInterpolationExt, InterpolationRegistrationExt, InterpolationRegistry,
     };
-    pub use crate::rule::{
-        InterpolationBundle, InterpolationFns, InterpolationRuleConfig, InterpolationRuleFilter,
-    };
+    pub use crate::rules::{InterpolationBundle, InterpolationFns, InterpolationRuleConfig};
     pub use crate::timeline::InterpolationTimeline;
 }
 

@@ -1,7 +1,6 @@
 use crate::registry::InterpolationRegistry;
-use crate::rule::{
+use crate::rules::{
     CachedInterpolationApply, CachedInterpolationComponent, InterpolationRuleId, RuleKind,
-    RulePhase,
 };
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -213,12 +212,9 @@ impl InterpolatedArchetypes {
             // rule like `(A, B)` competes with other `(A, B)` rules here, not
             // with the individual `A` or `B` rules yet.
             for kind in registry.rule_kinds() {
-                if let Some(rule_id) = registry.select_rule_for_archetype(
-                    components,
-                    archetype,
-                    kind,
-                    RulePhase::Interpolation,
-                ) {
+                if let Some(rule_id) =
+                    registry.select_rule_for_archetype(components, archetype, kind)
+                {
                     cached.selected_rules.insert(kind, rule_id);
                     if let Some(component) =
                         registry.cached_history_update_component(components, archetype, rule_id)
@@ -264,7 +260,7 @@ impl CachedInterpolatedArchetype {
         candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
 
         let mut claimed_members = Vec::new();
-        let mut apply_controlled_members = Vec::new();
+        let mut apply_rule_insert_members = Vec::new();
         for (_, rule_id) in candidates {
             let Some(rule) = registry.rule(rule_id) else {
                 continue;
@@ -278,13 +274,16 @@ impl CachedInterpolatedArchetype {
             }
             claimed_members.extend(rule.members().iter().copied());
             if let Some(component) = registry.cached_apply_component(rule_id) {
-                apply_controlled_members.extend(rule.members().iter().copied());
+                apply_rule_insert_members.extend(rule.members().iter().copied());
                 self.apply_rules.push(component);
             }
         }
         for component in &mut self.history_update_components {
-            if apply_controlled_members.contains(&component.kind()) {
-                component.set_apply_controls_live_insert();
+            // If an apply rule claims this component, that rule owns inserting
+            // the live interpolated value. The history update still owns
+            // removals, but must not also insert a raw history sample.
+            if apply_rule_insert_members.contains(&component.kind()) {
+                component.set_apply_rule_handles_live_insert();
             }
         }
     }

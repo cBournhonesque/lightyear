@@ -7,23 +7,25 @@ use crate::plugin::{
     add_prepare_interpolation_diff_systems, add_prepare_interpolation_systems,
     refresh_update_interpolation_system_if_finalized,
 };
-use crate::rule::{
-    CachedFrameInterpolationApply, CachedFrameInterpolationComponent, CachedInterpolationApply,
-    CachedInterpolationComponent, ComponentIdFn, ErasedApplyFrameInterpolationFn,
-    ErasedApplyInterpolationFn, ErasedInterpolationFns, ErasedLerpFn, ErasedRestoreFrameHistoryFn,
-    ErasedUpdateFrameHistoryFn, ErasedUpdateHistoryFn, FrameInterpolationFns, InterpolationBundle,
-    InterpolationFns, InterpolationRule, InterpolationRuleConfig, InterpolationRuleFilter,
-    InterpolationRuleId, RuleKind, RulePhase, TupleInterpolationBundle,
-    apply_frame_interpolation_archetype_erased, confirmed_history_component_id,
-    frame_history_component_id, live_component_id, matches_filter, no_component_id,
+use crate::rules::frame_interpolate::{
+    CachedFrameInterpolationApply, CachedFrameInterpolationComponent,
+    ErasedApplyFrameInterpolationFn, ErasedRestoreFrameHistoryFn, ErasedUpdateFrameHistoryFn,
+    FrameInterpolationFns, apply_frame_interpolation_archetype_erased, frame_history_component_id,
     restore_frame_history_archetype_erased, update_frame_history_archetype_erased,
+};
+use crate::rules::{
+    CachedInterpolationApply, CachedInterpolationComponent, ComponentIdFn,
+    ErasedApplyInterpolationFn, ErasedInterpolationFns, ErasedLerpFn, ErasedUpdateHistoryFn,
+    InterpolationBundle, InterpolationFns, InterpolationRule, InterpolationRuleConfig,
+    InterpolationRuleId, RuleKind, TupleInterpolationBundle, confirmed_history_component_id,
+    live_component_id, matches_filter, no_component_id,
 };
 use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components};
 use bevy_ecs::prelude::*;
-use bevy_ecs::query::QueryState;
+use bevy_ecs::query::{QueryFilter, QueryState};
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -44,9 +46,7 @@ use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationS
 use bevy_utils::prelude::DebugName;
 use core::cmp::Ordering;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{
-    ConfirmedHistory, FrameInterpolate, FrameInterpolationHistory, Interpolated, Tick,
-};
+use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
@@ -161,9 +161,6 @@ impl InterpolationRegistry {
     pub(crate) fn component_write_ids(&self, components: &Components) -> Vec<ComponentId> {
         let mut ids = Vec::new();
         for rule in &self.rules {
-            if !rule.phase_mask.includes(RulePhase::Interpolation) {
-                continue;
-            }
             for component_id in rule
                 .fns
                 .write_component_ids
@@ -183,9 +180,6 @@ impl InterpolationRegistry {
     pub fn frame_component_write_ids(&self, components: &Components) -> Vec<ComponentId> {
         let mut ids = Vec::new();
         for rule in &self.rules {
-            if !rule.phase_mask.includes(RulePhase::Frame) {
-                continue;
-            }
             if let Some(frame) = &rule.fns.frame {
                 for component_id in frame
                     .write_component_ids
@@ -231,17 +225,15 @@ impl InterpolationRegistry {
         components: &Components,
         archetype: &Archetype,
         kind: RuleKind,
-        phase: RulePhase,
     ) -> Option<InterpolationRuleId> {
         self.rules_by_kind
             .get(&kind)?
             .iter()
             .copied()
             .find(|rule_id| {
-                self.rules.get(rule_id.0).is_some_and(|rule| {
-                    rule.phase_mask.includes(phase)
-                        && (rule.matches_archetype)(components, archetype)
-                })
+                self.rules
+                    .get(rule_id.0)
+                    .is_some_and(|rule| (rule.matches_archetype)(components, archetype))
             })
     }
 
@@ -285,7 +277,7 @@ impl InterpolationRegistry {
             history_component_id,
             history_storage,
             live_component_present,
-            apply_controls_live_insert: false,
+            apply_rule_handles_live_insert: false,
             update_history: rule.fns.update_history?,
             interpolation: rule.fns.interpolation,
         })
@@ -369,7 +361,7 @@ impl InterpolationRegistry {
     ) -> InterpolationRuleId
     where
         C: SyncComponent,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         self.assert_not_finalized();
         self.insert_rule_with_update_history::<C, F>(
@@ -386,7 +378,7 @@ impl InterpolationRegistry {
     ) -> InterpolationRuleId
     where
         C: SyncComponent + RepliconDiffable,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         self.assert_not_finalized();
         self.insert_rule_with_update_history::<C, F>(
@@ -404,18 +396,14 @@ impl InterpolationRegistry {
     ) -> InterpolationRuleId
     where
         C: SyncComponent,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         let kind = RuleKind::of::<C>();
         let member = ComponentKind::of::<C>();
-        let phase_mask = F::phase_mask();
-        let owns_interpolation_history =
-            phase_mask.includes(RulePhase::Interpolation) && fns.owns_interpolation_history();
-        let applies_interpolation_component =
-            phase_mask.includes(RulePhase::Interpolation) && fns.applies_interpolation_component();
-        let owns_frame_history = phase_mask.includes(RulePhase::Frame) && fns.owns_frame_history();
-        let applies_frame_component =
-            phase_mask.includes(RulePhase::Frame) && fns.applies_frame_component();
+        let owns_interpolation_history = fns.owns_interpolation_history();
+        let applies_interpolation_component = fns.applies_interpolation_component();
+        let owns_frame_history = fns.owns_frame_history();
+        let applies_frame_component = fns.applies_frame_component();
         let history_component_id = owns_interpolation_history
             .then_some(confirmed_history_component_id::<C> as ComponentIdFn);
         let update_history = owns_interpolation_history
@@ -467,7 +455,6 @@ impl InterpolationRegistry {
             kind,
             members: alloc::vec![member],
             priority: config.priority,
-            phase_mask,
             fns,
             matches_archetype: matches_filter::<F>,
         });
@@ -487,11 +474,10 @@ impl InterpolationRegistry {
     ) -> InterpolationRuleId
     where
         S: 'static,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         self.assert_not_finalized();
         let kind = RuleKind::of::<S>();
-        let phase_mask = F::phase_mask();
         let frame = FrameInterpolationFns::new(
             None,
             frame_write_component_ids,
@@ -513,7 +499,6 @@ impl InterpolationRegistry {
             kind,
             members,
             priority: config.priority,
-            phase_mask,
             fns,
             matches_archetype: matches_filter::<F>,
         });
@@ -549,20 +534,19 @@ impl InterpolationRegistry {
             .any(|rule| rule.kind == kind && rule.fns.interpolation.is_some())
     }
 
-    /// Returns the highest-priority frame interpolation function registered for `C`.
+    /// Returns the highest-priority interpolation function registered for `C`.
     ///
-    /// This helper is used by correction code that already knows it is working
-    /// on frame-interpolated entities but is not running through the per-
-    /// archetype frame interpolation cache. The normal frame interpolation pass
-    /// still selects rules with the full archetype filter.
+    /// This helper is for custom systems that already know they need a
+    /// single-component interpolation function and cannot run through the
+    /// per-archetype rule cache. It does not support tuple rules; systems that
+    /// need bundle priority should select rules for the current archetype.
     #[doc(hidden)]
-    pub fn frame_interpolation_for<C: Component + Clone>(&self) -> Option<LerpFn<C>> {
+    pub fn interpolation_for<C: Component + Clone>(&self) -> Option<LerpFn<C>> {
         self.rules_by_kind
             .get(&RuleKind::of::<C>())?
             .iter()
             .filter_map(|rule_id| self.rules.get(rule_id.0))
-            .find(|rule| rule.phase_mask.includes(RulePhase::Frame))
-            .and_then(|rule| {
+            .find_map(|rule| {
                 rule.fns
                     .interpolation
                     .map(|interpolation| unsafe { core::mem::transmute(interpolation) })
@@ -762,7 +746,7 @@ pub trait AppInterpolationExt {
     fn interpolate_filtered_with<C, F>(&mut self, fns: InterpolationFns<C>) -> &mut Self
     where
         C: SyncComponent,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         self.interpolate_with_priority_filtered::<C, F>(SINGLE_COMPONENT_RULE_PRIORITY, fns)
     }
@@ -776,39 +760,7 @@ pub trait AppInterpolationExt {
     ) -> &mut Self
     where
         C: SyncComponent,
-        F: InterpolationRuleFilter + 'static;
-
-    /// Registers a frame-only linear interpolation rule for component `C`.
-    ///
-    /// This is a convenience wrapper for a rule filtered with
-    /// `With<FrameInterpolate>`, so it is considered only by the frame
-    /// interpolation archetype cache.
-    fn frame_interpolate<C>(&mut self) -> &mut Self
-    where
-        C: SyncComponent + Ease,
-    {
-        self.frame_interpolate_with::<C>(InterpolationFns::interpolate(lerp::<C>))
-    }
-
-    /// Registers a frame-only interpolation rule for component `C`.
-    fn frame_interpolate_with<C>(&mut self, fns: InterpolationFns<C>) -> &mut Self
-    where
-        C: SyncComponent,
-    {
-        self.frame_interpolate_with_priority::<C>(SINGLE_COMPONENT_RULE_PRIORITY, fns)
-    }
-
-    /// Registers a frame-only interpolation rule for component `C` with explicit priority.
-    fn frame_interpolate_with_priority<C>(
-        &mut self,
-        priority: usize,
-        fns: InterpolationFns<C>,
-    ) -> &mut Self
-    where
-        C: SyncComponent,
-    {
-        self.interpolate_with_priority_filtered::<C, With<FrameInterpolate>>(priority, fns)
-    }
+        F: QueryFilter + 'static;
 
     /// Registers a bundle interpolation rule with default bundle priority.
     ///
@@ -901,7 +853,7 @@ pub trait AppInterpolationExt {
     fn interpolate_bundle_filtered_with<B, F>(&mut self, fns: InterpolationFns<B>) -> &mut Self
     where
         B: InterpolationBundle,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         self.interpolate_bundle_with_priority_filtered::<B, F>(B::COMPONENT_COUNT, fns)
     }
@@ -915,27 +867,7 @@ pub trait AppInterpolationExt {
     ) -> &mut Self
     where
         B: InterpolationBundle,
-        F: InterpolationRuleFilter + 'static;
-
-    /// Registers a frame-only bundle interpolation rule with default bundle priority.
-    fn frame_interpolate_bundle_with<B>(&mut self, fns: InterpolationFns<B>) -> &mut Self
-    where
-        B: InterpolationBundle,
-    {
-        self.frame_interpolate_bundle_with_priority::<B>(B::COMPONENT_COUNT, fns)
-    }
-
-    /// Registers a frame-only bundle interpolation rule with explicit priority.
-    fn frame_interpolate_bundle_with_priority<B>(
-        &mut self,
-        priority: usize,
-        fns: InterpolationFns<B>,
-    ) -> &mut Self
-    where
-        B: InterpolationBundle,
-    {
-        self.interpolate_bundle_with_priority_filtered::<B, With<FrameInterpolate>>(priority, fns)
-    }
+        F: QueryFilter + 'static;
 
     /// Registers a default-priority interpolation rule for a diff-replicated component `C`.
     ///
@@ -986,7 +918,7 @@ pub trait AppInterpolationExt {
     fn interpolate_diff_filtered_with<C, F>(&mut self, fns: InterpolationFns<C>) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         self.interpolate_diff_with_priority_filtered::<C, F>(SINGLE_COMPONENT_RULE_PRIORITY, fns)
     }
@@ -1000,7 +932,7 @@ pub trait AppInterpolationExt {
     ) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
-        F: InterpolationRuleFilter + 'static;
+        F: QueryFilter + 'static;
 }
 
 impl AppInterpolationExt for App {
@@ -1011,7 +943,7 @@ impl AppInterpolationExt for App {
     ) -> &mut Self
     where
         C: SyncComponent,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         add_interpolation_rule::<C, F>(self, fns, InterpolationRuleConfig { priority });
         self
@@ -1024,7 +956,7 @@ impl AppInterpolationExt for App {
     ) -> &mut Self
     where
         B: InterpolationBundle,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         B::add_rule::<F>(self, fns, InterpolationRuleConfig { priority });
         self
@@ -1037,7 +969,7 @@ impl AppInterpolationExt for App {
     ) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
-        F: InterpolationRuleFilter + 'static,
+        F: QueryFilter + 'static,
     {
         add_interpolation_diff_rule::<C, F>(self, fns, InterpolationRuleConfig { priority });
         self
@@ -1325,33 +1257,29 @@ pub(crate) fn add_interpolation_rule<C, F>(
     config: InterpolationRuleConfig,
 ) where
     C: SyncComponent,
-    F: InterpolationRuleFilter + 'static,
+    F: QueryFilter + 'static,
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    let phase_mask = F::phase_mask();
-    let interpolation_phase = phase_mask.includes(RulePhase::Interpolation);
-    let frame_phase = phase_mask.includes(RulePhase::Frame);
-    if interpolation_phase && fns.owns_interpolation_history() {
+    if fns.owns_interpolation_history() {
         app.world_mut().register_component::<ConfirmedHistory<C>>();
     }
-    if frame_phase && fns.owns_frame_history() {
+    if fns.owns_frame_history() {
         app.world_mut()
             .register_component::<FrameInterpolationHistory<C>>();
     }
-    let uses_interpolation_component = interpolation_phase
-        && (fns.owns_interpolation_history() || fns.applies_interpolation_component());
-    let uses_frame_component =
-        frame_phase && (fns.owns_frame_history() || fns.applies_frame_component());
+    let uses_interpolation_component =
+        fns.owns_interpolation_history() || fns.applies_interpolation_component();
+    let uses_frame_component = fns.owns_frame_history() || fns.applies_frame_component();
     if uses_interpolation_component || uses_frame_component {
         app.world_mut().register_component::<C>();
     }
-    if interpolation_phase && fns.owns_interpolation_history() {
+    if fns.owns_interpolation_history() {
         register_interpolated_marker_fns::<C>(app);
         add_prepare_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
-    if interpolation_phase && fns.applies_interpolation_component() {
+    if fns.applies_interpolation_component() {
         mark_interpolated::<C>(app);
     }
     app.world_mut()
@@ -1366,33 +1294,29 @@ fn add_interpolation_diff_rule<C, F>(
     config: InterpolationRuleConfig,
 ) where
     C: SyncComponent + RepliconDiffable,
-    F: InterpolationRuleFilter + 'static,
+    F: QueryFilter + 'static,
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    let phase_mask = F::phase_mask();
-    let interpolation_phase = phase_mask.includes(RulePhase::Interpolation);
-    let frame_phase = phase_mask.includes(RulePhase::Frame);
-    if interpolation_phase && fns.owns_interpolation_history() {
+    if fns.owns_interpolation_history() {
         app.world_mut().register_component::<ConfirmedHistory<C>>();
     }
-    if frame_phase && fns.owns_frame_history() {
+    if fns.owns_frame_history() {
         app.world_mut()
             .register_component::<FrameInterpolationHistory<C>>();
     }
-    let uses_interpolation_component = interpolation_phase
-        && (fns.owns_interpolation_history() || fns.applies_interpolation_component());
-    let uses_frame_component =
-        frame_phase && (fns.owns_frame_history() || fns.applies_frame_component());
+    let uses_interpolation_component =
+        fns.owns_interpolation_history() || fns.applies_interpolation_component();
+    let uses_frame_component = fns.owns_frame_history() || fns.applies_frame_component();
     if uses_interpolation_component || uses_frame_component {
         app.world_mut().register_component::<C>();
     }
-    if interpolation_phase && fns.owns_interpolation_history() {
+    if fns.owns_interpolation_history() {
         register_interpolated_diff_marker_fns::<C>(app);
         add_prepare_interpolation_diff_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
-    if interpolation_phase && fns.applies_interpolation_component() {
+    if fns.applies_interpolation_component() {
         mark_interpolated::<C>(app);
     }
     app.world_mut()
@@ -1407,18 +1331,14 @@ pub(crate) fn add_interpolation_bundle_rule<B, F>(
     config: InterpolationRuleConfig,
 ) where
     B: TupleInterpolationBundle,
-    F: InterpolationRuleFilter + 'static,
+    F: QueryFilter + 'static,
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    let phase_mask = F::phase_mask();
-    let interpolation_phase = phase_mask.includes(RulePhase::Interpolation);
-    let frame_phase = phase_mask.includes(RulePhase::Frame);
-    let owns_interpolation_history = interpolation_phase && fns.owns_interpolation_history();
-    let owns_frame_history = frame_phase && fns.owns_frame_history();
-    let applies_interpolation_component =
-        interpolation_phase && fns.applies_interpolation_component();
-    let applies_frame_component = frame_phase && fns.applies_frame_component();
+    let owns_interpolation_history = fns.owns_interpolation_history();
+    let owns_frame_history = fns.owns_frame_history();
+    let applies_interpolation_component = fns.applies_interpolation_component();
+    let applies_frame_component = fns.applies_frame_component();
     let apply_interpolation =
         applies_interpolation_component.then_some(B::apply_archetype as ErasedApplyInterpolationFn);
     let apply_frame_interpolation = applies_frame_component

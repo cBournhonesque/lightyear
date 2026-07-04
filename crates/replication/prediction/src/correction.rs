@@ -27,11 +27,12 @@ use crate::manager::PredictionManager;
 use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
 use crate::rollback::RollbackSystems;
+use alloc::vec::Vec;
 use bevy_app::prelude::*;
 use bevy_ecs::{
     archetype::Archetype,
     change_detection::Tick as ChangeTick,
-    component::{ComponentId, Components, StorageType},
+    component::{ComponentId, StorageType},
     prelude::*,
     query::{FilteredAccess, FilteredAccessSet},
     storage::Table,
@@ -48,6 +49,7 @@ use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::registry::InterpolationRegistry;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::delta::Diffable;
+use lightyear_replication::registry::ComponentKind;
 use tracing::trace;
 
 /// The visual value of the component before the rollback started
@@ -68,69 +70,89 @@ pub(crate) struct PostRollbackCorrectionContext {
     overstep: f32,
 }
 
-type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
-
 /// Type-erased post-rollback correction handler registered per corrected component.
-pub(crate) type ErasedPostRollbackCorrectionFn = fn(
+pub(crate) type ErasedUpdatePostRollbackFrameHistoryFn = fn(
     UnsafeWorldCell,
+    &ErasedPostRollbackCorrection,
     PostRollbackCorrectionContext,
-    &InterpolationRegistry,
     &mut DeferredEntityCommands,
 );
+
+/// Type-erased visual correction handler registered per corrected component.
+pub(crate) type ErasedCreateVisualCorrectionFn = fn(
+    UnsafeWorldCell,
+    &ErasedPostRollbackCorrection,
+    PostRollbackCorrectionContext,
+    &mut DeferredEntityCommands,
+);
+
+/// Type-erased post-rollback frame-history restore handler.
+pub(crate) type ErasedRestorePostRollbackFrameHistoryFn =
+    fn(UnsafeWorldCell, &ErasedPostRollbackCorrection);
 
 /// Type-erased post-rollback correction metadata registered for one component.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct ErasedPostRollbackCorrection {
-    update: ErasedPostRollbackCorrectionFn,
-    live_component_id: ComponentIdFn,
-    previous_visual_component_id: ComponentIdFn,
-    prediction_history_component_id: ComponentIdFn,
-    frame_history_component_id: ComponentIdFn,
+    kind: ComponentKind,
+    update_history: ErasedUpdatePostRollbackFrameHistoryFn,
+    create_visual_correction: ErasedCreateVisualCorrectionFn,
+    restore_history: ErasedRestorePostRollbackFrameHistoryFn,
+    live_component_id: ComponentId,
+    previous_visual_component_id: ComponentId,
+    prediction_history_component_id: ComponentId,
+    frame_history_component_id: ComponentId,
 }
 
 impl ErasedPostRollbackCorrection {
-    pub(crate) fn new<C, D>() -> Self
+    pub(crate) fn new<C, D>(world: &mut World) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Debug + Send + Sync + 'static,
     {
         Self {
-            update: update_frame_interpolation_post_rollback_erased::<C, D>,
-            live_component_id: component_id::<C>,
-            previous_visual_component_id: component_id::<PreviousVisual<C>>,
-            prediction_history_component_id: component_id::<PredictionHistory<C>>,
-            frame_history_component_id: component_id::<FrameInterpolationHistory<C>>,
+            kind: ComponentKind::of::<C>(),
+            update_history: update_frame_history_post_rollback_erased::<C, D>,
+            create_visual_correction: create_visual_correction_from_live_erased::<C, D>,
+            restore_history: restore_frame_history_post_rollback_erased::<C, D>,
+            live_component_id: world.register_component::<C>(),
+            previous_visual_component_id: world.register_component::<PreviousVisual<C>>(),
+            prediction_history_component_id: world.register_component::<PredictionHistory<C>>(),
+            frame_history_component_id: world.register_component::<FrameInterpolationHistory<C>>(),
         }
     }
 
-    fn add_access(&self, components: &Components, filtered_access: &mut FilteredAccess) {
-        if let Some(component_id) = (self.live_component_id)(components) {
-            filtered_access.add_read(component_id);
-        }
-        if let Some(component_id) = (self.previous_visual_component_id)(components) {
-            filtered_access.add_read(component_id);
-        }
-        if let Some(component_id) = (self.prediction_history_component_id)(components) {
-            filtered_access.add_read(component_id);
-        }
-        if let Some(component_id) = (self.frame_history_component_id)(components) {
-            filtered_access.add_write(component_id);
-        }
+    pub(crate) fn kind(&self) -> ComponentKind {
+        self.kind
+    }
+
+    fn add_access(&self, filtered_access: &mut FilteredAccess) {
+        filtered_access.add_write(self.live_component_id);
+        filtered_access.add_read(self.previous_visual_component_id);
+        filtered_access.add_read(self.prediction_history_component_id);
+        filtered_access.add_write(self.frame_history_component_id);
     }
 
     fn update(
-        self,
+        &self,
         world: UnsafeWorldCell,
         ctx: PostRollbackCorrectionContext,
-        interpolation_registry: &InterpolationRegistry,
         deferred_apply: &mut DeferredEntityCommands,
     ) {
-        (self.update)(world, ctx, interpolation_registry, deferred_apply);
+        (self.update_history)(world, self, ctx, deferred_apply);
     }
-}
 
-fn component_id<C: Component>(components: &Components) -> Option<ComponentId> {
-    components.component_id::<C>()
+    fn create_visual_correction(
+        &self,
+        world: UnsafeWorldCell,
+        ctx: PostRollbackCorrectionContext,
+        deferred_apply: &mut DeferredEntityCommands,
+    ) {
+        (self.create_visual_correction)(world, self, ctx, deferred_apply);
+    }
+
+    fn restore_history(&self, world: UnsafeWorldCell) {
+        (self.restore_history)(world, self);
+    }
 }
 
 /// System param exposing a low-level world cell for post-rollback correction.
@@ -157,7 +179,12 @@ unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
         let mut filtered_access = FilteredAccess::default();
         if let Some(registry) = world.get_resource::<PredictionRegistry>() {
             for correction in registry.post_rollback_corrections() {
-                correction.add_access(world.components(), &mut filtered_access);
+                correction.add_access(&mut filtered_access);
+            }
+        }
+        if let Some(registry) = world.get_resource::<InterpolationRegistry>() {
+            for component_id in registry.frame_component_write_ids(world.components()) {
+                filtered_access.add_write(component_id);
             }
         }
         component_access_set.add(filtered_access);
@@ -226,36 +253,40 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     };
     let mut deferred_apply = DeferredEntityCommands::default();
     let world = correction_world.world;
-    for correction in prediction_registry.post_rollback_corrections() {
-        correction.update(world, ctx, &interpolation_registry, &mut deferred_apply);
+    let corrections = prediction_registry
+        .post_rollback_corrections()
+        .collect::<Vec<_>>();
+    for correction in &corrections {
+        correction.update(world, ctx, &mut deferred_apply);
+    }
+    apply_frame_interpolation_for_visual_correction(
+        world,
+        &corrections,
+        &interpolation_registry,
+        ctx,
+        &mut deferred_apply,
+    );
+    for correction in &corrections {
+        correction.create_visual_correction(world, ctx, &mut deferred_apply);
+    }
+    for correction in &corrections {
+        correction.restore_history(world);
     }
     deferred_apply.apply(&mut commands);
 }
 
-pub(crate) fn update_frame_interpolation_post_rollback_erased<
+pub(crate) fn update_frame_history_post_rollback_erased<
     C: SyncComponent + Diffable<D>,
     D: Debug + Send + Sync + 'static,
 >(
     world: UnsafeWorldCell,
+    correction: &ErasedPostRollbackCorrection,
     ctx: PostRollbackCorrectionContext,
-    interpolation_registry: &InterpolationRegistry,
-    deferred_apply: &mut DeferredEntityCommands,
+    _deferred_apply: &mut DeferredEntityCommands,
 ) {
-    let Some(component_id) = world.components().component_id::<C>() else {
-        return;
-    };
-    let Some(prediction_history_id) = world.components().component_id::<PredictionHistory<C>>()
-    else {
-        return;
-    };
-    let Some(frame_history_id) = world
-        .components()
-        .component_id::<FrameInterpolationHistory<C>>()
-    else {
-        return;
-    };
-    let previous_visual_id = world.components().component_id::<PreviousVisual<C>>();
-    let interpolation = interpolation_registry.frame_interpolation_for::<C>();
+    let component_id = correction.live_component_id;
+    let prediction_history_id = correction.prediction_history_component_id;
+    let frame_history_id = correction.frame_history_component_id;
 
     for archetype in world.archetypes().iter().filter(|archetype| {
         archetype.contains(component_id)
@@ -287,17 +318,7 @@ pub(crate) fn update_frame_interpolation_post_rollback_erased<
         else {
             continue;
         };
-        let previous_visuals = previous_visual_id
-            .filter(|component_id| archetype.contains(*component_id))
-            .and_then(|component_id| {
-                let StorageType::Table = archetype.get_storage_type(component_id)? else {
-                    return None;
-                };
-                table_component_slice::<PreviousVisual<C>>(table, component_id)
-            });
-
         for entity in archetype.entities() {
-            let entity_id = entity.id();
             let row = entity.table_row().index();
             let component = unsafe { &*components.get_unchecked(row).get() };
             let history = unsafe { &*prediction_histories.get_unchecked(row).get() };
@@ -305,21 +326,148 @@ pub(crate) fn update_frame_interpolation_post_rollback_erased<
 
             // update the FrameInterpolation with the last 2 history values
             interpolate.current_value = Some(component.clone());
-            let previous = history.get(ctx.tick - 1).cloned();
-            interpolate.previous_value = previous.clone();
-            let Some(previous) = previous else {
-                continue;
-            };
+            interpolate.previous_value = history.get(ctx.tick - 1).cloned();
+        }
+    }
+}
 
-            let Some(previous_visuals) = previous_visuals else {
+fn apply_frame_interpolation_for_visual_correction(
+    world: UnsafeWorldCell,
+    corrections: &[ErasedPostRollbackCorrection],
+    interpolation_registry: &InterpolationRegistry,
+    ctx: PostRollbackCorrectionContext,
+    deferred_apply: &mut DeferredEntityCommands,
+) {
+    for archetype in world
+        .archetypes()
+        .iter()
+        .filter(|archetype| archetype_has_previous_visual(archetype, corrections))
+    {
+        let active_correction_members = corrections
+            .iter()
+            .filter_map(|correction| {
+                archetype
+                    .contains(correction.previous_visual_component_id)
+                    .then_some(correction.kind())
+            })
+            .collect::<Vec<_>>();
+        let mut selected_rules = Vec::new();
+        for kind in interpolation_registry.rule_kinds() {
+            if let Some(rule_id) = interpolation_registry.select_rule_for_archetype(
+                world.components(),
+                archetype,
+                kind,
+            ) {
+                selected_rules.push(rule_id);
+            }
+        }
+        selected_rules.sort_by(|lhs, rhs| interpolation_registry.cmp_rule_precedence(*lhs, *rhs));
+
+        let mut claimed_members = Vec::new();
+        for rule_id in selected_rules {
+            let Some(rule) = interpolation_registry.rule(rule_id) else {
                 continue;
             };
+            if rule
+                .members()
+                .iter()
+                .any(|member| !active_correction_members.contains(member))
+            {
+                continue;
+            }
+            if rule
+                .members()
+                .iter()
+                .any(|member| claimed_members.contains(member))
+            {
+                continue;
+            }
+            claimed_members.extend(rule.members().iter().copied());
+            if let Some(apply) = interpolation_registry.cached_frame_apply_component(rule_id) {
+                (apply.apply_frame_interpolation())(
+                    world,
+                    archetype,
+                    interpolation_registry,
+                    apply.rule_id(),
+                    interpolation_context(ctx),
+                    false,
+                    deferred_apply,
+                );
+            }
+        }
+    }
+}
+
+fn archetype_has_previous_visual(
+    archetype: &Archetype,
+    corrections: &[ErasedPostRollbackCorrection],
+) -> bool {
+    corrections
+        .iter()
+        .any(|correction| archetype.contains(correction.previous_visual_component_id))
+}
+
+fn interpolation_context(
+    ctx: PostRollbackCorrectionContext,
+) -> lightyear_interpolation::rules::frame_interpolate::FrameInterpolationContext {
+    lightyear_interpolation::rules::frame_interpolate::FrameInterpolationContext {
+        overstep: ctx.overstep,
+    }
+}
+
+pub(crate) fn create_visual_correction_from_live_erased<
+    C: SyncComponent + Diffable<D>,
+    D: Debug + Send + Sync + 'static,
+>(
+    world: UnsafeWorldCell,
+    correction: &ErasedPostRollbackCorrection,
+    ctx: PostRollbackCorrectionContext,
+    deferred_apply: &mut DeferredEntityCommands,
+) {
+    let component_id = correction.live_component_id;
+    let frame_history_id = correction.frame_history_component_id;
+    let previous_visual_id = correction.previous_visual_component_id;
+
+    for archetype in world.archetypes().iter().filter(|archetype| {
+        archetype.contains(component_id)
+            && archetype.contains(frame_history_id)
+            && archetype.contains(previous_visual_id)
+    }) {
+        let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
+            continue;
+        };
+        let Some(StorageType::Table) = archetype.get_storage_type(frame_history_id) else {
+            continue;
+        };
+        let Some(StorageType::Table) = archetype.get_storage_type(previous_visual_id) else {
+            continue;
+        };
+        let Some(table) = table_for_archetype(world, archetype) else {
+            continue;
+        };
+        let Some(components) = table_component_slice::<C>(table, component_id) else {
+            continue;
+        };
+        let Some(frame_histories) =
+            table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
+        else {
+            continue;
+        };
+        let Some(previous_visuals) =
+            table_component_slice::<PreviousVisual<C>>(table, previous_visual_id)
+        else {
+            continue;
+        };
+
+        for entity in archetype.entities() {
+            let entity_id = entity.id();
+            let row = entity.table_row().index();
+            let current_visual = unsafe { &*components.get_unchecked(row).get() };
+            let interpolate = unsafe { &*frame_histories.get_unchecked(row).get() };
+            if interpolate.previous_value.is_none() {
+                continue;
+            }
             let previous_visual = unsafe { &*previous_visuals.get_unchecked(row).get() };
-            // compute the new visual value post-rollback but interpolating between the last 2 states of the history
-            let current_visual = interpolation.map_or_else(
-                || component.clone(),
-                |interpolation| interpolation(previous, component.clone(), ctx.overstep),
-            );
             // error = previous_visual - current_visual
             let error = current_visual.diff(&previous_visual.0);
             trace!(
@@ -338,6 +486,49 @@ pub(crate) fn update_frame_interpolation_post_rollback_erased<
             );
             deferred_apply.insert(entity_id, VisualCorrection::<D> { error });
             deferred_apply.remove::<PreviousVisual<C>>(entity_id);
+        }
+    }
+}
+
+pub(crate) fn restore_frame_history_post_rollback_erased<
+    C: SyncComponent + Diffable<D>,
+    D: Debug + Send + Sync + 'static,
+>(
+    world: UnsafeWorldCell,
+    correction: &ErasedPostRollbackCorrection,
+) {
+    let component_id = correction.live_component_id;
+    let frame_history_id = correction.frame_history_component_id;
+
+    for archetype in world.archetypes().iter().filter(|archetype| {
+        archetype.contains(component_id) && archetype.contains(frame_history_id)
+    }) {
+        let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
+            continue;
+        };
+        let Some(StorageType::Table) = archetype.get_storage_type(frame_history_id) else {
+            continue;
+        };
+        let Some(table) = table_for_archetype(world, archetype) else {
+            continue;
+        };
+        let Some(components) = table_component_slice::<C>(table, component_id) else {
+            continue;
+        };
+        let Some(frame_histories) =
+            table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
+        else {
+            continue;
+        };
+
+        for entity in archetype.entities() {
+            let row = entity.table_row().index();
+            let interpolate = unsafe { &*frame_histories.get_unchecked(row).get() };
+            let Some(current_value) = &interpolate.current_value else {
+                continue;
+            };
+            let component = unsafe { &mut *components.get_unchecked(row).get() };
+            *component = current_value.clone();
         }
     }
 }
@@ -450,5 +641,176 @@ impl CorrectionPolicy {
             decay_ratio: 0.0000001,
             max_correction_period: core::time::Duration::from_millis(10),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registry::{PredictionBuilderExt, PredictionRegistry};
+    use bevy_ecs::system::RunSystemOnce;
+    use bevy_math::{
+        Curve,
+        curve::{Ease, FunctionCurve, Interval},
+    };
+    use bevy_replicon::prelude::{AuthMethod, RepliconSharedPlugin};
+    use bevy_state::app::StatesPlugin;
+    use core::time::Duration;
+    use lightyear_core::prelude::FrameInterpolationHistory;
+    use lightyear_interpolation::registry::AppInterpolationExt;
+    use lightyear_interpolation::rules::InterpolationFns;
+    use lightyear_replication::prelude::AppComponentExt;
+
+    #[derive(Component, Clone, Debug, Default, PartialEq)]
+    struct CorrectionA(f32);
+
+    #[derive(Component, Clone, Debug, Default, PartialEq)]
+    struct CorrectionB(f32);
+
+    impl Ease for CorrectionA {
+        fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+            FunctionCurve::new(Interval::UNIT, move |t| {
+                CorrectionA(start.0 + (end.0 - start.0) * t)
+            })
+        }
+    }
+
+    impl Ease for CorrectionB {
+        fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
+            FunctionCurve::new(Interval::UNIT, move |t| {
+                CorrectionB(start.0 + (end.0 - start.0) * t)
+            })
+        }
+    }
+
+    impl Diffable<CorrectionA> for CorrectionA {
+        fn base_value() -> Self {
+            Self::default()
+        }
+
+        fn diff(&self, new: &Self) -> CorrectionA {
+            CorrectionA(new.0 - self.0)
+        }
+
+        fn apply_diff(&mut self, delta: &CorrectionA) {
+            self.0 += delta.0;
+        }
+    }
+
+    impl Diffable<CorrectionB> for CorrectionB {
+        fn base_value() -> Self {
+            Self::default()
+        }
+
+        fn diff(&self, new: &Self) -> CorrectionB {
+            CorrectionB(new.0 - self.0)
+        }
+
+        fn apply_diff(&mut self, delta: &CorrectionB) {
+            self.0 += delta.0;
+        }
+    }
+
+    fn bundle_lerp(
+        start: (CorrectionA, CorrectionB),
+        end: (CorrectionA, CorrectionB),
+        t: f32,
+    ) -> (CorrectionA, CorrectionB) {
+        (
+            CorrectionA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
+            CorrectionB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+        )
+    }
+
+    #[test]
+    fn post_rollback_correction_uses_bundle_interpolation_rule() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.insert_resource(LocalTimeline::default());
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
+
+        app.component::<CorrectionA>()
+            .predict()
+            .add_linear_correction_fn::<CorrectionA>();
+        app.component::<CorrectionB>()
+            .predict()
+            .add_linear_correction_fn::<CorrectionB>();
+
+        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|_, _, _| {
+            CorrectionA(1_000.0)
+        }));
+        app.interpolate_with::<CorrectionB>(InterpolationFns::no_history(|_, _, _| {
+            CorrectionB(2_000.0)
+        }));
+        app.interpolate_bundle_with::<(CorrectionA, CorrectionB)>(InterpolationFns::no_history(
+            bundle_lerp,
+        ));
+
+        let mut history_a = PredictionHistory::<CorrectionA>::default();
+        history_a.add_predicted(Tick(9), Some(CorrectionA(0.0)));
+        let mut history_b = PredictionHistory::<CorrectionB>::default();
+        history_b.add_predicted(Tick(9), Some(CorrectionB(0.0)));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                CorrectionB(20.0),
+                PreviousVisual(CorrectionA(1.0)),
+                PreviousVisual(CorrectionB(2.0)),
+                history_a,
+                history_b,
+                FrameInterpolationHistory::<CorrectionA>::default(),
+                FrameInterpolationHistory::<CorrectionB>::default(),
+            ))
+            .id();
+
+        app.world_mut()
+            .run_system_once(update_frame_interpolation_post_rollback)
+            .unwrap();
+        app.world_mut().flush();
+
+        assert_eq!(
+            app.world().get::<CorrectionA>(entity),
+            Some(&CorrectionA(10.0))
+        );
+        assert_eq!(
+            app.world().get::<CorrectionB>(entity),
+            Some(&CorrectionB(20.0))
+        );
+        assert_eq!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .map(|correction| &correction.error),
+            Some(&CorrectionA(-104.0))
+        );
+        assert_eq!(
+            app.world()
+                .get::<VisualCorrection<CorrectionB>>(entity)
+                .map(|correction| &correction.error),
+            Some(&CorrectionB(-208.0))
+        );
+        assert!(
+            app.world()
+                .get::<PreviousVisual<CorrectionA>>(entity)
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .get::<PreviousVisual<CorrectionB>>(entity)
+                .is_none()
+        );
     }
 }

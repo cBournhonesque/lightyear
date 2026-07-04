@@ -54,7 +54,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     // NOTE: this is the overstep from the previous frame since w are running this before RunFixedMainLoop
     let overstep = time.overstep_fraction();
     let tick = local_timeline.tick();
-    let interpolation = interpolation_registry.frame_interpolation_for::<Transform>();
+    let interpolation = interpolation_registry.interpolation_for::<Transform>();
     for (
         entity,
         position,

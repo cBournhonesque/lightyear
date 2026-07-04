@@ -186,15 +186,12 @@ impl PredictionRegistry {
         metadata.correction_fn = Some(unsafe { core::mem::transmute(correction_fn) });
     }
 
-    fn set_post_rollback_correction_fn<C, D>(&mut self)
-    where
-        C: SyncComponent + Diffable<D>,
-        D: Debug + Send + Sync + 'static,
-    {
-        self.post_rollback_correction_fns.insert(
-            ComponentKind::of::<C>(),
-            crate::correction::ErasedPostRollbackCorrection::new::<C, D>(),
-        );
+    fn set_post_rollback_correction_fn(
+        &mut self,
+        correction: crate::correction::ErasedPostRollbackCorrection,
+    ) {
+        self.post_rollback_correction_fns
+            .insert(correction.kind(), correction);
     }
 
     pub(crate) fn post_rollback_corrections(
@@ -1022,6 +1019,8 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !has_prediction_registry {
             return self;
         }
+        let post_rollback_correction =
+            crate::correction::ErasedPostRollbackCorrection::new::<C, D>(self.app.world_mut());
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
@@ -1029,7 +1028,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
-            .set_post_rollback_correction_fn::<C, D>();
+            .set_post_rollback_correction_fn(post_rollback_correction);
         crate::correction::add_correction_systems::<C, D>(self.app);
         self
     }

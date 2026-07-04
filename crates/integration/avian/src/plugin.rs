@@ -384,7 +384,7 @@ impl Plugin for LightyearAvianPlugin {
 
 impl LightyearAvianPlugin {
     fn add_transform_frame_interpolation_rule(app: &mut App) {
-        app.frame_interpolate_with_priority::<Transform>(
+        app.interpolate_with_priority::<Transform>(
             0,
             InterpolationFns::no_history(TransformLinearInterpolation::lerp),
         );

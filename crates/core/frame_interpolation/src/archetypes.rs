@@ -11,10 +11,10 @@ use bevy_ecs::{
 };
 use bevy_platform::collections::HashMap;
 use lightyear_interpolation::registry::InterpolationRegistry;
-use lightyear_interpolation::rule::{
-    CachedFrameInterpolationApply, CachedFrameInterpolationComponent, InterpolationRuleId,
-    RuleKind, RulePhase,
+use lightyear_interpolation::rules::frame_interpolate::{
+    CachedFrameInterpolationApply, CachedFrameInterpolationComponent,
 };
+use lightyear_interpolation::rules::{InterpolationRuleId, RuleKind};
 
 /// Cached frame interpolation rules selected for each archetype with [`FrameInterpolate`].
 #[doc(hidden)]
@@ -132,12 +132,9 @@ impl FrameInterpolatedArchetypes {
                 archetype.contains(self.skip_frame_interpolation_component_id),
             );
             for kind in registry.rule_kinds() {
-                if let Some(rule_id) = registry.select_rule_for_archetype(
-                    components,
-                    archetype,
-                    kind,
-                    RulePhase::Frame,
-                ) {
+                if let Some(rule_id) =
+                    registry.select_rule_for_archetype(components, archetype, kind)
+                {
                     cached.selected_rules.insert(kind, rule_id);
                     if let Some(component) =
                         registry.cached_frame_history_component(components, archetype, rule_id)

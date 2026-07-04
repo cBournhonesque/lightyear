@@ -1,7 +1,7 @@
 use crate::SyncComponent;
 use crate::archetypes::InterpolationWorld;
 use crate::registry::{InterpolationRegistry, sample_history_with_interpolation};
-use crate::rule::{
+use crate::rules::{
     ApplyInterpolationContext, CachedInterpolationComponent, InterpolationRuleId,
     UpdateHistoryContext,
 };
@@ -116,7 +116,7 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
         return;
     };
     let present = component.live_component_present();
-    let apply_controls_live_insert = component.apply_controls_live_insert();
+    let apply_rule_handles_live_insert = component.apply_rule_handles_live_insert();
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let row = entity.table_row().index();
@@ -133,7 +133,7 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
             entity_id,
             present,
             sample,
-            apply_controls_live_insert,
+            apply_rule_handles_live_insert,
         );
     }
 }
@@ -167,7 +167,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
         return;
     };
     let present = component.live_component_present();
-    let apply_controls_live_insert = component.apply_controls_live_insert();
+    let apply_rule_handles_live_insert = component.apply_rule_handles_live_insert();
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let Some(history_diff_receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity_id)
@@ -214,7 +214,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
             entity_id,
             present,
             sample,
-            apply_controls_live_insert,
+            apply_rule_handles_live_insert,
         );
     }
 }
@@ -272,7 +272,7 @@ fn queue_history_presence<C: Component + Clone>(
     entity: Entity,
     present: bool,
     sample: Option<HistoryState<C>>,
-    apply_controls_live_insert: bool,
+    apply_rule_handles_live_insert: bool,
 ) {
     // Apply the history state for the current interpolation time to the live component set:
     // insert once the add/update tick becomes visible, remove once a removal tick is reached,
@@ -281,7 +281,7 @@ fn queue_history_presence<C: Component + Clone>(
         None | Some(HistoryState::Removed) if present => {
             deferred_apply.remove::<C>(entity);
         }
-        Some(HistoryState::Updated(value)) if !present && !apply_controls_live_insert => {
+        Some(HistoryState::Updated(value)) if !present && !apply_rule_handles_live_insert => {
             deferred_apply.insert(entity, value);
         }
         _ => {}
@@ -421,7 +421,7 @@ mod tests {
     use super::*;
     use crate::registry::AppInterpolationExt;
     use crate::registry::InterpolationRegistry;
-    use crate::rule::{InterpolationFns, InterpolationRuleConfig};
+    use crate::rules::{InterpolationFns, InterpolationRuleConfig};
     use alloc::vec;
     use bevy_app::{App, Update};
     use bevy_ecs::archetype::Archetype;
