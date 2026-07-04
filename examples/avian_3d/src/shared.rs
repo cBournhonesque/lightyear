@@ -22,6 +22,9 @@ pub const BLOCK_HEIGHT: f32 = 1.0;
 pub const CHARACTER_CAPSULE_RADIUS: f32 = 0.5;
 pub const CHARACTER_CAPSULE_HEIGHT: f32 = 0.5;
 
+pub const PROJECTILE_RADIUS: f32 = 0.25;
+const PROJECTILE_DENSITY: f32 = 2.0;
+
 #[derive(Bundle)]
 pub(crate) struct CharacterPhysicsBundle {
     collider: Collider,
@@ -70,6 +73,30 @@ impl Default for BlockPhysicsBundle {
         Self {
             collider: Collider::cuboid(BLOCK_WIDTH, BLOCK_HEIGHT, BLOCK_WIDTH),
             rigid_body: RigidBody::Dynamic,
+        }
+    }
+}
+
+#[derive(Bundle)]
+pub(crate) struct ProjectilePhysicsBundle {
+    collider: Collider,
+    rigid_body: RigidBody,
+    mass_properties: MassPropertiesBundle,
+    restitution: Restitution,
+    friction: Friction,
+    swept_ccd: SweptCcd,
+}
+
+impl Default for ProjectilePhysicsBundle {
+    fn default() -> Self {
+        let collider = Collider::sphere(PROJECTILE_RADIUS);
+        Self {
+            mass_properties: MassPropertiesBundle::from_shape(&collider, PROJECTILE_DENSITY),
+            collider,
+            rigid_body: RigidBody::Dynamic,
+            restitution: Restitution::new(0.8).with_combine_rule(CoefficientCombine::Max),
+            friction: Friction::new(0.0).with_combine_rule(CoefficientCombine::Min),
+            swept_ccd: SweptCcd::default(),
         }
     }
 }

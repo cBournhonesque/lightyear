@@ -121,7 +121,9 @@ impl Plugin for ProtocolPlugin {
 
         app.component::<RigidBody>().replicate();
 
-        app.component::<BulletMarker>().replicate();
+        app.component::<BulletMarker>()
+            .replicate()
+            .add_custom_interpolation();
 
         app.component::<PredictedBot>().replicate();
 

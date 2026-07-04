@@ -1,5 +1,4 @@
 use bevy::prelude::*;
-use leafwing_input_manager::action_state::ActionState;
 
 use crate::protocol::*;
 
@@ -16,21 +15,7 @@ impl Plugin for SharedPlugin {
     }
 }
 
-/// Shared movement logic, controlled by the leafwing ActionState
-pub(crate) fn shared_movement_behaviour(
-    mut position: Mut<Position>,
-    action_state: &ActionState<Inputs>,
-) {
-    if action_state.pressed(&Inputs::Up) {
-        position.y += MOVE_SPEED;
-    }
-    if action_state.pressed(&Inputs::Down) {
-        position.y -= MOVE_SPEED;
-    }
-    if action_state.pressed(&Inputs::Left) {
-        position.x -= MOVE_SPEED;
-    }
-    if action_state.pressed(&Inputs::Right) {
-        position.x += MOVE_SPEED;
-    }
+/// Shared movement logic, controlled by BEI movement input.
+pub(crate) fn shared_movement_behaviour(mut position: Mut<Position>, input: Vec2) {
+    position.0 += input * MOVE_SPEED;
 }

@@ -6,15 +6,15 @@
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use bevy_replicon::prelude::Diffable as RepliconDiffable;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace};
 
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
-    position: PlayerPosition,
+    trail: PlayerTrail,
     color: PlayerColor,
 }
 
@@ -27,7 +27,7 @@ impl PlayerBundle {
         let color = Color::hsl(h, s, l);
         Self {
             id: PlayerId(id),
-            position: PlayerPosition(position),
+            trail: PlayerTrail::new(position),
             color: PlayerColor(color),
         }
     }
@@ -38,53 +38,70 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(PeerId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
-pub struct PlayerPosition(pub Vec2);
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+pub struct TrailPoint(pub Vec2);
 
-impl Ease for PlayerPosition {
-    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::UNIT, move |t| {
-            PlayerPosition(Vec2::lerp(start.0, end.0, t))
-        })
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PlayerTrailDiff {
+    pub(crate) new_head: TrailPoint,
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PlayerTrail(pub Vec<TrailPoint>);
+
+impl PlayerTrail {
+    const MAX_POINTS: usize = 50;
+
+    pub(crate) fn new(position: Vec2) -> Self {
+        Self(vec![TrailPoint(position)])
+    }
+
+    pub(crate) fn head(&self) -> Vec2 {
+        self.0.first().map(|point| point.0).unwrap_or(Vec2::ZERO)
+    }
+
+    pub(crate) fn push_head(&mut self, point: TrailPoint) {
+        self.0.insert(0, point);
+        self.0.truncate(Self::MAX_POINTS);
     }
 }
 
-const MAX_POSITION_DELTA: f32 = 200.0;
+impl RepliconDiffable for PlayerTrail {
+    type Diff = PlayerTrailDiff;
+    const HISTORY_LEN: usize = 128;
 
-// Since between two ticks the position doesn't change much, we could encode
-// the diff using a discrete set of values to reduce the bandwidth
-impl Diffable<(i8, i8)> for PlayerPosition {
-    fn base_value() -> Self {
-        Self(Vec2::new(0.0, 0.0))
+    fn apply_diff(&mut self, diff: &Self::Diff) -> bevy::ecs::error::Result<()> {
+        self.push_head(diff.new_head.clone());
+        Ok(())
+    }
+}
+
+fn interpolate_player_trail(start: PlayerTrail, end: PlayerTrail, t: f32) -> PlayerTrail {
+    let t = t.clamp(0.0, 1.0);
+    if t <= f32::EPSILON {
+        return start;
+    }
+    if 1.0 - t <= f32::EPSILON {
+        return end;
+    }
+    if start.0.is_empty() {
+        return end;
+    }
+    if end.0.is_empty() {
+        return start;
     }
 
-    fn diff(&self, new: &Self) -> (i8, i8) {
-        let mut diff = new.0 - self.0;
-
-        // Clamp the diff to a discrete set of values
-        // i.e i8::MIN = -10.0, i8::MAX = 10.0
-        diff.x = diff.x.clamp(-MAX_POSITION_DELTA, MAX_POSITION_DELTA);
-        diff.y = diff.y.clamp(-MAX_POSITION_DELTA, MAX_POSITION_DELTA);
-        diff.x = diff.x / MAX_POSITION_DELTA * (i8::MAX as f32);
-        diff.y = diff.y / MAX_POSITION_DELTA * (i8::MAX as f32);
-        trace!(
-            "Computing diff between {:?} and {:?}: {:?}",
-            self,
-            new,
-            diff
-        );
-
-        // Convert to i8
-        (diff.x as i8, diff.y as i8)
-    }
-
-    fn apply_diff(&mut self, delta: &(i8, i8)) {
-        trace!("Applying diff {:?} to {:?}", delta, self);
-        let mut diff = Vec2::new(delta.0 as f32, delta.1 as f32);
-        diff.x = diff.x / (i8::MAX as f32) * MAX_POSITION_DELTA;
-        diff.y = diff.y / (i8::MAX as f32) * MAX_POSITION_DELTA;
-        self.0 += diff;
-    }
+    let start_tail = start.0.last().expect("start trail is non-empty");
+    PlayerTrail(
+        end.0
+            .iter()
+            .enumerate()
+            .map(|(index, end_point)| {
+                let start_point = start.0.get(index).unwrap_or(start_tail);
+                TrailPoint(start_point.0.lerp(end_point.0, t))
+            })
+            .collect(),
+    )
 }
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -138,10 +155,10 @@ impl Plugin for ProtocolPlugin {
         // Use PredictionMode and InterpolationMode
         app.component::<PlayerId>().replicate();
 
-        app.component::<PlayerPosition>()
-            .replicate()
-            .predict()
-            .add_linear_interpolation();
+        app.component::<PlayerTrail>()
+            .replicate_diff()
+            .predict_diff()
+            .add_interpolation_diff_with(interpolate_player_trail);
 
         app.component::<PlayerColor>().replicate();
     }

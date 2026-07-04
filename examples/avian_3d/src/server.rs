@@ -21,6 +21,7 @@ use crate::shared::apply_character_action;
 use crate::shared::BlockPhysicsBundle;
 use crate::shared::CharacterPhysicsBundle;
 use crate::shared::FloorPhysicsBundle;
+use crate::shared::ProjectilePhysicsBundle;
 use crate::shared::CHARACTER_CAPSULE_HEIGHT;
 use crate::shared::CHARACTER_CAPSULE_RADIUS;
 use crate::shared::FLOOR_HEIGHT;
@@ -94,9 +95,9 @@ fn player_shoot(
                 ProjectileMarker,
                 DespawnAfter {
                     spawned_at: time.elapsed_secs(),
-                    lifetime: Duration::from_millis(5000),
+                    lifetime: Duration::from_secs(2),
                 },
-                RigidBody::Dynamic,
+                ProjectilePhysicsBundle::default(),
                 *position, // Use current position
                 Rotation::default(),
                 LinearVelocity(Vec3::Z * 10.),

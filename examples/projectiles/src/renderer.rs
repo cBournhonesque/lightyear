@@ -93,30 +93,40 @@ fn init(mut commands: Commands) {
     commands.spawn(Camera2d);
     #[cfg(feature = "client")]
     {
-        commands.spawn((
-            Text::new("Score: 0"),
-            TextFont::from_font_size(30.0),
-            TextColor(Color::WHITE.with_alpha(0.5)),
-            Node {
-                align_self: AlignSelf::End,
-                ..default()
-            },
-            ScoreText,
-        ));
+        commands
+            .spawn((
+                Node {
+                    width: Val::Px(460.0),
+                    position_type: PositionType::Absolute,
+                    top: Val::Px(10.0),
+                    right: Val::Px(10.0),
+                    flex_direction: FlexDirection::Column,
+                    align_items: AlignItems::FlexEnd,
+                    row_gap: Val::Px(6.0),
+                    padding: UiRect::all(Val::Px(10.0)),
+                    ..default()
+                },
+                BackgroundColor(Color::BLACK.with_alpha(0.45)),
+            ))
+            .with_children(|parent| {
+                parent.spawn((
+                    Text::new("Score: 0"),
+                    TextFont::from_font_size(30.0),
+                    TextColor(Color::WHITE.with_alpha(0.75)),
+                    ScoreText,
+                ));
 
-        commands.spawn((
-            Text::new("Mode information"),
-            TextFont::from_font_size(20.0),
-            TextColor(Color::WHITE.with_alpha(0.7)),
-            Node {
-                align_self: AlignSelf::Start,
-                position_type: PositionType::Absolute,
-                top: Val::Px(30.0),
-                left: Val::Px(10.0),
-                ..default()
-            },
-            ModeText,
-        ));
+                parent.spawn((
+                    Text::new("Waiting for mode information"),
+                    TextFont::from_font_size(20.0),
+                    TextColor(Color::WHITE.with_alpha(0.85)),
+                    Node {
+                        width: Val::Px(440.0),
+                        ..default()
+                    },
+                    ModeText,
+                ));
+            });
     }
 }
 
@@ -129,21 +139,25 @@ struct ModeText;
 #[cfg(feature = "client")]
 fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
-    active_mode: Single<&GameReplicationMode, With<ClientContext>>,
+    active_mode: Query<&GameReplicationMode, With<ClientContext>>,
     scores: Query<(&Score, &GameReplicationMode), (With<PlayerMarker>, With<Controlled>)>,
 ) {
-    if let Ok(mut text) = score_text.single_mut() {
-        let active_mode = active_mode.into_inner();
-        if let Some((score, _)) = scores.iter().find(|(_, mode)| *mode == active_mode) {
-            text.0 = format!("Score: {}", score.0);
-        }
+    let Ok(mut text) = score_text.single_mut() else {
+        return;
+    };
+    let Ok(active_mode) = active_mode.single() else {
+        text.0 = "Score: 0".to_string();
+        return;
+    };
+    if let Some((score, _)) = scores.iter().find(|(_, mode)| *mode == active_mode) {
+        text.0 = format!("Score: {}", score.0);
     }
 }
 
 #[cfg(feature = "client")]
 fn display_info(
-    mut mode_text: Single<&mut Text, With<ModeText>>,
-    mode_query: Single<
+    mut mode_text: Query<&mut Text, With<ModeText>>,
+    mode_query: Query<
         (
             &ProjectileReplicationMode,
             &GameReplicationMode,
@@ -152,7 +166,13 @@ fn display_info(
         With<ClientContext>,
     >,
 ) {
-    let (projectile_mode, replication_mode, weapon_type) = mode_query.into_inner();
+    let Ok(mut mode_text) = mode_text.single_mut() else {
+        return;
+    };
+    let Ok((projectile_mode, replication_mode, weapon_type)) = mode_query.single() else {
+        mode_text.0 = "Waiting for mode information".to_string();
+        return;
+    };
     mode_text.0 = format!(
         "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle projectiles\nPress R to cycle replication\nPress Space to shoot",
         weapon_type.name(),
@@ -257,12 +277,14 @@ fn add_player_visuals(
     for (entity, is_predicted, is_det_predicted, prespawned, interpolated, is_bot, mut color) in
         &mut query
     {
+        let mut visual_color = color.0;
         if interpolated {
             let hsva = Hsva {
                 saturation: 0.7,
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
+            visual_color = color.0;
         }
         if is_predicted || is_det_predicted || prespawned {
             let hsva = Hsva {
@@ -270,16 +292,23 @@ fn add_player_visuals(
                 ..Hsva::from(color.0)
             };
             color.0 = Color::from(hsva);
+            visual_color = color.0;
             commands.entity(entity).insert((
                 FrameInterpolate::<Position>::default(),
                 FrameInterpolate::<Rotation>::default(),
             ));
         }
+        let size = if is_bot {
+            visual_color = Color::srgb(1.0, 0.85, 0.1);
+            PLAYER_SIZE * 1.2
+        } else {
+            PLAYER_SIZE
+        };
         commands.entity(entity).insert((
             Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(PLAYER_SIZE)))),
+            Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(size)))),
             MeshMaterial2d(materials.add(ColorMaterial {
-                color: color.0,
+                color: visual_color,
                 ..Default::default()
             })),
         ));
@@ -294,7 +323,7 @@ fn add_player_visuals(
             is_prespawned = prespawned,
             is_interpolated = interpolated,
             is_bot = is_bot,
-            color = ?color.0,
+            color = ?visual_color,
             "Projectiles player visual added"
         );
     }

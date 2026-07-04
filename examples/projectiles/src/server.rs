@@ -30,7 +30,6 @@ use lightyear_avian2d::prelude::{
     LagCompensationHistory, LagCompensationPlugin, LagCompensationSpatialQuery,
 };
 use lightyear_examples_common::shared::{SEND_INTERVAL, SERVER_ADDR, SHARED_SETTINGS};
-use rand::random;
 
 pub struct ExampleServerPlugin;
 
@@ -391,6 +390,7 @@ mod bot {
     #[derive(Clone, Component)]
     struct BotServerTick(Arc<AtomicU32>);
 
+    const BOT_CLIENT_ID: u64 = 10_000;
     const BOT_MAX_TICK_AHEAD: u32 = 8;
     const BOT_INPUT_DELAY_TICKS: u16 = 12;
 
@@ -443,7 +443,7 @@ mod bot {
         app.add_plugins(SharedPlugin);
         app.add_plugins(ExampleClientPlugin);
 
-        let client_id = rand::random::<u64>();
+        let client_id = BOT_CLIENT_ID;
         let auth = Authentication::Manual {
             server_addr: SERVER_ADDR,
             client_id,

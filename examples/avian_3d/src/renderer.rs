@@ -1,8 +1,8 @@
 use crate::{
     protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker, ProjectileMarker},
     shared::{
-        BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS,
-        FLOOR_HEIGHT, FLOOR_WIDTH,
+        ProjectilePhysicsBundle, BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT,
+        CHARACTER_CAPSULE_RADIUS, FLOOR_HEIGHT, FLOOR_WIDTH, PROJECTILE_RADIUS,
     },
 };
 use avian3d::{math::AsF32, prelude::*};
@@ -138,11 +138,11 @@ fn add_projectile_cosmetics(
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
     for entity in &character_query {
-        info!(?entity, "Adding cosmetics to character {:?}", entity);
+        info!(?entity, "Adding cosmetics to projectile {:?}", entity);
         commands.entity(entity).insert((
-            Mesh3d(meshes.add(Sphere::new(1.))),
+            Mesh3d(meshes.add(Sphere::new(PROJECTILE_RADIUS))),
             MeshMaterial3d(materials.add(Color::from(MAGENTA))),
-            RigidBody::Dynamic, // needed to add this somewhere, lol
+            ProjectilePhysicsBundle::default(),
         ));
     }
 }

@@ -13,7 +13,6 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 
 ## Medium
 
-- `client_replication`: example that shows how to replicate entities from the client to the server. (i.e. the client has authority)
 - `delta_compression`: example that shows how a component can be replicated with delta-compression enabled. Whenever the component value
   changes, only the difference is sent over the network, instead of the full component value.
 - `network_visibility`: example that shows how to use network visibility to only replicate a subset of entities
@@ -26,9 +25,9 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 
 ## Advanced
 
-- `avian_physics`: example that shows how to replicate a physics simulation using xpbd.
+- `avian_2d`: example that shows how to replicate a 2D physics simulation using Avian.
   We also use the `leafwing` feature for a better way to manage inputs.
-- `avian_3d_character`: example that shows clients controlling server-authoritative 3D objects simulated using avian.
+- `avian_3d`: example that shows clients controlling server-authoritative 3D objects simulated using Avian.
 - `projectiles`: advanced examples that showcases how to do projectile replication under various networking modes
 - `fps`: example that shows how to spawn player-objects directly on the Predicted timeline, and how to use lag compensation to compute collisions between predicted and interpolated entities.
 - `auth`: an example that shows how a client can get a `ConnectToken` to connect to a server
@@ -57,4 +56,3 @@ You will need a valid SSL certificate to test the example in wasm using webtrans
 commands to generate a self-signed certificate:
 - `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (to generate the temporary SSL
   certificates, they are only valid for 2 weeks)
-

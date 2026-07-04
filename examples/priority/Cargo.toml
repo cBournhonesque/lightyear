@@ -35,13 +35,13 @@ lightyear = { workspace = true, features = [
   "interpolation",
   "prediction",
   "replication",
-  "leafwing",
+  "input_bei",
 ] }
 lightyear_examples_common = { workspace = true, features = [
   "structured-debug",
 ] }
 
-leafwing-input-manager.workspace = true
+bevy_enhanced_input.workspace = true
 serde.workspace = true
 bevy.workspace = true
 

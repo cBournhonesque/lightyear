@@ -123,6 +123,7 @@ fn main() {
                 .id();
             app.world_mut().entity_mut(client).remove::<NetcodeClient>();
         }
+        #[allow(unreachable_patterns)]
         _ => {}
     }
 

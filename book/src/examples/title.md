@@ -30,13 +30,6 @@ This example shows how lightyear can perform interest management: replicate only
 Here, the server will only replicate the green dots that are close to each player.
 
 
-### [Client Replication](https://cbournhonesque.github.io/lightyear/examples/client_replication/dist/)
-
-This example shows how lightyear can be used to replicate entities from the client to the server (and to other clients).
-The replication can be client-controlled.
-
-It also shows how to spawn entities directly on the client's predicted timeline.
-
 ### [Bullet Pre-spawn](https://cbournhonesque.github.io/lightyear/examples/bullet_prespawn/dist/)
 
 This example shows how to easily pre-spawn entities on the client's predicted timeline.

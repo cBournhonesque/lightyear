@@ -44,10 +44,12 @@ fn strip_interpolated_bullet_local_physics(
     bullets: Query<
         Entity,
         (
-            With<BulletMarker>,
             With<Interpolated>,
             // Host-client authoritative bullets can also carry client markers.
             Without<Replicate>,
+            // BulletMarker is delayed onto the interpolation timeline, but once its history exists
+            // this entity is already known to be a remote bullet and must not run local physics.
+            Or<(With<BulletMarker>, With<ConfirmedHistory<BulletMarker>>)>,
             Or<(With<RigidBody>, With<FrameInterpolate<Transform>>)>,
         ),
     >,

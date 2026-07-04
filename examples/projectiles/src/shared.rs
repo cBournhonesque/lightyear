@@ -101,6 +101,20 @@ pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     Color::hsl(h, s, l)
 }
 
+fn spawn_y_from_id(client_id: PeerId) -> f32 {
+    let mut hash = client_id.to_bits();
+    hash ^= hash >> 33;
+    hash = hash.wrapping_mul(0xff51afd7ed558ccd);
+    hash ^= hash >> 33;
+    hash = hash.wrapping_mul(0xc4ceb9fe1a85ec53);
+    hash ^= hash >> 33;
+
+    const LANES: u64 = 13;
+    const LANE_SPACING: f32 = 55.0;
+    let lane = (hash % LANES) as f32;
+    (lane - ((LANES - 1) as f32 / 2.0)) * LANE_SPACING
+}
+
 pub(crate) fn spawn_global_actions(commands: &mut Commands, context: Entity) {
     commands.spawn((
         ActionOf::<ClientContext>::new(context),
@@ -1933,7 +1947,7 @@ fn despawn_after(
 }
 
 pub fn player_bundle(client_id: PeerId, mode: GameReplicationMode) -> impl Bundle {
-    let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let y = spawn_y_from_id(client_id);
     let color = color_from_id(client_id);
     (
         // the context needs to be inserted on the server, and will be replicated to the client

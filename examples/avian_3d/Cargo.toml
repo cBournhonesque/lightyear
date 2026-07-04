@@ -1,5 +1,5 @@
 [package]
-name = "avian_3d_character"
+name = "avian_3d"
 version = "0.28.0"
 authors = ["Charles Bournhonesque <charlesbour@gmail.com>"]
 edition = "2021"
@@ -63,5 +63,5 @@ features = ["client", "netcode"]
 workspace = true
 
 [[bin]]
-name = "avian_3d_character"
+name = "avian_3d"
 doc = false

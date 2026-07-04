@@ -2,14 +2,18 @@
 //!
 //! The simulation logic (movement, etc.) should be shared between client and server to guarantee that there won't be
 //! mispredictions/rollbacks.
-use bevy::prelude::*;
 
 use crate::protocol::*;
 
-// This system defines how we update the player's positions when we receive an input
-pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
+// Compute the new head point for the player's trail when we receive an input.
+pub(crate) fn next_trail_head(trail: &PlayerTrail, input: &Inputs) -> Option<TrailPoint> {
     const MOVE_SPEED: f32 = 10.0;
     let Inputs::Direction(direction) = input;
+    if direction.is_none() {
+        return None;
+    }
+
+    let mut position = trail.head();
     if direction.up {
         position.y += MOVE_SPEED;
     }
@@ -22,4 +26,5 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
     if direction.right {
         position.x += MOVE_SPEED;
     }
+    Some(TrailPoint(position))
 }
