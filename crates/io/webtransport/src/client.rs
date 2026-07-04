@@ -34,9 +34,10 @@ impl Plugin for WebTransportClientPlugin {
 
 /// Lightyear component for a WebTransport client transport.
 ///
-/// Insert this on the entity that owns the client-side [`Link`]. A [`PeerAddr`] must be present
-/// when [`LinkStart`] is triggered; the plugin builds an `https://<peer_addr>` WebTransport target
-/// and spawns an Aeronet [`WebTransportClient`] related back to this link.
+/// Insert this on the entity that owns the client-side [`Link`]. If [`target`](Self::target) is
+/// `Some`, it is used as the WebTransport URL. Otherwise a [`PeerAddr`] must be present when
+/// [`LinkStart`] is triggered; the plugin builds an `https://<peer_addr>` target and spawns an
+/// Aeronet [`WebTransportClient`] related back to this link.
 #[derive(Debug, Component)]
 #[require(Link)]
 pub struct WebTransportClientIo {
@@ -47,6 +48,11 @@ pub struct WebTransportClientIo {
     /// hashes; on native targets that only disables validation when the `dangerous-configuration`
     /// feature is enabled.
     pub certificate_digest: String,
+    /// Full WebTransport URL to connect to, for example `https://example.com:4433`.
+    ///
+    /// When set, this takes priority over the entity's [`PeerAddr`]. When unset, the target is
+    /// derived from [`PeerAddr`] as `https://<peer_addr>`.
+    pub target: Option<String>,
 }
 
 impl WebTransportClientPlugin {
@@ -59,21 +65,24 @@ impl WebTransportClientPlugin {
         mut commands: Commands,
     ) -> Result {
         if let Ok((entity, client, peer_addr)) = query.get(trigger.entity) {
-            let server_addr = peer_addr.ok_or(WebTransportError::PeerAddrMissing)?.0;
+            let target = client
+                .target
+                .clone()
+                .or_else(|| peer_addr.map(|addr| format!("https://{}", addr.0)))
+                .ok_or(WebTransportError::PeerAddrMissing)?;
             let digest = client.certificate_digest.clone();
             commands.queue(move |world: &mut World| -> Result {
                 let config = Self::client_config(digest)?;
-                let server_url = format!("https://{server_addr}");
                 let target = {
                     #[cfg(target_family = "wasm")]
                     {
-                        server_url
+                        target
                     }
 
                     #[cfg(not(target_family = "wasm"))]
                     {
                         use aeronet_webtransport::wtransport::endpoint::IntoConnectOptions;
-                        server_url.into_options()
+                        target.into_options()
                     }
                 };
                 let entity_mut =

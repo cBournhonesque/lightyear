@@ -24,7 +24,7 @@ pub enum WebTransportError {
     #[error("the certificate hash `{0}` is invalid")]
     Certificate(String),
     /// A [`PeerAddr`](aeronet_io::connection::PeerAddr) component was required but missing.
-    #[error("PeerAddr is required to start the WebTransportClientIo link")]
+    #[error("PeerAddr is required to start the WebTransportClientIo link when target is None")]
     PeerAddrMissing,
     /// A [`LocalAddr`](aeronet_io::connection::LocalAddr) component was required but missing.
     #[error("LocalAddr is required to start the WebTransportServerIo")]
