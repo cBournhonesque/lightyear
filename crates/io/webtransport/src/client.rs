@@ -97,7 +97,7 @@ impl WebTransportClientPlugin {
     // `cert_hash` is expected to be the hexadecimal representation of the SHA256 Digest, without colons
     #[cfg(target_family = "wasm")]
     fn client_config(cert_hash: String) -> Result<ClientConfig> {
-        use aeronet_webtransport::xwt_web::{CertificateHash, HashAlgorithm};
+        use aeronet_webtransport::xwt_web::{CertificateHash, CongestionControl, HashAlgorithm};
         use tracing::info;
 
         info!("Connecting to server with certificate hash: {cert_hash}");
@@ -113,6 +113,7 @@ impl WebTransportClientPlugin {
 
         Ok(ClientConfig {
             server_certificate_hashes,
+            congestion_control: CongestionControl::LowLatency,
             ..Default::default()
         })
     }
