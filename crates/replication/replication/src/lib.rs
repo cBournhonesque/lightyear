@@ -124,6 +124,8 @@ pub mod prelude {
     pub use bevy_replicon::client::server_mutate_ticks::ServerMutateTicks;
     pub use bevy_replicon::prelude::Remote;
     pub use bevy_replicon::prelude::Remote as Replicated;
+    #[cfg(feature = "server")]
+    pub use bevy_replicon::server::PriorityMap;
 
     pub use crate::ReplicationSystems;
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};

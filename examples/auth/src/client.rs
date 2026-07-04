@@ -48,6 +48,7 @@ impl Plugin for ExampleClientPlugin {
             }
 
             app.add_systems(Startup, spawn_connect_button);
+            app.add_systems(Update, update_button_text);
         }
         app.add_systems(Update, fetch_connect_token);
         app.add_observer(on_disconnect);
@@ -104,6 +105,10 @@ fn fetch_connect_token(
 /// Component to identify the text displaying the client id
 #[derive(Component)]
 pub struct ClientIdText;
+
+#[cfg(feature = "gui")]
+#[derive(Component)]
+struct AuthConnectButton;
 
 /// Get a ConnectToken via a TCP connection to the authentication server
 async fn get_connect_token_from_auth_backend(auth_backend_address: SocketAddr) -> ConnectToken {
@@ -168,6 +173,7 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     TextColor(Color::srgb(0.9, 0.9, 0.9)),
                     TextFont::from_font_size(20.0),
                     BorderColor::all(Color::BLACK),
+                    AuthConnectButton,
                     Node {
                         width: Val::Px(150.0),
                         height: Val::Px(65.0),
@@ -201,4 +207,27 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     },
                 );
         });
+}
+
+#[cfg(feature = "gui")]
+fn update_button_text(
+    client: Single<&Client>,
+    mut text_query: Query<&mut Text, With<AuthConnectButton>>,
+) {
+    if let Ok(mut text) = text_query.single_mut() {
+        match client.state {
+            ClientState::Disconnecting => {
+                text.0 = "Disconnecting".to_string();
+            }
+            ClientState::Disconnected => {
+                text.0 = "Connect".to_string();
+            }
+            ClientState::Connecting => {
+                text.0 = "Connecting".to_string();
+            }
+            ClientState::Connected => {
+                text.0 = "Disconnect".to_string();
+            }
+        }
+    }
 }

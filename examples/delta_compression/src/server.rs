@@ -9,15 +9,13 @@
 use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
-use bevy::app::PluginGroupBuilder;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
+use bevy_replicon::prelude::EntityCommandsDiffExt;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::connection::host::HostServer;
 use lightyear::input::native::prelude::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
-use std::sync::Arc;
 
 #[derive(Clone)] // Added Clone
 pub struct ExampleServerPlugin;
@@ -80,15 +78,27 @@ pub(crate) fn handle_connected(
 fn movement(
     timeline: Res<LocalTimeline>,
     host_server: Query<(), With<HostServer>>,
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>, Has<Predicted>)>,
+    mut commands: Commands,
+    mut position_query: Query<(
+        Entity,
+        &mut PlayerPosition,
+        &ActionState<Inputs>,
+        Has<Predicted>,
+    )>,
 ) {
     let is_host_server = !host_server.is_empty();
     let tick = timeline.tick();
-    for (position, inputs, predicted) in position_query.iter_mut() {
+    for (entity, mut position, inputs, predicted) in position_query.iter_mut() {
         if is_host_server && predicted {
             continue;
         }
         trace!(?tick, ?position, ?inputs, "server");
-        shared::shared_movement_behaviour(position, inputs);
+        let moved = shared::shared_movement_behaviour(&mut position, inputs);
+        if moved {
+            let point = PlayerPosition(position.0);
+            commands
+                .entity(entity)
+                .apply_diff::<PlayerTrail>(PlayerTrailDiff { point });
+        }
     }
 }

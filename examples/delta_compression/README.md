@@ -1,13 +1,14 @@
 # Delta compression
 
-An example that shows how to enable delta-compression when replicating components.
+An example that shows how to use Replicon's diff-based component replication.
 
-In this example, instead of sending the updated `PlayerPosition` as a Vec2 (8 bytes), we only send 
-the delta between the previous and the new position (2 bytes). This is done by implementing the
-`Diffable` trait for the `PlayerPosition` component.
+In this example, `PlayerPosition` stays a normal predicted/interpolated position component. The
+diff-replicated component is `PlayerTrail`, a `Vec<PlayerPosition>` containing the last 50 positions visited by
+the player. Instead of sending the whole trail every time the player moves, the server records a
+small Replicon `Diffable` update that appends the newest trail point.
 
-Delta compression can also be useful if you have a component that contains a large amount of data
-(for example a Vec of 1000 elements) and you only need to update a few elements.
+Diff replication is useful when a component contains a larger collection and each update only changes
+a small part of it.
 
 
 ## Running an example

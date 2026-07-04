@@ -75,11 +75,9 @@ fn player_movement(
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
     let tick = timeline.tick();
-    for (position, input) in position_query.iter_mut() {
+    for (mut position, input) in position_query.iter_mut() {
         trace!(?tick, ?position, ?input, "client");
-        // NOTE: be careful to directly pass Mut<PlayerPosition>
-        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
-        shared::shared_movement_behaviour(position, input);
+        shared::shared_movement_behaviour(&mut position, input);
     }
 }
 

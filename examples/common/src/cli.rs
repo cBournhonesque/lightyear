@@ -126,7 +126,10 @@ impl Cli {
                 app
             }
             None => {
-                panic!("Mode is required");
+                panic!(
+                    "Mode is required. Possible options: {}",
+                    Mode::possible_options()
+                );
             }
             _ => {
                 todo!()
@@ -251,6 +254,22 @@ pub enum Mode {
         #[arg(short, long, default_value = None)]
         client_id: Option<u64>,
     },
+}
+
+impl Mode {
+    fn possible_options() -> &'static str {
+        cfg_if::cfg_if! {
+            if #[cfg(all(feature = "client", feature = "server"))] {
+                "client, server, separate, host-client"
+            } else if #[cfg(feature = "client")] {
+                "client"
+            } else if #[cfg(feature = "server")] {
+                "server"
+            } else {
+                "none"
+            }
+        }
+    }
 }
 
 impl Default for Mode {

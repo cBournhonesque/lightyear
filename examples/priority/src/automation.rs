@@ -1,9 +1,8 @@
 use bevy::prelude::*;
-use leafwing_input_manager::action_state::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
-use crate::protocol::{Inputs, PlayerId, Position, Shape};
+use crate::protocol::{PlayerId, Position, Shape};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -115,10 +114,11 @@ mod server {
         query: Query<Entity, Added<PlayerId>>,
     ) {
         for entity in &query {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
-            );
+            commands
+                .entity(entity)
+                .insert(LightyearDebug::component_at::<Position>([
+                    DebugSamplePoint::FixedUpdate,
+                ]));
         }
     }
 

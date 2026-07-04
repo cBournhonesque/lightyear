@@ -6,15 +6,16 @@
 //! - how the component should be synchronized between the `Confirmed` entity and the `Predicted`/`Interpolated` entity
 use bevy::ecs::entity::MapEntities;
 use bevy::prelude::*;
+use bevy_replicon::prelude::Diffable as RepliconDiffable;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::{info, trace};
 
 // Player
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
     position: PlayerPosition,
+    trail: PlayerTrail,
     color: PlayerColor,
 }
 
@@ -28,6 +29,7 @@ impl PlayerBundle {
         Self {
             id: PlayerId(id),
             position: PlayerPosition(position),
+            trail: PlayerTrail::new(position),
             color: PlayerColor(color),
         }
     }
@@ -49,41 +51,37 @@ impl Ease for PlayerPosition {
     }
 }
 
-const MAX_POSITION_DELTA: f32 = 200.0;
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PlayerTrailDiff {
+    pub(crate) point: PlayerPosition,
+}
 
-// Since between two ticks the position doesn't change much, we could encode
-// the diff using a discrete set of values to reduce the bandwidth
-impl Diffable<(i8, i8)> for PlayerPosition {
-    fn base_value() -> Self {
-        Self(Vec2::new(0.0, 0.0))
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct PlayerTrail(pub Vec<PlayerPosition>);
+
+impl PlayerTrail {
+    const MAX_POINTS: usize = 50;
+
+    pub(crate) fn new(position: Vec2) -> Self {
+        Self(vec![PlayerPosition(position)])
     }
 
-    fn diff(&self, new: &Self) -> (i8, i8) {
-        let mut diff = new.0 - self.0;
-
-        // Clamp the diff to a discrete set of values
-        // i.e i8::MIN = -10.0, i8::MAX = 10.0
-        diff.x = diff.x.clamp(-MAX_POSITION_DELTA, MAX_POSITION_DELTA);
-        diff.y = diff.y.clamp(-MAX_POSITION_DELTA, MAX_POSITION_DELTA);
-        diff.x = diff.x / MAX_POSITION_DELTA * (i8::MAX as f32);
-        diff.y = diff.y / MAX_POSITION_DELTA * (i8::MAX as f32);
-        trace!(
-            "Computing diff between {:?} and {:?}: {:?}",
-            self,
-            new,
-            diff
-        );
-
-        // Convert to i8
-        (diff.x as i8, diff.y as i8)
+    fn push(&mut self, point: PlayerPosition) {
+        self.0.push(point);
+        let excess = self.0.len().saturating_sub(Self::MAX_POINTS);
+        if excess > 0 {
+            self.0.drain(..excess);
+        }
     }
+}
 
-    fn apply_diff(&mut self, delta: &(i8, i8)) {
-        trace!("Applying diff {:?} to {:?}", delta, self);
-        let mut diff = Vec2::new(delta.0 as f32, delta.1 as f32);
-        diff.x = diff.x / (i8::MAX as f32) * MAX_POSITION_DELTA;
-        diff.y = diff.y / (i8::MAX as f32) * MAX_POSITION_DELTA;
-        self.0 += diff;
+impl RepliconDiffable for PlayerTrail {
+    type Diff = PlayerTrailDiff;
+    const HISTORY_LEN: usize = 128;
+
+    fn apply_diff(&mut self, diff: &Self::Diff) -> bevy::ecs::error::Result<()> {
+        self.push(diff.point.clone());
+        Ok(())
     }
 }
 
@@ -142,6 +140,8 @@ impl Plugin for ProtocolPlugin {
             .replicate()
             .predict()
             .add_linear_interpolation();
+
+        app.component::<PlayerTrail>().replicate_diff();
 
         app.component::<PlayerColor>().replicate();
     }

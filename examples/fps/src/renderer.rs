@@ -113,13 +113,18 @@ fn add_player_visuals(
 /// Add visuals to newly spawned bullets
 fn add_bullet_visuals(
     trigger: On<Add, BulletMarker>,
-    query: Query<(&ColorComponent, Has<Interpolated>)>,
+    query: Query<
+        (&ColorComponent, &Position, &Rotation, Has<Interpolated>),
+        (With<BulletMarker>, Without<Mesh2d>),
+    >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    if let Ok((color, interpolated)) = query.get(trigger.entity) {
+    if let Ok((color, position, rotation, interpolated)) = query.get(trigger.entity) {
         commands.entity(trigger.entity).insert((
+            Transform::from_translation(position.0.extend(0.0))
+                .with_rotation(Quat::from_rotation_z(rotation.as_radians())),
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Circle {
                 radius: BULLET_SIZE,
@@ -129,7 +134,7 @@ fn add_bullet_visuals(
                 ..Default::default()
             })),
         ));
-        if interpolated {
+        if !interpolated {
             commands
                 .entity(trigger.entity)
                 .insert(FrameInterpolate::<Transform>::default());

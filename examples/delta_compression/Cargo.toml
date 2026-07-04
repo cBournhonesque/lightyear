@@ -32,6 +32,7 @@ lightyear_examples_common = { workspace = true, features = [
 serde.workspace = true
 tracing.workspace = true
 bevy.workspace = true
+bevy_replicon.workspace = true
 
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]

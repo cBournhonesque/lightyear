@@ -20,7 +20,7 @@ impl Plugin for ExampleClientPlugin {
         //         .after(InterpolationSet::DespawnFlush),
         // );
         app.add_systems(
-            PostUpdate,
+            Update,
             interpolate.in_set(InterpolationSystems::Interpolate),
         );
         app.add_systems(
@@ -202,19 +202,70 @@ pub(crate) fn debug_interpolate(
 // at once to do the interpolation correctly.
 // We want the interpolated entity to stay on the tail path of the confirmed entity at all times.
 //
-// We should always interpolate between the first 2 values of the ConfirmedHistory if the
-// interpolation_tick is between them
+// We should always interpolate between the confirmed history values that bracket the
+// interpolation tick.
+enum ConfirmedInterpolationWindow<'a, C> {
+    Single {
+        tick: Tick,
+        value: &'a C,
+    },
+    Pair {
+        start_tick: Tick,
+        start: &'a C,
+        end_tick: Tick,
+        end: &'a C,
+    },
+}
+
+fn confirmed_interpolation_window<C>(
+    history: &ConfirmedHistory<C>,
+    interpolation_tick: Tick,
+) -> Option<ConfirmedInterpolationWindow<'_, C>> {
+    let previous_index = (0..history.len())
+        .take_while(|i| {
+            history
+                .get_nth_tick(*i)
+                .is_some_and(|tick| tick <= interpolation_tick)
+        })
+        .last()?;
+
+    let (start_tick, start_state) = history.get_nth_state(previous_index)?;
+    let HistoryState::Updated(start) = start_state else {
+        return None;
+    };
+
+    let Some((end_tick, HistoryState::Updated(end))) = history.get_nth_state(previous_index + 1)
+    else {
+        return Some(ConfirmedInterpolationWindow::Single {
+            tick: start_tick,
+            value: start,
+        });
+    };
+
+    Some(ConfirmedInterpolationWindow::Pair {
+        start_tick,
+        start,
+        end_tick,
+        end,
+    })
+}
+
 pub(crate) fn interpolate(
-    registry: Res<InterpolationRegistry>,
     timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
-    mut parent_query: Query<(&mut PlayerPosition, &ConfirmedHistory<PlayerPosition>)>,
-    mut tail_query: Query<(
-        Entity,
-        &PlayerParent,
-        &TailLength,
-        &mut TailPoints,
-        &ConfirmedHistory<TailPoints>,
-    )>,
+    mut parent_query: Query<
+        (&mut PlayerPosition, &ConfirmedHistory<PlayerPosition>),
+        With<Interpolated>,
+    >,
+    mut tail_query: Query<
+        (
+            Entity,
+            &PlayerParent,
+            &TailLength,
+            &mut TailPoints,
+            &ConfirmedHistory<TailPoints>,
+        ),
+        With<Interpolated>,
+    >,
 ) {
     let interpolation_tick = timeline.tick();
     let interpolation_overstep = timeline.overstep().to_f32();
@@ -226,154 +277,163 @@ pub(crate) fn interpolate(
             continue;
         };
 
-        // the ticks should be the same for both components
-        if let Some((start_tick, tail_start_value)) = tail_history.start_present() {
-            // make sure to stop early if the interpolation_tick is too early
-            if interpolation_tick < start_tick {
-                continue;
-            };
-            let Some((_, pos_start)) = parent_history.start_present() else {
-                // the parent component has not been confirmed yet, so we can't interpolate
-                continue;
-            };
-            if let Some((end_tick, tail_end_value)) = tail_history.newest_present() {
-                let Some((_, pos_end)) = parent_history.newest_present() else {
-                    // the parent component has not been confirmed yet, so we can't interpolate
-                    continue;
-                };
-                if start_tick != end_tick {
-                    // the new tail will be similar to the old tail, with some added points at the front
-                    *tail = tail_start_value.clone();
-                    *parent_position = pos_start.clone();
+        let Some(tail_window) = confirmed_interpolation_window(tail_history, interpolation_tick)
+        else {
+            continue;
+        };
 
-                    // interpolation ratio
-                    let t = interpolation_fraction(
-                        start_tick,
-                        end_tick,
-                        interpolation_tick,
-                        interpolation_overstep,
-                    );
-                    debug!(
-                        ?start_tick,
-                        ?end_tick,
-                        ?interpolation_tick,
-                        ?t,
-                        ?parent_history,
-                        ?tail_history,
-                        "interpolate situation"
-                    );
-                    let mut tail_diff_length = 0.0;
-                    // find in which end tail segment the previous head_position is
-
-                    // deal with the first segment separately
-                    if let Some(ratio) =
-                        pos_start.is_between(tail_end_value.0.front().unwrap().0, pos_end.0)
-                    {
-                        // we might need to add a new point to the tail
-                        if tail_end_value.0.front().unwrap().0
-                            != tail_start_value.0.front().unwrap().0
-                        {
-                            tail.0.push_front(tail_end_value.0.front().unwrap().clone());
-                            debug!("ADD POINT");
-                        }
-                        // the path is straight! just move the head and adjust the tail
-                        *parent_position =
-                            Ease::interpolating_curve_unbounded(*pos_start, *pos_end)
-                                .sample_unchecked(t)
-                                .clone();
-                        tail.shorten_back(parent_position.0, tail_length.0);
-                        debug!(
-                            ?tail,
-                            ?parent_position,
-                            "after interpolation; FIRST SEGMENT"
-                        );
+        let (start_tick, tail_start_value, end_tick, tail_end_value, pos_start, pos_end) =
+            match tail_window {
+                ConfirmedInterpolationWindow::Single { tick, value } => {
+                    let Some(pos) = parent_history.get_present(tick) else {
+                        // the parent component has not been confirmed yet, so we can't interpolate
                         continue;
-                    }
-
-                    // else, the final head position is not on the first segment
-                    tail_diff_length +=
-                        segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
-
-                    // amount of distance we need to move the player by, while remaining on the path
-                    let mut pos_distance_to_do = 0.0;
-                    // segment [segment_idx-1, segment_idx] is the segment where the starting pos is.
-                    let mut segment_idx = 0;
-                    // else, keep trying to find in the remaining segments
-                    for i in 1..tail_end_value.0.len() {
-                        let segment_length =
-                            segment_length(tail_end_value.0[i].0, tail_end_value.0[i - 1].0);
-                        if let Some(ratio) =
-                            pos_start.is_between(tail_end_value.0[i].0, tail_end_value.0[i - 1].0)
-                        {
-                            if ratio == 0.0 {
-                                // need to add a new point
-                                tail.0.push_front(tail_end_value.0[i].clone());
-                            }
-                            // we found the segment where the starting pos is.
-                            // let's find the total amount that the tail moved
-                            tail_diff_length += (1.0 - ratio) * segment_length;
-                            pos_distance_to_do = t * tail_diff_length;
-                            segment_idx = i;
-                            break;
-                        } else {
-                            tail_diff_length += segment_length;
-                        }
-                    }
-
-                    // now move the head by `pos_distance_to_do` while remaining on the tail path
-                    for i in (0..segment_idx).rev() {
-                        let dist = segment_length(parent_position.0, tail_end_value.0[i].0);
-                        debug!(
-                            ?i,
-                            ?dist,
-                            ?pos_distance_to_do,
-                            ?tail_diff_length,
-                            ?segment_idx,
-                            "in other segments"
-                        );
-                        if pos_distance_to_do < 1000.0 * f32::EPSILON {
-                            debug!(?tail, ?parent_position, "after interpolation; ON POINT");
-                            // no need to change anything
-                            continue 'outer;
-                        }
-                        // if (dist - pos_distance_to_do) < 1000.0 * f32::EPSILON {
-                        //     // the head is on a point (do not add a new point yet)
-                        //     parent_position.0 = tail_end_value.0[i].0;
-                        //     pos_distance_to_do -= dist;
-                        //     tail.shorten_back(parent_position.0, tail_length.0);
-                        //     info!(?tail, ?parent_position, "after interpolation; ON POINT");
-                        //     continue;
-                        // } else if dist > pos_distance_to_do {
-                        if dist < pos_distance_to_do {
-                            // the head must go through this tail point
-                            parent_position.0 = tail_end_value.0[i].0;
-                            tail.0.push_front(tail_end_value.0[i]);
-                            pos_distance_to_do -= dist;
-                        } else {
-                            // we found the final segment where the head will be
-                            parent_position.0 = tail
-                                .0
-                                .front()
-                                .unwrap()
-                                .1
-                                .get_tail(tail_end_value.0[i].0, dist - pos_distance_to_do);
-                            tail.shorten_back(parent_position.0, tail_length.0);
-                            debug!(?tail, ?parent_position, "after interpolation; ELSE");
-                            continue 'outer;
-                        }
-                    }
-                    // the final position is on the first segment
-                    let dist = segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
-                    parent_position.0 = tail
-                        .0
-                        .front()
-                        .unwrap()
-                        .1
-                        .get_tail(pos_end.0, dist - pos_distance_to_do);
-                    tail.shorten_back(parent_position.0, tail_length.0);
-                    debug!(?tail, ?parent_position, "after interpolation; ELSE FIRST");
+                    };
+                    *tail = value.clone();
+                    *parent_position = pos.clone();
+                    continue;
                 }
+                ConfirmedInterpolationWindow::Pair {
+                    start_tick,
+                    start,
+                    end_tick,
+                    end,
+                } => {
+                    let Some(pos_start) = parent_history.get_present(start_tick) else {
+                        // the parent component has not been confirmed yet, so we can't interpolate
+                        continue;
+                    };
+                    let Some(pos_end) = parent_history.get_present(end_tick) else {
+                        // the parent component has not been confirmed yet, so we can't interpolate
+                        continue;
+                    };
+                    (start_tick, start, end_tick, end, pos_start, pos_end)
+                }
+            };
+
+        // the new tail will be similar to the old tail, with some added points at the front
+        *tail = tail_start_value.clone();
+        *parent_position = pos_start.clone();
+
+        // interpolation ratio
+        let t = interpolation_fraction(
+            start_tick,
+            end_tick,
+            interpolation_tick,
+            interpolation_overstep,
+        )
+        .clamp(0.0, 1.0);
+        debug!(
+            ?start_tick,
+            ?end_tick,
+            ?interpolation_tick,
+            ?t,
+            ?parent_history,
+            ?tail_history,
+            "interpolate situation"
+        );
+        let mut tail_diff_length = 0.0;
+        // find in which end tail segment the previous head_position is
+
+        // deal with the first segment separately
+        if let Some(ratio) = pos_start.is_between(tail_end_value.0.front().unwrap().0, pos_end.0) {
+            // we might need to add a new point to the tail
+            if tail_end_value.0.front().unwrap().0 != tail_start_value.0.front().unwrap().0 {
+                tail.0.push_front(tail_end_value.0.front().unwrap().clone());
+                debug!("ADD POINT");
+            }
+            // the path is straight! just move the head and adjust the tail
+            *parent_position = Ease::interpolating_curve_unbounded(*pos_start, *pos_end)
+                .sample_unchecked(t)
+                .clone();
+            tail.shorten_back(parent_position.0, tail_length.0);
+            debug!(
+                ?tail,
+                ?parent_position,
+                "after interpolation; FIRST SEGMENT"
+            );
+            continue;
+        }
+
+        // else, the final head position is not on the first segment
+        tail_diff_length += segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
+
+        // amount of distance we need to move the player by, while remaining on the path
+        let mut pos_distance_to_do = 0.0;
+        // segment [segment_idx-1, segment_idx] is the segment where the starting pos is.
+        let mut segment_idx = 0;
+        // else, keep trying to find in the remaining segments
+        for i in 1..tail_end_value.0.len() {
+            let segment_length = segment_length(tail_end_value.0[i].0, tail_end_value.0[i - 1].0);
+            if let Some(ratio) =
+                pos_start.is_between(tail_end_value.0[i].0, tail_end_value.0[i - 1].0)
+            {
+                if ratio == 0.0 {
+                    // need to add a new point
+                    tail.0.push_front(tail_end_value.0[i].clone());
+                }
+                // we found the segment where the starting pos is.
+                // let's find the total amount that the tail moved
+                tail_diff_length += (1.0 - ratio) * segment_length;
+                pos_distance_to_do = t * tail_diff_length;
+                segment_idx = i;
+                break;
+            } else {
+                tail_diff_length += segment_length;
             }
         }
+
+        // now move the head by `pos_distance_to_do` while remaining on the tail path
+        for i in (0..segment_idx).rev() {
+            let dist = segment_length(parent_position.0, tail_end_value.0[i].0);
+            debug!(
+                ?i,
+                ?dist,
+                ?pos_distance_to_do,
+                ?tail_diff_length,
+                ?segment_idx,
+                "in other segments"
+            );
+            if pos_distance_to_do < 1000.0 * f32::EPSILON {
+                debug!(?tail, ?parent_position, "after interpolation; ON POINT");
+                // no need to change anything
+                continue 'outer;
+            }
+            // if (dist - pos_distance_to_do) < 1000.0 * f32::EPSILON {
+            //     // the head is on a point (do not add a new point yet)
+            //     parent_position.0 = tail_end_value.0[i].0;
+            //     pos_distance_to_do -= dist;
+            //     tail.shorten_back(parent_position.0, tail_length.0);
+            //     info!(?tail, ?parent_position, "after interpolation; ON POINT");
+            //     continue;
+            // } else if dist > pos_distance_to_do {
+            if dist < pos_distance_to_do {
+                // the head must go through this tail point
+                parent_position.0 = tail_end_value.0[i].0;
+                tail.0.push_front(tail_end_value.0[i]);
+                pos_distance_to_do -= dist;
+            } else {
+                // we found the final segment where the head will be
+                parent_position.0 = tail
+                    .0
+                    .front()
+                    .unwrap()
+                    .1
+                    .get_tail(tail_end_value.0[i].0, dist - pos_distance_to_do);
+                tail.shorten_back(parent_position.0, tail_length.0);
+                debug!(?tail, ?parent_position, "after interpolation; ELSE");
+                continue 'outer;
+            }
+        }
+        // the final position is on the first segment
+        let dist = segment_length(pos_end.0, tail_end_value.0.front().unwrap().0);
+        parent_position.0 = tail
+            .0
+            .front()
+            .unwrap()
+            .1
+            .get_tail(pos_end.0, dist - pos_distance_to_do);
+        tail.shorten_back(parent_position.0, tail_length.0);
+        debug!(?tail, ?parent_position, "after interpolation; ELSE FIRST");
     }
 }

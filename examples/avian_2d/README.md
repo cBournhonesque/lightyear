@@ -5,7 +5,7 @@ This example showcases several things:
 - how to integrate lightyear with `leafwing_input_manager`. In particular you can simply attach an `ActionState` and
   an `InputMap`
   to an `Entity`, and the `ActionState` for that `Entity` will be replicated automatically
-- an example of how to integrate physics replication with `bevy_xpbd`. The physics sets have to be run in `FixedUpdate`
+- an example of how to integrate physics replication with `avian2d`. The physics sets have to be run in `FixedUpdate`
   schedule
 - an example of how to run prediction for entities that are controlled by other players. (this is similar to what
   RocketLeague does).

@@ -1,8 +1,5 @@
 use bevy::prelude::*;
-use leafwing_input_manager::action_state::ActionState;
-use leafwing_input_manager::input_map::InputMap;
-use leafwing_input_manager::prelude::Actionlike;
-use lightyear::input::leafwing::prelude::InputPlugin;
+use lightyear::prelude::input::bei::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -35,6 +32,15 @@ pub enum Shape {
     Square,
 }
 
+#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct LowPriority;
+
+#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct MediumPriority;
+
+#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
+pub struct HighPriority;
+
 // Channels
 
 pub struct Channel1;
@@ -45,24 +51,22 @@ pub struct Channel1;
 pub struct Message1(pub usize);
 
 // Inputs
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Hash, Reflect, Clone, Copy, Actionlike)]
-pub enum Inputs {
-    Up,
-    Down,
-    Left,
-    Right,
-    Delete,
-}
+#[derive(Component, Serialize, Deserialize, Reflect, Clone, Debug, PartialEq)]
+pub struct Player;
+
+#[derive(Debug, InputAction)]
+#[action_output(Vec2)]
+pub struct Movement;
 
 // Protocol
 pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
-        app.register_type::<InputMap<Inputs>>();
-        app.register_type::<ActionState<Inputs>>();
         // inputs
-        app.add_plugins(InputPlugin::<Inputs>::default());
+        app.add_plugins(InputPlugin::<Player>::default());
+        app.register_input_action::<Movement>();
+
         // components
         app.component::<PlayerId>().replicate();
 
@@ -72,6 +76,10 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation();
 
         app.component::<PlayerColor>().replicate();
+
+        app.component::<LowPriority>().replicate_once();
+        app.component::<MediumPriority>().replicate_once();
+        app.component::<HighPriority>().replicate_once();
 
         app.component::<Shape>().replicate();
     }
