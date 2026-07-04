@@ -10,6 +10,10 @@ use lightyear::prelude::{
     lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline, Interpolated,
     IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server,
 };
+#[cfg(feature = "client")]
+use lightyear::prelude::{
+    ConfirmedHistory, InterpolationSystems, InterpolationTimeline, NetworkTimeline, Tick,
+};
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
@@ -35,6 +39,10 @@ impl Plugin for ExampleRendererPlugin {
         #[cfg(feature = "client")]
         {
             app.add_systems(Update, display_score);
+            app.add_systems(
+                Update,
+                add_ready_interpolated_bullet_visuals.after(InterpolationSystems::Interpolate),
+            );
         }
 
         #[cfg(feature = "server")]
@@ -122,23 +130,108 @@ fn add_bullet_visuals(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     if let Ok((color, position, rotation, interpolated)) = query.get(trigger.entity) {
-        commands.entity(trigger.entity).insert((
-            Transform::from_translation(position.0.extend(0.0))
-                .with_rotation(Quat::from_rotation_z(rotation.as_radians())),
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle {
-                radius: BULLET_SIZE,
-            }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: color.0,
-                ..Default::default()
-            })),
-        ));
-        if !interpolated {
-            commands
-                .entity(trigger.entity)
-                .insert(FrameInterpolate::<Transform>::default());
+        if interpolated {
+            return;
         }
+        insert_bullet_visuals(
+            trigger.entity,
+            color,
+            position,
+            rotation,
+            true,
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+fn add_ready_interpolated_bullet_visuals(
+    timeline: Option<Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>>,
+    query: Query<
+        (
+            Entity,
+            &ColorComponent,
+            &Position,
+            &Rotation,
+            &ConfirmedHistory<Position>,
+        ),
+        (With<BulletMarker>, With<Interpolated>, Without<Mesh2d>),
+    >,
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let Some(timeline) = timeline else {
+        return;
+    };
+    let interpolation_tick = timeline.tick();
+    for (entity, color, position, rotation, position_history) in &query {
+        if !position_history_has_next_sample(position_history, interpolation_tick) {
+            continue;
+        }
+        insert_bullet_visuals(
+            entity,
+            color,
+            position,
+            rotation,
+            false,
+            &mut commands,
+            &mut meshes,
+            &mut materials,
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+fn position_history_has_next_sample(
+    history: &ConfirmedHistory<Position>,
+    interpolation_tick: Tick,
+) -> bool {
+    let Some(previous_index) = (0..history.len())
+        .take_while(|i| {
+            history
+                .get_nth_tick(*i)
+                .is_some_and(|tick| tick <= interpolation_tick)
+        })
+        .last()
+    else {
+        return false;
+    };
+
+    history.get_nth_present(previous_index).is_some()
+        && history.get_nth_present(previous_index + 1).is_some()
+}
+
+fn insert_bullet_visuals(
+    entity: Entity,
+    color: &ColorComponent,
+    position: &Position,
+    rotation: &Rotation,
+    frame_interpolate_transform: bool,
+    commands: &mut Commands,
+    meshes: &mut Assets<Mesh>,
+    materials: &mut Assets<ColorMaterial>,
+) {
+    let mesh = meshes.add(Mesh::from(Circle {
+        radius: BULLET_SIZE,
+    }));
+    let material = materials.add(ColorMaterial {
+        color: color.0,
+        ..Default::default()
+    });
+
+    let mut entity_commands = commands.entity(entity);
+    entity_commands.insert((
+        Transform::from_translation(position.0.extend(0.0))
+            .with_rotation(Quat::from_rotation_z(rotation.as_radians())),
+        Visibility::default(),
+        Mesh2d(mesh),
+        MeshMaterial2d(material),
+    ));
+    if frame_interpolate_transform {
+        entity_commands.insert(FrameInterpolate::<Transform>::default());
     }
 }
 

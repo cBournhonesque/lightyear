@@ -14,7 +14,6 @@ use serde::{Deserialize, Serialize};
 #[derive(Bundle)]
 pub(crate) struct PlayerBundle {
     id: PlayerId,
-    position: PlayerPosition,
     trail: PlayerTrail,
     color: PlayerColor,
 }
@@ -28,7 +27,6 @@ impl PlayerBundle {
         let color = Color::hsl(h, s, l);
         Self {
             id: PlayerId(id),
-            position: PlayerPosition(position),
             trail: PlayerTrail::new(position),
             color: PlayerColor(color),
         }
@@ -40,38 +38,31 @@ impl PlayerBundle {
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerId(PeerId);
 
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
-pub struct PlayerPosition(pub Vec2);
-
-impl Ease for PlayerPosition {
-    fn interpolating_curve_unbounded(start: Self, end: Self) -> impl Curve<Self> {
-        FunctionCurve::new(Interval::UNIT, move |t| {
-            PlayerPosition(Vec2::lerp(start.0, end.0, t))
-        })
-    }
-}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Deref, DerefMut)]
+pub struct TrailPoint(pub Vec2);
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct PlayerTrailDiff {
-    pub(crate) point: PlayerPosition,
+    pub(crate) new_head: TrailPoint,
 }
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
-pub struct PlayerTrail(pub Vec<PlayerPosition>);
+pub struct PlayerTrail(pub Vec<TrailPoint>);
 
 impl PlayerTrail {
     const MAX_POINTS: usize = 50;
 
     pub(crate) fn new(position: Vec2) -> Self {
-        Self(vec![PlayerPosition(position)])
+        Self(vec![TrailPoint(position)])
     }
 
-    fn push(&mut self, point: PlayerPosition) {
-        self.0.push(point);
-        let excess = self.0.len().saturating_sub(Self::MAX_POINTS);
-        if excess > 0 {
-            self.0.drain(..excess);
-        }
+    pub(crate) fn head(&self) -> Vec2 {
+        self.0.first().map(|point| point.0).unwrap_or(Vec2::ZERO)
+    }
+
+    pub(crate) fn push_head(&mut self, point: TrailPoint) {
+        self.0.insert(0, point);
+        self.0.truncate(Self::MAX_POINTS);
     }
 }
 
@@ -80,9 +71,37 @@ impl RepliconDiffable for PlayerTrail {
     const HISTORY_LEN: usize = 128;
 
     fn apply_diff(&mut self, diff: &Self::Diff) -> bevy::ecs::error::Result<()> {
-        self.push(diff.point.clone());
+        self.push_head(diff.new_head.clone());
         Ok(())
     }
+}
+
+fn interpolate_player_trail(start: PlayerTrail, end: PlayerTrail, t: f32) -> PlayerTrail {
+    let t = t.clamp(0.0, 1.0);
+    if t <= f32::EPSILON {
+        return start;
+    }
+    if 1.0 - t <= f32::EPSILON {
+        return end;
+    }
+    if start.0.is_empty() {
+        return end;
+    }
+    if end.0.is_empty() {
+        return start;
+    }
+
+    let start_tail = start.0.last().expect("start trail is non-empty");
+    PlayerTrail(
+        end.0
+            .iter()
+            .enumerate()
+            .map(|(index, end_point)| {
+                let start_point = start.0.get(index).unwrap_or(start_tail);
+                TrailPoint(start_point.0.lerp(end_point.0, t))
+            })
+            .collect(),
+    )
 }
 
 #[derive(Component, Deserialize, Serialize, Clone, Debug, PartialEq)]
@@ -136,12 +155,10 @@ impl Plugin for ProtocolPlugin {
         // Use PredictionMode and InterpolationMode
         app.component::<PlayerId>().replicate();
 
-        app.component::<PlayerPosition>()
-            .replicate()
-            .predict()
-            .add_linear_interpolation();
-
-        app.component::<PlayerTrail>().replicate_diff();
+        app.component::<PlayerTrail>()
+            .replicate_diff()
+            .predict_diff()
+            .add_interpolation_diff_with(interpolate_player_trail);
 
         app.component::<PlayerColor>().replicate();
     }

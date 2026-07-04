@@ -79,26 +79,19 @@ fn movement(
     timeline: Res<LocalTimeline>,
     host_server: Query<(), With<HostServer>>,
     mut commands: Commands,
-    mut position_query: Query<(
-        Entity,
-        &mut PlayerPosition,
-        &ActionState<Inputs>,
-        Has<Predicted>,
-    )>,
+    trail_query: Query<(Entity, &PlayerTrail, &ActionState<Inputs>, Has<Predicted>)>,
 ) {
     let is_host_server = !host_server.is_empty();
     let tick = timeline.tick();
-    for (entity, mut position, inputs, predicted) in position_query.iter_mut() {
+    for (entity, trail, inputs, predicted) in trail_query.iter() {
         if is_host_server && predicted {
             continue;
         }
-        trace!(?tick, ?position, ?inputs, "server");
-        let moved = shared::shared_movement_behaviour(&mut position, inputs);
-        if moved {
-            let point = PlayerPosition(position.0);
+        trace!(?tick, ?trail, ?inputs, "server");
+        if let Some(new_head) = shared::next_trail_head(trail, inputs) {
             commands
                 .entity(entity)
-                .apply_diff::<PlayerTrail>(PlayerTrailDiff { point });
+                .apply_diff::<PlayerTrail>(PlayerTrailDiff { new_head });
         }
     }
 }

@@ -38,7 +38,7 @@ clippy_examples:
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
 # jq filters shared by the example/demo build recipe.
-_example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "delta_compression") and (.name != "simple_setup") and (.name != "projectiles")) | .name'
+_example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup") and (.name != "projectiles")) | .name'
 # simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
 
 # Build all examples/demos.

@@ -72,12 +72,14 @@ pub(crate) fn buffer_input(
 /// If we were predicting more entities, we would have to only apply movement to the player owned one.
 fn player_movement(
     timeline: Res<LocalTimeline>,
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    mut trail_query: Query<(&mut PlayerTrail, &ActionState<Inputs>), With<Predicted>>,
 ) {
     let tick = timeline.tick();
-    for (mut position, input) in position_query.iter_mut() {
-        trace!(?tick, ?position, ?input, "client");
-        shared::shared_movement_behaviour(&mut position, input);
+    for (mut trail, input) in trail_query.iter_mut() {
+        trace!(?tick, ?trail, ?input, "client");
+        if let Some(new_head) = shared::next_trail_head(&trail, input) {
+            trail.push_head(new_head);
+        }
     }
 }
 

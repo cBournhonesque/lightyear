@@ -2,13 +2,14 @@
 
 An example that shows how to use Replicon's diff-based component replication.
 
-In this example, `PlayerPosition` stays a normal predicted/interpolated position component. The
-diff-replicated component is `PlayerTrail`, a `Vec<PlayerPosition>` containing the last 50 positions visited by
-the player. Instead of sending the whole trail every time the player moves, the server records a
-small Replicon `Diffable` update that appends the newest trail point.
+In this example, `PlayerTrail` is the only replicated movement component. It is a
+`Vec<TrailPoint>` containing the current player-controlled head point followed by older trail
+points. Instead of sending the whole trail every time the player moves, the server records a
+small Replicon `Diffable` update that inserts the newest head point.
 
 Diff replication is useful when a component contains a larger collection and each update only changes
-a small part of it.
+a small part of it. `PlayerTrail` also uses custom interpolation for diff-replicated components so
+remote trails slide smoothly between materialized diff states.
 
 
 ## Running an example

@@ -3,7 +3,7 @@ use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
-use crate::protocol::{Inputs, PlayerId, PlayerPosition};
+use crate::protocol::{Inputs, PlayerId, PlayerTrail};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -65,7 +65,7 @@ mod client {
             if predicted || interpolated {
                 commands
                     .entity(entity)
-                    .insert(LightyearDebug::component_at::<PlayerPosition>([
+                    .insert(LightyearDebug::component_at::<PlayerTrail>([
                         DebugSamplePoint::Update,
                     ]));
             }
@@ -101,7 +101,7 @@ mod server {
     ) {
         for entity in &query {
             commands.entity(entity).insert(
-                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
+                LightyearDebug::component_at::<PlayerTrail>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
             );
         }

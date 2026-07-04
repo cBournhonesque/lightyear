@@ -5,26 +5,26 @@
 
 use crate::protocol::*;
 
-// This system defines how we update the player's positions when we receive an input.
-pub(crate) fn shared_movement_behaviour(position: &mut PlayerPosition, input: &Inputs) -> bool {
+// Compute the new head point for the player's trail when we receive an input.
+pub(crate) fn next_trail_head(trail: &PlayerTrail, input: &Inputs) -> Option<TrailPoint> {
     const MOVE_SPEED: f32 = 10.0;
     let Inputs::Direction(direction) = input;
-    let mut moved = false;
+    if direction.is_none() {
+        return None;
+    }
+
+    let mut position = trail.head();
     if direction.up {
         position.y += MOVE_SPEED;
-        moved = true;
     }
     if direction.down {
         position.y -= MOVE_SPEED;
-        moved = true;
     }
     if direction.left {
         position.x -= MOVE_SPEED;
-        moved = true;
     }
     if direction.right {
         position.x += MOVE_SPEED;
-        moved = true;
     }
-    moved
+    Some(TrailPoint(position))
 }
