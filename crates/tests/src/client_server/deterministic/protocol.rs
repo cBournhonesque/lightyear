@@ -136,13 +136,12 @@ impl Plugin for DetProtocolPlugin {
         app.add_plugins(physics_plugins);
         app.insert_resource(Gravity(Vec2::ZERO));
 
-        // Frame-interpolation on Position/Rotation. MUST be registered in
-        // shared code so that `FrameInterpolationSystems::Restore` runs in
-        // `RunFixedMainLoop` before Avian's transform→position sync,
-        // preserving post-rollback Position. See the TODO in
+        // Frame-interpolation MUST be registered in shared code so that
+        // `FrameInterpolationSystems::Restore` runs in `RunFixedMainLoop`
+        // before Avian's transform→position sync, preserving post-rollback
+        // Position. See the TODO in
         // `crates/integration/avian/src/plugin.rs::LightyearAvianPlugin::build`.
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin);
         app.add_observer(add_frame_interpolation);
 
         app.component::<DetPlayerId>().replicate();
@@ -151,17 +150,17 @@ impl Plugin for DetProtocolPlugin {
         app.component::<Position>().replicate_once();
         app.local_rollback::<Position>()
             .add_confirmed_write()
+            .add_linear_interpolation()
             .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            .register_linear_interpolation()
             .add_linear_correction_fn();
 
         app.component::<Rotation>().replicate_once();
         app.local_rollback::<Rotation>()
             .add_confirmed_write()
+            .add_linear_interpolation()
             .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
-            .register_linear_interpolation()
             .add_linear_correction_fn();
 
         app.component::<LinearVelocity>().replicate_once();
@@ -296,18 +295,15 @@ fn apply_movement(
     }
 }
 
-/// Insert `FrameInterpolate<Position/Rotation>` on every
+/// Insert `FrameInterpolate` on every
 /// `DeterministicPredicted` entity that has `Position`.
 fn add_frame_interpolation(
     trigger: On<Add, DeterministicPredicted>,
-    query: Query<(), (With<Position>, Without<FrameInterpolate<Position>>)>,
+    query: Query<(), (With<Position>, Without<FrameInterpolate>)>,
     mut commands: Commands,
 ) {
     if query.get(trigger.entity).is_ok() {
-        commands.entity(trigger.entity).insert((
-            FrameInterpolate::<Position>::default(),
-            FrameInterpolate::<Rotation>::default(),
-        ));
+        commands.entity(trigger.entity).insert(FrameInterpolate);
     }
 }
 

@@ -115,17 +115,17 @@ impl Plugin for ProtocolPlugin {
         app.component::<Position>().replicate_once();
         app.local_rollback::<Position>()
             .add_confirmed_write()
+            .add_linear_interpolation()
             .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            .register_linear_interpolation()
             .add_linear_correction_fn();
 
         app.component::<Rotation>().replicate_once();
         app.local_rollback::<Rotation>()
             .add_confirmed_write()
+            .add_linear_interpolation()
             .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
-            .register_linear_interpolation()
             .add_linear_correction_fn();
 
         app.component::<LinearVelocity>().replicate_once();

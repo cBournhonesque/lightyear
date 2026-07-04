@@ -238,26 +238,19 @@ impl Plugin for ProtocolPlugin {
         app.component::<Name>().replicate();
         app.component::<PlayerId>().replicate();
 
-        app.component::<PlayerPosition>()
-            .replicate()
-            .predict()
-            // NOTE: notice that we use custom interpolation here, this means that we don't run
-            //  the interpolation function for this component, so we need to implement our own interpolation system
-            //  (we do this because our interpolation system queries multiple components at once)
-            .add_custom_interpolation()
-            // we still register an interpolation function which will be used for frame interpolation
-            .register_linear_interpolation();
+        app.component::<PlayerPosition>().replicate().predict();
+        app.interpolate_with::<PlayerPosition>(
+            InterpolationFns::history_only().linear_interpolate(),
+        );
 
         app.component::<PlayerColor>().replicate();
 
-        app.component::<TailPoints>()
-            .replicate()
-            .predict()
-            // NOTE: notice that we use custom interpolation here, this means that we don't run
-            //  the interpolation function for this component, so we need to implement our own interpolation system
-            //  (we do this because our interpolation system queries multiple components at once)
-            .add_custom_interpolation();
-        // we do not register an interpolation function because we will use a custom interpolation system
+        app.component::<TailPoints>().replicate().predict();
+        // TailPoints also participates in the custom network interpolation
+        // system, so Lightyear only owns its delayed history.
+        app.interpolate_filtered_with::<TailPoints, With<Interpolated>>(
+            InterpolationFns::history_only(),
+        );
 
         app.component::<TailLength>().replicate();
 

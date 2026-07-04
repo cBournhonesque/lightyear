@@ -28,14 +28,25 @@ use crate::predicted_history::PredictionHistory;
 use crate::registry::PredictionRegistry;
 use crate::rollback::RollbackSystems;
 use bevy_app::prelude::*;
-use bevy_ecs::prelude::*;
+use bevy_ecs::{
+    archetype::Archetype,
+    change_detection::Tick as ChangeTick,
+    component::{ComponentId, Components, StorageType},
+    prelude::*,
+    query::{FilteredAccess, FilteredAccessSet},
+    storage::Table,
+    system::{SystemMeta, SystemParam, SystemParamValidationError},
+    world::unsafe_world_cell::UnsafeWorldCell,
+};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
+use core::cell::UnsafeCell;
 use core::fmt::Debug;
-use lightyear_core::prelude::LocalTimeline;
-use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationSystems};
-use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_core::prelude::{FrameInterpolationHistory, LocalTimeline, Tick};
+use lightyear_frame_interpolation::FrameInterpolationSystems;
+use lightyear_interpolation::registry::InterpolationRegistry;
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::delta::Diffable;
 use tracing::trace;
 
@@ -50,6 +61,121 @@ pub struct VisualCorrection<D> {
     pub error: D,
 }
 
+/// Context shared by type-erased post-rollback correction handlers.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PostRollbackCorrectionContext {
+    tick: Tick,
+    overstep: f32,
+}
+
+type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
+
+/// Type-erased post-rollback correction handler registered per corrected component.
+pub(crate) type ErasedPostRollbackCorrectionFn = fn(
+    UnsafeWorldCell,
+    PostRollbackCorrectionContext,
+    &InterpolationRegistry,
+    &mut DeferredEntityCommands,
+);
+
+/// Type-erased post-rollback correction metadata registered for one component.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ErasedPostRollbackCorrection {
+    update: ErasedPostRollbackCorrectionFn,
+    live_component_id: ComponentIdFn,
+    previous_visual_component_id: ComponentIdFn,
+    prediction_history_component_id: ComponentIdFn,
+    frame_history_component_id: ComponentIdFn,
+}
+
+impl ErasedPostRollbackCorrection {
+    pub(crate) fn new<C, D>() -> Self
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Debug + Send + Sync + 'static,
+    {
+        Self {
+            update: update_frame_interpolation_post_rollback_erased::<C, D>,
+            live_component_id: component_id::<C>,
+            previous_visual_component_id: component_id::<PreviousVisual<C>>,
+            prediction_history_component_id: component_id::<PredictionHistory<C>>,
+            frame_history_component_id: component_id::<FrameInterpolationHistory<C>>,
+        }
+    }
+
+    fn add_access(&self, components: &Components, filtered_access: &mut FilteredAccess) {
+        if let Some(component_id) = (self.live_component_id)(components) {
+            filtered_access.add_read(component_id);
+        }
+        if let Some(component_id) = (self.previous_visual_component_id)(components) {
+            filtered_access.add_read(component_id);
+        }
+        if let Some(component_id) = (self.prediction_history_component_id)(components) {
+            filtered_access.add_read(component_id);
+        }
+        if let Some(component_id) = (self.frame_history_component_id)(components) {
+            filtered_access.add_write(component_id);
+        }
+    }
+
+    fn update(
+        self,
+        world: UnsafeWorldCell,
+        ctx: PostRollbackCorrectionContext,
+        interpolation_registry: &InterpolationRegistry,
+        deferred_apply: &mut DeferredEntityCommands,
+    ) {
+        (self.update)(world, ctx, interpolation_registry, deferred_apply);
+    }
+}
+
+fn component_id<C: Component>(components: &Components) -> Option<ComponentId> {
+    components.component_id::<C>()
+}
+
+/// System param exposing a low-level world cell for post-rollback correction.
+///
+/// Access is declared from the erased correction handlers registered in
+/// [`PredictionRegistry`], so the dispatcher can scan component columns without
+/// taking `&mut World`.
+pub(crate) struct PostRollbackCorrectionWorld<'w> {
+    world: UnsafeWorldCell<'w>,
+}
+
+unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
+    type State = ();
+    type Item<'world, 'state> = PostRollbackCorrectionWorld<'world>;
+
+    fn init_state(_world: &mut World) -> Self::State {}
+
+    fn init_access(
+        _state: &Self::State,
+        _system_meta: &mut SystemMeta,
+        component_access_set: &mut FilteredAccessSet,
+        world: &mut World,
+    ) {
+        let mut filtered_access = FilteredAccess::default();
+        if let Some(registry) = world.get_resource::<PredictionRegistry>() {
+            for correction in registry.post_rollback_corrections() {
+                correction.add_access(world.components(), &mut filtered_access);
+            }
+        }
+        component_access_set.add(filtered_access);
+    }
+
+    unsafe fn get_param<'world, 'state>(
+        _state: &'state mut Self::State,
+        _system_meta: &SystemMeta,
+        world: UnsafeWorldCell<'world>,
+        _change_tick: ChangeTick,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        Ok(PostRollbackCorrectionWorld { world })
+    }
+}
+
+#[derive(Resource, Default)]
+struct PostRollbackCorrectionSystemInstalled;
+
 pub fn add_correction_systems<
     C: SyncComponent + Diffable<D>,
     D: Default + Clone + Debug + Send + Sync + 'static,
@@ -58,10 +184,16 @@ pub fn add_correction_systems<
 ) {
     // When rollback finishes, compute the new corrected visual value and compare it with the original visual value
     // to set the visual correction error.
-    app.add_systems(
-        PreUpdate,
-        update_frame_interpolation_post_rollback::<C, D>.in_set(RollbackSystems::EndRollback),
-    );
+    if !app
+        .world()
+        .contains_resource::<PostRollbackCorrectionSystemInstalled>()
+    {
+        app.insert_resource(PostRollbackCorrectionSystemInstalled);
+        app.add_systems(
+            PreUpdate,
+            update_frame_interpolation_post_rollback.in_set(RollbackSystems::EndRollback),
+        );
+    }
     app.configure_sets(
         PostUpdate,
         // If FrameInterpolation runs after Correction, it would overwrite the applied correction.
@@ -73,43 +205,121 @@ pub fn add_correction_systems<
     );
 }
 
-/// After the rollback is over, we need to update the values in the [`FrameInterpolate<C>`] component.
+/// After the rollback is over, we need to update the values in the [`FrameInterpolationHistory<C>`] component.
 /// This is important to run now and not in FixedUpdate because FixedUpdate could not run this frame.
 /// (if we have two frames in a row)
 ///
 /// If we have correction enabled, then we can compute the error between the previous visual value
 /// [`PreviousVisual<C>`] and the new visual value.
-pub(crate) fn update_frame_interpolation_post_rollback<
+pub(crate) fn update_frame_interpolation_post_rollback(
+    time: Res<Time<Fixed>>,
+    timeline: Res<LocalTimeline>,
+    prediction_registry: Res<PredictionRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
+    correction_world: PostRollbackCorrectionWorld,
+    mut commands: Commands,
+) {
+    let ctx = PostRollbackCorrectionContext {
+        // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
+        overstep: time.overstep_fraction(),
+        tick: timeline.tick(),
+    };
+    let mut deferred_apply = DeferredEntityCommands::default();
+    let world = correction_world.world;
+    for correction in prediction_registry.post_rollback_corrections() {
+        correction.update(world, ctx, &interpolation_registry, &mut deferred_apply);
+    }
+    deferred_apply.apply(&mut commands);
+}
+
+pub(crate) fn update_frame_interpolation_post_rollback_erased<
     C: SyncComponent + Diffable<D>,
     D: Debug + Send + Sync + 'static,
 >(
-    time: Res<Time<Fixed>>,
-    timeline: Res<LocalTimeline>,
-    registry: Res<InterpolationRegistry>,
-    mut query: Query<(
-        Entity,
-        &C,
-        Option<&PreviousVisual<C>>,
-        &PredictionHistory<C>,
-        &mut FrameInterpolate<C>,
-    )>,
-    mut commands: Commands,
+    world: UnsafeWorldCell,
+    ctx: PostRollbackCorrectionContext,
+    interpolation_registry: &InterpolationRegistry,
+    deferred_apply: &mut DeferredEntityCommands,
 ) {
-    // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
-    let overstep = time.overstep_fraction();
-    let tick = timeline.tick();
-    for (entity, component, previous_visual, history, mut interpolate) in query.iter_mut() {
-        // update the FrameInterpolation with the last 2 history values
-        interpolate.current_value = Some(component.clone());
-        interpolate.previous_value = history.get(tick - 1).cloned();
-        let Some(previous) = &interpolate.previous_value else {
+    let Some(component_id) = world.components().component_id::<C>() else {
+        return;
+    };
+    let Some(prediction_history_id) = world.components().component_id::<PredictionHistory<C>>()
+    else {
+        return;
+    };
+    let Some(frame_history_id) = world
+        .components()
+        .component_id::<FrameInterpolationHistory<C>>()
+    else {
+        return;
+    };
+    let previous_visual_id = world.components().component_id::<PreviousVisual<C>>();
+    let interpolation = interpolation_registry.frame_interpolation_for::<C>();
+
+    for archetype in world.archetypes().iter().filter(|archetype| {
+        archetype.contains(component_id)
+            && archetype.contains(prediction_history_id)
+            && archetype.contains(frame_history_id)
+    }) {
+        let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
             continue;
         };
+        let Some(StorageType::Table) = archetype.get_storage_type(prediction_history_id) else {
+            continue;
+        };
+        let Some(StorageType::Table) = archetype.get_storage_type(frame_history_id) else {
+            continue;
+        };
+        let Some(table) = table_for_archetype(world, archetype) else {
+            continue;
+        };
+        let Some(components) = table_component_slice::<C>(table, component_id) else {
+            continue;
+        };
+        let Some(prediction_histories) =
+            table_component_slice::<PredictionHistory<C>>(table, prediction_history_id)
+        else {
+            continue;
+        };
+        let Some(frame_histories) =
+            table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
+        else {
+            continue;
+        };
+        let previous_visuals = previous_visual_id
+            .filter(|component_id| archetype.contains(*component_id))
+            .and_then(|component_id| {
+                let StorageType::Table = archetype.get_storage_type(component_id)? else {
+                    return None;
+                };
+                table_component_slice::<PreviousVisual<C>>(table, component_id)
+            });
 
-        // compute the new visual value post-rollback but interpolating between the last 2 states of the history
-        if let Some(previous_visual) = previous_visual {
-            let current_visual =
-                registry.interpolate(previous.clone(), component.clone(), overstep);
+        for entity in archetype.entities() {
+            let entity_id = entity.id();
+            let row = entity.table_row().index();
+            let component = unsafe { &*components.get_unchecked(row).get() };
+            let history = unsafe { &*prediction_histories.get_unchecked(row).get() };
+            let interpolate = unsafe { &mut *frame_histories.get_unchecked(row).get() };
+
+            // update the FrameInterpolation with the last 2 history values
+            interpolate.current_value = Some(component.clone());
+            let previous = history.get(ctx.tick - 1).cloned();
+            interpolate.previous_value = previous.clone();
+            let Some(previous) = previous else {
+                continue;
+            };
+
+            let Some(previous_visuals) = previous_visuals else {
+                continue;
+            };
+            let previous_visual = unsafe { &*previous_visuals.get_unchecked(row).get() };
+            // compute the new visual value post-rollback but interpolating between the last 2 states of the history
+            let current_visual = interpolation.map_or_else(
+                || component.clone(),
+                |interpolation| interpolation(previous, component.clone(), ctx.overstep),
+            );
             // error = previous_visual - current_visual
             let error = current_visual.diff(&previous_visual.0);
             trace!(
@@ -117,21 +327,30 @@ pub(crate) fn update_frame_interpolation_post_rollback<
                 kind = "visual_correction_created",
                 schedule = "PreUpdate",
                 sample_point = "PreUpdate",
-                entity = ?entity,
+                entity = ?entity_id,
                 component = ?DebugName::type_name::<C>(),
-                local_tick = tick.0,
-                overstep,
+                local_tick = ctx.tick.0,
+                overstep = ctx.overstep,
                 current_visual = ?current_visual,
                 previous_visual = ?previous_visual,
                 error = ?error,
                 "created visual correction after rollback"
             );
-            commands
-                .entity(entity)
-                .insert(VisualCorrection::<D> { error })
-                .remove::<PreviousVisual<C>>();
+            deferred_apply.insert(entity_id, VisualCorrection::<D> { error });
+            deferred_apply.remove::<PreviousVisual<C>>(entity_id);
         }
     }
+}
+
+fn table_for_archetype<'w>(world: UnsafeWorldCell<'w>, archetype: &Archetype) -> Option<&'w Table> {
+    unsafe { world.storages().tables.get(archetype.table_id()) }
+}
+
+fn table_component_slice<C: Component>(
+    table: &Table,
+    component_id: ComponentId,
+) -> Option<&[UnsafeCell<C>]> {
+    unsafe { table.get_data_slice_for::<C>(component_id) }
 }
 
 /// Add the visual correction error to the visual component, and
@@ -139,7 +358,7 @@ pub(crate) fn update_frame_interpolation_post_rollback<
 ///
 /// If it gets small enough, we remove the `VisualCorrection<C>` component.
 ///
-/// The delta D must have a interpolation function registered in the [`InterpolationRegistry`].
+/// The delta `D` must have a correction function registered in the [`PredictionRegistry`].
 pub(crate) fn add_visual_correction<
     C: SyncComponent + Diffable<D>,
     D: Default + Clone + Debug + Send + Sync + 'static,

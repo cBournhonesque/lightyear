@@ -1,20 +1,29 @@
 use crate::SyncComponent;
 use crate::interpolate::{
-    apply_interpolation_archetype_erased, present_history_bracket, update_history_archetype_erased,
+    apply_interpolation_archetype_erased, update_history_archetype_erased,
     update_history_diff_archetype_erased,
 };
 use crate::plugin::{
     add_prepare_interpolation_diff_systems, add_prepare_interpolation_systems,
     refresh_update_interpolation_system_if_finalized,
 };
+use crate::rule::{
+    CachedFrameInterpolationApply, CachedFrameInterpolationComponent, CachedInterpolationApply,
+    CachedInterpolationComponent, ComponentIdFn, ErasedApplyFrameInterpolationFn,
+    ErasedApplyInterpolationFn, ErasedInterpolationFns, ErasedLerpFn, ErasedRestoreFrameHistoryFn,
+    ErasedUpdateFrameHistoryFn, ErasedUpdateHistoryFn, FrameInterpolationFns, InterpolationBundle,
+    InterpolationFns, InterpolationRule, InterpolationRuleConfig, InterpolationRuleFilter,
+    InterpolationRuleId, RuleKind, RulePhase, TupleInterpolationBundle,
+    apply_frame_interpolation_archetype_erased, confirmed_history_component_id,
+    frame_history_component_id, live_component_id, matches_filter, no_component_id,
+    restore_frame_history_archetype_erased, update_frame_history_archetype_erased,
+};
 use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::archetype::Archetype;
-use bevy_ecs::component::{ComponentId, Components, StorageType};
+use bevy_ecs::component::{ComponentId, Components};
 use bevy_ecs::prelude::*;
-use bevy_ecs::query::{ArchetypeFilter, QueryFilter, QueryState};
-use bevy_ecs::storage::Table;
-use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
+use bevy_ecs::query::QueryState;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
@@ -33,13 +42,12 @@ use bevy_replicon::shared::replication::receive_markers::MarkerConfig;
 use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
-use core::cell::UnsafeCell;
 use core::cmp::Ordering;
-use core::marker::PhantomData;
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, Interpolated, Tick};
+use lightyear_core::prelude::{
+    ConfirmedHistory, FrameInterpolate, FrameInterpolationHistory, Interpolated, Tick,
+};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
-use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::registry::replication::{ComponentRegistration, ComponentRegistrator};
 use lightyear_replication::registry::{ComponentKind, ComponentRegistry, LerpFn};
@@ -50,828 +58,7 @@ fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
     curve.sample_unchecked(t)
 }
 
-/// Filter accepted by interpolation rules.
-///
-/// This intentionally accepts `()` plus Bevy archetype filters such as
-/// `With<M>`, `Without<M>`, tuples, and `Or`. It does not accept per-entity
-/// filters like `Changed<T>`, because interpolation policy selection is cached
-/// per archetype.
-///
-/// Marker components are represented through filters, not through a separate
-/// interpolation marker registry. For example, `With<VisualInterpolation>`
-/// selects entities that have the `VisualInterpolation` component.
-///
-/// # Examples
-///
-/// Register a rule that only applies to entities with a local marker:
-///
-/// ```rust,ignore
-/// use bevy_ecs::prelude::*;
-/// use lightyear_interpolation::prelude::*;
-///
-/// #[derive(Component, Clone, PartialEq)]
-/// struct Position(f32);
-///
-/// #[derive(Component)]
-/// struct VisualInterpolation;
-///
-/// fn lerp_position(start: Position, end: Position, t: f32) -> Position {
-///     Position(start.0 + (end.0 - start.0) * t)
-/// }
-///
-/// app.interpolate_with_priority_filtered::<Position, With<VisualInterpolation>>(
-///     100,
-///     InterpolationFns::interpolate(lerp_position),
-/// );
-/// ```
-pub trait InterpolationRuleFilter: QueryFilter {}
-
-impl<F: ArchetypeFilter> InterpolationRuleFilter for F {}
-
-/// Configuration for an interpolation rule.
-///
-/// Rules are evaluated per interpolated archetype and component type. If
-/// multiple rules match the same archetype, the rule with the highest priority
-/// is selected. If the selected rule leaves a phase disabled, Lightyear skips
-/// that phase instead of falling back to a lower-priority rule.
-///
-/// # Examples
-///
-/// Give a marker-filtered rule priority over the default `F = ()` rule:
-///
-/// ```rust,ignore
-/// use bevy_ecs::prelude::*;
-/// use lightyear_interpolation::prelude::*;
-///
-/// #[derive(Component, Clone, PartialEq)]
-/// struct Position(f32);
-///
-/// #[derive(Component)]
-/// struct SmoothVisuals;
-///
-/// fn smooth_lerp(start: Position, end: Position, t: f32) -> Position {
-///     Position(start.0 + (end.0 - start.0) * t)
-/// }
-///
-/// app.interpolate_with::<Position>(InterpolationFns::interpolate(smooth_lerp));
-/// app.interpolate_with_priority_filtered::<Position, With<SmoothVisuals>>(
-///     100,
-///     InterpolationFns::interpolate(smooth_lerp),
-/// );
-/// ```
-#[derive(Debug, Default, Clone, Copy)]
-pub struct InterpolationRuleConfig {
-    /// Priority used to choose between matching interpolation rules.
-    ///
-    /// Higher values are selected first. The default priority is `0` for
-    /// component and diff rules. Default bundle registrations use the number
-    /// of components in the bundle, so a default `(Position, Rotation)` rule
-    /// wins over default single-component rules on the same archetype.
-    /// Matching rules with the same priority use registration order, with
-    /// earlier registrations selected first.
-    pub priority: usize,
-}
-
-/// Functions used by an interpolation rule.
-///
-/// The constructors describe which phases Lightyear owns:
-///
-/// - [`Self::interpolate`] stores received values in [`ConfirmedHistory`],
-///   prepares that history, samples it, and applies the result to the live
-///   component. For bundle interpolation, each component is stored in its own
-///   history before the tuple interpolation function is called.
-/// - [`Self::history_only`] stores and prepares history but does not apply the
-///   live component. This is the usual choice when a user system performs
-///   custom interpolation.
-/// - [`Self::disabled`] intentionally opts matching entities out of
-///   Lightyear interpolation for this component.
-///
-/// # Examples
-///
-/// Use Lightyear's full interpolation pipeline:
-///
-/// ```rust,ignore
-/// use bevy_ecs::prelude::*;
-/// use lightyear_interpolation::prelude::*;
-///
-/// #[derive(Component, Clone, PartialEq)]
-/// struct Position(f32);
-///
-/// fn lerp_position(start: Position, end: Position, t: f32) -> Position {
-///     Position(start.0 + (end.0 - start.0) * t)
-/// }
-///
-/// app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
-/// ```
-///
-/// Keep histories but run custom interpolation in your own system:
-///
-/// ```rust,ignore
-/// use bevy_ecs::prelude::*;
-/// use lightyear_interpolation::prelude::*;
-///
-/// #[derive(Component, Clone, PartialEq)]
-/// struct Position(f32);
-///
-/// app.interpolate_with::<Position>(InterpolationFns::history_only());
-///
-/// app.add_systems(Update, custom_interpolation.in_set(InterpolationSystems::Interpolate));
-/// ```
-#[derive(Debug, Clone, Copy)]
-pub struct InterpolationFns<C> {
-    interpolation: Option<LerpFn<C>>,
-    history: bool,
-    apply: bool,
-    _marker: PhantomData<fn(C)>,
-}
-
-impl<C> InterpolationFns<C> {
-    /// Enables the full Lightyear interpolation pipeline for `C`.
-    ///
-    /// Incoming updates are stored in [`ConfirmedHistory<C>`], history is
-    /// prepared every frame, and the provided interpolation function is used to
-    /// apply the live component at the interpolation timeline.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// # use bevy_ecs::prelude::*;
-    /// # use lightyear_interpolation::prelude::*;
-    /// # #[derive(Component, Clone, PartialEq)]
-    /// # struct Position(f32);
-    /// fn lerp_position(start: Position, end: Position, t: f32) -> Position {
-    ///     Position(start.0 + (end.0 - start.0) * t)
-    /// }
-    ///
-    /// app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
-    /// ```
-    pub fn interpolate(interpolation: LerpFn<C>) -> Self {
-        Self {
-            interpolation: Some(interpolation),
-            history: true,
-            apply: true,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Stores and prepares interpolation history, but does not apply `C`.
-    ///
-    /// Use this when Lightyear should receive component updates into
-    /// [`ConfirmedHistory<C>`], but visible interpolation is handled by a user
-    /// system. For example, a system may sample several histories and write a
-    /// render-only component.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// # use bevy_ecs::prelude::*;
-    /// # use lightyear_interpolation::prelude::*;
-    /// # #[derive(Component, Clone, PartialEq)]
-    /// # struct Position(f32);
-    /// app.interpolate_with::<Position>(InterpolationFns::history_only());
-    /// ```
-    pub fn history_only() -> Self {
-        Self {
-            interpolation: None,
-            history: true,
-            apply: false,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Stores and prepares history and keeps an interpolation function, but
-    /// does not apply `C`.
-    ///
-    /// This is useful for helper APIs that need a pure interpolation function
-    /// while the final write still happens in a custom user system.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// # use bevy_ecs::prelude::*;
-    /// # use lightyear_interpolation::prelude::*;
-    /// # #[derive(Component, Clone, PartialEq)]
-    /// # struct Position(f32);
-    /// # fn lerp_position(start: Position, end: Position, t: f32) -> Position {
-    /// #     Position(start.0 + (end.0 - start.0) * t)
-    /// # }
-    /// app.interpolate_with::<Position>(
-    ///     InterpolationFns::history_only_with_interpolator(lerp_position),
-    /// );
-    /// ```
-    pub fn history_only_with_interpolator(interpolation: LerpFn<C>) -> Self {
-        Self {
-            interpolation: Some(interpolation),
-            history: true,
-            apply: false,
-            _marker: PhantomData,
-        }
-    }
-
-    /// Disables Lightyear interpolation phases for matching entities.
-    ///
-    /// A disabled high-priority rule can be used to exclude a filtered set of
-    /// entities from a broader default interpolation rule.
-    ///
-    /// # Examples
-    ///
-    /// ```rust,ignore
-    /// # use bevy_ecs::prelude::*;
-    /// # use lightyear_interpolation::prelude::*;
-    /// # #[derive(Component, Clone, PartialEq)]
-    /// # struct Position(f32);
-    /// #[derive(Component)]
-    /// struct SnapOnly;
-    ///
-    /// app.interpolate_with_priority_filtered::<Position, With<SnapOnly>>(
-    ///     100,
-    ///     InterpolationFns::disabled(),
-    /// );
-    /// ```
-    pub fn disabled() -> Self {
-        Self {
-            interpolation: None,
-            history: false,
-            apply: false,
-            _marker: PhantomData,
-        }
-    }
-}
-
-/// Returns the component ID for a typed component if that component is registered.
-pub(crate) type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
-
-/// Tuple of components that can be interpolated together as one rule.
-///
-/// Bundle interpolation stores each component in its own
-/// [`ConfirmedHistory`], then samples every history at the same interpolation
-/// tick. The tuple interpolation function only runs when all member histories
-/// have the same bracketing start and end ticks.
-///
-/// Lightyear currently implements this trait for tuples of 2 to 8 distinct
-/// [`SyncComponent`] types.
-///
-/// # Examples
-///
-/// Register interpolation for `Position` and `Rotation` together:
-///
-/// ```rust,ignore
-/// use bevy_ecs::prelude::*;
-/// use lightyear_interpolation::prelude::*;
-///
-/// #[derive(Component, Clone, PartialEq)]
-/// struct Position(f32);
-/// #[derive(Component, Clone, PartialEq)]
-/// struct Rotation(f32);
-///
-/// fn interpolate_transform(
-///     start: (Position, Rotation),
-///     end: (Position, Rotation),
-///     t: f32,
-/// ) -> (Position, Rotation) {
-///     (
-///         Position(start.0.0 + (end.0.0 - start.0.0) * t),
-///         Rotation(start.1.0 + (end.1.0 - start.1.0) * t),
-///     )
-/// }
-///
-/// app.interpolate_bundle_with::<(Position, Rotation)>(
-///     InterpolationFns::interpolate(interpolate_transform),
-/// );
-/// ```
-pub trait InterpolationBundle: 'static {
-    /// Number of components in the bundle.
-    ///
-    /// This is used as the default priority for bundle rules, so a default
-    /// bundle rule takes priority over matching rules for smaller overlapping
-    /// bundles or individual components.
-    #[doc(hidden)]
-    const COMPONENT_COUNT: usize;
-
-    /// Component kinds written by the bundle interpolation apply system.
-    #[doc(hidden)]
-    fn component_kinds() -> Vec<ComponentKind>;
-
-    /// Component ID lookup functions for the live components written by the bundle.
-    #[doc(hidden)]
-    fn component_id_fns() -> Vec<ComponentIdFn>;
-
-    /// Applies interpolation for one cached archetype that selected this rule.
-    #[doc(hidden)]
-    fn apply_archetype(
-        world: UnsafeWorldCell,
-        archetype: &Archetype,
-        interpolation_registry: &InterpolationRegistry,
-        rule_id: InterpolationRuleId,
-        ctx: ApplyInterpolationContext,
-        deferred_apply: &mut DeferredEntityCommands,
-    );
-
-    /// Adds per-component history rules for every component in the bundle.
-    #[doc(hidden)]
-    fn add_history_rules<F>(app: &mut App, config: InterpolationRuleConfig)
-    where
-        F: InterpolationRuleFilter + 'static;
-
-    /// Registers the live component IDs written by bundle apply rules.
-    #[doc(hidden)]
-    fn register_live_components(app: &mut App);
-
-    /// Marks every member component as interpolated in Lightyear's component registry.
-    #[doc(hidden)]
-    fn mark_interpolated(app: &mut App);
-}
-
-#[derive(Clone, Copy)]
-enum ComponentTableColumn<'w, C> {
-    Table(&'w [UnsafeCell<C>]),
-    Missing,
-    NonTable,
-}
-
-fn table_for_archetype<'w>(world: UnsafeWorldCell<'w>, archetype: &Archetype) -> Option<&'w Table> {
-    unsafe { world.storages().tables.get(archetype.table_id()) }
-}
-
-fn component_table_column<'w, C: Component>(
-    world: UnsafeWorldCell<'w>,
-    archetype: &Archetype,
-    table: &'w Table,
-) -> ComponentTableColumn<'w, C> {
-    let Some(component_id) = world.components().component_id::<C>() else {
-        return ComponentTableColumn::Missing;
-    };
-    if !archetype.contains(component_id) {
-        return ComponentTableColumn::Missing;
-    }
-    let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
-        return ComponentTableColumn::NonTable;
-    };
-    unsafe {
-        table
-            .get_data_slice_for::<C>(component_id)
-            .map_or(ComponentTableColumn::NonTable, ComponentTableColumn::Table)
-    }
-}
-
-macro_rules! impl_interpolation_bundle {
-    (
-        $N:tt,
-        (
-            $C0:ident,
-            $component0:ident,
-            $history0:ident,
-            $start_tick0:ident,
-            $start0:ident,
-            $end0:ident,
-            $end_tick0:ident,
-            $end_value0:ident,
-            $output0:ident
-        ),
-        $(
-            (
-                $C:ident,
-                $component:ident,
-                $history:ident,
-                $start_tick:ident,
-                $start:ident,
-                $end:ident,
-                $end_tick:ident,
-                $end_value:ident,
-                $output:ident
-            )
-        ),+
-        $(,)?
-    ) => {
-        impl<$C0, $($C),+> InterpolationBundle for ($C0, $($C,)+)
-        where
-            $C0: SyncComponent,
-            $($C: SyncComponent),+
-        {
-            const COMPONENT_COUNT: usize = $N;
-
-            fn component_kinds() -> Vec<ComponentKind> {
-                alloc::vec![ComponentKind::of::<$C0>(), $(ComponentKind::of::<$C>()),+]
-            }
-
-            fn component_id_fns() -> Vec<ComponentIdFn> {
-                alloc::vec![
-                    live_component_id::<$C0> as ComponentIdFn,
-                    $(live_component_id::<$C> as ComponentIdFn),+
-                ]
-            }
-
-            fn apply_archetype(
-                world: UnsafeWorldCell,
-                archetype: &Archetype,
-                interpolation_registry: &InterpolationRegistry,
-                rule_id: InterpolationRuleId,
-                ctx: ApplyInterpolationContext,
-                deferred_apply: &mut DeferredEntityCommands,
-            ) {
-                let Some(table) = table_for_archetype(world, archetype) else {
-                    return;
-                };
-                let components = world.components();
-                let Some($history0) = components.component_id::<ConfirmedHistory<$C0>>() else {
-                    return;
-                };
-                let Some($history0) = (unsafe {
-                    table.get_data_slice_for::<ConfirmedHistory<$C0>>($history0)
-                }) else {
-                    return;
-                };
-                let $component0 = component_table_column::<$C0>(world, archetype, table);
-                $(
-                    let Some($history) = components.component_id::<ConfirmedHistory<$C>>() else {
-                        return;
-                    };
-                    let Some($history) = (unsafe {
-                        table.get_data_slice_for::<ConfirmedHistory<$C>>($history)
-                    }) else {
-                        return;
-                    };
-                    let $component = component_table_column::<$C>(world, archetype, table);
-                )+
-
-                for entity in archetype.entities() {
-                    let row = entity.table_row().index();
-                    let $history0 = unsafe { &*$history0.get_unchecked(row).get() };
-                    let Some(($start_tick0, $start0, $end0)) = ({
-                        present_history_bracket($history0, ctx.interpolation_tick)
-                    }) else {
-                        continue;
-                    };
-                    $(
-                        let $history = unsafe { &*$history.get_unchecked(row).get() };
-                        let Some(($start_tick, $start, $end)) = ({
-                            present_history_bracket($history, ctx.interpolation_tick)
-                        }) else {
-                            continue;
-                        };
-                    )+
-                    if false $(|| $start_tick0 != $start_tick)+ {
-                        continue;
-                    }
-
-                    let interpolated = match ($end0, $($end,)+) {
-                        (
-                            Some(($end_tick0, $end_value0)),
-                            $(Some(($end_tick, $end_value)),)+
-                        ) if true $(&& $end_tick0 == $end_tick)+ => {
-                            let fraction = (((ctx.interpolation_tick - $start_tick0) as f32
-                                + ctx.interpolation_overstep)
-                                / ($end_tick0 - $start_tick0) as f32)
-                                .clamp(0.0, 1.0);
-                            if let Some(interpolation) =
-                                interpolation_registry
-                                    .interpolation_for_rule::<($C0, $($C,)+)>(rule_id)
-                            {
-                                interpolation(
-                                    ($start0, $($start,)+),
-                                    ($end_value0, $($end_value,)+),
-                                    fraction,
-                                )
-                            } else {
-                                ($start0, $($start,)+)
-                            }
-                        }
-                        ($end0, $($end,)+) if $end0.is_none() $(&& $end.is_none())+ => {
-                            ($start0, $($start,)+)
-                        }
-                        _ => continue,
-                    };
-
-                    let ($output0, $($output,)+) = interpolated;
-                    match $component0 {
-                        ComponentTableColumn::Table($component0) => {
-                            let $component0 = unsafe { &mut *$component0.get_unchecked(row).get() };
-                            *$component0 = $output0;
-                        }
-                        ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output0),
-                        ComponentTableColumn::NonTable => {}
-                    }
-                    $(
-                        match $component {
-                            ComponentTableColumn::Table($component) => {
-                            let $component = unsafe { &mut *$component.get_unchecked(row).get() };
-                                *$component = $output;
-                            }
-                            ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output),
-                            ComponentTableColumn::NonTable => {}
-                        }
-                    )+
-                }
-            }
-
-            fn add_history_rules<F>(app: &mut App, config: InterpolationRuleConfig)
-            where
-                F: InterpolationRuleFilter + 'static,
-            {
-                add_interpolation_rule::<$C0, F>(
-                    app,
-                    InterpolationFns::history_only(),
-                    config,
-                );
-                $(
-                    add_interpolation_rule::<$C, F>(
-                        app,
-                        InterpolationFns::history_only(),
-                        config,
-                    );
-                )+
-            }
-
-            fn register_live_components(app: &mut App) {
-                app.world_mut().register_component::<$C0>();
-                $(app.world_mut().register_component::<$C>();)+
-            }
-
-            fn mark_interpolated(app: &mut App) {
-                mark_interpolated::<$C0>(app);
-                $(mark_interpolated::<$C>(app);)+
-            }
-        }
-    };
-}
-
-variadics_please::all_tuples_with_size!(
-    impl_interpolation_bundle,
-    2,
-    8,
-    C,
-    component,
-    history,
-    start_tick,
-    start,
-    end,
-    end_tick,
-    end_value,
-    output
-);
-
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
-#[doc(hidden)]
-pub struct InterpolationRuleId(usize);
-
-impl InterpolationRuleId {
-    pub(crate) fn index(self) -> usize {
-        self.0
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct UpdateHistoryContext {
-    pub(crate) server_complete_tick: Option<Tick>,
-    pub(crate) current_interpolate_tick: Tick,
-    pub(crate) interpolation_overstep: f32,
-    pub(crate) interpolation: Option<ErasedLerpFn>,
-}
-
-/// Type-erased interpolation function stored by the interpolation registry.
-///
-/// Typed functions are registered as [`LerpFn<C>`] and erased internally so
-/// rules for different components and bundles can share the same cache.
-pub type ErasedInterpolationFn = unsafe fn();
-
-pub(crate) type ErasedLerpFn = ErasedInterpolationFn;
-
-/// Returns whether a cached interpolation rule matches an archetype.
-pub(crate) type MatchesArchetypeFn = fn(&Components, &Archetype) -> bool;
-
-/// Type-erased function that updates history for one component on one archetype.
-///
-/// Structural changes to the live component set are recorded into
-/// [`DeferredEntityCommands`] and flushed after the query scan finishes.
-pub(crate) type ErasedUpdateHistoryFn = fn(
-    UnsafeWorldCell,
-    &Archetype,
-    &CachedInterpolationComponent,
-    UpdateHistoryContext,
-    Option<&mut ReplicationStorage>,
-    &mut DeferredEntityCommands,
-);
-
-/// Context passed to type-erased interpolation apply functions.
-#[derive(Debug, Clone, Copy)]
-#[doc(hidden)]
-pub struct ApplyInterpolationContext {
-    pub(crate) interpolation_tick: Tick,
-    pub(crate) interpolation_overstep: f32,
-}
-
-/// Type-erased function that applies one selected interpolation rule to one archetype.
-///
-/// Component and bundle rules use the same function shape. The cached
-/// archetype stores these after priority and overlap resolution, so the apply
-/// phase only needs to call each function in order.
-pub(crate) type ErasedApplyInterpolationFn = fn(
-    UnsafeWorldCell,
-    &Archetype,
-    &InterpolationRegistry,
-    InterpolationRuleId,
-    ApplyInterpolationContext,
-    &mut DeferredEntityCommands,
-);
-
-/// Cached typed component metadata needed by the type-erased history updater.
-///
-/// One value is stored per selected history-owning rule on each cached
-/// interpolated archetype. It lets the update system decide whether the
-/// corresponding live component is currently present on that archetype.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CachedInterpolationComponent {
-    /// Component kind whose history is updated.
-    kind: ComponentKind,
-    /// Component ID for `ConfirmedHistory<C>`.
-    history_component_id: ComponentId,
-    /// Storage backing `ConfirmedHistory<C>` on the cached archetype.
-    history_storage: StorageType,
-    /// Whether the live component `C` is present on the cached archetype.
-    live_component_present: bool,
-    /// Whether a selected apply rule is responsible for inserting this live component.
-    apply_controls_live_insert: bool,
-    /// Type-erased history update function for `C`.
-    update_history: ErasedUpdateHistoryFn,
-    /// Optional interpolation function used when sampling the history.
-    interpolation: Option<ErasedLerpFn>,
-}
-
-impl CachedInterpolationComponent {
-    pub(crate) fn kind(&self) -> ComponentKind {
-        self.kind
-    }
-
-    pub(crate) fn history_component_id(&self) -> ComponentId {
-        self.history_component_id
-    }
-
-    pub(crate) fn history_storage(&self) -> StorageType {
-        self.history_storage
-    }
-
-    pub(crate) fn live_component_present(&self) -> bool {
-        self.live_component_present
-    }
-
-    pub(crate) fn apply_controls_live_insert(&self) -> bool {
-        self.apply_controls_live_insert
-    }
-
-    pub(crate) fn set_apply_controls_live_insert(&mut self) {
-        self.apply_controls_live_insert = true;
-    }
-
-    pub(crate) fn update_history(&self) -> ErasedUpdateHistoryFn {
-        self.update_history
-    }
-
-    pub(crate) fn interpolation(&self) -> Option<ErasedLerpFn> {
-        self.interpolation
-    }
-}
-
-/// Cached type-erased apply metadata for one selected interpolation rule.
-///
-/// Values are stored on [`crate::archetypes::CachedInterpolatedArchetype`]
-/// after rule priority and bundle/component overlap have been resolved.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct CachedInterpolationApply {
-    /// ID of the selected rule whose interpolation function should run.
-    rule_id: InterpolationRuleId,
-    /// Type-erased function that writes this rule's live component(s).
-    apply_interpolation: ErasedApplyInterpolationFn,
-}
-
-impl CachedInterpolationApply {
-    pub(crate) fn rule_id(&self) -> InterpolationRuleId {
-        self.rule_id
-    }
-
-    pub(crate) fn apply_interpolation(&self) -> ErasedApplyInterpolationFn {
-        self.apply_interpolation
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct ErasedInterpolationFns {
-    interpolation: Option<ErasedLerpFn>,
-    history: bool,
-    apply: bool,
-    update_history: Option<ErasedUpdateHistoryFn>,
-    apply_interpolation: Option<ErasedApplyInterpolationFn>,
-    history_component_id: Option<ComponentIdFn>,
-    live_component_id: ComponentIdFn,
-    write_component_ids: Vec<ComponentIdFn>,
-}
-
-impl ErasedInterpolationFns {
-    fn from_typed<S: 'static>(
-        fns: InterpolationFns<S>,
-        update_history: Option<ErasedUpdateHistoryFn>,
-        apply_interpolation: Option<ErasedApplyInterpolationFn>,
-        history_component_id: Option<ComponentIdFn>,
-        live_component_id: ComponentIdFn,
-        write_component_ids: Vec<ComponentIdFn>,
-    ) -> Self {
-        Self {
-            interpolation: fns
-                .interpolation
-                .map(|f| unsafe { core::mem::transmute::<LerpFn<S>, unsafe fn()>(f) }),
-            history: fns.history,
-            apply: fns.apply,
-            update_history,
-            apply_interpolation,
-            history_component_id,
-            live_component_id,
-            write_component_ids,
-        }
-    }
-}
-
-fn confirmed_history_component_id<C: Component + Clone>(
-    components: &Components,
-) -> Option<ComponentId> {
-    components.component_id::<ConfirmedHistory<C>>()
-}
-
-fn live_component_id<C: Component>(components: &Components) -> Option<ComponentId> {
-    components.component_id::<C>()
-}
-
-fn no_component_id(_: &Components) -> Option<ComponentId> {
-    None
-}
-
-/// One interpolation rule registered by [`AppInterpolationExt`].
-///
-/// A rule has a `kind` used for cache lookup, a list of component `members`
-/// it owns or writes, erased functions describing which phases Lightyear runs,
-/// and an archetype filter. Rules are sorted by priority per `kind`, so
-/// [`InterpolationRegistry::select_rule_for_archetype`] can return the first
-/// matching rule.
-#[derive(Debug, Clone)]
-pub(crate) struct InterpolationRule {
-    /// Rule key used when selecting a rule for a component or bundle.
-    kind: ComponentKind,
-    /// Components owned by this rule. Bundle rules have more than one member.
-    members: Vec<ComponentKind>,
-    /// Higher-priority rules are selected before lower-priority rules.
-    priority: usize,
-    /// Type-erased interpolation/history/apply functions for this rule.
-    fns: ErasedInterpolationFns,
-    /// Archetype-level filter predicate compiled from the rule filter type.
-    matches_archetype: MatchesArchetypeFn,
-}
-
-impl InterpolationRule {
-    pub(crate) fn owns_history(&self) -> bool {
-        self.fns.history
-    }
-
-    pub(crate) fn applies_component(&self) -> bool {
-        self.fns.apply
-    }
-
-    pub(crate) fn members(&self) -> &[ComponentKind] {
-        &self.members
-    }
-
-    pub(crate) fn priority(&self) -> usize {
-        self.priority
-    }
-}
-
-/// Compatibility metadata stored for a component registered for interpolation.
-///
-/// This type backs existing registry APIs and frame interpolation integration.
-/// New rule registrations should prefer [`InterpolationFns`] and
-/// [`AppInterpolationExt`].
-///
-/// # Examples
-///
-/// Construct metadata for a component that only stores history:
-///
-/// ```rust,ignore
-/// use lightyear_interpolation::prelude::*;
-///
-/// let metadata = InterpolationMetadata {
-///     interpolation: None,
-///     custom_interpolation: true,
-/// };
-/// ```
-#[derive(Debug, Clone)]
-pub struct InterpolationMetadata {
-    /// Erased interpolation function registered for this component.
-    ///
-    /// This is retained for compatibility with the existing registry APIs and
-    /// frame interpolation integration. New code should prefer
-    /// [`InterpolationFns`] and [`AppInterpolationExt`].
-    pub interpolation: Option<ErasedInterpolationFn>,
-    /// Whether Lightyear only maintains history and user code performs the
-    /// actual interpolation.
-    pub custom_interpolation: bool,
-}
+const SINGLE_COMPONENT_RULE_PRIORITY: usize = 1;
 
 /// Stores interpolation functions and rule selection metadata.
 ///
@@ -891,26 +78,42 @@ pub struct InterpolationMetadata {
 /// #[derive(Component, Clone, PartialEq)]
 /// struct Position(f32);
 ///
-/// let registry = app.world().resource::<InterpolationRegistry>();
-/// assert!(registry.interpolated::<Position>());
+/// app.interpolate_with::<Position>(InterpolationFns::history_only());
 /// ```
 #[derive(Resource, Debug, Default)]
 pub struct InterpolationRegistry {
-    pub(crate) interpolation_map: HashMap<ComponentKind, InterpolationMetadata>,
+    /// All registered interpolation rules in insertion order.
+    ///
+    /// [`InterpolationRuleId`] is an index into this vector. Equal-priority
+    /// rules preserve this order, matching Replicon's "first registered wins"
+    /// behavior for ties.
     rules: Vec<InterpolationRule>,
-    rules_by_component: HashMap<ComponentKind, Vec<InterpolationRuleId>>,
+    /// Priority-ordered rule index by rule target.
+    ///
+    /// The key is the rule target type: a component rule is keyed by `C`, while
+    /// a bundle rule is keyed by the tuple type `(A, B, ...)`. This is separate
+    /// from the rule's member [`ComponentKind`]s, which are actual ECS
+    /// components used for overlap resolution. Each value is a list of rule IDs
+    /// sorted from highest to lowest priority, with equal-priority rules kept in
+    /// registration order.
+    ///
+    /// For example, an archetype containing components `A` and `B` can select
+    /// one rule for `A`, one rule for `B`, and one rule for `(A, B)`. If the
+    /// selected `(A, B)` rule has higher priority, the later apply-resolution
+    /// pass lets it claim both `A` and `B`, so the individual `A` and `B` apply
+    /// rules do not run for that archetype.
+    rules_by_kind: HashMap<RuleKind, Vec<InterpolationRuleId>>,
+    /// Component kinds whose Replicon receive marker functions have been installed.
+    interpolated_marker_fns: HashSet<ComponentKind>,
+    /// Component kinds whose non-diff interpolation preparation systems have been installed.
+    prepare_systems: HashSet<ComponentKind>,
+    /// Component kinds whose diff interpolation preparation systems have been installed.
+    prepare_diff_systems: HashSet<ComponentKind>,
+    /// Whether plugin finalization has run.
+    ///
+    /// Rule registration after finalization is rejected so the type-erased
+    /// interpolation system has stable access requirements.
     finalized: bool,
-}
-
-#[derive(Resource, Debug, Default)]
-struct InterpolatedMarkerFnRegistry {
-    kinds: HashSet<ComponentKind>,
-}
-
-#[derive(Resource, Debug, Default)]
-struct RegisteredInterpolationSystems {
-    prepare: HashSet<ComponentKind>,
-    prepare_diff: HashSet<ComponentKind>,
 }
 
 impl InterpolationRegistry {
@@ -929,28 +132,15 @@ impl InterpolationRegistry {
         );
     }
 
-    pub fn set_linear_interpolation<C: Component + Clone + Ease>(&mut self) {
-        self.set_interpolation(lerp::<C>);
-    }
-
-    pub fn set_interpolation<C: Component + Clone>(&mut self, interpolation_fn: LerpFn<C>) {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .entry(kind)
-            .or_insert_with(|| InterpolationMetadata {
-                interpolation: None,
-                custom_interpolation: false,
-            })
-            .interpolation = Some(unsafe { core::mem::transmute(interpolation_fn) });
-    }
-
-    /// Iterates over component or bundle kinds that have interpolation rules.
-    pub(crate) fn rule_component_kinds(&self) -> impl Iterator<Item = ComponentKind> + '_ {
-        self.rules_by_component.keys().copied()
+    /// Iterates over component or bundle rule targets that have interpolation rules.
+    #[doc(hidden)]
+    pub fn rule_kinds(&self) -> impl Iterator<Item = RuleKind> + '_ {
+        self.rules_by_kind.keys().copied()
     }
 
     /// Returns a rule by ID.
-    pub(crate) fn rule(&self, rule_id: InterpolationRuleId) -> Option<&InterpolationRule> {
+    #[doc(hidden)]
+    pub fn rule(&self, rule_id: InterpolationRuleId) -> Option<&InterpolationRule> {
         self.rules.get(rule_id.0)
     }
 
@@ -959,7 +149,8 @@ impl InterpolationRegistry {
     /// [`crate::archetypes::InterpolatedArchetypes`] uses this to invalidate
     /// its local cache when rules are registered after the interpolation system
     /// has already run.
-    pub(crate) fn rule_count(&self) -> usize {
+    #[doc(hidden)]
+    pub fn rule_count(&self) -> usize {
         self.rules.len()
     }
 
@@ -970,6 +161,9 @@ impl InterpolationRegistry {
     pub(crate) fn component_write_ids(&self, components: &Components) -> Vec<ComponentId> {
         let mut ids = Vec::new();
         for rule in &self.rules {
+            if !rule.phase_mask.includes(RulePhase::Interpolation) {
+                continue;
+            }
             for component_id in rule
                 .fns
                 .write_component_ids
@@ -984,11 +178,35 @@ impl InterpolationRegistry {
         ids
     }
 
+    /// Returns component IDs that the type-erased frame interpolation systems may write.
+    #[doc(hidden)]
+    pub fn frame_component_write_ids(&self, components: &Components) -> Vec<ComponentId> {
+        let mut ids = Vec::new();
+        for rule in &self.rules {
+            if !rule.phase_mask.includes(RulePhase::Frame) {
+                continue;
+            }
+            if let Some(frame) = &rule.fns.frame {
+                for component_id in frame
+                    .write_component_ids
+                    .iter()
+                    .filter_map(|component_id| component_id(components))
+                {
+                    if !ids.contains(&component_id) {
+                        ids.push(component_id);
+                    }
+                }
+            }
+        }
+        ids
+    }
+
     /// Compares two rules using interpolation precedence.
     ///
     /// Higher priority sorts first. Rules with equal priority keep
     /// registration order, with earlier registrations sorting first.
-    pub(crate) fn cmp_rule_precedence(
+    #[doc(hidden)]
+    pub fn cmp_rule_precedence(
         &self,
         lhs: InterpolationRuleId,
         rhs: InterpolationRuleId,
@@ -1004,32 +222,47 @@ impl InterpolationRegistry {
     ///
     /// Rules are pre-sorted by descending priority and ascending registration
     /// order, so this returns the first matching rule. It only answers
-    /// "which rule owns this kind on this archetype"; overlap suppression for
+    /// "which rule owns this target on this archetype"; overlap suppression for
     /// live component writes is handled later by
     /// `CachedInterpolatedArchetype::resolve_apply_rules`.
-    pub(crate) fn select_rule_for_archetype(
+    #[doc(hidden)]
+    pub fn select_rule_for_archetype(
         &self,
         components: &Components,
         archetype: &Archetype,
-        kind: ComponentKind,
+        kind: RuleKind,
+        phase: RulePhase,
     ) -> Option<InterpolationRuleId> {
-        self.rules_by_component
+        self.rules_by_kind
             .get(&kind)?
             .iter()
             .copied()
             .find(|rule_id| {
-                self.rules
-                    .get(rule_id.0)
-                    .is_some_and(|rule| (rule.matches_archetype)(components, archetype))
+                self.rules.get(rule_id.0).is_some_and(|rule| {
+                    rule.phase_mask.includes(phase)
+                        && (rule.matches_archetype)(components, archetype)
+                })
             })
     }
 
-    /// Builds cached history metadata for `rule_id` on `archetype`.
+    /// Builds cached metadata for updating a selected rule's history component.
     ///
-    /// Returns `None` when the rule does not own history, the history component
-    /// is not registered, or this archetype does not currently contain the
-    /// history component.
-    pub(crate) fn cached_history_component(
+    /// The returned [`CachedInterpolationComponent`] is consumed by the
+    /// type-erased history update phase. Rules that do not own history do not
+    /// need this cache entry; they may still be selected and may still apply
+    /// live components through [`Self::cached_apply_component`].
+    ///
+    /// Returns `None` when:
+    ///
+    /// - the rule does not own the history phase,
+    /// - the `ConfirmedHistory<C>` component is not registered,
+    /// - or this archetype does not currently contain the `ConfirmedHistory<C>`
+    ///   column.
+    ///
+    /// The last case is expected for newly-interpolated entities before the
+    /// receive marker or backfill observer has inserted history, and for rules
+    /// that only apply live components without maintaining history.
+    pub(crate) fn cached_history_update_component(
         &self,
         components: &Components,
         archetype: &Archetype,
@@ -1039,6 +272,7 @@ impl InterpolationRegistry {
         if !rule.owns_history() {
             return None;
         }
+        let kind = rule.members.first().copied()?;
         let history_component_id = (rule.fns.history_component_id?)(components)?;
         if !archetype.contains(history_component_id) {
             return None;
@@ -1047,7 +281,7 @@ impl InterpolationRegistry {
         let live_component_present = (rule.fns.live_component_id)(components)
             .is_some_and(|component_id| archetype.contains(component_id));
         Some(CachedInterpolationComponent {
-            kind: rule.kind,
+            kind,
             history_component_id,
             history_storage,
             live_component_present,
@@ -1072,6 +306,59 @@ impl InterpolationRegistry {
         Some(CachedInterpolationApply {
             rule_id,
             apply_interpolation: rule.fns.apply_interpolation?,
+        })
+    }
+
+    /// Builds cached metadata for updating/restoring a selected frame history component.
+    #[doc(hidden)]
+    pub fn cached_frame_history_component(
+        &self,
+        components: &Components,
+        archetype: &Archetype,
+        rule_id: InterpolationRuleId,
+    ) -> Option<CachedFrameInterpolationComponent> {
+        let rule = self.rules.get(rule_id.0)?;
+        let frame = rule.fns.frame.as_ref()?;
+        if !frame.owns_history() {
+            return None;
+        }
+        let kind = rule.members.first().copied()?;
+        let history_component_id = (frame.history_component_id?)(components)?;
+        let live_component_id = (rule.fns.live_component_id)(components)?;
+        let history_component_present = archetype.contains(history_component_id);
+        let live_component_present = archetype.contains(live_component_id);
+        if !history_component_present && !live_component_present {
+            return None;
+        }
+        let history_storage = history_component_present
+            .then(|| archetype.get_storage_type(history_component_id))
+            .flatten();
+        Some(CachedFrameInterpolationComponent {
+            kind,
+            history_component_id,
+            history_storage,
+            history_component_present,
+            live_component_id,
+            live_component_present,
+            update_frame_history: frame.update_history?,
+            restore_frame_history: frame.restore_history?,
+        })
+    }
+
+    /// Builds cached frame apply metadata for `rule_id`.
+    #[doc(hidden)]
+    pub fn cached_frame_apply_component(
+        &self,
+        rule_id: InterpolationRuleId,
+    ) -> Option<CachedFrameInterpolationApply> {
+        let rule = self.rules.get(rule_id.0)?;
+        let frame = rule.fns.frame.as_ref()?;
+        if !frame.applies_component() {
+            return None;
+        }
+        Some(CachedFrameInterpolationApply {
+            rule_id,
+            apply_frame_interpolation: frame.apply_interpolation?,
         })
     }
 
@@ -1119,22 +406,53 @@ impl InterpolationRegistry {
         C: SyncComponent,
         F: InterpolationRuleFilter + 'static,
     {
-        let kind = ComponentKind::of::<C>();
-        let owns_history = fns.history;
-        let applies_component = fns.apply;
-        let history_component_id = fns
-            .history
+        let kind = RuleKind::of::<C>();
+        let member = ComponentKind::of::<C>();
+        let phase_mask = F::phase_mask();
+        let owns_interpolation_history =
+            phase_mask.includes(RulePhase::Interpolation) && fns.owns_interpolation_history();
+        let applies_interpolation_component =
+            phase_mask.includes(RulePhase::Interpolation) && fns.applies_interpolation_component();
+        let owns_frame_history = phase_mask.includes(RulePhase::Frame) && fns.owns_frame_history();
+        let applies_frame_component =
+            phase_mask.includes(RulePhase::Frame) && fns.applies_frame_component();
+        let history_component_id = owns_interpolation_history
             .then_some(confirmed_history_component_id::<C> as ComponentIdFn);
-        let apply_interpolation = fns
-            .apply
+        let update_history = owns_interpolation_history
+            .then_some(update_history)
+            .flatten();
+        let apply_interpolation = applies_interpolation_component
             .then_some(apply_interpolation_archetype_erased::<C> as ErasedApplyInterpolationFn);
+        let frame_history_component_id_fn =
+            owns_frame_history.then_some(frame_history_component_id::<C> as ComponentIdFn);
+        let update_frame_history = owns_frame_history
+            .then_some(update_frame_history_archetype_erased::<C> as ErasedUpdateFrameHistoryFn);
+        let restore_frame_history = owns_frame_history
+            .then_some(restore_frame_history_archetype_erased::<C> as ErasedRestoreFrameHistoryFn);
+        let apply_frame_interpolation = applies_frame_component.then_some(
+            apply_frame_interpolation_archetype_erased::<C> as ErasedApplyFrameInterpolationFn,
+        );
         let mut write_component_ids = Vec::new();
-        if owns_history {
+        if owns_interpolation_history {
             write_component_ids.push(confirmed_history_component_id::<C> as ComponentIdFn);
         }
-        if owns_history || applies_component {
+        if owns_interpolation_history || applies_interpolation_component {
             write_component_ids.push(live_component_id::<C> as ComponentIdFn);
         }
+        let mut frame_write_component_ids = Vec::new();
+        if owns_frame_history {
+            frame_write_component_ids.push(frame_history_component_id::<C> as ComponentIdFn);
+        }
+        if owns_frame_history || applies_frame_component {
+            frame_write_component_ids.push(live_component_id::<C> as ComponentIdFn);
+        }
+        let frame = FrameInterpolationFns::new(
+            frame_history_component_id_fn,
+            frame_write_component_ids,
+            update_frame_history,
+            restore_frame_history,
+            apply_frame_interpolation,
+        );
         let fns = ErasedInterpolationFns::from_typed(
             fns,
             update_history,
@@ -1142,33 +460,18 @@ impl InterpolationRegistry {
             history_component_id,
             live_component_id::<C>,
             write_component_ids,
+            frame,
         );
-        let interpolation = fns.interpolation;
-        let owns_history = fns.history;
-        let applies_component = fns.apply;
         let rule_id = InterpolationRuleId(self.rules.len());
         self.rules.push(InterpolationRule {
             kind,
-            members: alloc::vec![kind],
+            members: alloc::vec![member],
             priority: config.priority,
+            phase_mask,
             fns,
             matches_archetype: matches_filter::<F>,
         });
         self.insert_rule_id_for_kind(kind, rule_id);
-
-        let metadata =
-            self.interpolation_map
-                .entry(kind)
-                .or_insert_with(|| InterpolationMetadata {
-                    interpolation: None,
-                    custom_interpolation: false,
-                });
-        if let Some(interpolation) = interpolation {
-            metadata.interpolation = Some(interpolation);
-        }
-        if owns_history || applies_component {
-            metadata.custom_interpolation = !applies_component;
-        }
         rule_id
     }
 
@@ -1179,13 +482,23 @@ impl InterpolationRegistry {
         members: Vec<ComponentKind>,
         write_component_ids: Vec<ComponentIdFn>,
         apply_interpolation: Option<ErasedApplyInterpolationFn>,
+        frame_write_component_ids: Vec<ComponentIdFn>,
+        apply_frame_interpolation: Option<ErasedApplyFrameInterpolationFn>,
     ) -> InterpolationRuleId
     where
         S: 'static,
         F: InterpolationRuleFilter + 'static,
     {
         self.assert_not_finalized();
-        let kind = ComponentKind::of::<S>();
+        let kind = RuleKind::of::<S>();
+        let phase_mask = F::phase_mask();
+        let frame = FrameInterpolationFns::new(
+            None,
+            frame_write_component_ids,
+            None,
+            None,
+            apply_frame_interpolation,
+        );
         let fns = ErasedInterpolationFns::from_typed(
             fns,
             None,
@@ -1193,12 +506,14 @@ impl InterpolationRegistry {
             None,
             no_component_id,
             write_component_ids,
+            frame,
         );
         let rule_id = InterpolationRuleId(self.rules.len());
         self.rules.push(InterpolationRule {
             kind,
             members,
             priority: config.priority,
+            phase_mask,
             fns,
             matches_archetype: matches_filter::<F>,
         });
@@ -1211,9 +526,9 @@ impl InterpolationRegistry {
     /// This follows Replicon's rule insertion model: higher-priority rules are
     /// placed before lower-priority rules, while equal-priority rules are
     /// appended after existing equal-priority registrations.
-    fn insert_rule_id_for_kind(&mut self, kind: ComponentKind, rule_id: InterpolationRuleId) {
+    fn insert_rule_id_for_kind(&mut self, kind: RuleKind, rule_id: InterpolationRuleId) {
         let priority = self.rules[rule_id.0].priority;
-        let rules = self.rules_by_component.entry(kind).or_default();
+        let rules = self.rules_by_kind.entry(kind).or_default();
         let higher_priority_count =
             rules.partition_point(|existing| self.rules[existing.0].priority > priority);
         let equal_priority_count = rules[higher_priority_count..]
@@ -1221,28 +536,37 @@ impl InterpolationRegistry {
         rules.insert(higher_priority_count + equal_priority_count, rule_id);
     }
 
-    /// Returns True if the component `C` is interpolated
+    /// Returns `true` if any interpolation rule covers component `C`.
     pub fn interpolated<C: Component>(&self) -> bool {
         let kind = ComponentKind::of::<C>();
-        self.interpolation_map.get(&kind).is_some()
+        self.rules.iter().any(|rule| rule.members.contains(&kind))
     }
 
     pub(crate) fn has_interpolation_fn<C: Component>(&self) -> bool {
-        let kind = ComponentKind::of::<C>();
-        self.interpolation_map
-            .get(&kind)
-            .is_some_and(|metadata| metadata.interpolation.is_some())
+        let kind = RuleKind::of::<C>();
+        self.rules
+            .iter()
+            .any(|rule| rule.kind == kind && rule.fns.interpolation.is_some())
     }
 
-    pub fn interpolate<C: Component>(&self, start: C, end: C, t: f32) -> C {
-        let kind = ComponentKind::of::<C>();
-        let interpolation_metadata = self
-            .interpolation_map
-            .get(&kind)
-            .expect("the component is not part of the protocol");
-        let interpolation_fn: LerpFn<C> =
-            unsafe { core::mem::transmute(interpolation_metadata.interpolation.unwrap()) };
-        interpolation_fn(start, end, t)
+    /// Returns the highest-priority frame interpolation function registered for `C`.
+    ///
+    /// This helper is used by correction code that already knows it is working
+    /// on frame-interpolated entities but is not running through the per-
+    /// archetype frame interpolation cache. The normal frame interpolation pass
+    /// still selects rules with the full archetype filter.
+    #[doc(hidden)]
+    pub fn frame_interpolation_for<C: Component + Clone>(&self) -> Option<LerpFn<C>> {
+        self.rules_by_kind
+            .get(&RuleKind::of::<C>())?
+            .iter()
+            .filter_map(|rule_id| self.rules.get(rule_id.0))
+            .find(|rule| rule.phase_mask.includes(RulePhase::Frame))
+            .and_then(|rule| {
+                rule.fns
+                    .interpolation
+                    .map(|interpolation| unsafe { core::mem::transmute(interpolation) })
+            })
     }
 
     pub(crate) fn sample_for_rule<C: Component + Clone>(
@@ -1253,7 +577,7 @@ impl InterpolationRegistry {
         interpolation_overstep: f32,
     ) -> Option<HistoryState<C>> {
         let rule = &self.rules[rule_id.0];
-        debug_assert_eq!(rule.kind, ComponentKind::of::<C>());
+        debug_assert_eq!(rule.kind, RuleKind::of::<C>());
         sample_history_with_interpolation(
             rule.fns.interpolation,
             history,
@@ -1267,38 +591,10 @@ impl InterpolationRegistry {
         rule_id: InterpolationRuleId,
     ) -> Option<LerpFn<S>> {
         let rule = &self.rules[rule_id.0];
-        debug_assert_eq!(rule.kind, ComponentKind::of::<S>());
+        debug_assert_eq!(rule.kind, RuleKind::of::<S>());
         rule.fns
             .interpolation
             .map(|interpolation| unsafe { core::mem::transmute(interpolation) })
-    }
-
-    /// Sample `history` at `interpolation_tick`.
-    ///
-    /// Returns `None` when no authoritative state exists at or before the
-    /// interpolation tick. Otherwise returns the resolved authoritative state:
-    /// either a removal, the latest present value, or an interpolated value
-    /// between the bracketing present samples.
-    ///
-    /// If there is no next present sample, sampling returns the resolved start
-    /// value instead of extrapolating.
-    pub(crate) fn sample<C: Component + Clone>(
-        &self,
-        history: &ConfirmedHistory<C>,
-        interpolation_tick: Tick,
-        interpolation_overstep: f32,
-    ) -> Option<HistoryState<C>> {
-        let kind = ComponentKind::of::<C>();
-        let interpolation = self
-            .interpolation_map
-            .get(&kind)
-            .and_then(|metadata| metadata.interpolation);
-        sample_history_with_interpolation(
-            interpolation,
-            history,
-            interpolation_tick,
-            interpolation_overstep,
-        )
     }
 }
 
@@ -1354,14 +650,6 @@ pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
         end.clone(),
         fraction,
     )))
-}
-
-fn matches_filter<F>(components: &Components, archetype: &Archetype) -> bool
-where
-    F: InterpolationRuleFilter + 'static,
-{
-    F::get_state(components)
-        .is_some_and(|state| F::matches_component_set(&state, &|id| archetype.contains(id)))
 }
 
 /// Extension trait for registering interpolation rules on [`App`].
@@ -1444,7 +732,10 @@ pub trait AppInterpolationExt {
 
     /// Registers a default-priority interpolation rule for component `C` and archetype filter `F`.
     ///
-    /// Use [`Self::interpolate_with`] for the default unfiltered rule.
+    /// Use [`Self::interpolate_with`] for the default unfiltered rule. Filters
+    /// do not receive an automatic priority bonus, so use
+    /// [`Self::interpolate_with_priority_filtered`] when a filtered rule should
+    /// override a broader rule registered at the same priority.
     ///
     /// # Examples
     ///
@@ -1473,10 +764,7 @@ pub trait AppInterpolationExt {
         C: SyncComponent,
         F: InterpolationRuleFilter + 'static,
     {
-        self.interpolate_with_priority_filtered::<C, F>(
-            InterpolationRuleConfig::default().priority,
-            fns,
-        )
+        self.interpolate_with_priority_filtered::<C, F>(SINGLE_COMPONENT_RULE_PRIORITY, fns)
     }
 
     /// Registers an interpolation rule for component `C`, archetype filter `F`,
@@ -1489,6 +777,38 @@ pub trait AppInterpolationExt {
     where
         C: SyncComponent,
         F: InterpolationRuleFilter + 'static;
+
+    /// Registers a frame-only linear interpolation rule for component `C`.
+    ///
+    /// This is a convenience wrapper for a rule filtered with
+    /// `With<FrameInterpolate>`, so it is considered only by the frame
+    /// interpolation archetype cache.
+    fn frame_interpolate<C>(&mut self) -> &mut Self
+    where
+        C: SyncComponent + Ease,
+    {
+        self.frame_interpolate_with::<C>(InterpolationFns::interpolate(lerp::<C>))
+    }
+
+    /// Registers a frame-only interpolation rule for component `C`.
+    fn frame_interpolate_with<C>(&mut self, fns: InterpolationFns<C>) -> &mut Self
+    where
+        C: SyncComponent,
+    {
+        self.frame_interpolate_with_priority::<C>(SINGLE_COMPONENT_RULE_PRIORITY, fns)
+    }
+
+    /// Registers a frame-only interpolation rule for component `C` with explicit priority.
+    fn frame_interpolate_with_priority<C>(
+        &mut self,
+        priority: usize,
+        fns: InterpolationFns<C>,
+    ) -> &mut Self
+    where
+        C: SyncComponent,
+    {
+        self.interpolate_with_priority_filtered::<C, With<FrameInterpolate>>(priority, fns)
+    }
 
     /// Registers a bundle interpolation rule with default bundle priority.
     ///
@@ -1545,6 +865,9 @@ pub trait AppInterpolationExt {
     /// default bundle priority.
     ///
     /// Use [`Self::interpolate_bundle_with`] for the default unfiltered rule.
+    /// Filters do not receive an automatic priority bonus, so use
+    /// [`Self::interpolate_bundle_with_priority_filtered`] when a filtered rule
+    /// should override a broader rule registered at the same priority.
     ///
     /// # Examples
     ///
@@ -1594,6 +917,26 @@ pub trait AppInterpolationExt {
         B: InterpolationBundle,
         F: InterpolationRuleFilter + 'static;
 
+    /// Registers a frame-only bundle interpolation rule with default bundle priority.
+    fn frame_interpolate_bundle_with<B>(&mut self, fns: InterpolationFns<B>) -> &mut Self
+    where
+        B: InterpolationBundle,
+    {
+        self.frame_interpolate_bundle_with_priority::<B>(B::COMPONENT_COUNT, fns)
+    }
+
+    /// Registers a frame-only bundle interpolation rule with explicit priority.
+    fn frame_interpolate_bundle_with_priority<B>(
+        &mut self,
+        priority: usize,
+        fns: InterpolationFns<B>,
+    ) -> &mut Self
+    where
+        B: InterpolationBundle,
+    {
+        self.interpolate_bundle_with_priority_filtered::<B, With<FrameInterpolate>>(priority, fns)
+    }
+
     /// Registers a default-priority interpolation rule for a diff-replicated component `C`.
     ///
     /// This is equivalent to [`Self::interpolate_with`], but installs the diff
@@ -1637,15 +980,15 @@ pub trait AppInterpolationExt {
     /// component `C` and filter `F`.
     ///
     /// Use [`Self::interpolate_diff_with`] for the default unfiltered rule.
+    /// Filters do not receive an automatic priority bonus, so use
+    /// [`Self::interpolate_diff_with_priority_filtered`] when a filtered rule
+    /// should override a broader rule registered at the same priority.
     fn interpolate_diff_filtered_with<C, F>(&mut self, fns: InterpolationFns<C>) -> &mut Self
     where
         C: SyncComponent + RepliconDiffable,
         F: InterpolationRuleFilter + 'static,
     {
-        self.interpolate_diff_with_priority_filtered::<C, F>(
-            InterpolationRuleConfig::default().priority,
-            fns,
-        )
+        self.interpolate_diff_with_priority_filtered::<C, F>(SINGLE_COMPONENT_RULE_PRIORITY, fns)
     }
 
     /// Registers an interpolation rule for a diff-replicated component `C`,
@@ -1683,7 +1026,7 @@ impl AppInterpolationExt for App {
         B: InterpolationBundle,
         F: InterpolationRuleFilter + 'static,
     {
-        add_interpolation_bundle_rule::<B, F>(self, fns, InterpolationRuleConfig { priority });
+        B::add_rule::<F>(self, fns, InterpolationRuleConfig { priority });
         self
     }
 
@@ -1702,17 +1045,11 @@ impl AppInterpolationExt for App {
 }
 
 fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
-    if !app
-        .world()
-        .contains_resource::<InterpolatedMarkerFnRegistry>()
-    {
-        app.world_mut()
-            .insert_resource(InterpolatedMarkerFnRegistry::default());
-    }
+    ensure_interpolation_registry(app);
     let kind = ComponentKind::of::<C>();
     let already_registered = {
-        let registry = app.world().resource::<InterpolatedMarkerFnRegistry>();
-        registry.kinds.contains(&kind)
+        let registry = app.world().resource::<InterpolationRegistry>();
+        registry.interpolated_marker_fns.contains(&kind)
     };
     if already_registered {
         return;
@@ -1723,21 +1060,15 @@ fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
     });
     app.set_marker_fns::<Interpolated, C>(write_history::<C>, remove_history::<C>);
     app.world_mut()
-        .resource_mut::<InterpolatedMarkerFnRegistry>()
-        .kinds
+        .resource_mut::<InterpolationRegistry>()
+        .interpolated_marker_fns
         .insert(kind);
 }
 
 fn register_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
     app: &mut bevy_app::App,
 ) {
-    if !app
-        .world()
-        .contains_resource::<InterpolatedMarkerFnRegistry>()
-    {
-        app.world_mut()
-            .insert_resource(InterpolatedMarkerFnRegistry::default());
-    }
+    ensure_interpolation_registry(app);
     let kind = ComponentKind::of::<C>();
     app.register_marker_with::<Interpolated>(MarkerConfig {
         priority: 100,
@@ -1745,8 +1076,8 @@ fn register_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
     });
     app.set_marker_fns::<Interpolated, C>(write_history_diff::<C>, remove_history::<C>);
     app.world_mut()
-        .resource_mut::<InterpolatedMarkerFnRegistry>()
-        .kinds
+        .resource_mut::<InterpolationRegistry>()
+        .interpolated_marker_fns
         .insert(kind);
 }
 
@@ -1846,22 +1177,6 @@ pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + R
 }
 
 pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
-    /// Register an interpolation function for this component using the provided [`LerpFn`]
-    ///
-    /// This does NOT mean that interpolation systems are added, it simply registers a function to
-    /// interpolate between two values, that can be used for example in frame interpolation.
-    fn register_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
-    where
-        C: SyncComponent;
-
-    /// Register an interpolation function for this component using the [`Ease`] implementation
-    ///
-    /// This does NOT mean that interpolation systems are added, it simply registers a function to
-    /// interpolate between two values, that can be used for example in frame interpolation.
-    fn register_linear_interpolation(self) -> Self
-    where
-        C: SyncComponent + Ease;
-
     /// Add interpolation for this component using the provided [`LerpFn`]
     ///
     /// This will register interpolation systems to interpolate between two confirmed states.
@@ -1906,23 +1221,6 @@ impl<'a, C, R> InterpolationRegistrationExt<'a, C> for R
 where
     R: ComponentRegistrator<'a, C>,
 {
-    fn register_interpolation_fn(self, interpolation_fn: LerpFn<C>) -> Self
-    where
-        C: SyncComponent,
-    {
-        Self::from_component_registration(register_interpolation_fn_impl(
-            self.into_component_registration(),
-            interpolation_fn,
-        ))
-    }
-
-    fn register_linear_interpolation(self) -> Self
-    where
-        C: SyncComponent + Ease,
-    {
-        self.register_interpolation_fn(lerp::<C>)
-    }
-
     fn add_interpolation_with(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent,
@@ -1983,23 +1281,13 @@ fn ensure_interpolation_registry(app: &mut App) {
     }
 }
 
-fn ensure_interpolation_system_registry(app: &mut App) {
-    if !app
-        .world()
-        .contains_resource::<RegisteredInterpolationSystems>()
-    {
-        app.world_mut()
-            .insert_resource(RegisteredInterpolationSystems::default());
-    }
-}
-
 fn add_prepare_interpolation_systems_once<C: SyncComponent>(app: &mut App) {
-    ensure_interpolation_system_registry(app);
+    ensure_interpolation_registry(app);
     let kind = ComponentKind::of::<C>();
     let should_add = app
         .world_mut()
-        .resource_mut::<RegisteredInterpolationSystems>()
-        .prepare
+        .resource_mut::<InterpolationRegistry>()
+        .prepare_systems
         .insert(kind);
     if should_add {
         add_prepare_interpolation_systems::<C>(app);
@@ -2007,19 +1295,19 @@ fn add_prepare_interpolation_systems_once<C: SyncComponent>(app: &mut App) {
 }
 
 fn add_prepare_interpolation_diff_systems_once<C: SyncComponent + RepliconDiffable>(app: &mut App) {
-    ensure_interpolation_system_registry(app);
+    ensure_interpolation_registry(app);
     let kind = ComponentKind::of::<C>();
     let should_add = app
         .world_mut()
-        .resource_mut::<RegisteredInterpolationSystems>()
-        .prepare_diff
+        .resource_mut::<InterpolationRegistry>()
+        .prepare_diff_systems
         .insert(kind);
     if should_add {
         add_prepare_interpolation_diff_systems::<C>(app);
     }
 }
 
-fn mark_interpolated<C: SyncComponent>(app: &mut App) {
+pub(crate) fn mark_interpolated<C: SyncComponent>(app: &mut App) {
     let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
     registry
         .component_metadata_map
@@ -2031,7 +1319,7 @@ fn mark_interpolated<C: SyncComponent>(app: &mut App) {
         .set_interpolated(true);
 }
 
-fn add_interpolation_rule<C, F>(
+pub(crate) fn add_interpolation_rule<C, F>(
     app: &mut App,
     fns: InterpolationFns<C>,
     config: InterpolationRuleConfig,
@@ -2041,18 +1329,29 @@ fn add_interpolation_rule<C, F>(
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    if fns.history {
+    let phase_mask = F::phase_mask();
+    let interpolation_phase = phase_mask.includes(RulePhase::Interpolation);
+    let frame_phase = phase_mask.includes(RulePhase::Frame);
+    if interpolation_phase && fns.owns_interpolation_history() {
         app.world_mut().register_component::<ConfirmedHistory<C>>();
     }
-    if fns.history || fns.apply {
+    if frame_phase && fns.owns_frame_history() {
+        app.world_mut()
+            .register_component::<FrameInterpolationHistory<C>>();
+    }
+    let uses_interpolation_component = interpolation_phase
+        && (fns.owns_interpolation_history() || fns.applies_interpolation_component());
+    let uses_frame_component =
+        frame_phase && (fns.owns_frame_history() || fns.applies_frame_component());
+    if uses_interpolation_component || uses_frame_component {
         app.world_mut().register_component::<C>();
     }
-    if fns.history {
+    if interpolation_phase && fns.owns_interpolation_history() {
         register_interpolated_marker_fns::<C>(app);
         add_prepare_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
-    if fns.apply {
+    if interpolation_phase && fns.applies_interpolation_component() {
         mark_interpolated::<C>(app);
     }
     app.world_mut()
@@ -2071,18 +1370,29 @@ fn add_interpolation_diff_rule<C, F>(
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    if fns.history {
+    let phase_mask = F::phase_mask();
+    let interpolation_phase = phase_mask.includes(RulePhase::Interpolation);
+    let frame_phase = phase_mask.includes(RulePhase::Frame);
+    if interpolation_phase && fns.owns_interpolation_history() {
         app.world_mut().register_component::<ConfirmedHistory<C>>();
     }
-    if fns.history || fns.apply {
+    if frame_phase && fns.owns_frame_history() {
+        app.world_mut()
+            .register_component::<FrameInterpolationHistory<C>>();
+    }
+    let uses_interpolation_component = interpolation_phase
+        && (fns.owns_interpolation_history() || fns.applies_interpolation_component());
+    let uses_frame_component =
+        frame_phase && (fns.owns_frame_history() || fns.applies_frame_component());
+    if uses_interpolation_component || uses_frame_component {
         app.world_mut().register_component::<C>();
     }
-    if fns.history {
+    if interpolation_phase && fns.owns_interpolation_history() {
         register_interpolated_diff_marker_fns::<C>(app);
         add_prepare_interpolation_diff_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
-    if fns.apply {
+    if interpolation_phase && fns.applies_interpolation_component() {
         mark_interpolated::<C>(app);
     }
     app.world_mut()
@@ -2091,24 +1401,38 @@ fn add_interpolation_diff_rule<C, F>(
     refresh_update_interpolation_system_if_finalized(app);
 }
 
-fn add_interpolation_bundle_rule<B, F>(
+pub(crate) fn add_interpolation_bundle_rule<B, F>(
     app: &mut App,
     fns: InterpolationFns<B>,
     config: InterpolationRuleConfig,
 ) where
-    B: InterpolationBundle,
+    B: TupleInterpolationBundle,
     F: InterpolationRuleFilter + 'static,
 {
     QueryState::<&Archetype, F>::new(app.world_mut());
     ensure_interpolation_registry(app);
-    let owns_history = fns.history;
-    let applies_component = fns.apply;
-    let apply_interpolation = fns
-        .apply
-        .then_some(B::apply_archetype as ErasedApplyInterpolationFn);
-    let write_component_ids = fns.apply.then(B::component_id_fns).unwrap_or_default();
-    if applies_component {
+    let phase_mask = F::phase_mask();
+    let interpolation_phase = phase_mask.includes(RulePhase::Interpolation);
+    let frame_phase = phase_mask.includes(RulePhase::Frame);
+    let owns_interpolation_history = interpolation_phase && fns.owns_interpolation_history();
+    let owns_frame_history = frame_phase && fns.owns_frame_history();
+    let applies_interpolation_component =
+        interpolation_phase && fns.applies_interpolation_component();
+    let applies_frame_component = frame_phase && fns.applies_frame_component();
+    let apply_interpolation =
+        applies_interpolation_component.then_some(B::apply_archetype as ErasedApplyInterpolationFn);
+    let apply_frame_interpolation = applies_frame_component
+        .then_some(B::apply_frame_archetype as ErasedApplyFrameInterpolationFn);
+    let write_component_ids = applies_interpolation_component
+        .then(B::component_id_fns)
+        .unwrap_or_default();
+    let frame_write_component_ids = applies_frame_component
+        .then(B::component_id_fns)
+        .unwrap_or_default();
+    if applies_interpolation_component || applies_frame_component {
         B::register_live_components(app);
+    }
+    if applies_interpolation_component {
         B::mark_interpolated(app);
     }
     app.world_mut()
@@ -2119,45 +1443,13 @@ fn add_interpolation_bundle_rule<B, F>(
             B::component_kinds(),
             write_component_ids,
             apply_interpolation,
+            frame_write_component_ids,
+            apply_frame_interpolation,
         );
-    if owns_history {
-        B::add_history_rules::<F>(app, config);
+    if owns_interpolation_history || owns_frame_history {
+        B::add_history_rules::<F>(app, config, owns_interpolation_history);
     }
     refresh_update_interpolation_system_if_finalized(app);
-}
-
-fn register_interpolation_fn_impl<'a, C>(
-    registration: ComponentRegistration<'a, C>,
-    interpolation_fn: LerpFn<C>,
-) -> ComponentRegistration<'a, C>
-where
-    C: SyncComponent,
-{
-    register_interpolated_marker_fns::<C>(registration.app);
-    ensure_interpolation_registry(registration.app);
-    let mut registry = registration
-        .app
-        .world_mut()
-        .resource_mut::<InterpolationRegistry>();
-    registry.set_interpolation::<C>(interpolation_fn);
-    registration
-}
-
-fn register_interpolation_diff_fn_impl<'a, C>(
-    registration: ComponentRegistration<'a, C>,
-    interpolation_fn: LerpFn<C>,
-) -> ComponentRegistration<'a, C>
-where
-    C: SyncComponent + RepliconDiffable,
-{
-    register_interpolated_diff_marker_fns::<C>(registration.app);
-    ensure_interpolation_registry(registration.app);
-    let mut registry = registration
-        .app
-        .world_mut()
-        .resource_mut::<InterpolationRegistry>();
-    registry.set_interpolation::<C>(interpolation_fn);
-    registration
 }
 
 fn add_interpolation_with_impl<'a, C>(
@@ -2170,7 +1462,9 @@ where
     add_interpolation_rule::<C, ()>(
         registration.app,
         InterpolationFns::interpolate(interpolation_fn),
-        InterpolationRuleConfig::default(),
+        InterpolationRuleConfig {
+            priority: SINGLE_COMPONENT_RULE_PRIORITY,
+        },
     );
     registration
 }
@@ -2185,7 +1479,9 @@ where
     add_interpolation_diff_rule::<C, ()>(
         registration.app,
         InterpolationFns::interpolate(interpolation_fn),
-        InterpolationRuleConfig::default(),
+        InterpolationRuleConfig {
+            priority: SINGLE_COMPONENT_RULE_PRIORITY,
+        },
     );
     registration
 }
@@ -2199,7 +1495,9 @@ where
     add_interpolation_rule::<C, ()>(
         registration.app,
         InterpolationFns::history_only(),
-        InterpolationRuleConfig::default(),
+        InterpolationRuleConfig {
+            priority: SINGLE_COMPONENT_RULE_PRIORITY,
+        },
     );
     registration
 }
@@ -2213,7 +1511,9 @@ where
     add_interpolation_diff_rule::<C, ()>(
         registration.app,
         InterpolationFns::history_only(),
-        InterpolationRuleConfig::default(),
+        InterpolationRuleConfig {
+            priority: SINGLE_COMPONENT_RULE_PRIORITY,
+        },
     );
     registration
 }
@@ -2412,10 +1712,13 @@ mod tests {
         }
     }
 
-    fn registry() -> InterpolationRegistry {
+    fn registry() -> (InterpolationRegistry, InterpolationRuleId) {
         let mut registry = InterpolationRegistry::default();
-        registry.set_interpolation::<TestComp>(lerp);
-        registry
+        let rule_id = registry.insert_rule::<TestComp, ()>(
+            InterpolationFns::interpolate(lerp),
+            InterpolationRuleConfig::default(),
+        );
+        (registry, rule_id)
     }
 
     #[derive(Serialize)]
@@ -2517,13 +1820,13 @@ mod tests {
         history.insert_present(Tick(10), TestComp(0.0));
         history.insert_present(Tick(20), TestComp(10.0));
 
-        let registry = registry();
+        let (registry, rule_id) = registry();
         assert_eq!(
-            registry.sample(&history, Tick(30), 0.0),
+            registry.sample_for_rule(rule_id, &history, Tick(30), 0.0),
             Some(HistoryState::Updated(TestComp(10.0)))
         );
         assert_eq!(
-            registry.sample(&history, Tick(20), 0.5),
+            registry.sample_for_rule(rule_id, &history, Tick(20), 0.5),
             Some(HistoryState::Updated(TestComp(10.0)))
         );
     }
@@ -2533,14 +1836,17 @@ mod tests {
         let mut history = ConfirmedHistory::<TestComp>::default();
         history.insert_present(Tick(10), TestComp(42.0));
 
-        let registry = registry();
-        assert_eq!(registry.sample(&history, Tick(5), 0.0), None);
+        let (registry, rule_id) = registry();
         assert_eq!(
-            registry.sample(&history, Tick(10), 0.0),
+            registry.sample_for_rule(rule_id, &history, Tick(5), 0.0),
+            None
+        );
+        assert_eq!(
+            registry.sample_for_rule(rule_id, &history, Tick(10), 0.0),
             Some(HistoryState::Updated(TestComp(42.0)))
         );
         assert_eq!(
-            registry.sample(&history, Tick(50), 0.5),
+            registry.sample_for_rule(rule_id, &history, Tick(50), 0.5),
             Some(HistoryState::Updated(TestComp(42.0)))
         );
     }

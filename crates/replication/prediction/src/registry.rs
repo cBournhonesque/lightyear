@@ -28,6 +28,7 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
+use lightyear_interpolation::prelude::{AppInterpolationExt, InterpolationFns};
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
@@ -116,6 +117,8 @@ pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 #[derive(Resource, Default, Debug)]
 pub struct PredictionRegistry {
     pub prediction_map: HashMap<ComponentKind, PredictionMetadata>,
+    pub(crate) post_rollback_correction_fns:
+        HashMap<ComponentKind, crate::correction::ErasedPostRollbackCorrection>,
 }
 
 impl PredictionRegistry {
@@ -181,6 +184,23 @@ impl PredictionRegistry {
             );
         metadata.correction = true;
         metadata.correction_fn = Some(unsafe { core::mem::transmute(correction_fn) });
+    }
+
+    fn set_post_rollback_correction_fn<C, D>(&mut self)
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Debug + Send + Sync + 'static,
+    {
+        self.post_rollback_correction_fns.insert(
+            ComponentKind::of::<C>(),
+            crate::correction::ErasedPostRollbackCorrection::new::<C, D>(),
+        );
+    }
+
+    pub(crate) fn post_rollback_corrections(
+        &self,
+    ) -> impl Iterator<Item = crate::correction::ErasedPostRollbackCorrection> + '_ {
+        self.post_rollback_correction_fns.values().copied()
     }
 
     /// Returns true if the component is predicted
@@ -783,6 +803,36 @@ impl<'a, C> LocalRollbackComponentRegistration<'a, C> {
         self
     }
 
+    /// Register a component interpolation function for local rollback visuals.
+    ///
+    /// This uses the shared interpolation rule registry, but registers the rule
+    /// without delayed interpolation history or delayed interpolation apply.
+    /// Entities with [`FrameInterpolate`](lightyear_core::prelude::FrameInterpolate)
+    /// can still reuse the function for frame interpolation and post-rollback
+    /// correction.
+    pub fn add_interpolation_with(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.registration
+            .app
+            .interpolate_with::<C>(InterpolationFns::no_history(interpolation_fn));
+        self
+    }
+
+    /// Register linear interpolation for local rollback visuals.
+    ///
+    /// Unlike the general component-registration method of the same name, this
+    /// does not register delayed interpolation history or delayed apply. It
+    /// only stores the interpolation function so frame interpolation and
+    /// post-rollback correction can reuse it.
+    pub fn add_linear_interpolation(self) -> Self
+    where
+        C: SyncComponent + Ease,
+    {
+        self.add_interpolation_with(lerp::<C>)
+    }
+
     /// Return to the general component registration builder.
     pub fn into_component_registration(self) -> ComponentRegistration<'a, C> {
         self.registration
@@ -972,11 +1022,15 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !has_prediction_registry {
             return self;
         }
-        crate::correction::add_correction_systems::<C, D>(self.app);
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
             .set_correction_fn::<C, D>(correction_fn);
+        self.app
+            .world_mut()
+            .resource_mut::<PredictionRegistry>()
+            .set_post_rollback_correction_fn::<C, D>();
+        crate::correction::add_correction_systems::<C, D>(self.app);
         self
     }
 

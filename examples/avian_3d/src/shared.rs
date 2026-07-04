@@ -254,7 +254,7 @@ pub(crate) fn emit_last_characters(
             Entity,
             &Position,
             &Transform,
-            Option<&FrameInterpolate<Position>>,
+            Option<&FrameInterpolate>,
             Option<&VisualCorrection<Position>>,
         ),
         With<CharacterMarker>,

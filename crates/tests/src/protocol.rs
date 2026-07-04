@@ -299,16 +299,7 @@ impl Plugin for ProtocolPlugin {
         );
         // app.component::<Collider>().replicate();
 
-        match self.avian_mode {
-            AvianReplicationMode::Position => {
-                app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-                app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
-            }
-            AvianReplicationMode::PositionButInterpolateTransform
-            | AvianReplicationMode::Transform => {
-                app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
-            }
-        }
+        app.add_plugins(FrameInterpolationPlugin);
 
         match self.avian_mode {
             AvianReplicationMode::Position

@@ -1,8 +1,9 @@
 use crate::SyncComponent;
 use crate::archetypes::InterpolationWorld;
-use crate::registry::{
-    ApplyInterpolationContext, CachedInterpolationComponent, InterpolationRegistry,
-    InterpolationRuleId, UpdateHistoryContext, sample_history_with_interpolation,
+use crate::registry::{InterpolationRegistry, sample_history_with_interpolation};
+use crate::rule::{
+    ApplyInterpolationContext, CachedInterpolationComponent, InterpolationRuleId,
+    UpdateHistoryContext,
 };
 use crate::timeline::InterpolationTimeline;
 use bevy_ecs::archetype::Archetype;
@@ -60,7 +61,7 @@ pub(crate) fn update_interpolation(
     interpolation_world.update_archetypes(&interpolation_registry);
     let world = interpolation_world.world;
     for (archetype, cached_archetype) in interpolation_world.iter_archetypes() {
-        for component in cached_archetype.history_components() {
+        for component in cached_archetype.history_update_components() {
             let ctx = UpdateHistoryContext {
                 server_complete_tick,
                 current_interpolate_tick,
@@ -76,7 +77,7 @@ pub(crate) fn update_interpolation(
                 &mut deferred_apply,
             );
         }
-        for component in cached_archetype.apply_components() {
+        for component in cached_archetype.apply_rules() {
             (component.apply_interpolation())(
                 world,
                 archetype,
@@ -418,8 +419,9 @@ pub(crate) fn present_history_bracket<C: Component + Clone>(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::AppInterpolationExt;
     use crate::registry::InterpolationRegistry;
-    use crate::registry::{AppInterpolationExt, InterpolationFns, InterpolationRuleConfig};
+    use crate::rule::{InterpolationFns, InterpolationRuleConfig};
     use alloc::vec;
     use bevy_app::{App, Update};
     use bevy_ecs::archetype::Archetype;

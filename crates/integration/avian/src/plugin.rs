@@ -84,7 +84,7 @@ use {
 
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_interpolation::prelude::{AppInterpolationExt, InterpolationFns};
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
     PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, PredictionRegistry,
@@ -217,6 +217,7 @@ impl Plugin for LightyearAvianPlugin {
                 );
             }
             AvianReplicationMode::PositionButInterpolateTransform => {
+                Self::add_transform_frame_interpolation_rule(app);
                 // Visual correction is a client-only concern but this plugin is added in shared code;
                 // skip on pure servers where PredictionPlugin is not active.
                 app.add_systems(
@@ -284,17 +285,9 @@ impl Plugin for LightyearAvianPlugin {
                     )
                         .chain(),
                 );
-
-                // Even if we don't replicate Transform, we need to register an interpolation function
-                // for it so that we can do frame interpolation
-                app.world_mut()
-                    .resource_mut::<InterpolationRegistry>()
-                    // TODO: allow adding an interpolation function without replicating the component
-                    //  or doing interpolation! That interpolation can be shared for the purposes of
-                    //  frame_interpolation, correction, interpolation
-                    .set_interpolation::<Transform>(TransformLinearInterpolation::lerp);
             }
             AvianReplicationMode::Transform => {
+                Self::add_transform_frame_interpolation_rule(app);
                 if !self.update_syncs_manually {
                     // need to run TransformToPosition in FixedPostUpdate since avian uses Position internally
                     // but the user operates on Transform
@@ -390,6 +383,13 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    fn add_transform_frame_interpolation_rule(app: &mut App) {
+        app.frame_interpolate_with_priority::<Transform>(
+            0,
+            InterpolationFns::no_history(TransformLinearInterpolation::lerp),
+        );
+    }
+
     fn add_island_rollback(app: &mut App, rollback_sleeping: bool) {
         app.local_rollback::<BodyIslandNode>();
         if rollback_sleeping {

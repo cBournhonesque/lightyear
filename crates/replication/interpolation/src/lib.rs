@@ -16,6 +16,8 @@ pub mod interpolate;
 /// Provides the `InterpolationPlugin` and related systems for Bevy integration.
 pub mod plugin;
 pub mod registry;
+/// Interpolation rule types and bundle support.
+pub mod rule;
 pub mod timeline;
 
 /// Commonly used items for client-side interpolation.
@@ -24,8 +26,10 @@ pub mod prelude {
     pub use crate::interpolate::interpolation_fraction;
     pub use crate::plugin::{InterpolationDelay, InterpolationPlugin, InterpolationSystems};
     pub use crate::registry::{
-        AppInterpolationExt, InterpolationBundle, InterpolationFns, InterpolationRegistrationExt,
-        InterpolationRegistry, InterpolationRuleConfig, InterpolationRuleFilter,
+        AppInterpolationExt, InterpolationRegistrationExt, InterpolationRegistry,
+    };
+    pub use crate::rule::{
+        InterpolationBundle, InterpolationFns, InterpolationRuleConfig, InterpolationRuleFilter,
     };
     pub use crate::timeline::InterpolationTimeline;
 }

@@ -26,8 +26,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
 
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin);
 
         app.add_plugins(PhysicsDebugPlugin::default())
             .insert_gizmo_config(
@@ -293,10 +292,7 @@ fn add_player_visuals(
             };
             color.0 = Color::from(hsva);
             visual_color = color.0;
-            commands.entity(entity).insert((
-                FrameInterpolate::<Position>::default(),
-                FrameInterpolate::<Rotation>::default(),
-            ));
+            commands.entity(entity).insert(FrameInterpolate);
         }
         let size = if is_bot {
             visual_color = Color::srgb(1.0, 0.85, 0.1);
@@ -366,10 +362,7 @@ fn add_bullet_visuals(
         // if not interpolated, then the entity gets updated in FixedUpdate and needs
         // FrameInterpolation to be smooth
         if !interpolated {
-            commands.entity(trigger.entity).insert((
-                FrameInterpolate::<Position>::default(),
-                FrameInterpolate::<Rotation>::default(),
-            ));
+            commands.entity(trigger.entity).insert(FrameInterpolate);
         }
     }
 }
@@ -413,10 +406,7 @@ fn add_physics_projectile_visuals(
             })),
         ));
         if !interpolated {
-            commands.entity(trigger.entity).insert((
-                FrameInterpolate::<Position>::default(),
-                FrameInterpolate::<Rotation>::default(),
-            ));
+            commands.entity(trigger.entity).insert(FrameInterpolate);
         }
     }
 }
@@ -449,10 +439,7 @@ fn add_homing_missile_visuals(
             })),
         ));
         if !interpolated {
-            commands.entity(trigger.entity).insert((
-                FrameInterpolate::<Position>::default(),
-                FrameInterpolate::<Rotation>::default(),
-            ));
+            commands.entity(trigger.entity).insert(FrameInterpolate);
         }
     }
 }
