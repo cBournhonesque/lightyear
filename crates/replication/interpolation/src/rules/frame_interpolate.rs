@@ -6,13 +6,11 @@
 use crate::SyncComponent;
 use crate::registry::InterpolationRegistry;
 use crate::rules::{
-    ComponentIdFn, ComponentTableColumn, InterpolationRuleId, component_table_column,
-    table_for_archetype,
+    ComponentTableColumn, InterpolationRuleId, component_table_column, table_for_archetype,
 };
 use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
-use bevy_ecs::component::{ComponentId, Components, StorageType};
-use bevy_ecs::prelude::*;
+use bevy_ecs::component::{ComponentId, StorageType};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::prelude::FrameInterpolationHistory;
@@ -145,8 +143,8 @@ impl CachedFrameInterpolationApply {
 /// frame work the rule owns.
 #[derive(Debug, Clone)]
 pub(crate) struct FrameInterpolationFns {
-    pub(crate) history_component_id: Option<ComponentIdFn>,
-    pub(crate) write_component_ids: Vec<ComponentIdFn>,
+    pub(crate) history_component_id: Option<ComponentId>,
+    pub(crate) write_component_ids: Vec<ComponentId>,
     pub(crate) update_history: Option<ErasedUpdateFrameHistoryFn>,
     pub(crate) restore_history: Option<ErasedRestoreFrameHistoryFn>,
     pub(crate) apply_interpolation: Option<ErasedApplyFrameInterpolationFn>,
@@ -154,8 +152,8 @@ pub(crate) struct FrameInterpolationFns {
 
 impl FrameInterpolationFns {
     pub(crate) fn new(
-        history_component_id: Option<ComponentIdFn>,
-        write_component_ids: Vec<ComponentIdFn>,
+        history_component_id: Option<ComponentId>,
+        write_component_ids: Vec<ComponentId>,
         update_history: Option<ErasedUpdateFrameHistoryFn>,
         restore_history: Option<ErasedRestoreFrameHistoryFn>,
         apply_interpolation: Option<ErasedApplyFrameInterpolationFn>,
@@ -183,12 +181,6 @@ impl FrameInterpolationFns {
     pub(crate) fn applies_component(&self) -> bool {
         self.apply_interpolation.is_some()
     }
-}
-
-pub(crate) fn frame_history_component_id<C: Component + Clone>(
-    components: &Components,
-) -> Option<ComponentId> {
-    components.component_id::<FrameInterpolationHistory<C>>()
 }
 
 #[doc(hidden)]

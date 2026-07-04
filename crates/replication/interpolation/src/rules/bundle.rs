@@ -5,9 +5,8 @@
 //! the parent module.
 
 use super::{
-    ApplyInterpolationContext, ComponentIdFn, ComponentTableColumn, InterpolationFns,
-    InterpolationRuleConfig, InterpolationRuleId, component_table_column, live_component_id,
-    table_for_archetype,
+    ApplyInterpolationContext, ComponentTableColumn, InterpolationFns, InterpolationRuleConfig,
+    InterpolationRuleId, component_table_column, table_for_archetype,
 };
 use crate::SyncComponent;
 use crate::interpolate::present_history_bracket;
@@ -18,6 +17,7 @@ use crate::rules::frame_interpolate::FrameInterpolationContext;
 use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::archetype::Archetype;
+use bevy_ecs::component::ComponentId;
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
@@ -89,8 +89,8 @@ pub(crate) trait TupleInterpolationBundle: InterpolationBundle {
     /// Component kinds written by the tuple interpolation apply system.
     fn component_kinds() -> Vec<ComponentKind>;
 
-    /// Component ID lookup functions for the live components written by the tuple.
-    fn component_id_fns() -> Vec<ComponentIdFn>;
+    /// Registers and returns component IDs for the live components written by the tuple.
+    fn component_ids(app: &mut App) -> Vec<ComponentId>;
 
     /// Applies interpolation for one cached archetype that selected this rule.
     fn apply_archetype(
@@ -99,7 +99,6 @@ pub(crate) trait TupleInterpolationBundle: InterpolationBundle {
         interpolation_registry: &InterpolationRegistry,
         rule_id: InterpolationRuleId,
         ctx: ApplyInterpolationContext,
-        deferred_apply: &mut DeferredEntityCommands,
     );
 
     /// Applies frame interpolation for one cached archetype that selected this rule.
@@ -120,9 +119,6 @@ pub(crate) trait TupleInterpolationBundle: InterpolationBundle {
         include_interpolation_history: bool,
     ) where
         F: QueryFilter + 'static;
-
-    /// Registers the live component IDs written by bundle apply rules.
-    fn register_live_components(app: &mut App);
 
     /// Marks every member component as interpolated in Lightyear's component registry.
     fn mark_interpolated(app: &mut App);
@@ -191,10 +187,10 @@ macro_rules! impl_interpolation_bundle {
                 alloc::vec![ComponentKind::of::<$C0>(), $(ComponentKind::of::<$C>()),+]
             }
 
-            fn component_id_fns() -> Vec<ComponentIdFn> {
+            fn component_ids(app: &mut App) -> Vec<ComponentId> {
                 alloc::vec![
-                    live_component_id::<$C0> as ComponentIdFn,
-                    $(live_component_id::<$C> as ComponentIdFn),+
+                    app.world_mut().register_component::<$C0>(),
+                    $(app.world_mut().register_component::<$C>()),+
                 ]
             }
 
@@ -204,7 +200,6 @@ macro_rules! impl_interpolation_bundle {
                 interpolation_registry: &InterpolationRegistry,
                 rule_id: InterpolationRuleId,
                 ctx: ApplyInterpolationContext,
-                deferred_apply: &mut DeferredEntityCommands,
             ) {
                 let Some(table) = table_for_archetype(world, archetype) else {
                     return;
@@ -285,7 +280,7 @@ macro_rules! impl_interpolation_bundle {
                             let $component0 = unsafe { &mut *$component0.get_unchecked(row).get() };
                             *$component0 = $output0;
                         }
-                        ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output0),
+                        ComponentTableColumn::Missing => {}
                         ComponentTableColumn::NonTable => {}
                     }
                     $(
@@ -294,7 +289,7 @@ macro_rules! impl_interpolation_bundle {
                                 let $component = unsafe { &mut *$component.get_unchecked(row).get() };
                                 *$component = $output;
                             }
-                            ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output),
+                            ComponentTableColumn::Missing => {}
                             ComponentTableColumn::NonTable => {}
                         }
                     )+
@@ -417,6 +412,11 @@ macro_rules! impl_interpolation_bundle {
             where
                 F: QueryFilter + 'static,
             {
+                // Bundle rules store each member component in its own history.
+                // For `no_history` bundle rules we still need synthetic
+                // per-member frame-history rules so FrameInterpolate can reuse
+                // the tuple interpolation function without also creating
+                // delayed-interpolation `ConfirmedHistory<C>` state.
                 add_interpolation_rule::<$C0, F>(
                     app,
                     if include_interpolation_history {
@@ -437,11 +437,6 @@ macro_rules! impl_interpolation_bundle {
                         config,
                     );
                 )+
-            }
-
-            fn register_live_components(app: &mut App) {
-                app.world_mut().register_component::<$C0>();
-                $(app.world_mut().register_component::<$C>();)+
             }
 
             fn mark_interpolated(app: &mut App) {

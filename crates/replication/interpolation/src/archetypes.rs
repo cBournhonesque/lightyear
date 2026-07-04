@@ -84,7 +84,7 @@ unsafe impl SystemParam for InterpolationWorld<'_, '_> {
         filtered_access.add_read(state.interpolated_component_id);
 
         if let Some(registry) = world.get_resource::<InterpolationRegistry>() {
-            for component_id in registry.component_write_ids(world.components()) {
+            for component_id in registry.component_write_ids() {
                 filtered_access.add_write(component_id);
             }
         }
@@ -108,7 +108,7 @@ unsafe impl SystemParam for InterpolationWorld<'_, '_> {
 ///
 /// - `selected_rules` stores the highest-priority matching rule for each rule
 ///   target (`C` or `(A, B, ...)`). These rules decide ownership of history
-///   updates, including history-only rules that never write live components.
+///   updates and interpolation-timeline component presence.
 /// - `apply_rules` stores the selected type-erased apply functions that are
 ///   allowed to write live components after overlapping bundle/component rules
 ///   have been resolved. For example, a selected `(Position, Rotation)` bundle
@@ -260,7 +260,6 @@ impl CachedInterpolatedArchetype {
         candidates.sort_by(|(_, lhs), (_, rhs)| registry.cmp_rule_precedence(*lhs, *rhs));
 
         let mut claimed_members = Vec::new();
-        let mut apply_rule_insert_members = Vec::new();
         for (_, rule_id) in candidates {
             let Some(rule) = registry.rule(rule_id) else {
                 continue;
@@ -274,16 +273,7 @@ impl CachedInterpolatedArchetype {
             }
             claimed_members.extend(rule.members().iter().copied());
             if let Some(component) = registry.cached_apply_component(rule_id) {
-                apply_rule_insert_members.extend(rule.members().iter().copied());
                 self.apply_rules.push(component);
-            }
-        }
-        for component in &mut self.history_update_components {
-            // If an apply rule claims this component, that rule owns inserting
-            // the live interpolated value. The history update still owns
-            // removals, but must not also insert a raw history sample.
-            if apply_rule_insert_members.contains(&component.kind()) {
-                component.set_apply_rule_handles_live_insert();
             }
         }
     }

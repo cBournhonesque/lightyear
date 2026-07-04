@@ -29,13 +29,17 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
     ((current - start) as f32 + overstep) / (end - start) as f32
 }
 
-/// Updates interpolation histories and applies Lightyear-owned interpolation.
+/// Updates interpolation histories and component presence.
 ///
 /// This is intentionally archetype-driven: a local
 /// [`InterpolatedArchetypes`](crate::archetypes::InterpolatedArchetypes) cache
 /// stores the highest-priority matching rule per archetype/component and the
-/// type-erased functions that should run for each cached archetype.
-pub(crate) fn update_interpolation(
+/// type-erased history functions that should run for each cached archetype.
+///
+/// Component insertion/removal happens here so custom interpolation systems that
+/// run after [`crate::plugin::InterpolationSystems::Prepare`] see the live
+/// component set matching the interpolation timeline.
+pub(crate) fn update_interpolation_history(
     mut interpolation_world: InterpolationWorld,
     clients: Query<&InterpolationTimeline, Without<Interpolated>>,
     interpolation_registry: Res<InterpolationRegistry>,
@@ -53,10 +57,6 @@ pub(crate) fn update_interpolation(
     let server_complete_tick = checkpoints.last_confirmed_tick();
 
     let mut deferred_apply = DeferredEntityCommands::default();
-    let ctx = ApplyInterpolationContext {
-        interpolation_tick: current_interpolate_tick,
-        interpolation_overstep,
-    };
 
     interpolation_world.update_archetypes(&interpolation_registry);
     let world = interpolation_world.world;
@@ -77,6 +77,36 @@ pub(crate) fn update_interpolation(
                 &mut deferred_apply,
             );
         }
+    }
+
+    deferred_apply.apply(&mut commands);
+}
+
+/// Applies Lightyear-owned interpolation values to components already present
+/// at the interpolation timeline.
+///
+/// This runs after [`update_interpolation_history`] and after its deferred
+/// component insertions/removals have been flushed.
+pub(crate) fn apply_interpolation(
+    mut interpolation_world: InterpolationWorld,
+    clients: Query<&InterpolationTimeline, Without<Interpolated>>,
+    interpolation_registry: Res<InterpolationRegistry>,
+) {
+    // TODO: handle multiple interpolation timelines
+    // TODO: exclude host-server
+    let Ok(timeline) = clients.single() else {
+        return;
+    };
+    let current_interpolate_tick = timeline.now().tick();
+    let interpolation_overstep = timeline.overstep().to_f32();
+    let ctx = ApplyInterpolationContext {
+        interpolation_tick: current_interpolate_tick,
+        interpolation_overstep,
+    };
+
+    interpolation_world.update_archetypes(&interpolation_registry);
+    let world = interpolation_world.world;
+    for (archetype, cached_archetype) in interpolation_world.iter_archetypes() {
         for component in cached_archetype.apply_rules() {
             (component.apply_interpolation())(
                 world,
@@ -84,12 +114,9 @@ pub(crate) fn update_interpolation(
                 &interpolation_registry,
                 component.rule_id(),
                 ctx,
-                &mut deferred_apply,
             );
         }
     }
-
-    deferred_apply.apply(&mut commands);
 }
 
 pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
@@ -116,7 +143,6 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
         return;
     };
     let present = component.live_component_present();
-    let apply_rule_handles_live_insert = component.apply_rule_handles_live_insert();
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let row = entity.table_row().index();
@@ -128,13 +154,7 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
             ctx.current_interpolate_tick,
             ctx.interpolation_overstep,
         );
-        queue_history_presence::<C>(
-            deferred_apply,
-            entity_id,
-            present,
-            sample,
-            apply_rule_handles_live_insert,
-        );
+        queue_history_presence::<C>(deferred_apply, entity_id, present, sample);
     }
 }
 
@@ -167,7 +187,6 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
         return;
     };
     let present = component.live_component_present();
-    let apply_rule_handles_live_insert = component.apply_rule_handles_live_insert();
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let Some(history_diff_receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity_id)
@@ -209,13 +228,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
             ctx.current_interpolate_tick,
             ctx.interpolation_overstep,
         );
-        queue_history_presence::<C>(
-            deferred_apply,
-            entity_id,
-            present,
-            sample,
-            apply_rule_handles_live_insert,
-        );
+        queue_history_presence::<C>(deferred_apply, entity_id, present, sample);
     }
 }
 
@@ -272,7 +285,6 @@ fn queue_history_presence<C: Component + Clone>(
     entity: Entity,
     present: bool,
     sample: Option<HistoryState<C>>,
-    apply_rule_handles_live_insert: bool,
 ) {
     // Apply the history state for the current interpolation time to the live component set:
     // insert once the add/update tick becomes visible, remove once a removal tick is reached,
@@ -281,7 +293,7 @@ fn queue_history_presence<C: Component + Clone>(
         None | Some(HistoryState::Removed) if present => {
             deferred_apply.remove::<C>(entity);
         }
-        Some(HistoryState::Updated(value)) if !present && !apply_rule_handles_live_insert => {
+        Some(HistoryState::Updated(value)) if !present => {
             deferred_apply.insert(entity, value);
         }
         _ => {}
@@ -327,7 +339,6 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
     interpolation_registry: &InterpolationRegistry,
     rule_id: InterpolationRuleId,
     ctx: ApplyInterpolationContext,
-    deferred_apply: &mut DeferredEntityCommands,
 ) {
     let Some(history_component_id) = world.components().component_id::<ConfirmedHistory<C>>()
     else {
@@ -381,9 +392,7 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
                 let component = unsafe { &mut *components.get_unchecked(row).get() };
                 *component = interpolated;
             }
-            ComponentColumn::Missing => {
-                deferred_apply.insert(entity.id(), interpolated);
-            }
+            ComponentColumn::Missing => {}
             ComponentColumn::NonTable => {}
         }
     }
@@ -420,13 +429,13 @@ pub(crate) fn present_history_bracket<C: Component + Clone>(
 mod tests {
     use super::*;
     use crate::registry::AppInterpolationExt;
-    use crate::registry::InterpolationRegistry;
+    use crate::registry::{InterpolationRegistry, InterpolationRuleComponentIds};
     use crate::rules::{InterpolationFns, InterpolationRuleConfig};
     use alloc::vec;
     use bevy_app::{App, Update};
     use bevy_ecs::archetype::Archetype;
     use bevy_ecs::component::Component;
-    use bevy_ecs::query::QueryState;
+    use bevy_ecs::query::{QueryFilter, QueryState};
     use bevy_replicon::prelude::{
         Diffable as RepliconDiffable, RepliconPlugins, RepliconSharedPlugin, RepliconTick,
     };
@@ -569,9 +578,13 @@ mod tests {
         app.world_mut()
             .insert_resource(ReplicationStorage::default());
         let mut registry = InterpolationRegistry::default();
+        let fns = InterpolationFns::interpolate(lerp);
+        let component_ids =
+            InterpolationRuleComponentIds::for_component::<TestComp>(app.world_mut(), &fns);
         registry.insert_rule::<TestComp, ()>(
-            InterpolationFns::interpolate(lerp),
+            fns,
             InterpolationRuleConfig::default(),
+            component_ids,
         );
         app.world_mut().insert_resource(registry);
 
@@ -632,12 +645,28 @@ mod tests {
     }
 
     fn use_diff_history_rule(app: &mut App) {
+        let fns = InterpolationFns::interpolate(lerp);
+        let component_ids =
+            InterpolationRuleComponentIds::for_component::<TestComp>(app.world_mut(), &fns);
         app.world_mut()
             .resource_mut::<InterpolationRegistry>()
             .insert_diff_rule::<TestComp, ()>(
-                InterpolationFns::interpolate(lerp),
+                fns,
                 InterpolationRuleConfig { priority: 100 },
+                component_ids,
             );
+    }
+
+    fn insert_rule<C, F>(app: &mut App, fns: InterpolationFns<C>, config: InterpolationRuleConfig)
+    where
+        C: SyncComponent,
+        F: QueryFilter + 'static,
+    {
+        let component_ids =
+            InterpolationRuleComponentIds::for_component::<C>(app.world_mut(), &fns);
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .insert_rule::<C, F>(fns, config, component_ids);
     }
 
     #[test]
@@ -645,12 +674,11 @@ mod tests {
         let mut app = setup_app(Tick(15), 40);
         add_interpolation_test_systems(&mut app);
         QueryState::<&Archetype, With<SmoothRule>>::new(app.world_mut());
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .insert_rule::<TestComp, With<SmoothRule>>(
-                InterpolationFns::interpolate(marker_lerp),
-                InterpolationRuleConfig { priority: 100 },
-            );
+        insert_rule::<TestComp, With<SmoothRule>>(
+            &mut app,
+            InterpolationFns::interpolate(marker_lerp),
+            InterpolationRuleConfig { priority: 100 },
+        );
 
         let default_entity = app.world_mut().spawn(TestComp(0.0)).id();
         insert_confirmed_history(&mut app, default_entity, two_point_history());
@@ -674,12 +702,11 @@ mod tests {
         let mut app = setup_app(Tick(15), 40);
         add_interpolation_test_systems(&mut app);
         QueryState::<&Archetype, With<HistoryOnlyRule>>::new(app.world_mut());
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .insert_rule::<TestComp, With<HistoryOnlyRule>>(
-                InterpolationFns::history_only_with_interpolator(marker_lerp),
-                InterpolationRuleConfig { priority: 100 },
-            );
+        insert_rule::<TestComp, With<HistoryOnlyRule>>(
+            &mut app,
+            InterpolationFns::history_only_with_interpolator(marker_lerp),
+            InterpolationRuleConfig { priority: 100 },
+        );
 
         let entity = app.world_mut().spawn((TestComp(7.0), HistoryOnlyRule)).id();
         insert_confirmed_history(&mut app, entity, two_point_history());

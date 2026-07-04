@@ -26,7 +26,7 @@ use bevy_math::{
 use core::any::TypeId;
 use core::cell::UnsafeCell;
 use core::marker::PhantomData;
-use lightyear_core::prelude::{ConfirmedHistory, Tick};
+use lightyear_core::prelude::Tick;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::{ComponentKind, LerpFn};
 
@@ -79,7 +79,8 @@ pub struct InterpolationRuleConfig {
 ///
 /// The constructors describe which work Lightyear owns:
 ///
-/// - [`Self::interpolate`] stores received values in [`ConfirmedHistory`],
+/// - [`Self::interpolate`] stores received values in
+///   [`ConfirmedHistory`](lightyear_core::prelude::ConfirmedHistory),
 ///   prepares that history, samples it, and applies the result to the live
 ///   component. For bundle interpolation, each component is stored in its own
 ///   history before the tuple interpolation function is called.
@@ -145,7 +146,8 @@ enum InterpolationPipeline {
 impl<C> InterpolationFns<C> {
     /// Enables the full Lightyear interpolation pipeline for `C`.
     ///
-    /// Incoming updates are stored in [`ConfirmedHistory<C>`], history is
+    /// Incoming updates are stored in
+    /// [`ConfirmedHistory<C>`](lightyear_core::prelude::ConfirmedHistory),
     /// prepared every frame, and the provided interpolation function is used to
     /// apply the live component at the interpolation timeline.
     ///
@@ -173,7 +175,7 @@ impl<C> InterpolationFns<C> {
     /// Stores and prepares interpolation history, but does not apply `C`.
     ///
     /// Use this when Lightyear should receive component updates into
-    /// [`ConfirmedHistory<C>`], but visible interpolation is handled by a user
+    /// [`ConfirmedHistory<C>`](lightyear_core::prelude::ConfirmedHistory), but visible interpolation is handled by a user
     /// system. For example, a system may sample several histories and write a
     /// render-only component.
     ///
@@ -278,6 +280,9 @@ impl<C> InterpolationFns<C> {
         }
     }
 
+    // Internal synthetic rule used for bundle `no_history` members. A tuple
+    // rule owns the interpolation function, but frame interpolation still needs
+    // per-component `FrameInterpolationHistory<C>` entries for each member.
     pub(crate) fn frame_history_only() -> Self {
         Self {
             interpolation: None,
@@ -358,10 +363,6 @@ where
     let curve = EasingCurve::new(start, other, EaseFunction::Linear);
     curve.sample_unchecked(t)
 }
-
-/// Returns the component ID for a typed component if that component is registered.
-#[doc(hidden)]
-pub type ComponentIdFn = fn(&Components) -> Option<ComponentId>;
 
 #[derive(Clone, Copy)]
 pub(crate) enum ComponentTableColumn<'w, C> {
@@ -459,7 +460,6 @@ pub(crate) type ErasedApplyInterpolationFn = fn(
     &InterpolationRegistry,
     InterpolationRuleId,
     ApplyInterpolationContext,
-    &mut DeferredEntityCommands,
 );
 
 /// Cached typed component metadata needed by the type-erased history updater.
@@ -477,8 +477,6 @@ pub(crate) struct CachedInterpolationComponent {
     pub(crate) history_storage: StorageType,
     /// Whether the live component `C` is present on the cached archetype.
     pub(crate) live_component_present: bool,
-    /// Whether a selected apply rule is responsible for inserting this live component.
-    pub(crate) apply_rule_handles_live_insert: bool,
     /// Type-erased history update function for `C`.
     pub(crate) update_history: ErasedUpdateHistoryFn,
     /// Optional interpolation function used when sampling the history.
@@ -500,14 +498,6 @@ impl CachedInterpolationComponent {
 
     pub(crate) fn live_component_present(&self) -> bool {
         self.live_component_present
-    }
-
-    pub(crate) fn apply_rule_handles_live_insert(&self) -> bool {
-        self.apply_rule_handles_live_insert
-    }
-
-    pub(crate) fn set_apply_rule_handles_live_insert(&mut self) {
-        self.apply_rule_handles_live_insert = true;
     }
 
     pub(crate) fn update_history(&self) -> ErasedUpdateHistoryFn {
@@ -546,9 +536,9 @@ pub(crate) struct ErasedInterpolationFns {
     pub(crate) interpolation: Option<ErasedLerpFn>,
     pub(crate) update_history: Option<ErasedUpdateHistoryFn>,
     pub(crate) apply_interpolation: Option<ErasedApplyInterpolationFn>,
-    pub(crate) history_component_id: Option<ComponentIdFn>,
-    pub(crate) live_component_id: ComponentIdFn,
-    pub(crate) write_component_ids: Vec<ComponentIdFn>,
+    pub(crate) history_component_id: Option<ComponentId>,
+    pub(crate) live_component_id: Option<ComponentId>,
+    pub(crate) write_component_ids: Vec<ComponentId>,
     pub(crate) frame: Option<FrameInterpolationFns>,
 }
 
@@ -557,9 +547,9 @@ impl ErasedInterpolationFns {
         fns: InterpolationFns<S>,
         update_history: Option<ErasedUpdateHistoryFn>,
         apply_interpolation: Option<ErasedApplyInterpolationFn>,
-        history_component_id: Option<ComponentIdFn>,
-        live_component_id: ComponentIdFn,
-        write_component_ids: Vec<ComponentIdFn>,
+        history_component_id: Option<ComponentId>,
+        live_component_id: Option<ComponentId>,
+        write_component_ids: Vec<ComponentId>,
         frame: Option<FrameInterpolationFns>,
     ) -> Self {
         Self {
@@ -574,20 +564,6 @@ impl ErasedInterpolationFns {
             frame,
         }
     }
-}
-
-pub(crate) fn confirmed_history_component_id<C: Component + Clone>(
-    components: &Components,
-) -> Option<ComponentId> {
-    components.component_id::<ConfirmedHistory<C>>()
-}
-
-pub(crate) fn live_component_id<C: Component>(components: &Components) -> Option<ComponentId> {
-    components.component_id::<C>()
-}
-
-pub(crate) fn no_component_id(_: &Components) -> Option<ComponentId> {
-    None
 }
 
 /// Key used to select between interpolation rules.

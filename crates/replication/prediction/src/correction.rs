@@ -183,7 +183,7 @@ unsafe impl SystemParam for PostRollbackCorrectionWorld<'_> {
             }
         }
         if let Some(registry) = world.get_resource::<InterpolationRegistry>() {
-            for component_id in registry.frame_component_write_ids(world.components()) {
+            for component_id in registry.frame_component_write_ids() {
                 filtered_access.add_write(component_id);
             }
         }

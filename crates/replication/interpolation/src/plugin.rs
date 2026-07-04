@@ -1,7 +1,7 @@
 use crate::SyncComponent;
 use crate::archetypes::InterpolationWorld;
 use crate::despawn::configure_delayed_interpolated_despawn;
-use crate::interpolate::update_interpolation;
+use crate::interpolate::{apply_interpolation, update_interpolation_history};
 use crate::registry::{
     InterpolationRegistry, insert_confirmed_history_on_interpolated,
     insert_confirmed_history_on_interpolated_diff,
@@ -12,7 +12,7 @@ use bevy_app::{App, Plugin, PreUpdate, Update};
 use bevy_ecs::{
     component::Component,
     prelude::*,
-    schedule::{IntoScheduleConfigs, SystemSet},
+    schedule::{ApplyDeferred, IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
@@ -97,9 +97,10 @@ pub enum InterpolationSystems {
 
     /// Update component histories and apply Lightyear-owned interpolation.
     ///
-    /// This adds new values from confirmed updates, pops values that are older
-    /// than interpolation, applies pending component insertions/removals, and
-    /// writes interpolated values for rules that enabled the apply phase.
+    /// This runs in two ordered phases. The first phase updates histories and
+    /// applies pending component insertions/removals at the interpolation
+    /// timeline. Deferred commands are flushed before the second phase writes
+    /// interpolated values for rules that enabled the apply phase.
     ///
     /// This can be in Update since we use the confirmed.tick to add values to the history, which is independent
     /// from the local tick.
@@ -127,7 +128,7 @@ pub(crate) fn add_prepare_interpolation_diff_systems<C: SyncComponent + Replicon
 }
 
 // Kept for compatibility with older internal callers. Default interpolation is
-// now driven by the type-erased `update_interpolation` system.
+// now driven by the type-erased interpolation systems.
 pub fn add_interpolation_systems<C: SyncComponent>(_app: &mut App) {
     let _ = core::any::TypeId::of::<C>();
 }
@@ -167,27 +168,44 @@ pub(crate) fn add_update_interpolation_system(app: &mut App) {
 }
 
 fn add_update_interpolation_system_with_generation(app: &mut App, installed_generation: usize) {
-    let system = move |interpolation_world: InterpolationWorld,
-                       clients: Query<&InterpolationTimeline, Without<Interpolated>>,
-                       interpolation_registry: Res<InterpolationRegistry>,
-                       update_system_state: Res<InterpolationUpdateSystemState>,
-                       checkpoints: Res<ReplicationCheckpointMap>,
-                       replication_storage: Option<ResMut<ReplicationStorage>>,
-                       commands: Commands| {
-        if update_system_state.generation != installed_generation {
-            return;
-        }
-        update_interpolation(
-            interpolation_world,
-            clients,
-            interpolation_registry,
-            checkpoints,
-            replication_storage,
-            commands,
-        );
-    };
+    let update_history_system =
+        move |interpolation_world: InterpolationWorld,
+              clients: Query<&InterpolationTimeline, Without<Interpolated>>,
+              interpolation_registry: Res<InterpolationRegistry>,
+              update_system_state: Res<InterpolationUpdateSystemState>,
+              checkpoints: Res<ReplicationCheckpointMap>,
+              replication_storage: Option<ResMut<ReplicationStorage>>,
+              commands: Commands| {
+            if update_system_state.generation != installed_generation {
+                return;
+            }
+            update_interpolation_history(
+                interpolation_world,
+                clients,
+                interpolation_registry,
+                checkpoints,
+                replication_storage,
+                commands,
+            );
+        };
 
-    app.add_systems(Update, system.in_set(InterpolationSystems::Prepare));
+    let apply_system =
+        move |interpolation_world: InterpolationWorld,
+              clients: Query<&InterpolationTimeline, Without<Interpolated>>,
+              interpolation_registry: Res<InterpolationRegistry>,
+              update_system_state: Res<InterpolationUpdateSystemState>| {
+            if update_system_state.generation != installed_generation {
+                return;
+            }
+            apply_interpolation(interpolation_world, clients, interpolation_registry);
+        };
+
+    app.add_systems(
+        Update,
+        (update_history_system, ApplyDeferred, apply_system)
+            .chain()
+            .in_set(InterpolationSystems::Prepare),
+    );
 }
 
 impl Plugin for InterpolationPlugin {
