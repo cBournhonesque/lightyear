@@ -8,6 +8,7 @@ use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{math::Vector, prelude::*};
 use bevy_app::prelude::*;
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
     hierarchy::{ChildOf, Children},
@@ -65,28 +66,8 @@ pub struct AabbEnvelopeHolder;
 /// Component that will store the Position, Rotation, ColliderAabb in a history buffer
 /// in order to perform lag compensation for client-predicted entities interacting with
 /// this entity
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Default, Deref, DerefMut)]
 pub struct LagCompensationHistory(HistoryBuffer<(Position, Rotation, ColliderAabb)>);
-
-impl Default for LagCompensationHistory {
-    fn default() -> Self {
-        Self(HistoryBuffer::default())
-    }
-}
-
-impl Deref for LagCompensationHistory {
-    type Target = HistoryBuffer<(Position, Rotation, ColliderAabb)>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-impl DerefMut for LagCompensationHistory {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.0
-    }
-}
 
 impl<'a> IntoIterator for &'a LagCompensationHistory {
     type Item = (Tick, &'a (Position, Rotation, ColliderAabb));
