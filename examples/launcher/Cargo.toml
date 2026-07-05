@@ -27,6 +27,8 @@ lightyear_examples_common = { path = "../common", features = [
   "client",
   "server",
   "gui2d",
+  "udp",
+  "webtransport",
 ] }
 
 # utils

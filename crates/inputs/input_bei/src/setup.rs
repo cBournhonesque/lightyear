@@ -8,11 +8,12 @@ use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, SerializeCtx,
 #[cfg(feature = "client")]
 use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use bevy_replicon::{bytes::Bytes, postcard_utils};
+#[cfg(all(feature = "client", feature = "server"))]
+use lightyear_replication::prelude::ControlledBy;
 #[cfg(feature = "client")]
 use {
-    bevy_enhanced_input::context::ExternallyMocked,
-    lightyear_connection::client::Client,
-    lightyear_replication::prelude::{Controlled, ControlledBy},
+    bevy_enhanced_input::context::ExternallyMocked, lightyear_connection::client::Client,
+    lightyear_replication::prelude::Controlled,
 };
 
 use bevy_enhanced_input::prelude::*;

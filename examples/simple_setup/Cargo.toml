@@ -11,16 +11,22 @@ categories = ["game-development", "network-programming"]
 license = "MIT OR Apache-2.0"
 publish = false
 
+[features]
+default = ["client", "server", "netcode", "webtransport"]
+client = ["lightyear/client"]
+server = ["lightyear/server"]
+netcode = ["lightyear/netcode"]
+webtransport = [
+  "lightyear/webtransport",
+  "lightyear/webtransport_self_signed",
+  "lightyear/webtransport_dangerous_configuration",
+]
+udp = ["lightyear/udp"]
 
 [dependencies]
+cfg-if.workspace = true
 clap.workspace = true
-lightyear = { workspace = true, features = [
-  "client",
-  "server",
-  "netcode",
-  "replication",
-  "udp",
-] }
+lightyear = { workspace = true, features = ["replication"] }
 bevy = { workspace = true, features = [
   "bevy_render",
   "bevy_core_pipeline",
@@ -31,10 +37,13 @@ bevy = { workspace = true, features = [
 ] }
 serde.workspace = true
 
+[target."cfg(not(target_family = \"wasm\"))".dependencies]
+async-compat.workspace = true
+
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
 default-features = false
-features = ["client", "netcode"]
+features = ["client", "netcode", "webtransport"]
 
 [lints]
 workspace = true

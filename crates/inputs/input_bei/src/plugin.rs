@@ -1,5 +1,7 @@
+#[cfg(feature = "server")]
+use crate::input_message::BEIBuffer;
 #[cfg(any(feature = "client", feature = "server"))]
-use crate::input_message::{BEIBuffer, BEIStateSequence};
+use crate::input_message::BEIStateSequence;
 
 #[cfg(any(feature = "client", feature = "server"))]
 use crate::setup::InputRegistryPlugin;

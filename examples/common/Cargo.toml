@@ -12,10 +12,15 @@ license = "MIT OR Apache-2.0"
 exclude = ["/tests"]
 
 [features]
-default = ["client", "server", "netcode", "udp"]
+default = ["client", "server", "netcode", "webtransport"]
 client = ["lightyear/client"]
 server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
+webtransport = [
+  "lightyear/webtransport",
+  "lightyear/webtransport_self_signed",
+  "lightyear/webtransport_dangerous_configuration",
+]
 udp = ["lightyear/udp"]
 steam = ["lightyear/steam"]
 structured-debug = ["lightyear/debug"]
@@ -49,7 +54,6 @@ lightyear = { "workspace" = true, features = [
   "webtransport_dangerous_configuration",
   "websocket",
   "websocket_self_signed",
-  "udp",
 ] }
 async-compat.workspace = true
 cfg-if.workspace = true

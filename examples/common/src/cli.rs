@@ -44,6 +44,19 @@ pub struct Cli {
     pub mode: Option<Mode>,
 }
 
+#[cfg(feature = "client")]
+fn default_client_transport() -> ClientTransports {
+    ClientTransports::WebTransport
+}
+
+#[cfg(feature = "server")]
+fn default_server_transport(local_port: u16) -> ServerTransports {
+    ServerTransports::WebTransport {
+        local_port,
+        certificate: WebTransportCertificateSettings::default(),
+    }
+}
+
 impl Cli {
     /// Get the client id from the CLI
     pub fn client_id(&self) -> Option<u64> {
@@ -149,9 +162,10 @@ impl Cli {
                         client_port: CLIENT_PORT,
                         server_addr: SERVER_ADDR,
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
-                        transport: ClientTransports::Udp,
+                        transport: default_client_transport(),
                         // transport: ClientTransports::WebSocket,
-                        // transport: ClientTransports::WebTransport,
+                        // #[cfg(not(target_family = "wasm"))]
+                        // transport: ClientTransports::Udp,
                         // #[cfg(feature = "steam")]
                         // transport: ClientTransports::Steam,
                         shared: SHARED_SETTINGS,
@@ -165,18 +179,13 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
-                        transport: ServerTransports::Udp {
-                            local_port: SERVER_PORT,
-                        },
+                        transport: default_server_transport(SERVER_PORT),
                         // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
                         // },
-                        // transport: ServerTransports::WebTransport {
+                        // #[cfg(feature = "udp")]
+                        // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
-                        //     certificate: WebTransportCertificateSettings::FromFile {
-                        //         cert: "../../certificates/cert.pem".to_string(),
-                        //         key: "../../certificates/key.pem".to_string(),
-                        //     },
                         // },
                         // #[cfg(feature = "steam")]
                         // transport: ServerTransports::Steam {
@@ -195,18 +204,13 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
-                        transport: ServerTransports::Udp {
-                            local_port: SERVER_PORT,
-                        },
+                        transport: default_server_transport(SERVER_PORT),
                         // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
                         // },
-                        // transport: ServerTransports::WebTransport {
+                        // #[cfg(feature = "udp")]
+                        // transport: ServerTransports::Udp {
                         //     local_port: SERVER_PORT,
-                        //     certificate: WebTransportCertificateSettings::FromFile {
-                        //         cert: "../../certificates/cert.pem".to_string(),
-                        //         key: "../../certificates/key.pem".to_string(),
-                        //     },
                         // },
                         shared: SHARED_SETTINGS,
                     })

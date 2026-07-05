@@ -12,15 +12,12 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-default = ["client", "gui", "server", "netcode", "udp"]
-client = [
-  "lightyear/client",
-  "lightyear/server",
-  "lightyear_examples_common/client",
-]
+default = ["client", "gui", "server", "netcode", "webtransport"]
+client = ["lightyear/client", "lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui2d"]
 server = ["lightyear/server", "lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
+webtransport = ["lightyear_examples_common/webtransport"]
 udp = [
   "lightyear_examples_common/udp",
   # udp requires std
@@ -46,7 +43,7 @@ bevy.workspace = true
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
 default-features = false
-features = ["client", "netcode"]
+features = ["client", "netcode", "webtransport"]
 
 [lints]
 workspace = true

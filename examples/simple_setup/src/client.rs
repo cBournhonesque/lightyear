@@ -47,6 +47,25 @@ fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
                 Link::new(None),
                 ReplicationReceiver,
                 NetcodeClient::new(auth, NetcodeConfig::default())?,
+                #[cfg(feature = "webtransport")]
+                WebTransportClientIo {
+                    certificate_digest: {
+                        #[cfg(target_family = "wasm")]
+                        {
+                            include_str!("../../../certificates/digest.txt").to_string()
+                        }
+                        #[cfg(not(target_family = "wasm"))]
+                        {
+                            "".to_string()
+                        }
+                    },
+                    target: None,
+                },
+                #[cfg(all(
+                    not(feature = "webtransport"),
+                    feature = "udp",
+                    not(target_family = "wasm")
+                ))]
                 UdpIo::default(),
             ))
             .id()

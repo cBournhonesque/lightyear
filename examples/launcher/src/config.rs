@@ -4,7 +4,7 @@ use core::net::{IpAddr, Ipv4Addr, SocketAddr};
 use core::time::Duration;
 // Import serde traits
 use lightyear_examples_common::client::ClientTransports;
-use lightyear_examples_common::server::ServerTransports;
+use lightyear_examples_common::server::{ServerTransports, WebTransportCertificateSettings};
 use lightyear_examples_common::shared::SharedSettings;
 use serde::{Deserialize, Serialize};
 use strum::{Display, EnumIter, EnumString};
@@ -23,6 +23,17 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
     ],
 };
 pub const SEND_INTERVAL: Duration = Duration::from_millis(100);
+
+fn default_client_transport() -> ClientTransports {
+    ClientTransports::WebTransport
+}
+
+fn default_server_transport(local_port: u16) -> ServerTransports {
+    ServerTransports::WebTransport {
+        local_port,
+        certificate: WebTransportCertificateSettings::default(),
+    }
+}
 
 // --- Configuration Enums ---
 
@@ -82,12 +93,10 @@ impl Default for LauncherConfig {
             example: Example::SimpleBox,
             mode: default_mode,
             // Set initial defaults based on HostServer mode
-            client_transport: Some(ClientTransports::Udp),
+            client_transport: Some(default_client_transport()),
             client_id: Some(0),
             server_addr: Some(SERVER_ADDR),
-            server_transport: Some(ServerTransports::Udp {
-                local_port: SERVER_PORT,
-            }),
+            server_transport: Some(default_server_transport(SERVER_PORT)),
             tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
         }
     }
@@ -140,7 +149,7 @@ impl LauncherConfig {
                     self.server_addr = Some(SERVER_ADDR);
                 }
                 if self.client_transport.is_none() {
-                    self.client_transport = Some(ClientTransports::Udp);
+                    self.client_transport = Some(default_client_transport());
                 }
                 self.server_transport = None;
             }
@@ -149,9 +158,9 @@ impl LauncherConfig {
                     self.server_addr = Some(SERVER_ADDR);
                 }
                 if self.server_transport.is_none() {
-                    self.server_transport = Some(ServerTransports::Udp {
-                        local_port: self.server_addr.map_or(SERVER_PORT, |a| a.port()),
-                    });
+                    self.server_transport = Some(default_server_transport(
+                        self.server_addr.map_or(SERVER_PORT, |a| a.port()),
+                    ));
                 }
                 self.client_id = None;
                 self.client_transport = None;
@@ -164,12 +173,12 @@ impl LauncherConfig {
                     self.server_addr = Some(SERVER_ADDR);
                 }
                 if self.client_transport.is_none() {
-                    self.client_transport = Some(ClientTransports::Udp);
+                    self.client_transport = Some(default_client_transport());
                 }
                 if self.server_transport.is_none() {
-                    self.server_transport = Some(ServerTransports::Udp {
-                        local_port: self.server_addr.map_or(SERVER_PORT, |a| a.port()),
-                    });
+                    self.server_transport = Some(default_server_transport(
+                        self.server_addr.map_or(SERVER_PORT, |a| a.port()),
+                    ));
                 }
             }
         }

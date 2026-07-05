@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[non_exhaustive]
 pub enum ClientTransports {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(all(feature = "udp", not(target_family = "wasm")))]
     Udp,
     WebTransport,
     WebSocket,
@@ -76,7 +76,7 @@ impl ExampleClient {
             };
 
             match settings.transport {
-                #[cfg(not(target_family = "wasm"))]
+                #[cfg(all(feature = "udp", not(target_family = "wasm")))]
                 ClientTransports::Udp => {
                     add_netcode(&mut entity_mut)?;
                     entity_mut.insert(UdpIo::default());

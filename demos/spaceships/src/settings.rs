@@ -56,10 +56,7 @@ pub(crate) fn get_settings() -> MySettings {
                 transport: vec![
                     ServerTransports::WebTransport {
                         local_port: 5000,
-                        certificate: WebTransportCertificateSettings::FromFile {
-                            cert: "../certificates/cert.pem".to_string(),
-                            key: "../certificates/key.pem".to_string(),
-                        },
+                        certificate: WebTransportCertificateSettings::default(),
                     },
                     ServerTransports::Udp { local_port: 5001 },
                     #[cfg(feature = "websocket")]
@@ -79,10 +76,7 @@ pub(crate) fn get_settings() -> MySettings {
                 client_port: 0, // 0 means that the OS will assign a random port
                 server_addr: Ipv4Addr::LOCALHOST,
                 server_port: 5000, // change the port depending on the transport used
-                transport: ClientTransports::WebTransport {
-                    #[cfg(target_family = "wasm")]
-                    certificate_digest: include_str!("../../certificates/digest.txt").to_string(),
-                },
+                transport: ClientTransports::WebTransport,
                 conditioner: None,
             },
             shared: SharedSettings {

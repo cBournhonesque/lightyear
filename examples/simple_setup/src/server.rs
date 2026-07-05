@@ -42,6 +42,11 @@ fn startup(mut commands: Commands, config: Res<ServerStartupConfig>) -> Result {
         .spawn((
             NetcodeServer::new(server::NetcodeConfig::default()),
             LocalAddr(SERVER_ADDR),
+            #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+            WebTransportServerIo {
+                certificate: webtransport_self_signed_certificate(),
+            },
+            #[cfg(all(not(feature = "webtransport"), feature = "udp"))]
             ServerUdpIo::default(),
         ))
         .id();

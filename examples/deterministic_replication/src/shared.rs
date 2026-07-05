@@ -147,6 +147,7 @@ pub(crate) fn init(
     ));
 }
 
+#[cfg_attr(not(feature = "server"), allow(unused_variables))]
 pub(crate) fn spawn_ball(
     commands: &mut Commands,
     mode: &CatchUpMode,
@@ -166,9 +167,14 @@ pub(crate) fn spawn_ball(
     ));
     if *mode == CatchUpMode::StateBasedCatchUp {
         ball.insert(PreSpawned::new(BALL_PRESPAWN_HASH));
+        #[cfg(feature = "server")]
         if is_server {
             ball.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
         } else if is_client {
+            ball.insert(CatchUpGated);
+        }
+        #[cfg(not(feature = "server"))]
+        if is_client {
             ball.insert(CatchUpGated);
         }
     }
