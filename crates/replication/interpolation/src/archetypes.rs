@@ -24,7 +24,7 @@ pub struct InterpolatedArchetypes {
     generation: ArchetypeGeneration,
     rule_count: usize,
     interpolated_component_id: ComponentId,
-    archetypes: HashMap<ArchetypeId, CachedInterpolatedArchetype>,
+    archetypes: Vec<CachedInterpolatedArchetype>,
 }
 
 /// System param exposing the cached interpolated archetypes and world cell.
@@ -158,7 +158,7 @@ impl FromWorld for InterpolatedArchetypes {
             generation: ArchetypeGeneration::initial(),
             rule_count: 0,
             interpolated_component_id: world.register_component::<Interpolated>(),
-            archetypes: HashMap::default(),
+            archetypes: Vec::new(),
         }
     }
 }
@@ -224,13 +224,13 @@ impl InterpolatedArchetypes {
                 }
             }
             cached.resolve_apply_rules(registry);
-            self.archetypes.insert(archetype.id(), cached);
+            self.archetypes.push(cached);
         }
     }
 
     /// Iterates over cached interpolated archetypes.
     pub(crate) fn iter(&self) -> impl Iterator<Item = &CachedInterpolatedArchetype> {
-        self.archetypes.values()
+        self.archetypes.iter()
     }
 }
 

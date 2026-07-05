@@ -5,6 +5,7 @@ use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
 #[cfg(feature = "metrics")]
 use alloc::format;
+use alloc::vec::Vec;
 use bevy_app::App;
 use bevy_ecs::component::{ComponentId, Mutable};
 use bevy_ecs::prelude::*;
@@ -120,6 +121,12 @@ pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 
 #[derive(Resource, Default, Debug)]
 pub struct PredictionRegistry {
+    /// Predicted components in registration order.
+    ///
+    /// The map below is used for lookups, but post-rollback correction must be
+    /// applied in a deterministic order so deferred component insertions do not
+    /// depend on hash-map iteration order.
+    prediction_kinds: Vec<ComponentKind>,
     pub prediction_map: HashMap<ComponentKind, PredictionMetadata>,
 }
 
@@ -134,9 +141,13 @@ impl PredictionRegistry {
         confirmed_history_id: ComponentId,
     ) {
         let kind = ComponentKind::of::<C>();
+        let was_registered = self.prediction_map.contains_key(&kind);
         self.prediction_map.entry(kind).or_insert_with(|| {
             PredictionMetadata::new::<C>(prediction_history_id, confirmed_history_id)
         });
+        if !was_registered {
+            self.prediction_kinds.push(kind);
+        }
     }
 
     fn set_should_rollback<C: SyncComponent>(&mut self, should_rollback: ShouldRollbackFn<C>) {
@@ -178,9 +189,11 @@ impl PredictionRegistry {
     pub(crate) fn post_rollback_corrections(
         &self,
     ) -> impl Iterator<Item = crate::correction::ErasedPostRollbackCorrection> + '_ {
-        self.prediction_map
-            .values()
-            .filter_map(|metadata| metadata.post_rollback_correction)
+        self.prediction_kinds.iter().filter_map(|kind| {
+            self.prediction_map
+                .get(kind)
+                .and_then(|metadata| metadata.post_rollback_correction)
+        })
     }
 
     /// Returns true if the component is predicted

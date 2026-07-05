@@ -218,7 +218,9 @@ pub fn add_correction_systems<
         app.insert_resource(PostRollbackCorrectionSystemInstalled);
         app.add_systems(
             PreUpdate,
-            update_frame_interpolation_post_rollback.in_set(RollbackSystems::EndRollback),
+            update_frame_interpolation_post_rollback
+                .in_set(RollbackSystems::EndRollback)
+                .before(crate::rollback::end_rollback),
         );
     }
     app.configure_sets(
@@ -282,16 +284,14 @@ pub(crate) fn update_frame_history_post_rollback_erased<
     world: UnsafeWorldCell,
     correction: &ErasedPostRollbackCorrection,
     ctx: PostRollbackCorrectionContext,
-    _deferred_apply: &mut DeferredEntityCommands,
+    deferred_apply: &mut DeferredEntityCommands,
 ) {
     let component_id = correction.live_component_id;
     let prediction_history_id = correction.prediction_history_component_id;
     let frame_history_id = correction.frame_history_component_id;
 
     for archetype in world.archetypes().iter().filter(|archetype| {
-        archetype.contains(component_id)
-            && archetype.contains(prediction_history_id)
-            && archetype.contains(frame_history_id)
+        archetype.contains(component_id) && archetype.contains(prediction_history_id)
     }) {
         let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
             continue;
@@ -299,9 +299,10 @@ pub(crate) fn update_frame_history_post_rollback_erased<
         let Some(StorageType::Table) = archetype.get_storage_type(prediction_history_id) else {
             continue;
         };
-        let Some(StorageType::Table) = archetype.get_storage_type(frame_history_id) else {
-            continue;
-        };
+        let frame_history_present = archetype.contains(frame_history_id);
+        let frame_history_storage = frame_history_present
+            .then(|| archetype.get_storage_type(frame_history_id))
+            .flatten();
         let Some(table) = table_for_archetype(world, archetype) else {
             continue;
         };
@@ -313,20 +314,47 @@ pub(crate) fn update_frame_history_post_rollback_erased<
         else {
             continue;
         };
-        let Some(frame_histories) =
-            table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
-        else {
-            continue;
+        let frame_histories = if frame_history_present {
+            let Some(StorageType::Table) = frame_history_storage else {
+                continue;
+            };
+            let Some(frame_histories) =
+                table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
+            else {
+                continue;
+            };
+            Some(frame_histories)
+        } else {
+            None
         };
         for entity in archetype.entities() {
+            let entity_id = entity.id();
             let row = entity.table_row().index();
             let component = unsafe { &*components.get_unchecked(row).get() };
             let history = unsafe { &*prediction_histories.get_unchecked(row).get() };
-            let interpolate = unsafe { &mut *frame_histories.get_unchecked(row).get() };
+            let previous_value = history.get(ctx.tick - 1).cloned();
 
-            // update the FrameInterpolation with the last 2 history values
-            interpolate.current_value = Some(component.clone());
-            interpolate.previous_value = history.get(ctx.tick - 1).cloned();
+            // Update the frame history with the last two corrected values.
+            //
+            // During catch-up activation `FrameInterpolate` can be added in
+            // the same rollback that creates or restores the component. The
+            // normal FixedPostUpdate history updater is skipped during
+            // rollback, so create the typed history here if it does not exist
+            // yet. Otherwise the next RunFixedMainLoop restore can write an
+            // old snapshot value back over the replayed state.
+            if let Some(frame_histories) = frame_histories {
+                let interpolate = unsafe { &mut *frame_histories.get_unchecked(row).get() };
+                interpolate.current_value = Some(component.clone());
+                interpolate.previous_value = previous_value;
+            } else {
+                deferred_apply.insert(
+                    entity_id,
+                    FrameInterpolationHistory::<C> {
+                        previous_value,
+                        current_value: Some(component.clone()),
+                    },
+                );
+            }
         }
     }
 }
@@ -726,6 +754,47 @@ mod tests {
             CorrectionA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
             CorrectionB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
         )
+    }
+
+    #[test]
+    fn post_rollback_correction_inserts_missing_frame_history() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.insert_resource(LocalTimeline::default());
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
+
+        app.component::<CorrectionA>()
+            .predict()
+            .add_linear_correction_fn::<CorrectionA>();
+        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|start, end, t| {
+            CorrectionA(start.0 + (end.0 - start.0) * t)
+        }));
+
+        let mut history = PredictionHistory::<CorrectionA>::default();
+        history.add_predicted(Tick(9), Some(CorrectionA(4.0)));
+
+        let entity = app.world_mut().spawn((CorrectionA(10.0), history)).id();
+
+        app.world_mut()
+            .run_system_once(update_frame_interpolation_post_rollback)
+            .unwrap();
+        app.world_mut().flush();
+
+        let frame_history = app
+            .world()
+            .get::<FrameInterpolationHistory<CorrectionA>>(entity)
+            .unwrap();
+        assert_eq!(frame_history.previous_value, Some(CorrectionA(4.0)));
+        assert_eq!(frame_history.current_value, Some(CorrectionA(10.0)));
     }
 
     #[test]

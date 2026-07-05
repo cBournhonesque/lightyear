@@ -23,7 +23,7 @@ pub struct FrameInterpolatedArchetypes {
     rule_count: usize,
     frame_interpolate_component_id: ComponentId,
     skip_frame_interpolation_component_id: ComponentId,
-    archetypes: HashMap<ArchetypeId, CachedFrameInterpolatedArchetype>,
+    archetypes: Vec<CachedFrameInterpolatedArchetype>,
 }
 
 /// System param exposing cached frame interpolation archetypes and a low-level world cell.
@@ -100,7 +100,7 @@ impl FromWorld for FrameInterpolatedArchetypes {
             frame_interpolate_component_id: world.register_component::<FrameInterpolate>(),
             skip_frame_interpolation_component_id: world
                 .register_component::<SkipFrameInterpolation>(),
-            archetypes: HashMap::default(),
+            archetypes: Vec::new(),
         }
     }
 }
@@ -144,12 +144,12 @@ impl FrameInterpolatedArchetypes {
                 }
             }
             cached.resolve_apply_rules(registry);
-            self.archetypes.insert(archetype.id(), cached);
+            self.archetypes.push(cached);
         }
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = &CachedFrameInterpolatedArchetype> {
-        self.archetypes.values()
+        self.archetypes.iter()
     }
 }
 

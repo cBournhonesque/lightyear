@@ -29,7 +29,6 @@ use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
-use bevy_platform::collections::HashMap;
 use bevy_platform::collections::HashSet;
 use bevy_replicon::bytes::Bytes;
 use bevy_replicon::client::confirm_history::ConfirmHistory;
@@ -44,6 +43,7 @@ use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
 use core::cmp::Ordering;
+use indexmap::IndexMap;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory, Interpolated, Tick};
 use lightyear_replication::checkpoint::{ReplicationCheckpointMap, resolve_message_tick};
@@ -152,14 +152,15 @@ pub struct InterpolationRegistry {
     /// from the rule's member [`ComponentKind`]s, which are actual ECS
     /// components used for overlap resolution. Each value is a list of rule IDs
     /// sorted from highest to lowest priority, with equal-priority rules kept in
-    /// registration order.
+    /// registration order. The outer map preserves first-registration order for
+    /// deterministic cache rebuilds.
     ///
     /// For example, an archetype containing components `A` and `B` can select
     /// one rule for `A`, one rule for `B`, and one rule for `(A, B)`. If the
     /// selected `(A, B)` rule has higher priority, the later apply-resolution
     /// pass lets it claim both `A` and `B`, so the individual `A` and `B` apply
     /// rules do not run for that archetype.
-    rules_by_kind: HashMap<RuleKind, Vec<InterpolationRuleId>>,
+    rules_by_kind: IndexMap<RuleKind, Vec<InterpolationRuleId>>,
     /// Component kinds whose Replicon receive marker functions have been installed.
     interpolated_marker_fns: HashSet<ComponentKind>,
     /// Component kinds whose non-diff interpolation preparation systems have been installed.
