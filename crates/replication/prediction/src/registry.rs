@@ -29,7 +29,6 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_interpolation::prelude::{AppInterpolationExt, InterpolationFns};
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
@@ -182,6 +181,20 @@ impl PredictionRegistry {
         self.prediction_map
             .values()
             .filter_map(|metadata| metadata.correction)
+    }
+
+    pub(crate) fn apply_correction<C: SyncComponent, D: Default>(
+        &self,
+        error: D,
+        ratio: f32,
+    ) -> Option<D> {
+        self.prediction_map
+            .get(&ComponentKind::of::<C>())
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            )
+            .correction
+            .map(|correction| correction.apply_correction(error, ratio))
     }
 
     /// Returns true if the component is predicted
@@ -558,8 +571,52 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
-    /// Add correction for this component using the interpolation rule registered for `C`.
-    fn add_linear_correction_fn<D>(self) -> Self
+    /// Add visual correction for this component using `C` as its own rollback
+    /// error type.
+    ///
+    /// This is the common case for components where `C: Diffable<C>`.
+    /// Correction smooths a rollback by storing the pre-rollback visual value
+    /// and then decaying the difference between that value and the corrected
+    /// state over several frames.
+    ///
+    /// This does not register an interpolation rule. The corrected component
+    /// `C` must have an applicable interpolation rule with an interpolation
+    /// function when correction runs. That rule may be a component rule for
+    /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    fn add_correction(self) -> Self
+    where
+        C: SyncComponent + Diffable<C> + Ease + Default;
+
+    /// Add visual correction for this component using linear interpolation on
+    /// rollback errors of type `D`.
+    ///
+    /// Correction smooths a rollback by storing the pre-rollback visual value
+    /// and then decaying the difference between that value and the corrected
+    /// state over several frames. `D` is the diff type returned by
+    /// [`Diffable::diff`] for `C`; the error is decayed from `D::default()` to
+    /// the current error using [`Ease`] linear interpolation.
+    ///
+    /// This does not register an interpolation rule. The corrected component
+    /// `C` must have an applicable interpolation rule with an interpolation
+    /// function when correction runs. That rule may be a component rule for
+    /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    fn add_linear_correction<D>(self) -> Self
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Ease + Debug + Clone + Default + Send + Sync + 'static;
+
+    /// Add visual correction for this component using `correction_fn` to decay
+    /// rollback errors of type `D`.
+    ///
+    /// This is the custom version of [`Self::add_linear_correction`]. It is
+    /// useful when the diff type `D` should not use [`Ease`] interpolation, or
+    /// when its decay should follow component-specific logic.
+    ///
+    /// This does not register an interpolation rule. The corrected component
+    /// `C` must have an applicable interpolation rule with an interpolation
+    /// function when correction runs. That rule may be a component rule for
+    /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Debug + Clone + Default + Send + Sync + 'static;
@@ -652,14 +709,35 @@ impl<'a, C> PredictedComponentRegistration<'a, C> {
         self.custom_correction()
     }
 
-    /// Add correction for this component where interpolation uses the
-    /// [`Ease`] trait.
-    pub fn add_linear_correction_fn<D>(mut self) -> Self
+    /// Add visual correction for this component using `C` as its own rollback
+    /// error type.
+    pub fn add_correction(mut self) -> Self
+    where
+        C: SyncComponent + Diffable<C> + Ease + Default,
+    {
+        self.registration = self.registration.add_correction();
+        self
+    }
+
+    /// Add visual correction for this component using linear interpolation on
+    /// rollback errors of type `D`.
+    pub fn add_linear_correction<D>(mut self) -> Self
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+    {
+        self.registration = self.registration.add_linear_correction::<D>();
+        self
+    }
+
+    /// Add visual correction for this component using `correction_fn` to decay
+    /// rollback errors of type `D`.
+    pub fn add_correction_fn<D>(mut self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Debug + Clone + Default + Send + Sync + 'static,
     {
-        self.registration = self.registration.add_linear_correction_fn::<D>();
+        self.registration = self.registration.add_correction_fn::<D>(correction_fn);
         self
     }
 
@@ -780,36 +858,6 @@ impl<'a, C> LocalRollbackComponentRegistration<'a, C> {
     {
         self.registration = self.registration.add_confirmed_write();
         self
-    }
-
-    /// Register a component interpolation function for local rollback visuals.
-    ///
-    /// This uses the shared interpolation rule registry, but registers the rule
-    /// without delayed interpolation history or delayed interpolation apply.
-    /// Entities with [`FrameInterpolate`](lightyear_core::prelude::FrameInterpolate)
-    /// can still reuse the function for frame interpolation and post-rollback
-    /// correction.
-    pub fn add_interpolation_with(self, interpolation_fn: LerpFn<C>) -> Self
-    where
-        C: SyncComponent,
-    {
-        self.registration
-            .app
-            .interpolate_with::<C>(InterpolationFns::no_history(interpolation_fn));
-        self
-    }
-
-    /// Register linear interpolation for local rollback visuals.
-    ///
-    /// Unlike the general component-registration method of the same name, this
-    /// does not register delayed interpolation history or delayed apply. It
-    /// only stores the interpolation function so frame interpolation and
-    /// post-rollback correction can reuse it.
-    pub fn add_linear_interpolation(self) -> Self
-    where
-        C: SyncComponent + Ease,
-    {
-        self.add_interpolation_with(lerp::<C>)
     }
 
     /// Return to the general component registration builder.
@@ -988,7 +1036,22 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self.custom_correction()
     }
 
-    fn add_linear_correction_fn<D>(self) -> Self
+    fn add_correction(self) -> Self
+    where
+        C: SyncComponent + Diffable<C> + Ease + Default,
+    {
+        self.add_linear_correction::<C>()
+    }
+
+    fn add_linear_correction<D>(self) -> Self
+    where
+        C: SyncComponent + Diffable<D>,
+        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+    {
+        self.add_correction_fn::<D>(lerp::<D>)
+    }
+
+    fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Debug + Clone + Default + Send + Sync + 'static,
@@ -1001,8 +1064,10 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !has_prediction_registry {
             return self;
         }
-        let correction_fn =
-            correction::ErasedPostRollbackCorrection::new::<C, D>(self.app.world_mut());
+        let correction_fn = correction::ErasedPostRollbackCorrection::new::<C, D>(
+            self.app.world_mut(),
+            correction_fn,
+        );
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()

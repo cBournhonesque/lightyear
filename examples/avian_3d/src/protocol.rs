@@ -89,14 +89,14 @@ impl Plugin for ProtocolPlugin {
             .replicate()
             .predict()
             .with_rollback_condition(position_should_rollback)
-            .add_linear_correction_fn()
+            .add_correction()
             .add_linear_interpolation();
 
         app.component::<Rotation>()
             .replicate()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
-            .add_linear_correction_fn()
+            .add_correction()
             .add_linear_interpolation();
     }
 }

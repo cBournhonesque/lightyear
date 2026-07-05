@@ -254,7 +254,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<CompCorr>()
             .replicate()
             .predict()
-            .add_linear_correction_fn()
+            .add_correction()
             .add_linear_interpolation();
         app.component::<CompMap>().replicate().predict();
         app.local_rollback::<CompNotNetworked>();
@@ -307,20 +307,20 @@ impl Plugin for ProtocolPlugin {
                 app.component::<Position>()
                     .replicate()
                     .predict()
-                    .add_linear_correction_fn()
+                    .add_correction()
                     .add_linear_interpolation();
 
                 app.component::<Rotation>()
                     .replicate()
                     .predict()
-                    .add_linear_correction_fn()
+                    .add_correction()
                     .add_linear_interpolation();
             }
             AvianReplicationMode::Transform => {
                 app.component::<Transform>()
                     .replicate()
                     .predict()
-                    .add_linear_correction_fn::<Isometry2d>()
+                    .add_linear_correction::<Isometry2d>()
                     .add_interpolation_with(TransformLinearInterpolation::lerp);
             }
         }

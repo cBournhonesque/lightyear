@@ -49,7 +49,7 @@ use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::registry::InterpolationRegistry;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::delta::Diffable;
-use lightyear_replication::registry::ComponentKind;
+use lightyear_replication::registry::{ComponentKind, LerpFn};
 use tracing::trace;
 
 /// The visual value of the component before the rollback started
@@ -97,6 +97,7 @@ pub(crate) struct ErasedPostRollbackCorrection {
     update_history: ErasedUpdatePostRollbackFrameHistoryFn,
     create_visual_correction: ErasedCreateVisualCorrectionFn,
     restore_history: ErasedRestorePostRollbackFrameHistoryFn,
+    correction_fn: unsafe fn(),
     live_component_id: ComponentId,
     previous_visual_component_id: ComponentId,
     prediction_history_component_id: ComponentId,
@@ -104,7 +105,7 @@ pub(crate) struct ErasedPostRollbackCorrection {
 }
 
 impl ErasedPostRollbackCorrection {
-    pub(crate) fn new<C, D>(world: &mut World) -> Self
+    pub(crate) fn new<C, D>(world: &mut World, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Debug + Send + Sync + 'static,
@@ -114,6 +115,7 @@ impl ErasedPostRollbackCorrection {
             update_history: update_frame_history_post_rollback_erased::<C, D>,
             create_visual_correction: create_visual_correction_from_live_erased::<C, D>,
             restore_history: restore_frame_history_post_rollback_erased::<C, D>,
+            correction_fn: unsafe { core::mem::transmute::<LerpFn<D>, unsafe fn()>(correction_fn) },
             live_component_id: world.register_component::<C>(),
             previous_visual_component_id: world.register_component::<PreviousVisual<C>>(),
             prediction_history_component_id: world.register_component::<PredictionHistory<C>>(),
@@ -152,6 +154,12 @@ impl ErasedPostRollbackCorrection {
 
     fn restore_history(&self, world: UnsafeWorldCell) {
         (self.restore_history)(world, self);
+    }
+
+    pub(crate) fn apply_correction<D: Default>(&self, error: D, ratio: f32) -> D {
+        let correction_fn =
+            unsafe { core::mem::transmute::<unsafe fn(), LerpFn<D>>(self.correction_fn) };
+        correction_fn(D::default(), error, ratio)
     }
 }
 
@@ -410,8 +418,8 @@ fn apply_frame_interpolation_for_visual_correction(
             {
                 continue;
             }
-            claimed_members.extend(rule.members().iter().copied());
             if let Some(apply) = interpolation_registry.cached_frame_apply_component(rule_id) {
+                claimed_members.extend(rule.members().iter().copied());
                 (apply.apply_frame_interpolation())(
                     world,
                     archetype,
@@ -422,6 +430,12 @@ fn apply_frame_interpolation_for_visual_correction(
                     deferred_apply,
                 );
             }
+        }
+        for member in active_correction_members {
+            assert!(
+                claimed_members.contains(&member),
+                "No interpolation function was found for correction. Register an interpolation rule with an interpolation function for this component or bundle before calling add_correction/add_linear_correction/add_correction_fn."
+            );
         }
     }
 }
@@ -577,25 +591,22 @@ fn table_component_slice<C: Component>(
 ///
 /// If it gets small enough, we remove the `VisualCorrection<C>` component.
 ///
-/// The component `C` must have an interpolation function registered in the
-/// [`InterpolationRegistry`]. Correction reuses that interpolation rule to
-/// decay the visual error instead of storing a prediction-specific correction
-/// function.
+/// `C` must have an interpolation rule with a frame-interpolation apply
+/// function, because correction uses that rule to sample the current visual
+/// value right after rollback. The resulting rollback error is stored as `D`
+/// and decayed by the correction function registered through
+/// `add_correction`, `add_linear_correction`, or `add_correction_fn`.
 pub(crate) fn add_visual_correction<
     C: SyncComponent + Diffable<D>,
     D: Default + Clone + Debug + Send + Sync + 'static,
 >(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
-    interpolation_registry: Res<InterpolationRegistry>,
     manager: Single<&PredictionManager>,
     mut query: Query<(Entity, &mut C, &mut VisualCorrection<D>)>,
     mut commands: Commands,
 ) {
     let r = manager.correction_policy.lerp_ratio(time.delta());
-    let interpolation = interpolation_registry.interpolation_for::<C>().expect(
-        "No interpolation function was found for correction. Register an interpolation rule for this component before calling add_linear_correction_fn.",
-    );
     query
         .iter_mut()
         .for_each(|(entity, mut component, mut visual_correction)| {
@@ -616,8 +627,9 @@ pub(crate) fn add_visual_correction<
                 commands.entity(entity).remove::<VisualCorrection<D>>();
                 return;
             }
-            let new_error_component = interpolation(C::base_value(), error_as_component, r);
-            let new_error = C::base_value().diff(&new_error_component);
+            let new_error = prediction
+                .apply_correction::<C, D>(previous_error.clone(), r)
+                .expect("No correction function was found. Call add_correction, add_linear_correction, or add_correction_fn for this component.");
             component.bypass_change_detection().apply_diff(&new_error);
             trace!(
                 target: "lightyear_debug::prediction",
@@ -691,7 +703,7 @@ mod tests {
     use bevy_state::app::StatesPlugin;
     use core::time::Duration;
     use lightyear_core::prelude::FrameInterpolationHistory;
-    use lightyear_interpolation::registry::AppInterpolationExt;
+    use lightyear_interpolation::registry::{AppInterpolationExt, InterpolationRegistry};
     use lightyear_interpolation::rules::InterpolationFns;
     use lightyear_replication::prelude::AppComponentExt;
 
@@ -766,15 +778,14 @@ mod tests {
             },
         ));
         app.init_resource::<PredictionRegistry>();
+        app.init_resource::<InterpolationRegistry>();
         app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
         app.insert_resource(LocalTimeline::default());
         app.world_mut()
             .resource_mut::<LocalTimeline>()
             .apply_delta(10);
 
-        app.component::<CorrectionA>()
-            .predict()
-            .add_linear_correction_fn::<CorrectionA>();
+        app.component::<CorrectionA>().predict().add_correction();
         app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|start, end, t| {
             CorrectionA(start.0 + (end.0 - start.0) * t)
         }));
@@ -798,6 +809,40 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "No interpolation function was found for correction")]
+    fn post_rollback_correction_requires_interpolation_rule() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+        app.init_resource::<InterpolationRegistry>();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.insert_resource(LocalTimeline::default());
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
+
+        app.component::<CorrectionA>().predict().add_correction();
+
+        let mut history = PredictionHistory::<CorrectionA>::default();
+        history.add_predicted(Tick(9), Some(CorrectionA(4.0)));
+
+        app.world_mut().spawn((
+            CorrectionA(10.0),
+            PreviousVisual(CorrectionA(12.0)),
+            history,
+        ));
+
+        app.world_mut()
+            .run_system_once(update_frame_interpolation_post_rollback)
+            .unwrap();
+    }
+
+    #[test]
     fn post_rollback_correction_uses_bundle_interpolation_rule() {
         let mut app = App::new();
         app.add_plugins((
@@ -816,12 +861,8 @@ mod tests {
             .resource_mut::<LocalTimeline>()
             .apply_delta(10);
 
-        app.component::<CorrectionA>()
-            .predict()
-            .add_linear_correction_fn::<CorrectionA>();
-        app.component::<CorrectionB>()
-            .predict()
-            .add_linear_correction_fn::<CorrectionB>();
+        app.component::<CorrectionA>().predict().add_correction();
+        app.component::<CorrectionB>().predict().add_correction();
 
         app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|_, _, _| {
             CorrectionA(1_000.0)

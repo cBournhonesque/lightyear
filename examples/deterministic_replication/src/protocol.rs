@@ -113,20 +113,24 @@ impl Plugin for ProtocolPlugin {
         // PredictionHistory as confirmed state (instead of overwriting the
         // component), so input-triggered rollbacks snap to the correct value.
         app.component::<Position>().replicate_once();
+        app.interpolate_with::<Position>(InterpolationFns::no_history(|start, end, t| {
+            lightyear_avian2d::types::position::lerp(&start, &end, t)
+        }));
         app.local_rollback::<Position>()
             .add_confirmed_write()
-            .add_linear_interpolation()
             .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::position::hash)
-            .add_linear_correction_fn();
+            .add_correction();
 
         app.component::<Rotation>().replicate_once();
+        app.interpolate_with::<Rotation>(InterpolationFns::no_history(|start, end, t| {
+            lightyear_avian2d::types::rotation::lerp(&start, &end, t)
+        }));
         app.local_rollback::<Rotation>()
             .add_confirmed_write()
-            .add_linear_interpolation()
             .into_component_registration()
             .add_custom_hash(lightyear_avian2d::types::rotation::hash)
-            .add_linear_correction_fn();
+            .add_correction();
 
         app.component::<LinearVelocity>().replicate_once();
         app.local_rollback::<LinearVelocity>().add_confirmed_write();
