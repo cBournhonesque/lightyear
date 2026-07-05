@@ -26,9 +26,7 @@ udp = ["lightyear/udp"]
 [dependencies]
 cfg-if.workspace = true
 clap.workspace = true
-lightyear = { workspace = true, features = [
-  "replication",
-] }
+lightyear = { workspace = true, features = ["replication"] }
 bevy = { workspace = true, features = [
   "bevy_render",
   "bevy_core_pipeline",

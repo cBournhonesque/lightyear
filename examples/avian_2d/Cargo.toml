@@ -7,10 +7,7 @@ publish = false
 
 [features]
 default = ["client", "gui", "server", "netcode", "webtransport"]
-client = [
-  "lightyear/client",
-  "lightyear_examples_common/client",
-]
+client = ["lightyear/client", "lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui2d"]
 server = [
   "lightyear/client",
