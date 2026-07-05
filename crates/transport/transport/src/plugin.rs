@@ -24,6 +24,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::Disconnected;
 use lightyear_core::prelude::LocalTimeline;
 use lightyear_core::tick::Tick;
+use lightyear_link::prelude::ResolvedPacket;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
@@ -54,19 +55,37 @@ pub struct PacketReceived {
 }
 
 /// Event triggered on a [`Transport`] entity when a sent packet is acknowledged.
-#[derive(EntityEvent)]
+#[derive(EntityEvent, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PacketAcked {
     pub entity: Entity,
     pub packet_id: u32,
     pub rtt_sample: Duration,
 }
 
+impl From<PacketAcked> for ResolvedPacket {
+    fn from(event: PacketAcked) -> Self {
+        ResolvedPacket {
+            packet_id: event.packet_id,
+            rtt: Some(event.rtt_sample),
+        }
+    }
+}
+
 /// Event triggered on a [`Transport`] entity when a sent packet is presumed lost
 /// (its acknowledgement did not arrive before the nack timeout).
-#[derive(EntityEvent)]
+#[derive(EntityEvent, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct PacketLost {
     pub entity: Entity,
     pub packet_id: u32,
+}
+
+impl From<PacketLost> for ResolvedPacket {
+    fn from(event: PacketLost) -> Self {
+        ResolvedPacket {
+            packet_id: event.packet_id,
+            rtt: None,
+        }
+    }
 }
 
 pub struct TransportPlugin;

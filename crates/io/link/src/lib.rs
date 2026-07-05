@@ -40,7 +40,7 @@ use core::time::Duration;
 use lightyear_core::time::Instant;
 
 pub mod prelude {
-    pub use crate::conditioner::{LinkConditionerConfig, LinkConditionerState};
+    pub use crate::conditioner::{LinkConditionerConfig, LinkConditionerState, ResolvedPacket};
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
         Link, LinkStart, LinkStats, LinkSystems, Linked, Linking, RecvLinkConditioner, Unlink,

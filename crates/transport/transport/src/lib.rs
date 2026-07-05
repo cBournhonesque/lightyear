@@ -10,6 +10,7 @@ extern crate alloc;
 extern crate std;
 
 pub mod channel;
+pub mod rtt_overhead;
 
 pub mod error;
 
@@ -27,4 +28,7 @@ pub mod prelude {
     pub use crate::channel::registry::ChannelRegistry;
     pub use crate::packet::compression::{CompressionAlgorithm, CompressionConfig};
     pub use crate::packet::priority_manager::{PriorityConfig, PriorityManager};
+    pub use crate::rtt_overhead::{
+        EstimateRttOverhead, EstimatorEndpoint, RttOverheadEstimated, RttOverheadEstimatorPlugin,
+    };
 }
