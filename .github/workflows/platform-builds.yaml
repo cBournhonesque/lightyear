@@ -74,3 +74,13 @@ jobs:
           --target wasm32-unknown-unknown
           --no-default-features
           --features "std client replication prediction interpolation netcode websocket webtransport"
+
+      - name: Check web examples for WASM
+        run: |
+          for package in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.metadata.bevy_cli.web != null) | .name'); do
+            echo "Checking ${package}"
+            cargo check -p "${package}" \
+              --target wasm32-unknown-unknown \
+              --no-default-features \
+              --features client,netcode,webtransport
+          done

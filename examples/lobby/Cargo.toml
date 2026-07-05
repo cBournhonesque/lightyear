@@ -12,7 +12,7 @@ license = "MIT OR Apache-2.0"
 publish = false
 
 [features]
-default = ["client", "gui", "server", "netcode", "udp"]
+default = ["client", "gui", "server", "netcode", "webtransport"]
 client = [
   "lightyear/client",
   "lightyear_examples_common/client",
@@ -23,6 +23,7 @@ client = [
 gui = ["lightyear_examples_common/gui2d"]
 server = ["lightyear/server", "lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
+webtransport = ["lightyear_examples_common/webtransport"]
 udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
 [dependencies]

@@ -8,21 +8,37 @@
 #![allow(dead_code)]
 
 mod automation;
+#[cfg(feature = "client")]
 mod client;
+#[cfg(feature = "server")]
 mod server;
 mod shared;
 
-use crate::automation::{ClientStartupConfig, ServerStartupConfig};
+#[cfg(feature = "client")]
+use crate::automation::ClientStartupConfig;
+#[cfg(feature = "server")]
+use crate::automation::ServerStartupConfig;
 use crate::shared::{SharedPlugin, FIXED_TIMESTEP_HZ};
 use bevy::prelude::*;
 use clap::{Parser, Subcommand, ValueEnum};
 use core::time::Duration;
+#[cfg(feature = "server")]
 use lightyear::connection::server::Start;
+#[cfg(feature = "client")]
 use lightyear::prelude::client::ClientPlugins;
+#[cfg(feature = "server")]
 use lightyear::prelude::server::ServerPlugins;
-use lightyear::prelude::server::{
-    NetcodeConfig as ServerNetcodeConfig, NetcodeServer, ServerUdpIo,
-};
+#[cfg(all(feature = "server", not(feature = "webtransport"), feature = "udp"))]
+use lightyear::prelude::server::ServerUdpIo;
+#[cfg(all(
+    feature = "server",
+    feature = "webtransport",
+    not(target_family = "wasm")
+))]
+use lightyear::prelude::server::WebTransportServerIo;
+#[cfg(feature = "server")]
+use lightyear::prelude::server::{NetcodeConfig as ServerNetcodeConfig, NetcodeServer};
+#[cfg(feature = "server")]
 use lightyear::prelude::*;
 
 /// CLI options to create an [`App`]
@@ -35,8 +51,11 @@ pub struct Cli {
 
 #[derive(Subcommand, Debug)]
 pub enum Mode {
+    #[cfg(feature = "client")]
     Client,
+    #[cfg(feature = "server")]
     Server,
+    #[cfg(all(feature = "client", feature = "server"))]
     HostClient {
         #[arg(short, long, default_value_t = 0)]
         client_id: u64,
@@ -44,10 +63,11 @@ pub enum Mode {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    let cli = cli();
     let mut app = automation::build_base_app();
 
     match cli.mode {
+        #[cfg(feature = "client")]
         Mode::Client => {
             // add lightyear plugins
             app.add_plugins(ClientPlugins {
@@ -62,6 +82,7 @@ fn main() {
             // add client-specific plugins
             app.add_plugins(client::ExampleClientPlugin);
         }
+        #[cfg(feature = "server")]
         Mode::Server => {
             app.add_plugins(ServerPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
@@ -71,6 +92,7 @@ fn main() {
             app.insert_resource(ServerStartupConfig::default());
             app.add_plugins(server::ExampleServerPlugin);
         }
+        #[cfg(all(feature = "client", feature = "server"))]
         Mode::HostClient { client_id } => {
             app.add_plugins(ClientPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
@@ -86,6 +108,11 @@ fn main() {
                 .spawn((
                     NetcodeServer::new(ServerNetcodeConfig::default()),
                     LocalAddr(shared::SERVER_ADDR),
+                    #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+                    WebTransportServerIo {
+                        certificate: shared::webtransport_certificate(),
+                    },
+                    #[cfg(all(not(feature = "webtransport"), feature = "udp"))]
                     ServerUdpIo::default(),
                 ))
                 .id();
@@ -98,4 +125,14 @@ fn main() {
         }
     }
     app.run();
+}
+
+fn cli() -> Cli {
+    cfg_if::cfg_if! {
+        if #[cfg(target_family = "wasm")] {
+            Cli { mode: Mode::Client }
+        } else {
+            Cli::parse()
+        }
+    }
 }

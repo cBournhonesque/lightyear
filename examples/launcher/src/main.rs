@@ -247,10 +247,7 @@ fn ui_system(mut contexts: EguiContexts, mut config: ResMut<LauncherConfig>) -> 
                             }
                             // Basic WebTransport selection - assumes native variant
                             if ui.selectable_label(matches!(config.client_transport, Some(ClientTransports::WebTransport)), "WebTransport").clicked() {
-                                config.client_transport = Some(ClientTransports::WebTransport{
-                                    #[cfg(target_family = "wasm")]
-                                    certificate_digest: "".to_string()
-                                });
+                                config.client_transport = Some(ClientTransports::WebTransport);
                             }
                              if ui.selectable_label(config.client_transport.is_none(), "None").clicked() {
                                 config.client_transport = None;

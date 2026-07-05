@@ -31,7 +31,9 @@ use lightyear::prelude::ComponentRegistry;
 #[cfg(feature = "client")]
 use lightyear_examples_common::client::{ClientTransports, ExampleClient};
 #[cfg(feature = "server")]
-use lightyear_examples_common::server::{ExampleServer, ServerTransports};
+use lightyear_examples_common::server::{
+    ExampleServer, ServerTransports, WebTransportCertificateSettings,
+};
 
 #[cfg(feature = "client")]
 mod client;
@@ -60,7 +62,7 @@ fn main() {
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
                     conditioner: None,
-                    transport: ClientTransports::Udp,
+                    transport: ClientTransports::WebTransport,
                     shared: SHARED_SETTINGS,
                 })
                 .id();
@@ -82,8 +84,9 @@ fn main() {
                 .world_mut()
                 .spawn(ExampleServer {
                     conditioner: None,
-                    transport: ServerTransports::Udp {
+                    transport: ServerTransports::WebTransport {
                         local_port: SERVER_PORT,
+                        certificate: WebTransportCertificateSettings::default(),
                     },
                     shared: SHARED_SETTINGS,
                 })
@@ -103,8 +106,9 @@ fn main() {
                 .world_mut()
                 .spawn(ExampleServer {
                     conditioner: None,
-                    transport: ServerTransports::Udp {
+                    transport: ServerTransports::WebTransport {
                         local_port: SERVER_PORT,
+                        certificate: WebTransportCertificateSettings::default(),
                     },
                     shared: SHARED_SETTINGS,
                 })
@@ -117,7 +121,7 @@ fn main() {
                     client_port: CLIENT_PORT,
                     server_addr: SERVER_ADDR,
                     conditioner: None,
-                    transport: ClientTransports::Udp,
+                    transport: ClientTransports::WebTransport,
                     shared: SHARED_SETTINGS,
                 })
                 .id();

@@ -12,6 +12,16 @@ pub const SERVER_REPLICATION_INTERVAL: Duration = Duration::from_millis(100);
 
 pub const SERVER_ADDR: SocketAddr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 5000);
 
+#[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
+pub(crate) fn webtransport_certificate() -> Identity {
+    Identity::self_signed(vec![
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+        "::1".to_string(),
+    ])
+    .unwrap()
+}
+
 #[derive(Clone)]
 pub struct SharedPlugin;
 

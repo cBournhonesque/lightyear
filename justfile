@@ -112,18 +112,18 @@ build_examples *args:
     fi
 
     case "$feature_mode:$headless" in
-        both:true) cargo_features="client,server,netcode,udp" ;;
-        client:true) cargo_features="client,netcode,udp" ;;
-        server:true) cargo_features="server,netcode,udp" ;;
-        both:false) cargo_features="client,gui,server,netcode,udp" ;;
-        client:false) cargo_features="client,gui,netcode,udp" ;;
-        server:false) cargo_features="server,gui,netcode,udp" ;;
+        both:true) cargo_features="client,server,netcode,webtransport" ;;
+        client:true) cargo_features="client,netcode,webtransport" ;;
+        server:true) cargo_features="server,netcode,webtransport" ;;
+        both:false) cargo_features="client,gui,server,netcode,webtransport" ;;
+        client:false) cargo_features="client,gui,netcode,webtransport" ;;
+        server:false) cargo_features="server,gui,netcode,webtransport" ;;
     esac
 
     if [ "$headless" = true ]; then
-        projectiles_features="client,server,netcode,udp"
+        projectiles_features="client,server,netcode,webtransport"
     else
-        projectiles_features="client,gui,server,netcode,udp"
+        projectiles_features="client,gui,server,netcode,webtransport"
     fi
 
     echo "Building examples: release=$release headless=$headless features=$feature_mode cargo_features=$cargo_features"

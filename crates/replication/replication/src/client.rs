@@ -20,7 +20,9 @@ use crate::checkpoint::ReplicationCheckpointMap;
 use crate::prelude::Replicated;
 use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
-use tracing::{debug, error};
+use tracing::debug;
+#[cfg(any(feature = "prediction", feature = "interpolation"))]
+use tracing::error;
 
 /// Adds the replicon client-side backend bridge for lightyear.
 ///

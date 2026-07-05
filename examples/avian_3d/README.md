@@ -27,7 +27,7 @@ https://github.com/user-attachments/assets/4e0eb373-2f46-4c48-8157-46e1e5085097
 - Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
-For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,udp,netcode`.
+For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
 
 ### Testing in wasm with webtransport
 
