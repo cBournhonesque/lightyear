@@ -33,6 +33,7 @@ lightyear_interpolation.workspace = true
 bevy_replicon.workspace = true
 
 # utils
+indexmap.workspace = true
 metrics = { workspace = true, optional = true }
 seahash.workspace = true
 parking_lot.workspace = true
