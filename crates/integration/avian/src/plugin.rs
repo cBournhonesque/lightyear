@@ -383,6 +383,8 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    // Add a low-priority interpolation function for Transform
+    // (that could be used for Correction or FrameInterpolation)
     fn add_transform_frame_interpolation_rule(app: &mut App) {
         app.interpolate_with_priority::<Transform>(
             0,

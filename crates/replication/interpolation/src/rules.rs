@@ -1,7 +1,8 @@
 //! Shared interpolation rule types and type-erased callbacks.
 //!
-//! Bundle-specific rule implementations live in [`bundle`]. Frame-interpolation
-//! callbacks that reuse these rules live in [`frame_interpolate`].
+//! Bundle-specific rule implementations live in [`crate::rules::bundle`].
+//! Frame-interpolation callbacks that reuse these rules live in
+//! [`crate::rules::frame_interpolate`].
 
 pub mod bundle;
 pub mod frame_interpolate;
@@ -201,9 +202,10 @@ impl<C> InterpolationFns<C> {
     /// Registers an interpolation function without delayed interpolation history.
     ///
     /// This is useful when a component is not delayed-interpolated through
-    /// [`Interpolated`], but entities with [`FrameInterpolate`] should still
-    /// reuse the same interpolation function for visual smoothing and
-    /// correction. Unlike [`Self::disabled`], this still participates in
+    /// [`Interpolated`](lightyear_core::prelude::Interpolated), but entities
+    /// with [`FrameInterpolate`](lightyear_core::prelude::FrameInterpolate)
+    /// should still reuse the same interpolation function for visual smoothing
+    /// and correction. Unlike [`Self::disabled`], this still participates in
     /// frame interpolation and correction because it stores an interpolation
     /// function.
     ///

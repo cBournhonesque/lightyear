@@ -52,8 +52,12 @@ pub struct PredictionMetadata {
     /// Id of the [`ConfirmedHistory<C>`] component
     pub confirmed_history_id: ComponentId,
     pub(crate) correction: bool,
-    /// Custom interpolation function used to interpolate the rollback error
-    pub(crate) correction_fn: Option<unsafe fn()>,
+    /// Type-erased handlers used by the generic post-rollback correction system.
+    ///
+    /// This is only present for components that use Lightyear's built-in
+    /// correction pipeline. Components that call `enable_correction` can
+    /// still provide a custom correction pipeline elsewhere.
+    pub(crate) post_rollback_correction: Option<crate::correction::ErasedPostRollbackCorrection>,
     /// Function used to compare the confirmed component with the predicted component's history
     /// to determine if a rollback is needed. Returns true if we should do a rollback.
     /// Will default to a PartialEq::ne implementation, but can be overridden.
@@ -94,7 +98,7 @@ impl PredictionMetadata {
             prediction_history_id,
             confirmed_history_id,
             correction: false,
-            correction_fn: None,
+            post_rollback_correction: None,
             should_rollback: unsafe {
                 core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
                     should_rollback,
@@ -117,8 +121,6 @@ pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 #[derive(Resource, Default, Debug)]
 pub struct PredictionRegistry {
     pub prediction_map: HashMap<ComponentKind, PredictionMetadata>,
-    pub(crate) post_rollback_correction_fns:
-        HashMap<ComponentKind, crate::correction::ErasedPostRollbackCorrection>,
 }
 
 impl PredictionRegistry {
@@ -150,22 +152,6 @@ impl PredictionRegistry {
         };
     }
 
-    #[doc(hidden)]
-    pub fn apply_correction<C: SyncComponent, D: Default>(&self, error: D, r: f32) -> Option<D> {
-        self.prediction_map
-            .get(&ComponentKind::of::<C>())
-            .expect(
-                "The component has not been registered for prediction. Did you call `.predict()`?",
-            )
-            .correction_fn
-            .map(|correction_fn| {
-                // SAFETY: the correction_fn was registered as a LerpFn<D>
-                let lerp_fn =
-                    unsafe { core::mem::transmute::<unsafe fn(), LerpFn<D>>(correction_fn) };
-                lerp_fn(D::default(), error, r)
-            })
-    }
-
     fn enable_correction<C: SyncComponent>(&mut self) {
         self.prediction_map
             .get_mut(&ComponentKind::of::<C>())
@@ -175,7 +161,10 @@ impl PredictionRegistry {
             .correction = true;
     }
 
-    fn set_correction_fn<C: SyncComponent, D>(&mut self, correction_fn: LerpFn<D>) {
+    fn set_post_rollback_correction_fn<C: SyncComponent>(
+        &mut self,
+        correction: crate::correction::ErasedPostRollbackCorrection,
+    ) {
         let metadata = self
             .prediction_map
             .get_mut(&ComponentKind::of::<C>())
@@ -183,21 +172,15 @@ impl PredictionRegistry {
                 "The component has not been registered for prediction. Did you call `.predict()`?",
             );
         metadata.correction = true;
-        metadata.correction_fn = Some(unsafe { core::mem::transmute(correction_fn) });
-    }
-
-    fn set_post_rollback_correction_fn(
-        &mut self,
-        correction: crate::correction::ErasedPostRollbackCorrection,
-    ) {
-        self.post_rollback_correction_fns
-            .insert(correction.kind(), correction);
+        metadata.post_rollback_correction = Some(correction);
     }
 
     pub(crate) fn post_rollback_corrections(
         &self,
     ) -> impl Iterator<Item = crate::correction::ErasedPostRollbackCorrection> + '_ {
-        self.post_rollback_correction_fns.values().copied()
+        self.prediction_map
+            .values()
+            .filter_map(|metadata| metadata.post_rollback_correction)
     }
 
     /// Returns true if the component is predicted
@@ -567,22 +550,11 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
-    /// Add correction for this component where the interpolation will done using the lerp function
-    /// provided by the [`Ease`] trait.
+    /// Add correction for this component using the interpolation rule registered for `C`.
     fn add_linear_correction_fn<D>(self) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static;
-
-    /// Add correction for this component where the interpolation will done using the lerp function
-    /// provided by the [`Ease`] trait.
-    ///
-    /// The generic type `D` represents the type of the delta that will be applied to `C` to smooth the
-    /// rollback error.
-    fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
-    where
-        C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static;
+        D: Debug + Clone + Default + Send + Sync + 'static;
 
     /// Add a custom comparison function to determine if we should rollback by comparing the
     /// confirmed component with the predicted component's history.
@@ -665,19 +637,9 @@ impl<'a, C> PredictedComponentRegistration<'a, C> {
     pub fn add_linear_correction_fn<D>(mut self) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+        D: Debug + Clone + Default + Send + Sync + 'static,
     {
         self.registration = self.registration.add_linear_correction_fn::<D>();
-        self
-    }
-
-    /// Add correction for this component using a custom interpolation function.
-    pub fn add_correction_fn<D>(mut self, correction_fn: LerpFn<D>) -> Self
-    where
-        C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
-    {
-        self.registration = self.registration.add_correction_fn::<D>(correction_fn);
         self
     }
 
@@ -1001,15 +963,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
     fn add_linear_correction_fn<D>(self) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
-    {
-        self.add_correction_fn(lerp::<D>)
-    }
-
-    fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
-    where
-        C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+        D: Debug + Clone + Default + Send + Sync + 'static,
     {
         let has_prediction_registry = self
             .app
@@ -1024,11 +978,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
-            .set_correction_fn::<C, D>(correction_fn);
-        self.app
-            .world_mut()
-            .resource_mut::<PredictionRegistry>()
-            .set_post_rollback_correction_fn(post_rollback_correction);
+            .set_post_rollback_correction_fn::<C>(post_rollback_correction);
         crate::correction::add_correction_systems::<C, D>(self.app);
         self
     }

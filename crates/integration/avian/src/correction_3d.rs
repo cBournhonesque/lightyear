@@ -8,8 +8,7 @@
 use avian3d::math::{AdjustPrecision, AsF32};
 use avian3d::prelude::*;
 use bevy_ecs::prelude::*;
-use bevy_math::curve::{EaseFunction, EasingCurve};
-use bevy_math::{Curve, Isometry3d, Vec3};
+use bevy_math::{Isometry3d, Vec3};
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_transform::prelude::Transform;
 use lightyear_core::prelude::LocalTimeline;
@@ -132,15 +131,20 @@ pub(crate) fn update_frame_interpolation_post_rollback(
 ///
 /// If it gets small enough, we remove the `VisualCorrection<C>` component.
 ///
-/// The delta must have a correction function registered in the [`PredictionRegistry`].
+/// Correction reuses the `Transform` interpolation rule registered in the
+/// [`InterpolationRegistry`].
 pub(crate) fn add_visual_correction(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
     manager: Single<&PredictionManager>,
     mut query: Query<(Entity, &mut Transform, &mut VisualCorrection<Isometry3d>)>,
     mut commands: Commands,
 ) {
     let r = manager.correction_policy.lerp_ratio(time.delta());
+    let interpolation = interpolation_registry.interpolation_for::<Transform>().expect(
+        "No Transform interpolation function was found for correction. Register an interpolation rule for Transform before enabling Transform correction.",
+    );
     query
         .iter_mut()
         .for_each(|(entity, mut component, mut visual_correction)| {
@@ -161,9 +165,10 @@ pub(crate) fn add_visual_correction(
                 return;
             }
             let previous_error = visual_correction.error;
-            let new_error =
-                EasingCurve::new(Isometry3d::default(), previous_error, EaseFunction::Linear)
-                    .sample_unchecked(r);
+            let mut error_as_transform = Transform::default();
+            error_as_transform.apply_diff(&previous_error);
+            let new_error_transform = interpolation(Transform::default(), error_as_transform, r);
+            let new_error = Transform::default().diff(&new_error_transform);
             component.bypass_change_detection().apply_diff(&new_error);
             trace!(
                 ?entity,

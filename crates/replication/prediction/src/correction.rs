@@ -549,24 +549,32 @@ fn table_component_slice<C: Component>(
 ///
 /// If it gets small enough, we remove the `VisualCorrection<C>` component.
 ///
-/// The delta `D` must have a correction function registered in the [`PredictionRegistry`].
+/// The component `C` must have an interpolation function registered in the
+/// [`InterpolationRegistry`]. Correction reuses that interpolation rule to
+/// decay the visual error instead of storing a prediction-specific correction
+/// function.
 pub(crate) fn add_visual_correction<
     C: SyncComponent + Diffable<D>,
     D: Default + Clone + Debug + Send + Sync + 'static,
 >(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
     manager: Single<&PredictionManager>,
     mut query: Query<(Entity, &mut C, &mut VisualCorrection<D>)>,
     mut commands: Commands,
 ) {
     let r = manager.correction_policy.lerp_ratio(time.delta());
+    let interpolation = interpolation_registry.interpolation_for::<C>().expect(
+        "No interpolation function was found for correction. Register an interpolation rule for this component before calling add_linear_correction_fn.",
+    );
     query
         .iter_mut()
         .for_each(|(entity, mut component, mut visual_correction)| {
-            let mut error_as_transform = C::base_value();
-            error_as_transform.apply_diff(&visual_correction.error);
-            if !prediction.should_rollback(&C::base_value(), &error_as_transform) {
+            let previous_error = visual_correction.error.clone();
+            let mut error_as_component = C::base_value();
+            error_as_component.apply_diff(&previous_error);
+            if !prediction.should_rollback(&C::base_value(), &error_as_component) {
                 trace!(
                     target: "lightyear_debug::prediction",
                     kind = "visual_correction_removed",
@@ -580,10 +588,8 @@ pub(crate) fn add_visual_correction<
                 commands.entity(entity).remove::<VisualCorrection<D>>();
                 return;
             }
-            let previous_error = &visual_correction.error;
-            let new_error = prediction
-                .apply_correction::<C, D>(previous_error.clone(), r)
-                .expect("No correction fn was found");
+            let new_error_component = interpolation(C::base_value(), error_as_component, r);
+            let new_error = C::base_value().diff(&new_error_component);
             component.bypass_change_detection().apply_diff(&new_error);
             trace!(
                 target: "lightyear_debug::prediction",

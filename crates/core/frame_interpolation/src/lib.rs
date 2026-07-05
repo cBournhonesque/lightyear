@@ -246,7 +246,7 @@ pub mod prelude {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bevy_app::{App, PostUpdate};
+    use bevy_app::{App, FixedPostUpdate, PostUpdate, RunFixedMainLoop};
     use core::time::Duration;
     use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_interpolation::registry::AppInterpolationExt;
@@ -257,6 +257,10 @@ mod tests {
 
     #[derive(Component, Clone, Debug, PartialEq)]
     struct FrameB(f32);
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    #[component(storage = "SparseSet")]
+    struct SparseFrame(f32);
 
     fn bundle_lerp(start: (FrameA, FrameB), end: (FrameA, FrameB), t: f32) -> (FrameA, FrameB) {
         (
@@ -332,5 +336,52 @@ mod tests {
         app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(12.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_supports_sparse_set_live_component() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<SparseFrame>(InterpolationFns::no_history(|start, end, t| {
+            SparseFrame(start.0 + (end.0 - start.0) * t)
+        }));
+
+        let entity = app
+            .world_mut()
+            .spawn((FrameInterpolate, SparseFrame(1.0)))
+            .id();
+
+        app.world_mut().run_schedule(FixedPostUpdate);
+        assert_eq!(
+            app.world()
+                .get::<FrameInterpolationHistory<SparseFrame>>(entity)
+                .and_then(|history| history.current_value.as_ref()),
+            Some(&SparseFrame(1.0))
+        );
+
+        app.world_mut().entity_mut(entity).insert(SparseFrame(3.0));
+        app.world_mut().run_schedule(FixedPostUpdate);
+        let history = app
+            .world()
+            .get::<FrameInterpolationHistory<SparseFrame>>(entity)
+            .unwrap();
+        assert_eq!(history.previous_value, Some(SparseFrame(1.0)));
+        assert_eq!(history.current_value, Some(SparseFrame(3.0)));
+
+        app.world_mut().run_schedule(PostUpdate);
+        assert_eq!(
+            app.world().get::<SparseFrame>(entity),
+            Some(&SparseFrame(2.0))
+        );
+
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        assert_eq!(
+            app.world().get::<SparseFrame>(entity),
+            Some(&SparseFrame(3.0))
+        );
     }
 }

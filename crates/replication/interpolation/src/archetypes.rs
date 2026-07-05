@@ -252,6 +252,15 @@ impl CachedInterpolatedArchetype {
     fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
         self.apply_rules.clear();
 
+        // `selected_rules` already contains the matching rule for each rule
+        // kind on this archetype. Those kinds can overlap: for an archetype
+        // with components `A` and `B`, we can have selected rules for `A`, `B`,
+        // and `(A, B)`.
+        //
+        // This pass walks the selected rules by priority and lets each rule
+        // claim all of its member components. Once a component is claimed, lower
+        // priority rules that also touch it are skipped, so every component is
+        // covered by at most one selected apply rule.
         let mut candidates = self
             .selected_rules
             .iter()

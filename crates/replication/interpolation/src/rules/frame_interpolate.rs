@@ -5,17 +5,18 @@
 
 use crate::SyncComponent;
 use crate::registry::InterpolationRegistry;
-use crate::rules::{
-    ComponentTableColumn, InterpolationRuleId, component_table_column, table_for_archetype,
-};
+use crate::rules::{InterpolationRuleId, table_for_archetype};
 use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, StorageType};
+use bevy_ecs::storage::Table;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
+use core::cell::UnsafeCell;
 use lightyear_core::prelude::FrameInterpolationHistory;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::ComponentKind;
+use lightyear_utils::ecs::{get_component_unchecked, get_component_unchecked_mut};
 use tracing::trace;
 
 #[derive(Debug, Clone, Copy)]
@@ -183,8 +184,22 @@ impl FrameInterpolationFns {
     }
 }
 
-#[doc(hidden)]
-pub fn update_frame_history_archetype_erased<C: SyncComponent>(
+fn table_component_slice<C: 'static>(
+    table: &Table,
+    component_id: ComponentId,
+    storage: Option<StorageType>,
+) -> Option<&[UnsafeCell<C>]> {
+    match storage {
+        Some(StorageType::Table) => unsafe { table.get_data_slice_for::<C>(component_id) },
+        _ => None,
+    }
+}
+
+/// Records each entity's live `C` into `FrameInterpolationHistory<C>`.
+///
+/// This runs after fixed updates so `current_value` is the latest fixed-tick
+/// value and `previous_value` is the value from the prior fixed tick.
+pub(crate) fn update_frame_history_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
     component: &CachedFrameInterpolationComponent,
@@ -193,17 +208,13 @@ pub fn update_frame_history_archetype_erased<C: SyncComponent>(
     if !component.live_component_present() {
         return;
     }
-    let Some(StorageType::Table) = archetype.get_storage_type(component.live_component_id()) else {
-        return;
-    };
     let Some(table) = table_for_archetype(world, archetype) else {
         return;
     };
-    let Some(live_components) =
-        (unsafe { table.get_data_slice_for::<C>(component.live_component_id()) })
-    else {
-        return;
-    };
+    let live_component_id = component.live_component_id();
+    let live_component_storage = archetype.get_storage_type(live_component_id);
+    let live_components =
+        table_component_slice::<C>(table, live_component_id, live_component_storage);
 
     let histories = if component.history_component_present() {
         let Some(StorageType::Table) = component.history_storage() else {
@@ -224,13 +235,36 @@ pub fn update_frame_history_archetype_erased<C: SyncComponent>(
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let row = entity.table_row().index();
-        let component_value = unsafe { &*live_components.get_unchecked(row).get() };
+        let component_value = match live_component_storage {
+            Some(StorageType::Table) => {
+                let Some(live_components) = live_components else {
+                    continue;
+                };
+                unsafe { &*live_components.get_unchecked(row).get() }.clone()
+            }
+            Some(StorageType::SparseSet) => {
+                // SAFETY: this cached archetype contains `component_id`, and
+                // the system param declares read access to all frame components.
+                unsafe {
+                    get_component_unchecked(
+                        world,
+                        entity,
+                        archetype.table_id(),
+                        StorageType::SparseSet,
+                        live_component_id,
+                    )
+                    .deref::<C>()
+                    .clone()
+                }
+            }
+            None => continue,
+        };
         if let Some(histories) = histories {
             let history = unsafe { &mut *histories.get_unchecked(row).get() };
             if let Some(current_value) = history.current_value.take() {
                 history.previous_value = Some(current_value);
             }
-            history.current_value = Some(component_value.clone());
+            history.current_value = Some(component_value);
             trace!(
                 target: "lightyear_debug::frame_interpolation",
                 kind = "frame_interpolation_update_history",
@@ -244,15 +278,19 @@ pub fn update_frame_history_archetype_erased<C: SyncComponent>(
                 entity_id,
                 FrameInterpolationHistory::<C> {
                     previous_value: None,
-                    current_value: Some(component_value.clone()),
+                    current_value: Some(component_value),
                 },
             );
         }
     }
 }
 
-#[doc(hidden)]
-pub fn restore_frame_history_archetype_erased<C: SyncComponent>(
+/// Restores live `C` from `FrameInterpolationHistory<C>::current_value`.
+///
+/// Frame interpolation temporarily writes visual values during `PostUpdate`.
+/// Before the next fixed loop starts, this restores the authoritative fixed
+/// value so simulation systems do not read interpolated visuals.
+pub(crate) fn restore_frame_history_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
     component: &CachedFrameInterpolationComponent,
@@ -263,9 +301,6 @@ pub fn restore_frame_history_archetype_erased<C: SyncComponent>(
     let Some(StorageType::Table) = component.history_storage() else {
         return;
     };
-    let Some(StorageType::Table) = archetype.get_storage_type(component.live_component_id()) else {
-        return;
-    };
     let Some(table) = table_for_archetype(world, archetype) else {
         return;
     };
@@ -274,11 +309,10 @@ pub fn restore_frame_history_archetype_erased<C: SyncComponent>(
     }) else {
         return;
     };
-    let Some(live_components) =
-        (unsafe { table.get_data_slice_for::<C>(component.live_component_id()) })
-    else {
-        return;
-    };
+    let live_component_id = component.live_component_id();
+    let live_component_storage = archetype.get_storage_type(live_component_id);
+    let live_components =
+        table_component_slice::<C>(table, live_component_id, live_component_storage);
 
     for entity in archetype.entities() {
         let row = entity.table_row().index();
@@ -286,7 +320,31 @@ pub fn restore_frame_history_archetype_erased<C: SyncComponent>(
         let Some(current_value) = &history.current_value else {
             continue;
         };
-        let component = unsafe { &mut *live_components.get_unchecked(row).get() };
+        match live_component_storage {
+            Some(StorageType::Table) => {
+                let Some(live_components) = live_components else {
+                    continue;
+                };
+                let component = unsafe { &mut *live_components.get_unchecked(row).get() };
+                *component = current_value.clone();
+            }
+            Some(StorageType::SparseSet) => {
+                // SAFETY: this cached archetype contains `component_id`, and
+                // the system param declares write access to all frame components.
+                let component = unsafe {
+                    get_component_unchecked_mut(
+                        world,
+                        entity,
+                        archetype.table_id(),
+                        StorageType::SparseSet,
+                        live_component_id,
+                    )
+                    .deref_mut::<C>()
+                };
+                *component = current_value.clone();
+            }
+            None => continue,
+        }
         trace!(
             target: "lightyear_debug::frame_interpolation",
             kind = "frame_interpolation_restore",
@@ -296,12 +354,15 @@ pub fn restore_frame_history_archetype_erased<C: SyncComponent>(
             entity = ?entity.id(),
             "restored non-interpolated component value"
         );
-        *component = current_value.clone();
     }
 }
 
-#[doc(hidden)]
-pub fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
+/// Applies the selected interpolation rule to live `C` for one archetype.
+///
+/// Missing live components are inserted through deferred commands; existing
+/// table components use the cached table slice and sparse-set components use
+/// Bevy's sparse storage lookup.
+pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
     interpolation_registry: &InterpolationRegistry,
@@ -330,7 +391,12 @@ pub fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     else {
         return;
     };
-    let component = component_table_column::<C>(world, archetype, table);
+    let live_component_id = world.components().component_id::<C>();
+    let live_component_storage =
+        live_component_id.and_then(|component_id| archetype.get_storage_type(component_id));
+    let live_components = live_component_id.and_then(|component_id| {
+        table_component_slice::<C>(table, component_id, live_component_storage)
+    });
 
     let interpolation = interpolation_registry.interpolation_for_rule::<C>(rule_id);
     for entity in archetype.entities() {
@@ -374,13 +440,33 @@ pub fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
             overstep = ctx.overstep,
             "applied frame interpolation"
         );
-        match component {
-            ComponentTableColumn::Table(component) => {
-                let component = unsafe { &mut *component.get_unchecked(row).get() };
+        match live_component_storage {
+            Some(StorageType::Table) => {
+                let Some(live_components) = live_components else {
+                    continue;
+                };
+                let component = unsafe { &mut *live_components.get_unchecked(row).get() };
                 *component = interpolated;
             }
-            ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), interpolated),
-            ComponentTableColumn::NonTable => {}
+            Some(StorageType::SparseSet) => {
+                // SAFETY: this cached archetype contains `component_id`, and
+                // the system param declares write access to all frame components.
+                let Some(component_id) = live_component_id else {
+                    continue;
+                };
+                let component = unsafe {
+                    get_component_unchecked_mut(
+                        world,
+                        entity,
+                        archetype.table_id(),
+                        StorageType::SparseSet,
+                        component_id,
+                    )
+                    .deref_mut::<C>()
+                };
+                *component = interpolated;
+            }
+            None => deferred_apply.insert(entity.id(), interpolated),
         }
     }
 }

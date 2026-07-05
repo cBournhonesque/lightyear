@@ -219,6 +219,72 @@ fn component_inserted(query: Query<Entity, (With<client::Remote>, Added<MyCompon
 }
 ```
 
+### Interpolation
+
+Network replication updates arrive at discrete server ticks. If the client
+applies each update immediately, remote entities can appear to snap from one
+received state to the next. Interpolation hides that by rendering remote
+entities slightly in the past and blending between the confirmed history
+samples that have already arrived.
+
+Register interpolation rules in the same shared protocol code that registers
+replication. A simple component rule stores received `Position` values in
+Lightyear's history and writes an interpolated value on entities with
+[`Interpolated`](prelude::Interpolated):
+
+```rust,ignore
+use bevy_ecs::prelude::*;
+use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Component, Clone, PartialEq, Serialize, Deserialize)]
+struct Position(f32);
+
+fn lerp_position(start: Position, end: Position, t: f32) -> Position {
+    Position(start.0 + (end.0 - start.0) * t)
+}
+
+fn protocol(app: &mut App) {
+    app.component::<Position>().replicate();
+    app.interpolate_with::<Position>(InterpolationFns::interpolate(lerp_position));
+}
+```
+
+The interpolation function can be any deterministic function from
+`(start, end, t)` to the visual value. Filtered rules let you specialize
+behavior for only some archetypes:
+
+```rust,ignore
+use bevy_ecs::prelude::*;
+use lightyear::prelude::*;
+use serde::{Deserialize, Serialize};
+
+#[derive(Component, Clone, PartialEq, Serialize, Deserialize)]
+struct Position(f32);
+
+#[derive(Component)]
+struct SmoothProjectile;
+
+fn smoothstep_position(start: Position, end: Position, t: f32) -> Position {
+    let t = t * t * (3.0 - 2.0 * t);
+    Position(start.0 + (end.0 - start.0) * t)
+}
+
+fn protocol(app: &mut App) {
+    app.component::<Position>().replicate();
+
+    app.interpolate_with_priority_filtered::<Position, With<SmoothProjectile>>(
+        10,
+        InterpolationFns::interpolate(smoothstep_position),
+    );
+}
+```
+
+Rules can also be history-only for custom interpolation systems, or registered
+for bundles such as `(Position, Rotation)` when several components need to be
+sampled together. See [`interpolation`] for the detailed rule model,
+priorities, filters, bundle interpolation, and frame-interpolation reuse.
+
 [`Replicated`]: prelude::Replicated
 [`lightyear_steam`]: lightyear_steam
  */
