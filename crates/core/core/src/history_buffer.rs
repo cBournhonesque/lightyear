@@ -1,8 +1,6 @@
 use crate::tick::Tick;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use bevy_ecs::reflect::{ReflectComponent, ReflectResource};
-use bevy_ecs::resource::Resource;
 use bevy_reflect::Reflect;
 use core::fmt::Debug;
 use core::iter::FilterMap;
@@ -69,15 +67,14 @@ impl<R> HistoryState<R> {
     }
 }
 
-/// HistoryBuffer stores past values (usually of a Component or Resource) in a buffer, to allow for rollback
+/// HistoryBuffer stores past values in a buffer, to allow for rollback
 /// The values must always remain ordered from oldest (front) to most recent (back)
-#[derive(Resource, Debug, Reflect)]
-#[reflect(Component, Resource)]
+#[derive(Debug, Reflect)]
 pub struct HistoryBuffer<R> {
-    // Queue containing the history of the resource.
+    // Queue containing the history of the value.
     // The front contains old elements, the back contains the more recent elements.
-    // We will only store the history for the ticks where the resource got updated
-    // (if the resource doesn't change, we don't store it)
+    // We will only store the history for the ticks where the value got updated
+    // (if the value doesn't change, we don't store it)
     //
     // The ticks might become invalid in case of a TickEvent (the client tick is changed).
     // In that case we simply handle the TickEvent and update all the ticks inside this buffer.
@@ -167,7 +164,7 @@ impl<R> HistoryBuffer<R> {
         self.buffer.get(partition - 1).map(|(_, state)| state)
     }
 
-    /// Reset the history for this resource
+    /// Reset the history for this value
     pub fn clear(&mut self) {
         self.buffer.clear();
     }
@@ -191,7 +188,7 @@ impl<R> HistoryBuffer<R> {
         }
     }
 
-    /// Add to the buffer that we received an update for the resource at the given tick
+    /// Add to the buffer that we received an update for the value at the given tick
     /// The tick must be more recent than the most recent update in the buffer
     pub fn add_update(&mut self, tick: Tick, value: R) {
         self.add(tick, Some(value));
@@ -400,7 +397,7 @@ mod tests {
     #[derive(Clone, PartialEq, Debug)]
     struct TestValue(f32);
 
-    /// Test adding and removing updates to the resource history
+    /// Test adding and removing updates to the value history
     #[test]
     fn test_add_remove_history() {
         let mut history = HistoryBuffer::<TestValue>::default();

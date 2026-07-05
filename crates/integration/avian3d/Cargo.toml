@@ -39,6 +39,7 @@ avian3d.workspace = true
 
 # bevy
 bevy_app.workspace = true
+bevy_derive.workspace = true
 bevy_ecs.workspace = true
 bevy_math.workspace = true
 bevy_time.workspace = true
