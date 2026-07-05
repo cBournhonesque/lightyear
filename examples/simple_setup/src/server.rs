@@ -44,7 +44,7 @@ fn startup(mut commands: Commands, config: Res<ServerStartupConfig>) -> Result {
             LocalAddr(SERVER_ADDR),
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             WebTransportServerIo {
-                certificate: webtransport_certificate(),
+                certificate: webtransport_self_signed_certificate(),
             },
             #[cfg(all(not(feature = "webtransport"), feature = "udp"))]
             ServerUdpIo::default(),

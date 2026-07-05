@@ -31,7 +31,5 @@ NOTE: I am using the [bevy cli](https://github.com/TheBevyFlock/bevy_cli) to bui
 
 To test the example in wasm, you can run the following commands: `bevy run web`
 
-You will need a valid SSL certificate to test the example in wasm using webtransport. You will need to run the following
-commands to generate a self-signed certificate:
-- `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (to generate the temporary SSL
-  certificates, they are only valid for 2 weeks)
+The repo includes a pre-generated self-signed WebTransport certificate and digest, so `certificates/generate.sh` is not required for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
+- `cd "$(git rev-parse --show-toplevel)" && sh certificates/generate.sh` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)

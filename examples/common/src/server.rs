@@ -19,49 +19,6 @@ use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use serde::{Deserialize, Serialize};
-use tracing::warn;
-
-/// Read certificate digest from alternate sources, for WASM builds.
-#[cfg(target_family = "wasm")]
-#[allow(unreachable_patterns)]
-pub fn modify_digest_on_wasm(client_settings: &mut ClientSettings) -> Option<String> {
-    if let Some(new_digest) = get_digest_on_wasm() {
-        match &client_settings.transport {
-            ClientTransports::WebTransport { certificate_digest } => {
-                client_settings.transport = ClientTransports::WebTransport {
-                    certificate_digest: new_digest.clone(),
-                };
-                Some(new_digest)
-            }
-            // This could be unreachable if only WebTransport feature is enabled.
-            // hence we suppress this warning with the allow directive above.
-            _ => None,
-        }
-    } else {
-        None
-    }
-}
-
-#[cfg(target_family = "wasm")]
-pub fn get_digest_on_wasm() -> Option<String> {
-    let window = web_sys::window().expect("expected window");
-
-    if let Ok(obj) = window.location().hash() {
-        info!("Using cert digest from window.location().hash()");
-        let cd = obj.replace("#", "");
-        if cd.len() > 10 {
-            // lazy sanity check.
-            return Some(cd);
-        }
-    }
-
-    if let Some(obj) = window.get("CERT_DIGEST") {
-        info!("Using cert digest from window.CERT_DIGEST");
-        return Some(obj.as_string().expect("CERT_DIGEST should be a string"));
-    }
-
-    None
-}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[non_exhaustive]
@@ -217,12 +174,10 @@ pub enum WebTransportCertificateSettings {
 
 impl Default for WebTransportCertificateSettings {
     fn default() -> Self {
-        let sans = vec![
-            "localhost".to_string(),
-            "127.0.0.1".to_string(),
-            "::1".to_string(),
-        ];
-        WebTransportCertificateSettings::AutoSelfSigned(sans)
+        WebTransportCertificateSettings::FromFile {
+            cert: format!("{}/../../certificates/cert.pem", env!("CARGO_MANIFEST_DIR")),
+            key: format!("{}/../../certificates/key.pem", env!("CARGO_MANIFEST_DIR")),
+        }
     }
 }
 
