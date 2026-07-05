@@ -1,18 +1,21 @@
 //! This plugin maintains a history buffer of the Position, Rotation and ColliderAabb of server entities
 //! so that they can be used for lag compensation.
 
+use core::ops::{Deref, DerefMut};
+
 #[cfg(all(feature = "2d", not(feature = "3d")))]
 use avian2d::{math::Vector, prelude::*};
 #[cfg(all(feature = "3d", not(feature = "2d")))]
 use avian3d::{math::Vector, prelude::*};
 use bevy_app::prelude::*;
+use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
     hierarchy::{ChildOf, Children},
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use lightyear_core::history_buffer::HistoryBuffer;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_link::prelude::Server;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
@@ -63,7 +66,18 @@ pub struct AabbEnvelopeHolder;
 /// Component that will store the Position, Rotation, ColliderAabb in a history buffer
 /// in order to perform lag compensation for client-predicted entities interacting with
 /// this entity
-pub type LagCompensationHistory = HistoryBuffer<(Position, Rotation, ColliderAabb)>;
+#[derive(Component, Debug, Default, Deref, DerefMut)]
+pub struct LagCompensationHistory(HistoryBuffer<(Position, Rotation, ColliderAabb)>);
+
+impl<'a> IntoIterator for &'a LagCompensationHistory {
+    type Item = (Tick, &'a (Position, Rotation, ColliderAabb));
+    type IntoIter =
+        <&'a HistoryBuffer<(Position, Rotation, ColliderAabb)> as IntoIterator>::IntoIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        (&self.0).into_iter()
+    }
+}
 
 impl Plugin for LagCompensationPlugin {
     fn build(&self, app: &mut App) {
@@ -191,7 +205,7 @@ fn update_collider_history(
 
             // step 2. update the child's Position, Rotation, Collider so that the avian spatial query
             //  can use the collider's aabb envelope for broad-phase collision detection
-            let (min, max) = history.into_iter().fold(
+            let (min, max) = (&*history).into_iter().fold(
                 (Vector::MAX, Vector::MIN),
                 |(min, max), (_, (_, _, aabb))| (min.min(aabb.min), max.max(aabb.max)),
             );
@@ -213,4 +227,21 @@ fn update_collider_history(
                 "update collider history and aabb envelope"
             );
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::world::World;
+
+    #[test]
+    fn lag_compensation_history_can_be_inserted_on_multiple_entities() {
+        let mut world = World::new();
+
+        let first = world.spawn(LagCompensationHistory::default()).id();
+        let second = world.spawn(LagCompensationHistory::default()).id();
+
+        assert!(world.entity(first).contains::<LagCompensationHistory>());
+        assert!(world.entity(second).contains::<LagCompensationHistory>());
+    }
 }
