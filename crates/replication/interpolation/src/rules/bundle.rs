@@ -5,8 +5,7 @@
 //! the parent module.
 
 use super::{
-    ApplyInterpolationContext, ComponentTableColumn, InterpolationFns, InterpolationRuleConfig,
-    InterpolationRuleId, component_table_column, table_for_archetype,
+    ApplyInterpolationContext, InterpolationFns, InterpolationRuleConfig, InterpolationRuleId,
 };
 use crate::SyncComponent;
 use crate::interpolate::present_history_bracket;
@@ -21,6 +20,9 @@ use bevy_ecs::component::ComponentId;
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
+use lightyear_core::ecs_utils::{
+    ComponentTableColumn, component_table_column, table_for_archetype,
+};
 use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::ComponentKind;

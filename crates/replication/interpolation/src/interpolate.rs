@@ -9,12 +9,13 @@ use crate::timeline::InterpolationTimeline;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::StorageType;
 use bevy_ecs::prelude::*;
-use bevy_ecs::storage::Table;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_utils::prelude::DebugName;
-use core::cell::UnsafeCell;
+use lightyear_core::ecs_utils::{
+    ComponentTableColumn, component_table_column, table_component_slice, table_for_archetype,
+};
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
@@ -137,9 +138,9 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
     let Some(table) = table_for_archetype(world, archetype) else {
         return;
     };
-    let Some(histories) = (unsafe {
-        table.get_data_slice_for::<ConfirmedHistory<C>>(component.history_component_id())
-    }) else {
+    let Some(histories) =
+        table_component_slice::<ConfirmedHistory<C>>(table, component.history_component_id())
+    else {
         return;
     };
     let present = component.live_component_present();
@@ -178,9 +179,9 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
     let Some(table) = table_for_archetype(world, archetype) else {
         return;
     };
-    let Some(histories) = (unsafe {
-        table.get_data_slice_for::<ConfirmedHistory<C>>(component.history_component_id())
-    }) else {
+    let Some(histories) =
+        table_component_slice::<ConfirmedHistory<C>>(table, component.history_component_id())
+    else {
         return;
     };
     let Some(storage) = replication_storage else {
@@ -300,38 +301,6 @@ fn queue_history_presence<C: Component + Clone>(
     }
 }
 
-#[derive(Clone, Copy)]
-enum ComponentColumn<'w, C> {
-    Table(&'w [UnsafeCell<C>]),
-    Missing,
-    NonTable,
-}
-
-fn table_for_archetype<'w>(world: UnsafeWorldCell<'w>, archetype: &Archetype) -> Option<&'w Table> {
-    unsafe { world.storages().tables.get(archetype.table_id()) }
-}
-
-fn live_component_column<'w, C: Component>(
-    world: UnsafeWorldCell<'w>,
-    archetype: &Archetype,
-    table: &'w Table,
-) -> ComponentColumn<'w, C> {
-    let Some(component_id) = world.components().component_id::<C>() else {
-        return ComponentColumn::Missing;
-    };
-    if !archetype.contains(component_id) {
-        return ComponentColumn::Missing;
-    }
-    let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
-        return ComponentColumn::NonTable;
-    };
-    unsafe {
-        table
-            .get_data_slice_for::<C>(component_id)
-            .map_or(ComponentColumn::NonTable, ComponentColumn::Table)
-    }
-}
-
 /// Applies one selected component interpolation rule to one archetype.
 pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
@@ -357,12 +326,11 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
     let Some(table) = table_for_archetype(world, archetype) else {
         return;
     };
-    let Some(histories) =
-        (unsafe { table.get_data_slice_for::<ConfirmedHistory<C>>(history_component_id) })
+    let Some(histories) = table_component_slice::<ConfirmedHistory<C>>(table, history_component_id)
     else {
         return;
     };
-    let components = live_component_column::<C>(world, archetype, table);
+    let components = component_table_column::<C>(world, archetype, table);
 
     for entity in archetype.entities() {
         let row = entity.table_row().index();
@@ -388,12 +356,12 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
             "applied interpolation"
         );
         match components {
-            ComponentColumn::Table(components) => {
+            ComponentTableColumn::Table(components) => {
                 let component = unsafe { &mut *components.get_unchecked(row).get() };
                 *component = interpolated;
             }
-            ComponentColumn::Missing => {}
-            ComponentColumn::NonTable => {}
+            ComponentTableColumn::Missing => {}
+            ComponentTableColumn::NonTable => {}
         }
     }
 }

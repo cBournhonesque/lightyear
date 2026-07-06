@@ -18,6 +18,7 @@ lightyear_interpolation.workspace = true
 lightyear_replication.workspace = true
 
 # utils
+smallvec.workspace = true
 tracing.workspace = true
 
 # serde

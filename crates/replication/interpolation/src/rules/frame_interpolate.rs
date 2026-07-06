@@ -5,14 +5,16 @@
 
 use crate::SyncComponent;
 use crate::registry::InterpolationRegistry;
-use crate::rules::{InterpolationRuleId, table_for_archetype};
+use crate::rules::InterpolationRuleId;
 use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, StorageType};
-use bevy_ecs::storage::Table;
+use bevy_ecs::prelude::{Commands, Entity};
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
-use core::cell::UnsafeCell;
+use lightyear_core::ecs_utils::{
+    table_component_slice, table_component_slice_if_table, table_for_archetype,
+};
 use lightyear_core::prelude::FrameInterpolationHistory;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::ComponentKind;
@@ -51,6 +53,55 @@ pub type ErasedApplyFrameInterpolationFn = fn(
     bool,
     &mut DeferredEntityCommands,
 );
+
+/// Type-erased function that inserts a default `FrameInterpolationHistory<C>`.
+#[doc(hidden)]
+pub type ErasedInsertFrameHistoryFn = fn(Entity, &mut Commands);
+
+/// Type-erased metadata for a component that owns frame interpolation history.
+#[derive(Debug, Clone, Copy)]
+pub struct FrameHistoryComponent {
+    kind: ComponentKind,
+    live_component_id: ComponentId,
+    history_component_id: ComponentId,
+    insert_history: ErasedInsertFrameHistoryFn,
+}
+
+impl FrameHistoryComponent {
+    pub(crate) fn new(
+        kind: ComponentKind,
+        live_component_id: ComponentId,
+        history_component_id: ComponentId,
+        insert_history: ErasedInsertFrameHistoryFn,
+    ) -> Self {
+        Self {
+            kind,
+            live_component_id,
+            history_component_id,
+            insert_history,
+        }
+    }
+
+    #[doc(hidden)]
+    pub fn kind(&self) -> ComponentKind {
+        self.kind
+    }
+
+    #[doc(hidden)]
+    pub fn live_component_id(&self) -> ComponentId {
+        self.live_component_id
+    }
+
+    #[doc(hidden)]
+    pub fn history_component_id(&self) -> ComponentId {
+        self.history_component_id
+    }
+
+    #[doc(hidden)]
+    pub fn insert_history(&self) -> ErasedInsertFrameHistoryFn {
+        self.insert_history
+    }
+}
 
 /// Cached typed component metadata needed by frame interpolation history systems.
 #[derive(Debug, Clone, Copy)]
@@ -145,7 +196,9 @@ impl CachedFrameInterpolationApply {
 #[derive(Debug, Clone)]
 pub(crate) struct FrameInterpolationFns {
     pub(crate) history_component_id: Option<ComponentId>,
+    pub(crate) live_component_id: Option<ComponentId>,
     pub(crate) write_component_ids: Vec<ComponentId>,
+    pub(crate) insert_history: Option<ErasedInsertFrameHistoryFn>,
     pub(crate) update_history: Option<ErasedUpdateFrameHistoryFn>,
     pub(crate) restore_history: Option<ErasedRestoreFrameHistoryFn>,
     pub(crate) apply_interpolation: Option<ErasedApplyFrameInterpolationFn>,
@@ -154,19 +207,25 @@ pub(crate) struct FrameInterpolationFns {
 impl FrameInterpolationFns {
     pub(crate) fn new(
         history_component_id: Option<ComponentId>,
+        live_component_id: Option<ComponentId>,
         write_component_ids: Vec<ComponentId>,
+        insert_history: Option<ErasedInsertFrameHistoryFn>,
         update_history: Option<ErasedUpdateFrameHistoryFn>,
         restore_history: Option<ErasedRestoreFrameHistoryFn>,
         apply_interpolation: Option<ErasedApplyFrameInterpolationFn>,
     ) -> Option<Self> {
         (history_component_id.is_some()
+            || live_component_id.is_some()
             || !write_component_ids.is_empty()
+            || insert_history.is_some()
             || update_history.is_some()
             || restore_history.is_some()
             || apply_interpolation.is_some())
         .then_some(Self {
             history_component_id,
+            live_component_id,
             write_component_ids,
+            insert_history,
             update_history,
             restore_history,
             apply_interpolation,
@@ -182,17 +241,26 @@ impl FrameInterpolationFns {
     pub(crate) fn applies_component(&self) -> bool {
         self.apply_interpolation.is_some()
     }
+
+    pub(crate) fn history_component(&self, kind: ComponentKind) -> Option<FrameHistoryComponent> {
+        self.owns_history().then(|| {
+            FrameHistoryComponent::new(
+                kind,
+                self.live_component_id
+                    .expect("frame history requires live component id"),
+                self.history_component_id
+                    .expect("frame history requires history component id"),
+                self.insert_history
+                    .expect("frame history requires insert function"),
+            )
+        })
+    }
 }
 
-fn table_component_slice<C: 'static>(
-    table: &Table,
-    component_id: ComponentId,
-    storage: Option<StorageType>,
-) -> Option<&[UnsafeCell<C>]> {
-    match storage {
-        Some(StorageType::Table) => unsafe { table.get_data_slice_for::<C>(component_id) },
-        _ => None,
-    }
+pub(crate) fn insert_frame_history<C: SyncComponent>(entity: Entity, commands: &mut Commands) {
+    commands
+        .entity(entity)
+        .try_insert(FrameInterpolationHistory::<C>::default());
 }
 
 /// Records each entity's live `C` into `FrameInterpolationHistory<C>`.
@@ -214,17 +282,16 @@ pub(crate) fn update_frame_history_archetype_erased<C: SyncComponent>(
     let live_component_id = component.live_component_id();
     let live_component_storage = archetype.get_storage_type(live_component_id);
     let live_components =
-        table_component_slice::<C>(table, live_component_id, live_component_storage);
+        table_component_slice_if_table::<C>(table, live_component_id, live_component_storage);
 
     let histories = if component.history_component_present() {
         let Some(StorageType::Table) = component.history_storage() else {
             return;
         };
-        let Some(histories) = (unsafe {
-            table.get_data_slice_for::<FrameInterpolationHistory<C>>(
-                component.history_component_id(),
-            )
-        }) else {
+        let Some(histories) = table_component_slice::<FrameInterpolationHistory<C>>(
+            table,
+            component.history_component_id(),
+        ) else {
             return;
         };
         Some(histories)
@@ -304,15 +371,16 @@ pub(crate) fn restore_frame_history_archetype_erased<C: SyncComponent>(
     let Some(table) = table_for_archetype(world, archetype) else {
         return;
     };
-    let Some(histories) = (unsafe {
-        table.get_data_slice_for::<FrameInterpolationHistory<C>>(component.history_component_id())
-    }) else {
+    let Some(histories) = table_component_slice::<FrameInterpolationHistory<C>>(
+        table,
+        component.history_component_id(),
+    ) else {
         return;
     };
     let live_component_id = component.live_component_id();
     let live_component_storage = archetype.get_storage_type(live_component_id);
     let live_components =
-        table_component_slice::<C>(table, live_component_id, live_component_storage);
+        table_component_slice_if_table::<C>(table, live_component_id, live_component_storage);
 
     for entity in archetype.entities() {
         let row = entity.table_row().index();
@@ -387,7 +455,7 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
         return;
     };
     let Some(histories) =
-        (unsafe { table.get_data_slice_for::<FrameInterpolationHistory<C>>(history_component_id) })
+        table_component_slice::<FrameInterpolationHistory<C>>(table, history_component_id)
     else {
         return;
     };
@@ -395,7 +463,7 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     let live_component_storage =
         live_component_id.and_then(|component_id| archetype.get_storage_type(component_id));
     let live_components = live_component_id.and_then(|component_id| {
-        table_component_slice::<C>(table, component_id, live_component_storage)
+        table_component_slice_if_table::<C>(table, component_id, live_component_storage)
     });
 
     let interpolation = interpolation_registry.interpolation_for_rule::<C>(rule_id);

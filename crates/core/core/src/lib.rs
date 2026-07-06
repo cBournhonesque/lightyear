@@ -20,6 +20,9 @@ pub mod tick;
 /// Provides core network-related types and traits.
 pub mod network;
 
+/// Low-level ECS helpers shared by type-erased systems.
+pub mod ecs_utils;
+
 /// Provides `ConfirmedHistory` for authoritative remote component states.
 pub mod confirmed_history;
 /// Provides `HistoryBuffer` for storing and managing historical state.

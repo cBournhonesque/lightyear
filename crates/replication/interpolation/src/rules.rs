@@ -11,21 +11,18 @@ pub use bundle::InterpolationBundle;
 
 pub(crate) use bundle::TupleInterpolationBundle;
 
-use self::frame_interpolate::FrameInterpolationFns;
+use self::frame_interpolate::{FrameHistoryComponent, FrameInterpolationFns};
 use crate::registry::InterpolationRegistry;
 use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components, StorageType};
-use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryFilter;
-use bevy_ecs::storage::Table;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
 use core::any::TypeId;
-use core::cell::UnsafeCell;
 use core::marker::PhantomData;
 use lightyear_core::prelude::Tick;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
@@ -369,41 +366,6 @@ where
     curve.sample_unchecked(t)
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum ComponentTableColumn<'w, C> {
-    Table(&'w [UnsafeCell<C>]),
-    Missing,
-    NonTable,
-}
-
-pub(crate) fn table_for_archetype<'w>(
-    world: UnsafeWorldCell<'w>,
-    archetype: &Archetype,
-) -> Option<&'w Table> {
-    unsafe { world.storages().tables.get(archetype.table_id()) }
-}
-
-pub(crate) fn component_table_column<'w, C: Component>(
-    world: UnsafeWorldCell<'w>,
-    archetype: &Archetype,
-    table: &'w Table,
-) -> ComponentTableColumn<'w, C> {
-    let Some(component_id) = world.components().component_id::<C>() else {
-        return ComponentTableColumn::Missing;
-    };
-    if !archetype.contains(component_id) {
-        return ComponentTableColumn::Missing;
-    }
-    let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
-        return ComponentTableColumn::NonTable;
-    };
-    unsafe {
-        table
-            .get_data_slice_for::<C>(component_id)
-            .map_or(ComponentTableColumn::NonTable, ComponentTableColumn::Table)
-    }
-}
-
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Hash)]
 #[doc(hidden)]
 pub struct InterpolationRuleId(pub(crate) usize);
@@ -631,6 +593,13 @@ impl InterpolationRule {
             .frame
             .as_ref()
             .is_some_and(FrameInterpolationFns::applies_component)
+    }
+
+    pub(crate) fn frame_history_component(&self) -> Option<FrameHistoryComponent> {
+        self.fns
+            .frame
+            .as_ref()
+            .and_then(|frame| frame.history_component(*self.members.first()?))
     }
 
     #[doc(hidden)]

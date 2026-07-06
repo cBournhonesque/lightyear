@@ -9,8 +9,9 @@ use crate::plugin::{
 };
 use crate::rules::frame_interpolate::{
     CachedFrameInterpolationApply, CachedFrameInterpolationComponent,
-    ErasedApplyFrameInterpolationFn, ErasedRestoreFrameHistoryFn, ErasedUpdateFrameHistoryFn,
-    FrameInterpolationFns, apply_frame_interpolation_archetype_erased,
+    ErasedApplyFrameInterpolationFn, ErasedInsertFrameHistoryFn, ErasedRestoreFrameHistoryFn,
+    ErasedUpdateFrameHistoryFn, FrameHistoryComponent, FrameInterpolationFns,
+    apply_frame_interpolation_archetype_erased, insert_frame_history,
     restore_frame_history_archetype_erased, update_frame_history_archetype_erased,
 };
 use crate::rules::{
@@ -210,6 +211,15 @@ impl InterpolationRegistry {
     #[doc(hidden)]
     pub fn rule_count(&self) -> usize {
         self.rules.len()
+    }
+
+    /// Returns components that need `FrameInterpolationHistory<C>` backfilled
+    /// when `FrameInterpolate` is added.
+    #[doc(hidden)]
+    pub fn frame_history_components(&self) -> impl Iterator<Item = FrameHistoryComponent> + '_ {
+        self.rules
+            .iter()
+            .filter_map(InterpolationRule::frame_history_component)
     }
 
     /// Returns component IDs that the type-erased interpolation system may write.
@@ -471,9 +481,13 @@ impl InterpolationRegistry {
         let apply_frame_interpolation = applies_frame_component.then_some(
             apply_frame_interpolation_archetype_erased::<C> as ErasedApplyFrameInterpolationFn,
         );
+        let insert_frame_history =
+            owns_frame_history.then_some(insert_frame_history::<C> as ErasedInsertFrameHistoryFn);
         let frame = FrameInterpolationFns::new(
             component_ids.frame_history_component_id,
+            component_ids.live_component_id,
             component_ids.frame_write_component_ids,
+            insert_frame_history,
             update_frame_history,
             restore_frame_history,
             apply_frame_interpolation,
@@ -517,7 +531,9 @@ impl InterpolationRegistry {
         let kind = RuleKind::of::<S>();
         let frame = FrameInterpolationFns::new(
             None,
+            None,
             frame_write_component_ids,
+            None,
             None,
             None,
             apply_frame_interpolation,
