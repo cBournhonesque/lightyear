@@ -3,10 +3,7 @@ use crate::interpolate::{
     apply_interpolation_archetype_erased, update_history_archetype_erased,
     update_history_diff_archetype_erased,
 };
-use crate::plugin::{
-    add_prepare_interpolation_diff_systems, add_prepare_interpolation_systems,
-    refresh_update_interpolation_system_if_finalized,
-};
+use crate::plugin::refresh_update_interpolation_system_if_finalized;
 use crate::rules::frame_interpolate::{
     CachedFrameInterpolationApply, CachedFrameInterpolationComponent,
     ErasedApplyFrameInterpolationFn, ErasedInsertFrameHistoryFn, ErasedRestoreFrameHistoryFn,
@@ -16,9 +13,9 @@ use crate::rules::frame_interpolate::{
 };
 use crate::rules::{
     CachedInterpolationApply, CachedInterpolationComponent, ErasedApplyInterpolationFn,
-    ErasedInterpolationFns, ErasedLerpFn, ErasedUpdateHistoryFn, InterpolationBundle,
-    InterpolationFns, InterpolationRule, InterpolationRuleConfig, InterpolationRuleId, RuleKind,
-    TupleInterpolationBundle, matches_filter,
+    ErasedBackfillConfirmedHistoryFn, ErasedInterpolationFns, ErasedLerpFn, ErasedUpdateHistoryFn,
+    InterpolationBundle, InterpolationFns, InterpolationRule, InterpolationRuleConfig,
+    InterpolationRuleId, RuleKind, TupleInterpolationBundle, matches_filter,
 };
 use alloc::vec::Vec;
 use bevy_app::App;
@@ -164,10 +161,6 @@ pub struct InterpolationRegistry {
     rules_by_kind: IndexMap<RuleKind, Vec<InterpolationRuleId>>,
     /// Component kinds whose Replicon receive marker functions have been installed.
     interpolated_marker_fns: HashSet<ComponentKind>,
-    /// Component kinds whose non-diff interpolation preparation systems have been installed.
-    prepare_systems: HashSet<ComponentKind>,
-    /// Component kinds whose diff interpolation preparation systems have been installed.
-    prepare_diff_systems: HashSet<ComponentKind>,
     /// Whether plugin finalization has run.
     ///
     /// Rule registration after finalization is rejected so the type-erased
@@ -220,6 +213,23 @@ impl InterpolationRegistry {
         self.rules
             .iter()
             .filter_map(InterpolationRule::frame_history_component)
+    }
+
+    /// Returns per-component callbacks for backfilling confirmed history when
+    /// `Interpolated` is added to an entity that already has a replicated live
+    /// component.
+    #[doc(hidden)]
+    pub fn confirmed_history_backfill_fns(
+        &self,
+    ) -> impl Iterator<Item = (ComponentId, ComponentId, ErasedBackfillConfirmedHistoryFn)> + '_
+    {
+        self.rules.iter().filter_map(|rule| {
+            Some((
+                rule.fns.live_component_id?,
+                rule.fns.history_component_id?,
+                rule.fns.backfill_confirmed_history?,
+            ))
+        })
     }
 
     /// Returns component IDs that the type-erased interpolation system may write.
@@ -429,6 +439,7 @@ impl InterpolationRegistry {
             fns,
             config,
             Some(update_history_archetype_erased::<C>),
+            Some(backfill_confirmed_history::<C>),
             component_ids,
         )
     }
@@ -448,6 +459,7 @@ impl InterpolationRegistry {
             fns,
             config,
             Some(update_history_diff_archetype_erased::<C>),
+            Some(backfill_confirmed_history_diff::<C>),
             component_ids,
         )
     }
@@ -457,6 +469,7 @@ impl InterpolationRegistry {
         fns: InterpolationFns<C>,
         config: InterpolationRuleConfig,
         update_history: Option<ErasedUpdateHistoryFn>,
+        backfill_confirmed_history: Option<ErasedBackfillConfirmedHistoryFn>,
         component_ids: InterpolationRuleComponentIds,
     ) -> InterpolationRuleId
     where
@@ -471,6 +484,9 @@ impl InterpolationRegistry {
         let applies_frame_component = fns.applies_frame_component();
         let update_history = owns_interpolation_history
             .then_some(update_history)
+            .flatten();
+        let backfill_confirmed_history = owns_interpolation_history
+            .then_some(backfill_confirmed_history)
             .flatten();
         let apply_interpolation = applies_interpolation_component
             .then_some(apply_interpolation_archetype_erased::<C> as ErasedApplyInterpolationFn);
@@ -495,6 +511,7 @@ impl InterpolationRegistry {
         let fns = ErasedInterpolationFns::from_typed(
             fns,
             update_history,
+            backfill_confirmed_history,
             apply_interpolation,
             component_ids.history_component_id,
             component_ids.live_component_id,
@@ -540,6 +557,7 @@ impl InterpolationRegistry {
         );
         let fns = ErasedInterpolationFns::from_typed(
             fns,
+            None,
             None,
             apply_interpolation,
             None,
@@ -1105,61 +1123,99 @@ fn register_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
         .insert(kind);
 }
 
-/// When `Interpolated` is added after component `C` was already replicated onto the entity,
-/// seed `ConfirmedHistory<C>` from the current value so interpolation has an anchor immediately.
-///
-/// Component updates for interpolated entities are normally captured by `write_history::<C>`, but
-/// that only runs on future network updates. If `Interpolated` arrives after `C`, synthesize the
-/// initial history entry from the existing component value and the entity's latest confirmed
-/// Replicon tick.
-pub(crate) fn insert_confirmed_history_on_interpolated<C: SyncComponent>(
-    trigger: On<Add, Interpolated>,
-    mut commands: Commands,
-    checkpoints: Res<ReplicationCheckpointMap>,
-    query: Query<(&C, &ConfirmHistory), Without<ConfirmedHistory<C>>>,
+/// Backfills `ConfirmedHistory<C>` when `Interpolated` is added after the live
+/// replicated component was already inserted.
+pub(crate) fn backfill_confirmed_history<C: SyncComponent>(
+    entity: Entity,
+    commands: &mut Commands,
 ) {
-    let Ok((component, confirm_history)) = query.get(trigger.entity) else {
-        return;
-    };
+    commands.queue(move |world: &mut World| {
+        let Some((component, message_tick)) = ({
+            let Ok(entity_ref) = world.get_entity(entity) else {
+                return;
+            };
+            if entity_ref.contains::<ConfirmedHistory<C>>() {
+                return;
+            }
+            let Some(component) = entity_ref.get::<C>() else {
+                return;
+            };
+            let Some(confirm_history) = entity_ref.get::<ConfirmHistory>() else {
+                return;
+            };
+            Some((component.clone(), confirm_history.last_tick()))
+        }) else {
+            return;
+        };
 
-    let Some(tick) = checkpoints.get(confirm_history.last_tick()) else {
-        debug_assert!(
-            false,
-            "missing authoritative checkpoint mapping while backfilling ConfirmedHistory"
-        );
-        return;
-    };
+        let Some(checkpoints) = world.get_resource::<ReplicationCheckpointMap>() else {
+            debug_assert!(
+                false,
+                "missing checkpoint map while backfilling ConfirmedHistory"
+            );
+            return;
+        };
+        let Some(tick) = checkpoints.get(message_tick) else {
+            debug_assert!(
+                false,
+                "missing authoritative checkpoint mapping while backfilling ConfirmedHistory"
+            );
+            return;
+        };
 
-    let mut history = ConfirmedHistory::<C>::default();
-    history.insert_present(tick, component.clone());
-    commands
-        .entity(trigger.entity)
-        .try_insert(history)
-        .try_remove::<C>();
+        let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+            return;
+        };
+        if entity_mut.contains::<ConfirmedHistory<C>>() {
+            return;
+        }
+        let mut history = ConfirmedHistory::<C>::default();
+        history.insert_present(tick, component);
+        entity_mut.insert(history);
+        entity_mut.remove::<C>();
+    });
 }
 
-pub(crate) fn insert_confirmed_history_on_interpolated_diff<C: SyncComponent + RepliconDiffable>(
-    trigger: On<Add, Interpolated>,
-    mut commands: Commands,
-    checkpoints: Res<ReplicationCheckpointMap>,
-    query: Query<(&C, &ConfirmHistory, Option<&ConfirmedHistory<C>>)>,
+/// Diff-aware variant of [`backfill_confirmed_history`].
+pub(crate) fn backfill_confirmed_history_diff<C: SyncComponent + RepliconDiffable>(
+    entity: Entity,
+    commands: &mut Commands,
 ) {
-    let Ok((component, confirm_history, history)) = query.get(trigger.entity) else {
-        return;
-    };
-
-    let Some(tick) = checkpoints.get(confirm_history.last_tick()) else {
-        debug_assert!(
-            false,
-            "missing authoritative checkpoint mapping while backfilling diff ConfirmedHistory"
-        );
-        return;
-    };
-
-    let entity = trigger.entity;
-    let component = component.clone();
-    let insert_history = history.is_none();
     commands.queue(move |world: &mut World| {
+        let Some((component, message_tick, insert_history)) = ({
+            let Ok(entity_ref) = world.get_entity(entity) else {
+                return;
+            };
+            let Some(component) = entity_ref.get::<C>() else {
+                return;
+            };
+            let Some(confirm_history) = entity_ref.get::<ConfirmHistory>() else {
+                return;
+            };
+            Some((
+                component.clone(),
+                confirm_history.last_tick(),
+                !entity_ref.contains::<ConfirmedHistory<C>>(),
+            ))
+        }) else {
+            return;
+        };
+
+        let Some(checkpoints) = world.get_resource::<ReplicationCheckpointMap>() else {
+            debug_assert!(
+                false,
+                "missing checkpoint map while backfilling diff ConfirmedHistory"
+            );
+            return;
+        };
+        let Some(tick) = checkpoints.get(message_tick) else {
+            debug_assert!(
+                false,
+                "missing authoritative checkpoint mapping while backfilling diff ConfirmedHistory"
+            );
+            return;
+        };
+
         let (cursor, has_receiver) = world
             .get_resource::<ReplicationStorage>()
             .map(|storage| {
@@ -1305,32 +1361,6 @@ fn ensure_interpolation_registry(app: &mut App) {
     }
 }
 
-fn add_prepare_interpolation_systems_once<C: SyncComponent>(app: &mut App) {
-    ensure_interpolation_registry(app);
-    let kind = ComponentKind::of::<C>();
-    let should_add = app
-        .world_mut()
-        .resource_mut::<InterpolationRegistry>()
-        .prepare_systems
-        .insert(kind);
-    if should_add {
-        add_prepare_interpolation_systems::<C>(app);
-    }
-}
-
-fn add_prepare_interpolation_diff_systems_once<C: SyncComponent + RepliconDiffable>(app: &mut App) {
-    ensure_interpolation_registry(app);
-    let kind = ComponentKind::of::<C>();
-    let should_add = app
-        .world_mut()
-        .resource_mut::<InterpolationRegistry>()
-        .prepare_diff_systems
-        .insert(kind);
-    if should_add {
-        add_prepare_interpolation_diff_systems::<C>(app);
-    }
-}
-
 pub(crate) fn mark_interpolated<C: SyncComponent>(app: &mut App) {
     let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
     registry
@@ -1362,7 +1392,6 @@ pub(crate) fn add_interpolation_rule<C, F>(
     }
     if fns.owns_interpolation_history() {
         register_interpolated_marker_fns::<C>(app);
-        add_prepare_interpolation_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
     if fns.applies_interpolation_component() {
@@ -1393,7 +1422,6 @@ fn add_interpolation_diff_rule<C, F>(
     }
     if fns.owns_interpolation_history() {
         register_interpolated_diff_marker_fns::<C>(app);
-        add_prepare_interpolation_diff_systems_once::<C>(app);
         mark_interpolated::<C>(app);
     }
     if fns.applies_interpolation_component() {
@@ -1695,7 +1723,7 @@ mod tests {
     use lightyear_replication::registry::replication::AppComponentExt;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Component, Clone, Debug, PartialEq)]
+    #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
     struct TestComp(f32);
 
     fn lerp(start: TestComp, end: TestComp, t: f32) -> TestComp {
@@ -1870,8 +1898,16 @@ mod tests {
     #[test]
     fn inserts_history_when_interpolated_added_after_component_is_already_replicated() {
         let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconPlugins,
+            crate::plugin::InterpolationPlugin,
+        ));
         app.insert_resource(ReplicationCheckpointMap::default());
-        app.add_observer(insert_confirmed_history_on_interpolated::<TestComp>);
+        app.component::<TestComp>()
+            .replicate()
+            .add_custom_interpolation();
+        app.finish();
 
         let replicon_tick = RepliconTick::new(11);
         app.world_mut()
@@ -1882,9 +1918,7 @@ mod tests {
             .world_mut()
             .spawn((TestComp(2.0), ConfirmHistory::new(replicon_tick)))
             .id();
-        app.update();
         app.world_mut().entity_mut(entity).insert(Interpolated);
-        app.update();
 
         let history = app
             .world()
@@ -1896,6 +1930,51 @@ mod tests {
                 .start_present()
                 .map(|(tick, value)| (tick, value.clone())),
             Some((Tick(42), TestComp(2.0)))
+        );
+        assert!(
+            !app.world().entity(entity).contains::<TestComp>(),
+            "live interpolated component should be removed until the interpolation timeline reaches the history start tick"
+        );
+    }
+
+    #[test]
+    fn inserts_history_when_interpolated_and_component_are_spawned_together() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconPlugins,
+            crate::plugin::InterpolationPlugin,
+        ));
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.component::<TestComp>()
+            .replicate()
+            .add_custom_interpolation();
+        app.finish();
+
+        let replicon_tick = RepliconTick::new(12);
+        app.world_mut()
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(replicon_tick, Tick(43));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                TestComp(3.0),
+                ConfirmHistory::new(replicon_tick),
+                Interpolated,
+            ))
+            .id();
+
+        let history = app
+            .world()
+            .entity(entity)
+            .get::<ConfirmedHistory<TestComp>>()
+            .unwrap();
+        assert_eq!(
+            history
+                .start_present()
+                .map(|(tick, value)| (tick, value.clone())),
+            Some((Tick(43), TestComp(3.0)))
         );
         assert!(
             !app.world().entity(entity).contains::<TestComp>(),

@@ -1,11 +1,7 @@
-use crate::SyncComponent;
 use crate::archetypes::InterpolationWorld;
 use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{apply_interpolation, update_interpolation_history};
-use crate::registry::{
-    InterpolationRegistry, insert_confirmed_history_on_interpolated,
-    insert_confirmed_history_on_interpolated_diff,
-};
+use crate::registry::InterpolationRegistry;
 use crate::timeline::InterpolationTimeline;
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, PreUpdate, Update};
@@ -15,7 +11,6 @@ use bevy_ecs::{
     schedule::{ApplyDeferred, IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
-use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{Interpolated, Tick};
@@ -115,22 +110,24 @@ pub enum InterpolationSystems {
     All,
 }
 
-/// Add per-component systems related to interpolation
-pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(app: &mut App) {
-    // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_observer(insert_confirmed_history_on_interpolated::<C>);
-}
-
-pub(crate) fn add_prepare_interpolation_diff_systems<C: SyncComponent + RepliconDiffable>(
-    app: &mut App,
+/// Backfills `ConfirmedHistory<C>` for registered interpolation rules when
+/// `Interpolated` is added after the live replicated component already exists.
+fn backfill_confirmed_histories_on_interpolated(
+    trigger: On<Add, Interpolated>,
+    interpolation_registry: Res<InterpolationRegistry>,
+    mut commands: Commands,
 ) {
-    app.add_observer(insert_confirmed_history_on_interpolated_diff::<C>);
-}
+    let Some(archetype) = trigger.trigger().new_archetype else {
+        return;
+    };
 
-// Kept for compatibility with older internal callers. Default interpolation is
-// now driven by the type-erased interpolation systems.
-pub fn add_interpolation_systems<C: SyncComponent>(_app: &mut App) {
-    let _ = core::any::TypeId::of::<C>();
+    for (live_component_id, history_component_id, backfill) in
+        interpolation_registry.confirmed_history_backfill_fns()
+    {
+        if archetype.contains(live_component_id) && !archetype.contains(history_component_id) {
+            backfill(trigger.entity, &mut commands);
+        }
+    }
 }
 
 #[derive(Debug, Default, Resource)]
@@ -216,6 +213,7 @@ impl Plugin for InterpolationPlugin {
         app.init_resource::<InterpolationRegistry>();
         app.init_resource::<InterpolationUpdateSystemState>();
         configure_delayed_interpolated_despawn(app);
+        app.add_observer(backfill_confirmed_histories_on_interpolated);
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();

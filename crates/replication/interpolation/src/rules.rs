@@ -16,6 +16,7 @@ use crate::registry::InterpolationRegistry;
 use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components, StorageType};
+use bevy_ecs::prelude::{Commands, Entity};
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_math::{
@@ -84,11 +85,10 @@ pub struct InterpolationRuleConfig {
 ///   history before the tuple interpolation function is called.
 /// - [`Self::history_only`] stores and prepares history but does not apply the
 ///   live component. This is the usual choice when a user system performs
-///   custom interpolation.
-/// - [`Self::history_only`] combined with
-///   [`InterpolationFnsExt::interpolate`] stores and prepares history and keeps
-///   an interpolation function. Delayed interpolation still does not apply the
-///   live component, but frame interpolation can reuse the function.
+///   custom interpolation: the history will be populated by Lightyear, but the
+///   user should write their own system to perform interpolation. You can still
+///   specify a default interpolation fn that can be used for other purposes, such
+///   as frame interpolation.
 /// - [`Self::no_history`] registers an interpolation function without owning
 ///   delayed interpolation history or delayed live-component presence. Frame
 ///   interpolation and correction can still reuse the same rule.
@@ -408,6 +408,13 @@ pub(crate) type ErasedUpdateHistoryFn = fn(
     &mut DeferredEntityCommands,
 );
 
+/// Type-erased function that backfills `ConfirmedHistory<C>` for one entity.
+///
+/// This is used when `Interpolated` is added after the replicated component
+/// already exists on the entity. The function is stored with the interpolation
+/// rule that owns `ConfirmedHistory<C>`.
+pub(crate) type ErasedBackfillConfirmedHistoryFn = fn(Entity, &mut Commands);
+
 /// Context passed to type-erased interpolation apply functions.
 #[derive(Debug, Clone, Copy)]
 #[doc(hidden)]
@@ -502,6 +509,7 @@ impl CachedInterpolationApply {
 pub(crate) struct ErasedInterpolationFns {
     pub(crate) interpolation: Option<ErasedLerpFn>,
     pub(crate) update_history: Option<ErasedUpdateHistoryFn>,
+    pub(crate) backfill_confirmed_history: Option<ErasedBackfillConfirmedHistoryFn>,
     pub(crate) apply_interpolation: Option<ErasedApplyInterpolationFn>,
     pub(crate) history_component_id: Option<ComponentId>,
     pub(crate) live_component_id: Option<ComponentId>,
@@ -513,6 +521,7 @@ impl ErasedInterpolationFns {
     pub(crate) fn from_typed<S: 'static>(
         fns: InterpolationFns<S>,
         update_history: Option<ErasedUpdateHistoryFn>,
+        backfill_confirmed_history: Option<ErasedBackfillConfirmedHistoryFn>,
         apply_interpolation: Option<ErasedApplyInterpolationFn>,
         history_component_id: Option<ComponentId>,
         live_component_id: Option<ComponentId>,
@@ -524,6 +533,7 @@ impl ErasedInterpolationFns {
                 .interpolation
                 .map(|f| unsafe { core::mem::transmute::<LerpFn<S>, unsafe fn()>(f) }),
             update_history,
+            backfill_confirmed_history,
             apply_interpolation,
             history_component_id,
             live_component_id,

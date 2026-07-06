@@ -579,7 +579,7 @@ pub trait PredictionRegistrationExt<C> {
     /// and then decaying the difference between that value and the corrected
     /// state over several frames.
     ///
-    /// This does not register an interpolation rule. The corrected component
+    /// This does not register an interpolation rule for C. The corrected component
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
@@ -596,7 +596,7 @@ pub trait PredictionRegistrationExt<C> {
     /// [`Diffable::diff`] for `C`; the error is decayed from `D::default()` to
     /// the current error using [`Ease`] linear interpolation.
     ///
-    /// This does not register an interpolation rule. The corrected component
+    /// This does not register an interpolation rule for C. The corrected component
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
@@ -612,7 +612,7 @@ pub trait PredictionRegistrationExt<C> {
     /// useful when the diff type `D` should not use [`Ease`] interpolation, or
     /// when its decay should follow component-specific logic.
     ///
-    /// This does not register an interpolation rule. The corrected component
+    /// This does not register an interpolation rule for C. The corrected component
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
