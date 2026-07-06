@@ -5,6 +5,7 @@ use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::*;
 use lightyear_connection::client::PeerMetadata;
+use lightyear_core::id::RemoteId;
 use lightyear_messages::Message;
 use lightyear_messages::multi::MultiMessageSender;
 use test_log::test;
@@ -147,6 +148,62 @@ fn test_send_message_server_to_host_client() {
         .resource_mut::<Buffer<StringMessage>>();
     assert_eq!(&received_messages.0, &vec![(host_client, send_message)]);
     received_messages.0.clear();
+}
+
+/// Use ServerMultiMessageSender to send a message from the server to only the host-client.
+#[test]
+fn test_send_message_server_to_single_host_client() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
+    let host_client = stepper.host_client_entity.unwrap();
+    let host_client_id = stepper.host_client().get::<RemoteId>().unwrap().0;
+    stepper.server_app.init_resource::<Buffer<StringMessage>>();
+    stepper
+        .server_app
+        .add_systems(Update, count_messages_observer::<StringMessage>);
+    stepper
+        .client_app()
+        .init_resource::<Buffer<StringMessage>>();
+    stepper
+        .client_app()
+        .add_systems(Update, count_messages_observer::<StringMessage>);
+
+    info!(
+        "Sending message from server to single host-client {host_client} via NetworkTarget::Single"
+    );
+    let send_message = StringMessage("Host".to_string());
+    let send_message_clone = send_message.clone();
+    let system_id = stepper.server_app.register_system(
+        move |mut sender: ServerMultiMessageSender, server: Single<&Server>| {
+            sender
+                .send::<_, Channel1>(
+                    &send_message_clone,
+                    server.into_inner(),
+                    &NetworkTarget::Single(host_client_id),
+                )
+                .ok();
+        },
+    );
+    stepper
+        .server_app
+        .world_mut()
+        .run_system(system_id)
+        .unwrap();
+    stepper.frame_step(2);
+
+    let received_messages = stepper.client_apps[0]
+        .world()
+        .resource::<Buffer<StringMessage>>();
+    assert_eq!(
+        &received_messages.0,
+        &[],
+        "remote client should not receive a host-client-only message"
+    );
+
+    let received_messages = stepper
+        .server_app
+        .world()
+        .resource::<Buffer<StringMessage>>();
+    assert_eq!(&received_messages.0, &vec![(host_client, send_message)]);
 }
 
 #[derive(Resource)]
