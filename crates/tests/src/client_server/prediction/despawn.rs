@@ -101,9 +101,25 @@ fn test_despawned_predicted_rollback() {
         .get_mut::<CompFull>(server_entity)
         .unwrap()
         .0 = 2.0;
-    // 3 frames: 1 for server to send, 1 for client to receive (mismatch detected),
-    // 1 for check_rollback to consume the mismatch and run rollback
-    stepper.frame_step(3);
+    // Step until the client receives the mismatch and rollback re-enables the
+    // predicted entity. Rounded timeline resyncs can shift this by a frame.
+    let mut rollback_completed = false;
+    for _ in 0..8 {
+        stepper.frame_step(1);
+        let world = stepper.client_app().world();
+        let disable_removed = world.get::<PredictionDisable>(predicted_entity).is_none();
+        let state_updated = world
+            .get::<CompFull>(predicted_entity)
+            .is_some_and(|value| value == &CompFull(2.0));
+        if disable_removed && state_updated {
+            rollback_completed = true;
+            break;
+        }
+    }
+    assert!(
+        rollback_completed,
+        "predicted entity should be re-enabled and updated after rollback"
+    );
 
     // Check that the entity was rolled back and the PredictionDisable marker was removed
     assert!(
