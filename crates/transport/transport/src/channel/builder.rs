@@ -354,7 +354,7 @@ pub struct SenderMetadata {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// ChannelMode specifies how messages are sent and received
-/// See more information [here](http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
+/// See more information [here](https://web.archive.org/web/20250113064633/http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
 pub enum ChannelMode {
     /// Messages may arrive out-of-order, or not at all.
     /// Still keep track of which messages got received.
