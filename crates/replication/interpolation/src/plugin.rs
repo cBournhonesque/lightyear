@@ -1,22 +1,17 @@
-use crate::archetypes::InterpolationWorld;
 use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{apply_interpolation, update_interpolation_history};
 use crate::registry::InterpolationRegistry;
-use crate::timeline::InterpolationTimeline;
 use crate::timeline::TimelinePlugin;
-use bevy_app::{App, Plugin, PreUpdate, Update};
+use bevy_app::{App, Plugin, Update};
 use bevy_ecs::{
     component::Component,
     prelude::*,
-    schedule::{ApplyDeferred, IntoScheduleConfigs, SystemSet},
+    schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
-use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{Interpolated, Tick};
 use lightyear_core::time::PositiveTickDelta;
-use lightyear_replication::ReplicationSystems;
-use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -79,17 +74,6 @@ pub type InterpolationSet = InterpolationSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSystems {
-    // PreUpdate Sets,
-    /// Sync components from the confirmed to the interpolated entity, and insert the ConfirmedHistory
-    Sync,
-
-    // Update
-    /// Reserved for systems that should run before interpolation preparation.
-    ///
-    /// Interpolated archetypes are cached by the combined prepare system, so
-    /// Lightyear does not install a built-in system in this set.
-    Cache,
-
     /// Update component histories and apply Lightyear-owned interpolation.
     ///
     /// This runs in two ordered phases. The first phase updates histories and
@@ -130,88 +114,12 @@ fn backfill_confirmed_histories_on_interpolated(
     }
 }
 
-#[derive(Debug, Default, Resource)]
-pub(crate) struct InterpolationUpdateSystemState {
-    generation: usize,
-    finalized: bool,
-}
-
-pub(crate) fn refresh_update_interpolation_system_if_finalized(app: &mut App) {
-    let Some(generation) = ({
-        let Some(mut state) = app
-            .world_mut()
-            .get_resource_mut::<InterpolationUpdateSystemState>()
-        else {
-            return;
-        };
-        state.finalized.then(|| {
-            state.generation += 1;
-            state.generation
-        })
-    }) else {
-        return;
-    };
-    add_update_interpolation_system_with_generation(app, generation);
-}
-
-/// Installs the type-erased interpolation update system.
-pub(crate) fn add_update_interpolation_system(app: &mut App) {
-    app.init_resource::<InterpolationUpdateSystemState>();
-    let generation = app
-        .world()
-        .get_resource::<InterpolationUpdateSystemState>()
-        .map_or(0, |state| state.generation);
-    add_update_interpolation_system_with_generation(app, generation);
-}
-
-fn add_update_interpolation_system_with_generation(app: &mut App, installed_generation: usize) {
-    let update_history_system =
-        move |interpolation_world: InterpolationWorld,
-              clients: Query<&InterpolationTimeline, Without<Interpolated>>,
-              interpolation_registry: Res<InterpolationRegistry>,
-              update_system_state: Res<InterpolationUpdateSystemState>,
-              checkpoints: Res<ReplicationCheckpointMap>,
-              replication_storage: Option<ResMut<ReplicationStorage>>,
-              commands: Commands| {
-            if update_system_state.generation != installed_generation {
-                return;
-            }
-            update_interpolation_history(
-                interpolation_world,
-                clients,
-                interpolation_registry,
-                checkpoints,
-                replication_storage,
-                commands,
-            );
-        };
-
-    let apply_system =
-        move |interpolation_world: InterpolationWorld,
-              clients: Query<&InterpolationTimeline, Without<Interpolated>>,
-              interpolation_registry: Res<InterpolationRegistry>,
-              update_system_state: Res<InterpolationUpdateSystemState>| {
-            if update_system_state.generation != installed_generation {
-                return;
-            }
-            apply_interpolation(interpolation_world, clients, interpolation_registry);
-        };
-
-    app.add_systems(
-        Update,
-        (update_history_system, ApplyDeferred, apply_system)
-            .chain()
-            .in_set(InterpolationSystems::Prepare),
-    );
-}
-
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
-        app.init_resource::<InterpolationUpdateSystemState>();
         configure_delayed_interpolated_despawn(app);
         app.add_observer(backfill_confirmed_histories_on_interpolated);
 
@@ -220,32 +128,27 @@ impl Plugin for InterpolationPlugin {
 
         // SETS
         app.configure_sets(
-            PreUpdate,
-            InterpolationSystems::Sync
-                .in_set(InterpolationSystems::All)
-                .chain()
-                .after(ReplicationSystems::Receive),
-        );
-        app.configure_sets(
             Update,
             (
                 // PrepareInterpolation uses the sync values (which are used to compute interpolation)
-                InterpolationSystems::Cache.after(SyncSystems::Sync),
-                InterpolationSystems::Prepare,
+                InterpolationSystems::Prepare.after(SyncSystems::Sync),
                 InterpolationSystems::Interpolate,
             )
                 .in_set(InterpolationSystems::All)
                 .chain(),
         );
-        add_update_interpolation_system(app);
+        app.add_systems(
+            Update,
+            (update_interpolation_history, apply_interpolation)
+                .chain()
+                .in_set(InterpolationSystems::Prepare),
+        );
     }
 
     fn finish(&self, app: &mut App) {
-        let world = app.world_mut();
-        world
-            .resource_mut::<InterpolationUpdateSystemState>()
-            .finalized = true;
-        world.resource_mut::<InterpolationRegistry>().finalize();
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .finalize();
     }
 }
 

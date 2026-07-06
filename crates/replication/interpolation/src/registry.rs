@@ -3,7 +3,6 @@ use crate::interpolate::{
     apply_interpolation_archetype_erased, update_history_archetype_erased,
     update_history_diff_archetype_erased,
 };
-use crate::plugin::refresh_update_interpolation_system_if_finalized;
 use crate::rules::frame_interpolate::{
     CachedFrameInterpolationApply, CachedFrameInterpolationComponent,
     ErasedApplyFrameInterpolationFn, ErasedInsertFrameHistoryFn, ErasedRestoreFrameHistoryFn,
@@ -1400,7 +1399,6 @@ pub(crate) fn add_interpolation_rule<C, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_rule::<C, F>(fns, config, component_ids);
-    refresh_update_interpolation_system_if_finalized(app);
 }
 
 fn add_interpolation_diff_rule<C, F>(
@@ -1430,7 +1428,6 @@ fn add_interpolation_diff_rule<C, F>(
     app.world_mut()
         .resource_mut::<InterpolationRegistry>()
         .insert_diff_rule::<C, F>(fns, config, component_ids);
-    refresh_update_interpolation_system_if_finalized(app);
 }
 
 pub(crate) fn add_interpolation_bundle_rule<B, F>(
@@ -1483,7 +1480,6 @@ pub(crate) fn add_interpolation_bundle_rule<B, F>(
     if owns_interpolation_history || owns_frame_history {
         B::add_history_rules::<F>(app, config, owns_interpolation_history);
     }
-    refresh_update_interpolation_system_if_finalized(app);
 }
 
 fn add_interpolation_with_impl<'a, C>(

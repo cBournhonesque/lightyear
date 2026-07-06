@@ -404,6 +404,7 @@ mod tests {
     use bevy_ecs::archetype::Archetype;
     use bevy_ecs::component::Component;
     use bevy_ecs::query::{QueryFilter, QueryState};
+    use bevy_ecs::schedule::IntoScheduleConfigs;
     use bevy_math::{
         Curve,
         curve::{Ease, FunctionCurve, Interval},
@@ -603,7 +604,12 @@ mod tests {
     }
 
     fn add_interpolation_test_systems(app: &mut App) {
-        crate::plugin::add_update_interpolation_system(app);
+        app.add_systems(
+            Update,
+            (update_interpolation_history, apply_interpolation)
+                .chain()
+                .in_set(crate::plugin::InterpolationSystems::Prepare),
+        );
     }
 
     fn two_point_history() -> ConfirmedHistory<TestComp> {
@@ -781,13 +787,12 @@ mod tests {
         app.configure_sets(
             Update,
             (
-                crate::plugin::InterpolationSystems::Cache,
                 crate::plugin::InterpolationSystems::Prepare,
                 crate::plugin::InterpolationSystems::Interpolate,
             )
                 .chain(),
         );
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
@@ -828,13 +833,12 @@ mod tests {
         app.configure_sets(
             Update,
             (
-                crate::plugin::InterpolationSystems::Cache,
                 crate::plugin::InterpolationSystems::Prepare,
                 crate::plugin::InterpolationSystems::Interpolate,
             )
                 .chain(),
         );
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.interpolate_bundle_with::<(TestComp, TestComp2)>(InterpolationFns::interpolate(
@@ -872,13 +876,12 @@ mod tests {
         app.configure_sets(
             Update,
             (
-                crate::plugin::InterpolationSystems::Cache,
                 crate::plugin::InterpolationSystems::Prepare,
                 crate::plugin::InterpolationSystems::Interpolate,
             )
                 .chain(),
         );
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.component::<TestBundleComp<3>>().replicate();
@@ -931,13 +934,12 @@ mod tests {
         app.configure_sets(
             Update,
             (
-                crate::plugin::InterpolationSystems::Cache,
                 crate::plugin::InterpolationSystems::Prepare,
                 crate::plugin::InterpolationSystems::Interpolate,
             )
                 .chain(),
         );
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         app.component::<TestComp>().replicate();
         app.component::<TestComp2>().replicate();
         app.interpolate_with_priority::<TestComp>(2, InterpolationFns::history_only());
@@ -987,13 +989,12 @@ mod tests {
         app.configure_sets(
             Update,
             (
-                crate::plugin::InterpolationSystems::Cache,
                 crate::plugin::InterpolationSystems::Prepare,
                 crate::plugin::InterpolationSystems::Interpolate,
             )
                 .chain(),
         );
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         app.component::<TestBundleComp<1>>().replicate();
         app.component::<TestBundleComp<2>>().replicate();
         app.component::<TestBundleComp<3>>().replicate();
@@ -1074,7 +1075,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_advances_to_latest_empty_mutate_tick_when_idle() {
         let mut app = setup_app(Tick(30), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         confirm_server_tick(&mut app, 1, Tick(30));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -1105,7 +1106,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_records_repeated_empty_mutate_ticks() {
         let mut app = setup_app(Tick(25), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         confirm_server_tick(&mut app, 1, Tick(30));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -1140,7 +1141,7 @@ mod tests {
     fn diff_history_waits_when_completed_tick_diff_is_pending() {
         let mut app = setup_app(Tick(5), 40);
         use_diff_history_rule(&mut app);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         confirm_server_tick(&mut app, 1, Tick(5));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1181,7 +1182,7 @@ mod tests {
     fn diff_history_without_receiver_does_not_remove_live_component() {
         let mut app = setup_app(Tick(5), 40);
         use_diff_history_rule(&mut app);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app
             .world_mut()
@@ -1201,7 +1202,7 @@ mod tests {
     fn update_confirmed_history_diff_advances_when_only_older_diff_is_pending() {
         let mut app = setup_app(Tick(6), 40);
         use_diff_history_rule(&mut app);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         confirm_server_tick(&mut app, 1, Tick(6));
 
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1245,7 +1246,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_does_not_move_history_backwards() {
         let mut app = setup_app(Tick(30), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         confirm_server_tick(&mut app, 1, Tick(100));
 
         let entity = app.world_mut().spawn(TestComp(9.5)).id();
@@ -1269,7 +1270,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_advances_from_server_mutate_ticks_without_entity_confirm_history() {
         let mut app = setup_app(Tick(30), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
         confirm_server_tick(&mut app, 1, Tick(20));
         confirm_server_tick(&mut app, 2, Tick(30));
 
@@ -1294,7 +1295,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_keeps_bracketing_pair_during_loss_gap() {
         let mut app = setup_app(Tick(25), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn(TestComp(999.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1325,7 +1326,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_waits_to_insert_component_until_start_tick() {
         let mut app = setup_app(Tick(9), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1341,7 +1342,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_removes_component_until_start_tick() {
         let mut app = setup_app(Tick(9), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1357,7 +1358,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_inserts_and_interpolates_when_start_tick_is_reached() {
         let mut app = setup_app(Tick(15), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1373,7 +1374,7 @@ mod tests {
     #[test]
     fn component_removal_waits_until_interpolation_tick_reaches_remove_tick() {
         let mut app = setup_app(Tick(15), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn(TestComp(99.0)).id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1392,7 +1393,7 @@ mod tests {
     #[test]
     fn component_reinsert_after_removal_waits_until_insert_tick() {
         let mut app = setup_app(Tick(15), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
@@ -1411,7 +1412,7 @@ mod tests {
     #[test]
     fn update_confirmed_history_seeds_component_at_current_interpolation_sample() {
         let mut app = setup_app(Tick(15), 40);
-        crate::plugin::add_update_interpolation_system(&mut app);
+        add_interpolation_test_systems(&mut app);
 
         let entity = app.world_mut().spawn_empty().id();
         let mut history = ConfirmedHistory::<TestComp>::default();
