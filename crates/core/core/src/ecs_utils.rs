@@ -2,22 +2,11 @@
 
 use bevy_ecs::{
     archetype::Archetype,
-    component::{Component, ComponentId, StorageType},
+    component::{Component, ComponentId, Mutable, StorageType},
     storage::Table,
     world::unsafe_world_cell::UnsafeWorldCell,
 };
 use core::cell::UnsafeCell;
-
-/// Component column state for table-optimized archetype scans.
-#[derive(Clone, Copy)]
-pub enum ComponentTableColumn<'w, C> {
-    /// The component is present and table-stored on this archetype.
-    Table(&'w [UnsafeCell<C>]),
-    /// The component type is not registered or not present on this archetype.
-    Missing,
-    /// The component is present but not table-stored.
-    NonTable,
-}
 
 /// Returns the table backing `archetype`.
 pub fn table_for_archetype<'w>(
@@ -52,21 +41,34 @@ pub fn table_component_slice_if_table<C: Component>(
     }
 }
 
-/// Returns table-column state for component `C` on `archetype`.
-pub fn component_table_column<'w, C: Component>(
-    world: UnsafeWorldCell<'w>,
-    archetype: &Archetype,
-    table: &'w Table,
-) -> ComponentTableColumn<'w, C> {
-    let Some(component_id) = world.components().component_id::<C>() else {
-        return ComponentTableColumn::Missing;
+/// Replaces an entity's component value through Bevy's change-detection-aware
+/// mutable access.
+///
+/// Type-erased systems often read histories directly from table columns for
+/// efficient archetype scans. Writing a live component through the same raw
+/// column access would update its value without updating its change tick. This
+/// helper preserves normal `Mut<C>` semantics while keeping the surrounding
+/// scan type-erased.
+///
+/// Returns `false` when the entity no longer exists or does not contain `C`.
+///
+/// # Safety
+///
+/// The caller must have exclusive access to `C` and must not hold any other
+/// reference to this entity's `C`.
+pub unsafe fn write_component_with_change_detection<C: Component<Mutability = Mutable>>(
+    world: UnsafeWorldCell,
+    entity: bevy_ecs::entity::Entity,
+    value: C,
+) -> bool {
+    let Ok(entity) = world.get_entity(entity) else {
+        return false;
     };
-    if !archetype.contains(component_id) {
-        return ComponentTableColumn::Missing;
-    }
-    let Some(StorageType::Table) = archetype.get_storage_type(component_id) else {
-        return ComponentTableColumn::NonTable;
+    // SAFETY: upheld by the caller. `get_mut` returns Bevy's `Mut<C>`, so
+    // assigning through it updates the component's change tick and caller.
+    let Some(mut component) = (unsafe { entity.get_mut::<C>() }) else {
+        return false;
     };
-    table_component_slice::<C>(table, component_id)
-        .map_or(ComponentTableColumn::NonTable, ComponentTableColumn::Table)
+    *component = value;
+    true
 }

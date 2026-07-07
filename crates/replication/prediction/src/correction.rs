@@ -40,13 +40,16 @@
 //!   tick entry in [`PredictionHistory`].
 //! - `update_frame_interpolation_post_rollback` then calls the selected
 //!   frame-interpolation rule from [`InterpolationRegistry`] for archetypes
-//!   that contain [`PreviousVisual`]. This temporarily writes the corrected
-//!   visual sample into the live component, using the same component or bundle
-//!   rule that normal frame interpolation would use.
+//!   that contain at least one [`PreviousVisual`]. This temporarily writes the
+//!   corrected visual sample into the live components, using the same component
+//!   or bundle rule that normal frame interpolation would use. A bundle member
+//!   does not need its own `PreviousVisual`: its repaired predicted frame
+//!   history can still contribute to another member's corrected sample.
 //! - It compares that corrected visual sample with [`PreviousVisual`], inserts
 //!   [`VisualCorrection`] with the resulting visual error, removes
-//!   [`PreviousVisual`], and restores the live component back to the corrected
-//!   simulation value from [`FrameInterpolationHistory`].
+//!   [`PreviousVisual`], and restores every live component temporarily written
+//!   by the rule back to the corrected simulation value from
+//!   [`FrameInterpolationHistory`].
 //!
 //! Finally, `add_visual_correction` runs in
 //! [`RollbackSystems::VisualCorrection`], ordered after
@@ -78,12 +81,14 @@ use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_core::ecs_utils::{table_component_slice, table_for_archetype};
+use lightyear_core::ecs_utils::{
+    table_component_slice, table_for_archetype, write_component_with_change_detection,
+};
 use lightyear_core::prelude::*;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::registry::InterpolationRegistry;
 use lightyear_interpolation::rules::frame_interpolate::{
-    CachedFrameInterpolationApply, FrameInterpolationContext,
+    CachedFrameInterpolationApply, CachedFrameInterpolationComponent, FrameInterpolationContext,
 };
 use lightyear_interpolation::rules::{InterpolationRuleId, RuleKind};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
@@ -108,6 +113,7 @@ pub struct VisualCorrection<D> {
 pub(crate) struct PostRollbackCorrectionContext {
     tick: Tick,
     overstep: f32,
+    sample_delta_secs: f32,
 }
 
 /// Type-erased visual correction handler registered per corrected component.
@@ -260,10 +266,12 @@ impl PostRollbackCorrectionArchetypes {
 
     /// Refreshes the correction cache for newly-created archetypes.
     ///
-    /// Rule selection mirrors frame interpolation, except rule members must all
-    /// have an active `PreviousVisual<C>` correction marker on the archetype.
-    /// A high-priority no-apply rule still claims its members, so it blocks
-    /// lower-priority rules just like normal interpolation rule selection.
+    /// Rule selection mirrors frame interpolation. A selected rule participates
+    /// when at least one of its members has an active `PreviousVisual<C>`
+    /// correction marker; other bundle members still provide their repaired
+    /// predicted frame-history samples. A high-priority no-apply rule still
+    /// claims its members, so it blocks lower-priority rules just like normal
+    /// interpolation rule selection.
     fn update(
         &mut self,
         archetypes: &Archetypes,
@@ -292,6 +300,11 @@ impl PostRollbackCorrectionArchetypes {
                     interpolation_registry.select_rule_for_archetype(components, archetype, kind)
                 {
                     cached.selected_rules.insert(kind, rule_id);
+                    if let Some(component) = interpolation_registry
+                        .cached_frame_history_component(components, archetype, rule_id)
+                    {
+                        cached.frame_history_components.push(component);
+                    }
                 }
             }
 
@@ -314,6 +327,8 @@ struct CachedPostRollbackCorrectionArchetype {
     covered_members: Vec<ComponentKind>,
     selected_rules: HashMap<RuleKind, InterpolationRuleId>,
     apply_rules: Vec<CachedFrameInterpolationApply>,
+    frame_history_components: Vec<CachedFrameInterpolationComponent>,
+    restore_components: Vec<CachedFrameInterpolationComponent>,
 }
 
 impl CachedPostRollbackCorrectionArchetype {
@@ -324,6 +339,8 @@ impl CachedPostRollbackCorrectionArchetype {
             covered_members: Vec::new(),
             selected_rules: HashMap::default(),
             apply_rules: Vec::new(),
+            frame_history_components: Vec::new(),
+            restore_components: Vec::new(),
         }
     }
 
@@ -333,6 +350,10 @@ impl CachedPostRollbackCorrectionArchetype {
 
     fn apply_rules(&self) -> &[CachedFrameInterpolationApply] {
         &self.apply_rules
+    }
+
+    fn restore_components(&self) -> &[CachedFrameInterpolationComponent] {
+        &self.restore_components
     }
 
     fn collect_active_members(
@@ -351,13 +372,14 @@ impl CachedPostRollbackCorrectionArchetype {
     fn resolve_apply_rules(&mut self, registry: &InterpolationRegistry) {
         self.apply_rules.clear();
         self.covered_members.clear();
+        self.restore_components.clear();
 
         // `selected_rules` contains the best matching rule for each rule kind
         // on this archetype, for example `A`, `B`, and `(A, B)`. Correction
-        // only cares about members that have `PreviousVisual<C>` on this
-        // archetype. We walk selected rules by precedence and let each
-        // applicable rule claim all of its active members so higher-priority
-        // bundle rules can suppress overlapping single-component rules.
+        // only creates correction errors for members that have
+        // `PreviousVisual<C>` on this archetype. Rule ownership must still
+        // match normal frame interpolation: a bundle is atomic and may use
+        // non-corrected members as inputs to the corrected member's sample.
         let mut candidates = self
             .selected_rules
             .iter()
@@ -373,22 +395,40 @@ impl CachedPostRollbackCorrectionArchetype {
             if rule
                 .members()
                 .iter()
-                .any(|member| !self.active_members.contains(member))
-            {
-                continue;
-            }
-            if rule
-                .members()
-                .iter()
                 .any(|member| claimed_members.contains(member))
             {
                 continue;
             }
 
             claimed_members.extend(rule.members().iter().copied());
+            let active_rule_members = rule
+                .members()
+                .iter()
+                .filter(|member| self.active_members.contains(member))
+                .copied()
+                .collect::<Vec<_>>();
+            if active_rule_members.is_empty() {
+                continue;
+            }
             if let Some(apply) = registry.cached_frame_apply_component(rule_id) {
-                self.covered_members.extend(rule.members().iter().copied());
+                self.covered_members.extend(active_rule_members);
                 self.apply_rules.push(apply);
+                for member in rule.members() {
+                    if self
+                        .restore_components
+                        .iter()
+                        .any(|component| component.kind() == *member)
+                    {
+                        continue;
+                    }
+                    if let Some(component) = self
+                        .frame_history_components
+                        .iter()
+                        .find(|component| component.kind() == *member)
+                    {
+                        self.restore_components.push(*component);
+                    }
+                }
             }
         }
     }
@@ -465,6 +505,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         // NOTE: this is the overstep from the previous frame since we are running this before RunFixedMainLoop
         overstep: time.overstep_fraction(),
         tick: timeline.tick(),
+        sample_delta_secs: time.timestep().as_secs_f32(),
     };
     let mut deferred_apply = DeferredEntityCommands::default();
     let world = correction_world.world;
@@ -496,6 +537,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         correction.create_visual_correction(world, ctx, &mut deferred_apply);
         correction.restore_history(world);
     }
+    restore_applied_frame_interpolation_components(world, &correction_archetypes);
     deferred_apply.apply(&mut commands);
 }
 
@@ -547,10 +589,31 @@ fn apply_frame_interpolation_for_visual_correction(
                 apply.rule_id(),
                 FrameInterpolationContext {
                     overstep: ctx.overstep,
+                    sample_delta_secs: Some(ctx.sample_delta_secs),
                 },
                 false,
                 deferred_apply,
             );
+        }
+    }
+}
+
+/// Restores every component temporarily written by a correction-time apply rule.
+///
+/// Bundle interpolation can write members that do not have correction enabled
+/// and therefore have no typed post-rollback correction handler of their own.
+/// Those members still need to return to their authoritative predicted value
+/// before simulation continues.
+fn restore_applied_frame_interpolation_components(
+    world: UnsafeWorldCell,
+    correction_archetypes: &PostRollbackCorrectionArchetypes,
+) {
+    for cached_archetype in correction_archetypes.iter() {
+        let Some(archetype) = world.archetypes().get(cached_archetype.id()) else {
+            continue;
+        };
+        for component in cached_archetype.restore_components() {
+            (component.restore_frame_history())(world, archetype, component);
         }
     }
 }
@@ -672,9 +735,6 @@ pub(crate) fn restore_frame_history_post_rollback_erased<
         let Some(table) = table_for_archetype(world, archetype) else {
             continue;
         };
-        let Some(components) = table_component_slice::<C>(table, component_id) else {
-            continue;
-        };
         let Some(frame_histories) =
             table_component_slice::<FrameInterpolationHistory<C>>(table, frame_history_id)
         else {
@@ -687,8 +747,15 @@ pub(crate) fn restore_frame_history_post_rollback_erased<
             let Some(current_value) = &interpolate.current_value else {
                 continue;
             };
-            let component = unsafe { &mut *components.get_unchecked(row).get() };
-            *component = current_value.clone();
+            // SAFETY: the erased correction system declares write access to C,
+            // and no reference to this entity's live C is held here.
+            unsafe {
+                write_component_with_change_detection::<C>(
+                    world,
+                    entity.id(),
+                    current_value.clone(),
+                );
+            }
         }
     }
 }
@@ -741,7 +808,7 @@ pub(crate) fn add_visual_correction<
             let new_error = prediction
                 .apply_correction::<C, D>(previous_error.clone(), r)
                 .expect("No correction function was found. Call add_correction, add_linear_correction, or add_correction_fn for this component.");
-            component.bypass_change_detection().apply_diff(&new_error);
+            component.apply_diff(&new_error);
             trace!(
                 target: "lightyear_debug::prediction",
                 kind = "visual_correction_apply",
@@ -814,7 +881,7 @@ mod tests {
     use bevy_state::app::StatesPlugin;
     use lightyear_interpolation::{
         registry::{AppInterpolationExt, InterpolationRegistry},
-        rules::InterpolationFns,
+        rules::{InterpolationFns, InterpolationSampleContext},
     };
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::delta::Diffable as LightyearDiffable;
@@ -909,15 +976,74 @@ mod tests {
         );
     }
 
-    fn bundle_lerp(
+    fn bundle_context_lerp(
         start: (CorrectionA, CorrectionB),
         end: (CorrectionA, CorrectionB),
-        t: f32,
+        context: InterpolationSampleContext,
     ) -> (CorrectionA, CorrectionB) {
+        let sample_delta_secs = context.sample_delta_secs.unwrap_or_default();
         (
-            CorrectionA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
-            CorrectionB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+            CorrectionA(100.0 + start.0.0 + (end.0.0 - start.0.0) * context.t + sample_delta_secs),
+            CorrectionB(200.0 + start.1.0 + (end.1.0 - start.1.0) * context.t + sample_delta_secs),
         )
+    }
+
+    fn bundle_lerp_uses_uncorrected_member(
+        start: (CorrectionA, CorrectionB),
+        end: (CorrectionA, CorrectionB),
+        context: InterpolationSampleContext,
+    ) -> (CorrectionA, CorrectionB) {
+        let a = start.0.0 + (end.0.0 - start.0.0) * context.t;
+        let b = start.1.0 + (end.1.0 - start.1.0) * context.t;
+        (
+            CorrectionA(a + b + context.sample_delta_secs.unwrap_or_default()),
+            // Make it obvious if the temporary bundle output is not restored.
+            CorrectionB(10_000.0),
+        )
+    }
+
+    #[test]
+    fn visual_correction_marks_component_changed() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+        app.insert_resource(Time::<Virtual>::default());
+        app.component::<CorrectionA>().predict().add_correction();
+        app.world_mut().spawn(PredictionManager::default());
+        let entity = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                VisualCorrection {
+                    error: CorrectionA(1.0),
+                },
+            ))
+            .id();
+        app.world_mut().clear_trackers();
+        let changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<CorrectionA>()
+            .unwrap()
+            .changed;
+
+        app.world_mut()
+            .run_system_once(add_visual_correction::<CorrectionA, CorrectionA>)
+            .unwrap();
+
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<CorrectionA>()
+                .unwrap()
+                .changed,
+            changed
+        );
     }
 
     // Verifies that repair handles both surviving and removed components
@@ -1230,9 +1356,9 @@ mod tests {
         app.interpolate_with::<CorrectionB>(InterpolationFns::no_history(|_, _, _| {
             CorrectionB(2_000.0)
         }));
-        app.interpolate_bundle_with::<(CorrectionA, CorrectionB)>(InterpolationFns::no_history(
-            bundle_lerp,
-        ));
+        app.interpolate_bundle_with::<(CorrectionA, CorrectionB)>(
+            InterpolationFns::no_history_with_context(bundle_context_lerp),
+        );
 
         let mut history_a = PredictionHistory::<CorrectionA>::default();
         history_a.add_predicted(Tick(9), Some(CorrectionA(0.0)));
@@ -1276,13 +1402,13 @@ mod tests {
             app.world()
                 .get::<VisualCorrection<CorrectionA>>(entity)
                 .map(|correction| &correction.error),
-            Some(&CorrectionA(-104.0))
+            Some(&CorrectionA(-105.0))
         );
         assert_eq!(
             app.world()
                 .get::<VisualCorrection<CorrectionB>>(entity)
                 .map(|correction| &correction.error),
-            Some(&CorrectionB(-208.0))
+            Some(&CorrectionB(-209.0))
         );
         assert!(
             app.world()
@@ -1292,6 +1418,96 @@ mod tests {
         assert!(
             app.world()
                 .get::<PreviousVisual<CorrectionB>>(entity)
+                .is_none()
+        );
+    }
+
+    // A bundle member without `PreviousVisual` still supplies its repaired
+    // predicted samples to the bundle rule, but does not get its own visual
+    // correction. Its temporary bundle output is restored after sampling.
+    #[test]
+    fn post_rollback_bundle_uses_member_without_previous_visual() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.insert_resource(LocalTimeline::default());
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
+
+        app.component::<CorrectionA>().predict().add_correction();
+        app.component::<CorrectionB>().predict();
+
+        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|_, _, _| {
+            CorrectionA(1_000.0)
+        }));
+        app.interpolate_with::<CorrectionB>(InterpolationFns::no_history(|_, _, _| {
+            CorrectionB(2_000.0)
+        }));
+        app.interpolate_bundle_with::<(CorrectionA, CorrectionB)>(
+            InterpolationFns::no_history_with_context(bundle_lerp_uses_uncorrected_member),
+        );
+
+        let mut history_a = PredictionHistory::<CorrectionA>::default();
+        history_a.add_predicted(Tick(9), Some(CorrectionA(0.0)));
+        let mut history_b = PredictionHistory::<CorrectionB>::default();
+        history_b.add_predicted(Tick(9), Some(CorrectionB(4.0)));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                CorrectionA(10.0),
+                CorrectionB(20.0),
+                PreviousVisual(CorrectionA(1.0)),
+                history_a,
+                history_b,
+                FrameInterpolationHistory::<CorrectionA>::default(),
+                FrameInterpolationHistory::<CorrectionB>::default(),
+            ))
+            .id();
+
+        app.world_mut()
+            .run_system_once(repair_frame_interpolation_history::<CorrectionA>)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(repair_frame_interpolation_history::<CorrectionB>)
+            .unwrap();
+        app.world_mut()
+            .run_system_once(update_frame_interpolation_post_rollback)
+            .unwrap();
+        app.world_mut().flush();
+
+        assert_eq!(
+            app.world().get::<CorrectionA>(entity),
+            Some(&CorrectionA(10.0))
+        );
+        assert_eq!(
+            app.world().get::<CorrectionB>(entity),
+            Some(&CorrectionB(20.0))
+        );
+        assert_eq!(
+            app.world()
+                .get::<VisualCorrection<CorrectionA>>(entity)
+                .map(|correction| &correction.error),
+            Some(&CorrectionA(-17.0))
+        );
+        assert!(
+            app.world()
+                .get::<VisualCorrection<CorrectionB>>(entity)
+                .is_none()
+        );
+        assert!(
+            app.world()
+                .get::<PreviousVisual<CorrectionA>>(entity)
                 .is_none()
         );
     }

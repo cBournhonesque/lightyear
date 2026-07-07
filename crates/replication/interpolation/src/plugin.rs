@@ -1,6 +1,6 @@
 use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{apply_interpolation, update_interpolation_history};
-use crate::registry::InterpolationRegistry;
+use crate::registry::{InterpolationRegistry, finalize_interpolation_registry};
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, Update};
 use bevy_ecs::{
@@ -146,9 +146,7 @@ impl Plugin for InterpolationPlugin {
     }
 
     fn finish(&self, app: &mut App) {
-        app.world_mut()
-            .resource_mut::<InterpolationRegistry>()
-            .finalize();
+        finalize_interpolation_registry(app);
     }
 }
 

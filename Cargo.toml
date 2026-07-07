@@ -245,6 +245,7 @@ bevy_replicon = { git = "https://github.com/simgine/bevy_replicon", branch = "ma
 # physics
 avian2d = { version = "0.7", default-features = false }
 avian3d = { version = "0.7", default-features = false }
+bevy_transform_interpolation = { version = "0.5", default-features = false }
 
 # gui debug ui
 bevy-inspector-egui = { version = "0.37", default-features = false, features = [

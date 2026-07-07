@@ -94,8 +94,8 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation()
             .add_correction();
 
-        // LinearVelocity is predicted for client physics, but it does not need
-        // interpolation/correction because it is not rendered directly.
+        // The Avian integration automatically combines these with Position
+        // and Rotation in its velocity-aware Hermite interpolation rule.
         app.component::<LinearVelocity>().replicate().predict();
 
         app.component::<AngularVelocity>().replicate().predict();

@@ -18,6 +18,10 @@
 //!   [`InterpolationFns::no_history`](lightyear_interpolation::rules::InterpolationFns::no_history).
 //! - FrameInterpolation is not enabled by default; add [`FrameInterpolationPlugin`] manually
 //! - To enable FrameInterpolation on a given entity, add the type-erased [`FrameInterpolate`] marker to it manually
+//!
+//! Frame interpolation writes through Bevy's change-detection-aware component
+//! access. Systems ordered after [`FrameInterpolationSystems::Interpolate`] can
+//! therefore use `Changed<C>` to react to the visual value.
 //! ```rust,ignore
 //! # use lightyear_frame_interpolation::prelude::*;
 //! # use lightyear_interpolation::prelude::*;
@@ -298,6 +302,7 @@ pub(crate) fn apply_frame_interpolation(
     let mut deferred_apply = DeferredEntityCommands::default();
     let ctx = FrameInterpolationContext {
         overstep: time.overstep_fraction().clamp(0.0, 1.0),
+        sample_delta_secs: Some(time.timestep().as_secs_f32()),
     };
 
     frame_world.update_archetypes(&interpolation_registry);
@@ -339,7 +344,9 @@ mod unit_tests {
     use core::time::Duration;
     use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_interpolation::registry::AppInterpolationExt;
-    use lightyear_interpolation::rules::{InterpolationFns, InterpolationFnsExt};
+    use lightyear_interpolation::rules::{
+        InterpolationFns, InterpolationFnsExt, InterpolationSampleContext,
+    };
     use lightyear_replication::prelude::AppComponentExt;
     use serde::{Deserialize, Serialize};
 
@@ -372,6 +379,17 @@ mod unit_tests {
         (
             FrameA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
             FrameB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+        )
+    }
+
+    fn bundle_context_lerp(
+        _start: (FrameA, FrameB),
+        _end: (FrameA, FrameB),
+        context: InterpolationSampleContext,
+    ) -> (FrameA, FrameB) {
+        (
+            FrameA(context.t),
+            FrameB(context.sample_delta_secs.unwrap_or_default()),
         )
     }
 
@@ -505,11 +523,75 @@ mod unit_tests {
                 },
             ))
             .id();
+        app.world_mut().clear_trackers();
+        let first_changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<FrameA>()
+            .unwrap()
+            .changed;
+        let second_changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<FrameB>()
+            .unwrap()
+            .changed;
 
         app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(105.0)));
         assert_eq!(app.world().get::<FrameB>(entity), Some(&FrameB(210.0)));
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<FrameA>()
+                .unwrap()
+                .changed,
+            first_changed
+        );
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<FrameB>()
+                .unwrap()
+                .changed,
+            second_changed
+        );
+    }
+
+    #[test]
+    fn frame_bundle_interpolation_receives_fixed_timestep() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(2)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::no_history_with_context(
+            bundle_context_lerp,
+        ));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameB(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(0.0)),
+                    current_value: Some(FrameA(10.0)),
+                },
+                FrameInterpolationHistory::<FrameB> {
+                    previous_value: Some(FrameB(0.0)),
+                    current_value: Some(FrameB(20.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(0.25)));
+        assert_eq!(app.world().get::<FrameB>(entity), Some(&FrameB(2.0)));
     }
 
     #[test]
@@ -542,10 +624,25 @@ mod unit_tests {
                 },
             ))
             .id();
+        app.world_mut().clear_trackers();
+        let changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<FrameA>()
+            .unwrap()
+            .changed;
 
         app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(12.0)));
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<FrameA>()
+                .unwrap()
+                .changed,
+            changed
+        );
     }
 
     #[test]
@@ -655,11 +752,26 @@ mod unit_tests {
             .unwrap();
         assert_eq!(history.previous_value, Some(SparseFrame(1.0)));
         assert_eq!(history.current_value, Some(SparseFrame(3.0)));
+        app.world_mut().clear_trackers();
+        let changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<SparseFrame>()
+            .unwrap()
+            .changed;
 
         app.world_mut().run_schedule(PostUpdate);
         assert_eq!(
             app.world().get::<SparseFrame>(entity),
             Some(&SparseFrame(2.0))
+        );
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<SparseFrame>()
+                .unwrap()
+                .changed,
+            changed
         );
 
         app.world_mut().run_schedule(RunFixedMainLoop);

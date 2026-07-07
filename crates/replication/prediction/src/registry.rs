@@ -584,6 +584,9 @@ pub trait PredictionRegistrationExt<C> {
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    /// Other members of the selected bundle do not need correction enabled or
+    /// their own `PreviousVisual`; their repaired predicted frame histories are
+    /// still available as inputs when computing the corrected sample for `C`.
     fn add_correction(self) -> Self
     where
         C: SyncComponent + Diffable<C> + Ease + Default;
@@ -601,6 +604,9 @@ pub trait PredictionRegistrationExt<C> {
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    /// Other members of the selected bundle do not need correction enabled or
+    /// their own `PreviousVisual`; their repaired predicted frame histories are
+    /// still available as inputs when computing the corrected sample for `C`.
     fn add_linear_correction<D>(self) -> Self
     where
         C: SyncComponent + Diffable<D>,
@@ -617,6 +623,9 @@ pub trait PredictionRegistrationExt<C> {
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    /// Other members of the selected bundle do not need correction enabled or
+    /// their own `PreviousVisual`; their repaired predicted frame histories are
+    /// still available as inputs when computing the corrected sample for `C`.
     fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,

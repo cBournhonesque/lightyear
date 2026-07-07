@@ -6,6 +6,7 @@
 
 use super::{
     ApplyInterpolationContext, InterpolationFns, InterpolationRuleConfig, InterpolationRuleId,
+    InterpolationSampleContext,
 };
 use crate::SyncComponent;
 use crate::interpolate::present_history_bracket;
@@ -20,9 +21,7 @@ use bevy_ecs::component::ComponentId;
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
-use lightyear_core::ecs_utils::{
-    ComponentTableColumn, component_table_column, table_for_archetype,
-};
+use lightyear_core::ecs_utils::{table_for_archetype, write_component_with_change_detection};
 use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::ComponentKind;
@@ -215,7 +214,6 @@ macro_rules! impl_interpolation_bundle {
                 }) else {
                     return;
                 };
-                let $component0 = component_table_column::<$C0>(world, archetype, table);
                 $(
                     let Some($history) = components.component_id::<ConfirmedHistory<$C>>() else {
                         return;
@@ -225,9 +223,10 @@ macro_rules! impl_interpolation_bundle {
                     }) else {
                         return;
                     };
-                    let $component = component_table_column::<$C>(world, archetype, table);
                 )+
 
+                let interpolation =
+                    interpolation_registry.interpolation_for_rule::<($C0, $($C,)+)>(rule_id);
                 for entity in archetype.entities() {
                     let row = entity.table_row().index();
                     let $history0 = unsafe { &*$history0.get_unchecked(row).get() };
@@ -253,18 +252,17 @@ macro_rules! impl_interpolation_bundle {
                             Some(($end_tick0, $end_value0)),
                             $(Some(($end_tick, $end_value)),)+
                         ) if true $(&& $end_tick0 == $end_tick)+ => {
-                            let fraction = (((ctx.interpolation_tick - $start_tick0) as f32
-                                + ctx.interpolation_overstep)
-                                / ($end_tick0 - $start_tick0) as f32)
-                                .clamp(0.0, 1.0);
-                            if let Some(interpolation) =
-                                interpolation_registry
-                                    .interpolation_for_rule::<($C0, $($C,)+)>(rule_id)
-                            {
-                                interpolation(
+                            if let Some(interpolation) = interpolation {
+                                interpolation.interpolate(
                                     ($start0, $($start,)+),
                                     ($end_value0, $($end_value,)+),
-                                    fraction,
+                                    InterpolationSampleContext::from_ticks(
+                                        $start_tick0,
+                                        $end_tick0,
+                                        ctx.interpolation_tick,
+                                        ctx.interpolation_overstep,
+                                        ctx.tick_duration,
+                                    ),
                                 )
                             } else {
                                 ($start0, $($start,)+)
@@ -277,22 +275,24 @@ macro_rules! impl_interpolation_bundle {
                     };
 
                     let ($output0, $($output,)+) = interpolated;
-                    match $component0 {
-                        ComponentTableColumn::Table($component0) => {
-                            let $component0 = unsafe { &mut *$component0.get_unchecked(row).get() };
-                            *$component0 = $output0;
-                        }
-                        ComponentTableColumn::Missing => {}
-                        ComponentTableColumn::NonTable => {}
+                    // SAFETY: the erased interpolation system declares write
+                    // access to every bundle member, and no live-component
+                    // references are held while these writes occur.
+                    unsafe {
+                        write_component_with_change_detection::<$C0>(
+                            world,
+                            entity.id(),
+                            $output0,
+                        );
                     }
                     $(
-                        match $component {
-                            ComponentTableColumn::Table($component) => {
-                                let $component = unsafe { &mut *$component.get_unchecked(row).get() };
-                                *$component = $output;
-                            }
-                            ComponentTableColumn::Missing => {}
-                            ComponentTableColumn::NonTable => {}
+                        // SAFETY: same as for the first bundle member above.
+                        unsafe {
+                            write_component_with_change_detection::<$C>(
+                                world,
+                                entity.id(),
+                                $output,
+                            );
                         }
                     )+
                 }
@@ -329,11 +329,14 @@ macro_rules! impl_interpolation_bundle {
                         return;
                     };
                 )+
-                let $component0 = component_table_column::<$C0>(world, archetype, table);
+                let $component0 = components
+                    .component_id::<$C0>()
+                    .is_some_and(|component_id| archetype.contains(component_id));
                 $(
-                    let $component = component_table_column::<$C>(world, archetype, table);
+                    let $component = components
+                        .component_id::<$C>()
+                        .is_some_and(|component_id| archetype.contains(component_id));
                 )+
-
                 let interpolation =
                     interpolation_registry.interpolation_for_rule::<($C0, $($C,)+)>(rule_id);
                 for entity in archetype.entities() {
@@ -370,10 +373,10 @@ macro_rules! impl_interpolation_bundle {
                         $($history.previous_value.clone(),)+
                         interpolation,
                     ) {
-                        interpolation(
+                        interpolation.interpolate(
                             ($start0, $($start,)+),
                             ($end_value0, $($end_value,)+),
-                            ctx.overstep,
+                            InterpolationSampleContext::new(ctx.overstep, ctx.sample_delta_secs),
                         )
                     } else {
                         trace!(
@@ -385,22 +388,34 @@ macro_rules! impl_interpolation_bundle {
                     };
 
                     let ($output0, $($output,)+) = interpolated;
-                    match $component0 {
-                        ComponentTableColumn::Table($component0) => {
-                            let $component0 = unsafe { &mut *$component0.get_unchecked(row).get() };
-                            *$component0 = $output0;
+                    // SAFETY: the erased frame-interpolation system declares
+                    // write access to every bundle member, and no references
+                    // to their live values are held while these writes occur.
+                    if $component0 {
+                        // SAFETY: explained above. Component presence was
+                        // resolved from the cached archetype.
+                        unsafe {
+                            write_component_with_change_detection::<$C0>(
+                                world,
+                                entity.id(),
+                                $output0,
+                            );
                         }
-                        ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output0),
-                        ComponentTableColumn::NonTable => {}
+                    } else {
+                        deferred_apply.insert(entity.id(), $output0);
                     }
                     $(
-                        match $component {
-                            ComponentTableColumn::Table($component) => {
-                                let $component = unsafe { &mut *$component.get_unchecked(row).get() };
-                                *$component = $output;
+                        // SAFETY: same as for the first bundle member above.
+                        if $component {
+                            unsafe {
+                                write_component_with_change_detection::<$C>(
+                                    world,
+                                    entity.id(),
+                                    $output,
+                                );
                             }
-                            ComponentTableColumn::Missing => deferred_apply.insert(entity.id(), $output),
-                            ComponentTableColumn::NonTable => {}
+                        } else {
+                            deferred_apply.insert(entity.id(), $output);
                         }
                     )+
                 }

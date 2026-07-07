@@ -5,7 +5,7 @@
 
 use crate::SyncComponent;
 use crate::registry::InterpolationRegistry;
-use crate::rules::InterpolationRuleId;
+use crate::rules::{InterpolationRuleId, InterpolationSampleContext};
 use alloc::vec::Vec;
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, StorageType};
@@ -14,11 +14,12 @@ use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::ecs_utils::{
     table_component_slice, table_component_slice_if_table, table_for_archetype,
+    write_component_with_change_detection,
 };
 use lightyear_core::prelude::FrameInterpolationHistory;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::ComponentKind;
-use lightyear_utils::ecs::{get_component_unchecked, get_component_unchecked_mut};
+use lightyear_utils::ecs::get_component_unchecked;
 use tracing::trace;
 
 #[derive(Debug, Clone, Copy)]
@@ -26,6 +27,8 @@ use tracing::trace;
 pub struct FrameInterpolationContext {
     #[doc(hidden)]
     pub overstep: f32,
+    #[doc(hidden)]
+    pub sample_delta_secs: Option<f32>,
 }
 
 /// Type-erased function that updates one component's frame interpolation history.
@@ -377,41 +380,18 @@ pub(crate) fn restore_frame_history_archetype_erased<C: SyncComponent>(
     ) else {
         return;
     };
-    let live_component_id = component.live_component_id();
-    let live_component_storage = archetype.get_storage_type(live_component_id);
-    let live_components =
-        table_component_slice_if_table::<C>(table, live_component_id, live_component_storage);
-
     for entity in archetype.entities() {
         let row = entity.table_row().index();
         let history = unsafe { &*histories.get_unchecked(row).get() };
         let Some(current_value) = &history.current_value else {
             continue;
         };
-        match live_component_storage {
-            Some(StorageType::Table) => {
-                let Some(live_components) = live_components else {
-                    continue;
-                };
-                let component = unsafe { &mut *live_components.get_unchecked(row).get() };
-                *component = current_value.clone();
-            }
-            Some(StorageType::SparseSet) => {
-                // SAFETY: this cached archetype contains `component_id`, and
-                // the system param declares write access to all frame components.
-                let component = unsafe {
-                    get_component_unchecked_mut(
-                        world,
-                        entity,
-                        archetype.table_id(),
-                        StorageType::SparseSet,
-                        live_component_id,
-                    )
-                    .deref_mut::<C>()
-                };
-                *component = current_value.clone();
-            }
-            None => continue,
+        // SAFETY: this erased system declares write access to C, and the only
+        // other live reference here is to FrameInterpolationHistory<C>.
+        if !unsafe {
+            write_component_with_change_detection::<C>(world, entity.id(), current_value.clone())
+        } {
+            continue;
         }
         trace!(
             target: "lightyear_debug::frame_interpolation",
@@ -458,9 +438,10 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     else {
         return;
     };
-    let live_component_id = world.components().component_id::<C>();
-    let live_component_storage =
-        live_component_id.and_then(|component_id| archetype.get_storage_type(component_id));
+    let live_component_present = world
+        .components()
+        .component_id::<C>()
+        .is_some_and(|component_id| archetype.contains(component_id));
 
     let interpolation = interpolation_registry.interpolation_for_rule::<C>(rule_id);
     for entity in archetype.entities() {
@@ -485,7 +466,11 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
         } else if let (Some(previous_value), Some(interpolation)) =
             (&history.previous_value, interpolation)
         {
-            interpolation(previous_value.clone(), current_value, ctx.overstep)
+            interpolation.interpolate(
+                previous_value.clone(),
+                current_value,
+                InterpolationSampleContext::new(ctx.overstep, ctx.sample_delta_secs),
+            )
         } else {
             trace!(
                 component = ?DebugName::type_name::<C>(),
@@ -504,25 +489,14 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
             overstep = ctx.overstep,
             "applied frame interpolation"
         );
-        match live_component_storage {
-            Some(_) => {
-                let Some(component_id) = live_component_id else {
-                    continue;
-                };
-                let Ok(entity_cell) = world.get_entity(entity.id()) else {
-                    continue;
-                };
-                // SAFETY: the cached rule declares write access to `component_id`, `C` is a
-                // mutable component, and the history slice refers to a different component id.
-                // `into_inner` deliberately marks the live component as changed before exposing
-                // its pointer, matching an ordinary `Mut<C>` assignment for both storage types.
-                let Ok(component) = (unsafe { entity_cell.get_mut_by_id(component_id) }) else {
-                    continue;
-                };
-                let component = unsafe { component.into_inner().deref_mut::<C>() };
-                *component = interpolated;
+        if live_component_present {
+            // SAFETY: this erased system declares write access to C, and the
+            // only other live reference here is to FrameInterpolationHistory<C>.
+            unsafe {
+                write_component_with_change_detection::<C>(world, entity.id(), interpolated);
             }
-            None => deferred_apply.insert(entity.id(), interpolated),
+        } else {
+            deferred_apply.insert(entity.id(), interpolated);
         }
     }
 }
