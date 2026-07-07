@@ -121,13 +121,7 @@ fn movement(
     if is_host_server && !server_actions.contains(trigger.action) {
         return;
     }
-    if is_host_server {
-        if let Ok(controlled_by) = controlled_by.get(trigger.context) {
-            if host_clients.get(controlled_by.owner).is_ok() {
-                return;
-            }
-        }
-    }
+
     if let Ok(position) = position_query.get_mut(trigger.context) {
         shared::shared_movement_behaviour(position, trigger.value);
     }
