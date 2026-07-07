@@ -207,14 +207,14 @@ impl Plugin for ProtocolPlugin {
             .predict()
             .with_rollback_condition(position_should_rollback)
             .add_linear_interpolation()
-            .add_linear_correction_fn();
+            .add_correction();
 
         app.component::<Rotation>()
             .replicate()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
             .add_linear_interpolation()
-            .add_linear_correction_fn();
+            .add_correction();
     }
 }
 
