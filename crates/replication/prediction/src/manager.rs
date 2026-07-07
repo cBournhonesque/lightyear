@@ -77,6 +77,12 @@ impl RollbackPolicy {
     }
 }
 
+/// Component that enables prediction and rollback for a local client.
+///
+/// [`PredictionPlugin`](crate::prelude::PredictionPlugin) installs the prediction systems, but
+/// those systems only run for a connected, non-host [`Client`](lightyear_connection::client::Client)
+/// entity that also has `PredictionManager`. Add this to your client entity when it should create
+/// predicted entities, record prediction history, and perform rollback/reconciliation.
 #[derive(Component, Debug, Reflect)]
 #[component(on_insert = PredictionManager::on_insert)]
 #[require(InputTimelineConfig)]

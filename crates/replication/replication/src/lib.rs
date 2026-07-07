@@ -26,6 +26,8 @@
 //! [`Replicate`] (alias for [`ReplicationTarget<()>`]) controls which peers
 //! receive an entity. [`PredictionTarget`] and [`InterpolationTarget`] further
 //! control which clients run prediction or interpolation for that entity.
+//! `PredictionTarget` is the send-side way to enable prediction for an entity;
+//! the receiver can also insert [`Predicted`] directly on the received entity.
 //! Each target uses a [`ReplicationMode`] to specify the set of recipients.
 //!
 //! A [`ReplicationSender`] component must be present on the link entity
@@ -71,6 +73,7 @@
 //! [`ReplicationTarget<()>`]: crate::send::ReplicationTarget
 //! [`PredictionTarget`]: crate::send::PredictionTarget
 //! [`InterpolationTarget`]: crate::send::InterpolationTarget
+//! [`Predicted`]: lightyear_core::prediction::Predicted
 //! [`ReplicationMode`]: crate::send::ReplicationMode
 //! [`ReplicationSender`]: crate::send::ReplicationSender
 //! [`ReplicateLike`]: crate::hierarchy::ReplicateLike

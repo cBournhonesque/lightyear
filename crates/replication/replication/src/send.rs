@@ -344,6 +344,10 @@ mod prediction {
 
     /// Controls which clients run client-side prediction for this entity.
     ///
+    /// This is the send-side way to enable prediction for an entity. The
+    /// receive-side can also opt an entity into prediction by inserting
+    /// `Predicted` directly on the received entity.
+    ///
     /// Typically set to the owning client so they get a `Predicted` entity,
     /// while other clients receive an `Interpolated` entity instead.
     ///

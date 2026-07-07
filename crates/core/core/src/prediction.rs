@@ -7,6 +7,10 @@ use serde::{Deserialize, Serialize};
 /// Prediction allows the client to simulate the game state locally without waiting for server confirmation,
 /// reducing perceived latency. This component links the predicted entity to its server-confirmed counterpart.
 ///
+/// An entity can become predicted either because the sender used
+/// `PredictionTarget` for that receiver, or because the receiver inserted
+/// `Predicted` directly on the received entity.
+///
 /// When an entity is marked as `Predicted`, the `PredictionPlugin` will:
 /// - Store its component history.
 /// - Rollback and re-simulate the entity when a server correction is received.
