@@ -73,7 +73,7 @@ pub type SendPayload = Bytes;
 /// directly, because the marker hooks also remove the other lifecycle markers.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LinkState {
-    /// The link is established and can exchange payloads.
+    /// The link is established and ready to exchange payloads.
     Linked,
     /// The link is being established by the transport.
     Linking,
