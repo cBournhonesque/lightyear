@@ -26,7 +26,11 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_replication::prelude::ReplicationSystems;
 
-/// Plugin that enables client-side prediction
+/// Plugin that installs client-side prediction systems.
+///
+/// The systems run for connected, non-host client entities with a
+/// [`PredictionManager`] component. Add `PredictionManager` to the local client
+/// entity to opt that client into prediction and rollback.
 #[derive(Default)]
 pub struct PredictionPlugin;
 

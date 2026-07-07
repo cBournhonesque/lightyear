@@ -18,15 +18,33 @@ The solution is to run the same simulation systems on the client as on the serve
 This is "client-prediction": we move the client-controlled entity immediately according to our user inputs, and then we correct the position
 when we receive the actual state of the entity from the server. (if there is a mismatch)
 
-To do this in lightyear, you will need to change a few things.
+To do this in lightyear, you will need to change a few things:
+
+- enable prediction for the component in your protocol;
+- add a `PredictionManager` component to the local client entity;
+- mark the entity as predicted, either with `PredictionTarget` on the send-side or by adding
+  `Predicted` on the receive-side.
+
+First, in your protocol, specify that the component should be synced from the confirmed entity to the predicted entity:
 
 ```rust,ignore
 app.component::<PlayerPosition>().replicate()
     .predict();
 ```
 
-Then, when replicating the entity, you can also specify which clients should predict the entity by adding a `PredictionTarget` component.
-Usually, the client that 'controls' the entity will be predicting it.
+Then, make sure your client entity has a `PredictionManager`. `ClientPlugins` installs the prediction systems, but the systems only run for a connected client entity that has this component. The shared example helpers insert it in `ExampleClient`; if you spawn your own client entity, add it there:
+
+```rust,ignore
+commands.spawn((
+    Client::default(),
+    PredictionManager::default(),
+    // Link, IO, connection components...
+));
+```
+
+Finally, choose which replicated entities should be predicted. If the sender knows which clients
+should predict the entity, add a `PredictionTarget` component on the send-side. Usually, the client
+that 'controls' the entity will be predicting it.
 ```rust,ignore
 let entity = commands
         .spawn((
@@ -35,10 +53,15 @@ let entity = commands
         ))
         .id();
 ```
-(another way to spawn a predicted entity is to add the `ShouldBePredicted` component to a `Replicated` entity on the client)
 
+If the receiver decides locally that an entity should be predicted, add `Predicted` on the
+receive-side instead:
 
-If prediction is enabled for an entity, the client will add a `Predicted` component on the replicated entity.
+```rust,ignore
+commands.entity(replicated_entity).insert(Predicted);
+```
+
+Once prediction is enabled for an entity, the receive-side entity has a `Predicted` component.
 Non-predicted components will be replicated normally, but predicted components will be inserted on the entity as `Confirmed<PlayerPosition>`. The predicted component value will then be 
 `PlayerPosition`. The reasoning is that it is very rare to want to query the confirmed value, in most cases you just want to use the predicted value.
 Non-predicted 
