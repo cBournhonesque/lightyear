@@ -17,7 +17,7 @@ metrics = ["dep:metrics", "std"]
 # utils
 metrics = { workspace = true, optional = true }
 hashbrown.workspace = true
-paste.workspace = true
+pastey.workspace = true
 seahash.workspace = true
 tracing.workspace = true
 

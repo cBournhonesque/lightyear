@@ -8,7 +8,7 @@ pub trait WrappedId {
     fn rem(&self, total: usize) -> usize;
 }
 
-pub use paste::paste;
+pub use pastey::paste;
 
 /// Index that wraps around 2^32
 #[macro_export]
