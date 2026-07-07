@@ -351,9 +351,9 @@ impl TickDelta {
     }
 
     /// Returns the number of tick difference (positive or negative) that this TickDelta represents,
-    /// rounding to the closes integer value
+    /// rounding to the closest integer value
     pub fn to_i32(&self) -> i32 {
-        self.value.to_num()
+        self.value.round().to_num()
     }
 
     pub fn from_time_delta(mut delta: TimeDelta, tick_duration: Duration) -> Self {
@@ -756,6 +756,17 @@ mod tests {
         assert_eq!((delta + (-delta)).to_i32(), 0);
         assert_eq!(((-delta) + delta).to_i32(), 0);
         assert_eq!(((-delta) + (-delta)).to_i32(), -20);
+    }
+
+    #[test]
+    fn test_tickdelta_to_i32_rounds_to_nearest_tick() {
+        assert_eq!(TickDelta::lit("0.49").to_i32(), 0);
+        assert_eq!(TickDelta::lit("0.5").to_i32(), 1);
+        assert_eq!(TickDelta::lit("0.61").to_i32(), 1);
+
+        assert_eq!(TickDelta::lit("-0.49").to_i32(), 0);
+        assert_eq!(TickDelta::lit("-0.5").to_i32(), -1);
+        assert_eq!(TickDelta::lit("-0.61").to_i32(), -1);
     }
 
     #[test]

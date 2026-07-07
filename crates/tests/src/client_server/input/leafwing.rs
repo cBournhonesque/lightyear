@@ -268,23 +268,28 @@ fn test_server_just_pressed() {
         .resource_mut::<ButtonInput<KeyCode>>()
         .press(KeyCode::KeyA);
 
-    // The input timeline sends inputs one tick ahead of the server input pipeline.
-    // Step until the server applies the first pressed snapshot, not just until it receives it.
-    stepper.frame_step(4);
+    // The input timeline sends inputs ahead of the server input pipeline. Sync
+    // resyncs can shift buffered inputs by a rounded tick, so step until the
+    // server applies the first pressed snapshot, not just until it receives it.
+    let mut observed_transition = false;
+    for _ in 0..8 {
+        stepper.frame_step(1);
+        let server_action = stepper
+            .server_app
+            .world()
+            .entity(server_entity)
+            .get::<ActionState<LeafwingInput1>>()
+            .unwrap();
+        if server_action.pressed(&LeafwingInput1::Jump)
+            && server_action.just_pressed(&LeafwingInput1::Jump)
+        {
+            observed_transition = true;
+            break;
+        }
+    }
 
-    let server_action = stepper
-        .server_app
-        .world()
-        .entity(server_entity)
-        .get::<ActionState<LeafwingInput1>>()
-        .unwrap();
     assert!(
-        server_action.pressed(&LeafwingInput1::Jump),
-        "Server should see the button as pressed"
-    );
-
-    assert!(
-        server_action.just_pressed(&LeafwingInput1::Jump),
+        observed_transition,
         "Server should reconstruct JustPressed from the received input transition"
     );
 }
