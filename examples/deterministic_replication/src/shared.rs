@@ -32,8 +32,7 @@ impl Plugin for SharedPlugin {
         // sync — otherwise the post-rollback Position gets overwritten by
         // the (stale) Transform at the start of each FixedUpdate. See the
         // TODO in `crates/integration/avian/src/plugin.rs::AvianReplicationMode::Position`.
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin);
         app.add_observer(add_frame_interpolation_components);
 
         // physics
@@ -93,7 +92,7 @@ fn catch_up_mode_from_env() -> CatchUpMode {
     }
 }
 
-/// Insert `FrameInterpolate<Position>` / `FrameInterpolate<Rotation>` on any
+/// Insert `FrameInterpolate` on any
 /// `DeterministicPredicted` entity with `Position`. Required so that
 /// `FrameInterpolationSystems::Restore` runs BEFORE Avian's transform→position
 /// sync at each FixedUpdate iteration, preserving post-rollback Position.
@@ -104,14 +103,11 @@ fn catch_up_mode_from_env() -> CatchUpMode {
 /// would miss them.
 fn add_frame_interpolation_components(
     trigger: On<Add, DeterministicPredicted>,
-    query: Query<(), (With<Position>, Without<FrameInterpolate<Position>>)>,
+    query: Query<(), (With<Position>, Without<FrameInterpolate>)>,
     mut commands: Commands,
 ) {
     if query.get(trigger.entity).is_ok() {
-        commands.entity(trigger.entity).insert((
-            FrameInterpolate::<Position>::default(),
-            FrameInterpolate::<Rotation>::default(),
-        ));
+        commands.entity(trigger.entity).insert(FrameInterpolate);
     }
 }
 
@@ -252,7 +248,7 @@ pub(crate) fn emit_before_physics(
             &Rotation,
             &LinearVelocity,
             &AngularVelocity,
-            Option<&FrameInterpolate<Position>>,
+            Option<&FrameInterpolate>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -310,7 +306,7 @@ pub(crate) fn emit_fixed_last_players(
             &Rotation,
             &LinearVelocity,
             &AngularVelocity,
-            Option<&FrameInterpolate<Position>>,
+            Option<&FrameInterpolate>,
             Option<&VisualCorrection<Position>>,
             Option<&ActionState<PlayerActions>>,
             Option<&LeafwingBuffer<PlayerActions>>,

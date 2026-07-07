@@ -24,8 +24,7 @@ impl Plugin for ExampleRendererPlugin {
         // add visual interpolation for Position and Rotation
         // (normally we would interpolate on Transform but here this is fine
         // since rendering is done via Gizmos that only depend on Position/Rotation)
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin);
         app.add_observer(add_frame_interpolation_components);
     }
 }
@@ -40,10 +39,7 @@ fn add_frame_interpolation_components(
     mut commands: Commands,
 ) {
     if query.contains(trigger.entity) {
-        commands.entity(trigger.entity).insert((
-            FrameInterpolate::<Position>::default(),
-            FrameInterpolate::<Rotation>::default(),
-        ));
+        commands.entity(trigger.entity).insert(FrameInterpolate);
     }
 }
 

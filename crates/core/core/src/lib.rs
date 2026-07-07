@@ -20,6 +20,9 @@ pub mod tick;
 /// Provides core network-related types and traits.
 pub mod network;
 
+/// Low-level ECS helpers shared by type-erased systems.
+pub mod ecs_utils;
+
 /// Provides `ConfirmedHistory` for authoritative remote component states.
 pub mod confirmed_history;
 /// Provides `HistoryBuffer` for storing and managing historical state.
@@ -33,6 +36,8 @@ pub mod time;
 /// Defines [`Timeline`](timeline::Timeline) for managing different views of time (local, network).
 pub mod timeline;
 
+/// Shared marker and history components used by frame interpolation.
+pub mod frame_interpolation;
 pub mod interpolation;
 
 pub mod prediction;
@@ -45,6 +50,7 @@ pub mod prelude {
     pub use crate::confirmed_history::ConfirmedHistory;
     pub use crate::history_buffer::HistoryState;
 
+    pub use crate::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};
     pub use crate::interpolation::Interpolated;
 
     pub use crate::prediction::Predicted;

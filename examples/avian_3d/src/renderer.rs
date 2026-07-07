@@ -37,8 +37,7 @@ impl Plugin for ExampleRendererPlugin {
 
         // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate
         // by the physics plugin so we make sure that in PostUpdate we interpolate it
-        app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-        app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
+        app.add_plugins(FrameInterpolationPlugin);
 
         // Observers that add VisualInterpolationStatus components to entities
         // which receive a Position and are predicted
@@ -64,7 +63,7 @@ fn init(mut commands: Commands) {
     ));
 }
 
-/// Add the FrameInterpolate::<Position> component to non-floor entities with
+/// Add the FrameInterpolate marker to non-floor entities with
 /// component `Position`. Floors don't need to be frame interpolated because we
 /// don't expect them to move.
 fn add_visual_interpolation_components(
@@ -81,22 +80,7 @@ fn add_visual_interpolation_components(
     if !query.contains(trigger.entity) {
         return;
     }
-    commands.entity(trigger.entity).insert((
-        FrameInterpolate::<Position> {
-            // We must trigger change detection on visual interpolation
-            // to make sure that child entities (sprites, meshes, text)
-            // are also interpolated
-            trigger_change_detection: true,
-            ..default()
-        },
-        FrameInterpolate::<Rotation> {
-            // We must trigger change detection on visual interpolation
-            // to make sure that child entities (sprites, meshes, text)
-            // are also interpolated
-            trigger_change_detection: true,
-            ..default()
-        },
-    ));
+    commands.entity(trigger.entity).insert(FrameInterpolate);
 }
 
 /// Add components to characters that impact how they are rendered. We only

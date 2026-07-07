@@ -128,10 +128,9 @@ impl From<TypeId> for ComponentKind {
 /// and the state of the Confirmed entity. In this case, we rollback by snapping the Predicted entity to the Confirmed entity and replaying the last few frames.
 ///
 /// However, rollbacks that do an instant update can be visually jarring, so we provide the option to smooth the rollback process over a few frames.
-/// You can do this by calling the `add_correction_fn` method.
-///
-/// If your component implements the `Ease` trait, you can use the `add_linear_correction_fn` method,
-/// which provides linear interpolation.
+/// You can do this by registering an interpolation rule for the component and calling the `add_correction` method.
+/// Correction reuses the component's registered interpolation rule to sample the corrected visual state,
+/// and uses the correction function to decay the rollback error over time.
 ///
 /// #### Interpolation
 /// Similarly to client-prediction, an interpolated entity has the [`Interpolated`](lightyear_core::prelude::Interpolated) component.

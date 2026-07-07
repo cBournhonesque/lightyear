@@ -8,13 +8,12 @@
 use avian3d::math::{AdjustPrecision, AsF32};
 use avian3d::prelude::*;
 use bevy_ecs::prelude::*;
-use bevy_math::curve::{EaseFunction, EasingCurve};
-use bevy_math::{Curve, Isometry3d, Vec3};
+use bevy_math::{Isometry3d, Vec3};
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_transform::prelude::Transform;
 use lightyear_core::prelude::LocalTimeline;
-use lightyear_frame_interpolation::{FrameInterpolate, SkipFrameInterpolation};
-use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_frame_interpolation::{FrameInterpolationHistory, SkipFrameInterpolation};
+use lightyear_interpolation::registry::InterpolationRegistry;
 use lightyear_prediction::correction::{PreviousVisual, VisualCorrection};
 use lightyear_prediction::manager::PredictionManager;
 use lightyear_prediction::predicted_history::PredictionHistory;
@@ -28,7 +27,7 @@ use tracing::trace;
 /// - Correction/FrameInterpolation are a visual concern, so it would be better for them to be applied to Transform.
 ///
 /// Right after RollbackEnds, we need to convert from Position/Rotation into:
-/// - an update of FrameInterpolate Transform
+/// - an update of FrameInterpolationHistory Transform
 /// - adding a VisualCorrection that can be applied to Transform
 ///
 /// Position operates in Global space, but the correction is just a delta so it works in both global or relative space.
@@ -37,7 +36,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     time: Res<Time<Fixed>>,
     local_timeline: Res<LocalTimeline>,
     predicted: Single<(), With<PredictionManager>>,
-    registry: Res<InterpolationRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
     mut query: Query<(
         Entity,
         &Position,
@@ -46,7 +45,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
         &Rotation,
         &PreviousVisual<Rotation>,
         &PredictionHistory<Rotation>,
-        &mut FrameInterpolate<Transform>,
+        &mut FrameInterpolationHistory<Transform>,
         Option<&SkipFrameInterpolation>,
     )>,
     mut commands: Commands,
@@ -54,6 +53,7 @@ pub(crate) fn update_frame_interpolation_post_rollback(
     // NOTE: this is the overstep from the previous frame since w are running this before RunFixedMainLoop
     let overstep = time.overstep_fraction();
     let tick = local_timeline.tick();
+    let interpolation = interpolation_registry.interpolation_for::<Transform>();
     for (
         entity,
         position,
@@ -92,13 +92,18 @@ pub(crate) fn update_frame_interpolation_post_rollback(
             continue;
         };
         let before_last_correct_transform = to_transform(before_last_pos, before_last_rot);
+        let current_visual = interpolation.map_or_else(
+            || last_correct_transform,
+            |interpolation| {
+                interpolation(
+                    before_last_correct_transform,
+                    last_correct_transform,
+                    overstep,
+                )
+            },
+        );
         interpolate.current_value = Some(last_correct_transform);
         interpolate.previous_value = Some(before_last_correct_transform);
-        let current_visual = registry.interpolate(
-            before_last_correct_transform,
-            last_correct_transform,
-            overstep,
-        );
         // error = previous_visual - current_visual
 
         let previous_visual =
@@ -126,15 +131,20 @@ pub(crate) fn update_frame_interpolation_post_rollback(
 ///
 /// If it gets small enough, we remove the `VisualCorrection<C>` component.
 ///
-/// The delta D must have a interpolation function registered in the [`InterpolationRegistry`].
+/// Correction reuses the `Transform` interpolation rule registered in the
+/// [`InterpolationRegistry`].
 pub(crate) fn add_visual_correction(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
+    interpolation_registry: Res<InterpolationRegistry>,
     manager: Single<&PredictionManager>,
     mut query: Query<(Entity, &mut Transform, &mut VisualCorrection<Isometry3d>)>,
     mut commands: Commands,
 ) {
     let r = manager.correction_policy.lerp_ratio(time.delta());
+    let interpolation = interpolation_registry.interpolation_for::<Transform>().expect(
+        "No Transform interpolation function was found for correction. Register an interpolation rule for Transform before enabling Transform correction.",
+    );
     query
         .iter_mut()
         .for_each(|(entity, mut component, mut visual_correction)| {
@@ -155,9 +165,10 @@ pub(crate) fn add_visual_correction(
                 return;
             }
             let previous_error = visual_correction.error;
-            let new_error =
-                EasingCurve::new(Isometry3d::default(), previous_error, EaseFunction::Linear)
-                    .sample_unchecked(r);
+            let mut error_as_transform = Transform::default();
+            error_as_transform.apply_diff(&previous_error);
+            let new_error_transform = interpolation(Transform::default(), error_as_transform, r);
+            let new_error = Transform::default().diff(&new_error_transform);
             component.bypass_change_detection().apply_diff(&new_error);
             trace!(
                 ?entity,

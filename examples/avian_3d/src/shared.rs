@@ -11,7 +11,6 @@ use lightyear::avian3d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
-use lightyear_frame_interpolation::FrameInterpolate;
 
 pub const FLOOR_WIDTH: f32 = 100.0;
 pub const FLOOR_HEIGHT: f32 = 1.0;
@@ -254,7 +253,7 @@ pub(crate) fn emit_last_characters(
             Entity,
             &Position,
             &Transform,
-            Option<&FrameInterpolate<Position>>,
+            Option<&FrameInterpolationHistory<Position>>,
             Option<&VisualCorrection<Position>>,
         ),
         With<CharacterMarker>,

@@ -34,7 +34,7 @@ impl Plugin for ExampleRendererPlugin {
             FixedPostUpdate,
             hide_interpolated_bullets_after_local_hit.after(PhysicsSystems::StepSimulation),
         );
-        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin);
 
         #[cfg(feature = "client")]
         {
@@ -111,9 +111,7 @@ fn add_player_visuals(
             })),
         ));
         if is_predicted {
-            commands
-                .entity(trigger.entity)
-                .insert(FrameInterpolate::<Transform>::default());
+            commands.entity(trigger.entity).insert(FrameInterpolate);
         }
     }
 }
@@ -231,7 +229,7 @@ fn insert_bullet_visuals(
         MeshMaterial2d(material),
     ));
     if frame_interpolate_transform {
-        entity_commands.insert(FrameInterpolate::<Transform>::default());
+        entity_commands.insert(FrameInterpolate);
     }
 }
 
@@ -352,6 +350,6 @@ fn add_predicted_bot_visuals(
             ..Default::default()
         })),
         // predicted entities are updated in FixedUpdate so they need to be visually interpolated
-        FrameInterpolate::<Transform>::default(),
+        FrameInterpolate,
     ));
 }

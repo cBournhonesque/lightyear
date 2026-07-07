@@ -5,7 +5,7 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use core::time::Duration;
 use lightyear::avian2d::plugin::AvianReplicationMode;
-use lightyear::frame_interpolation::FrameInterpolate;
+use lightyear::frame_interpolation::FrameInterpolationHistory;
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::*;
@@ -252,12 +252,12 @@ fn test_replicate_transform_child_collider() {
     let frame_interp = stepper
         .server_app
         .world()
-        .get::<FrameInterpolate<Position>>(server_parent);
+        .get::<FrameInterpolationHistory<Position>>(server_parent);
     info!(?frame_interp, "parent");
     let frame_interp = stepper
         .server_app
         .world()
-        .get::<FrameInterpolate<Position>>(server_child);
+        .get::<FrameInterpolationHistory<Position>>(server_child);
     info!(?frame_interp, "child");
     assert_relative_eq!(
         stepper

@@ -94,6 +94,23 @@ impl Ease for CompFull {
 pub struct CompSimple(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompBundleA(pub f32);
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
+pub struct CompBundleB(pub f32);
+
+fn bundle_lerp(
+    start: (CompBundleA, CompBundleB),
+    end: (CompBundleA, CompBundleB),
+    t: f32,
+) -> (CompBundleA, CompBundleB) {
+    (
+        CompBundleA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
+        CompBundleB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+    )
+}
+
+#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompCustomInterp(pub f32);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
@@ -225,6 +242,11 @@ impl Plugin for ProtocolPlugin {
             .predict()
             .add_linear_interpolation();
         app.component::<CompSimple>().replicate();
+        app.component::<CompBundleA>().replicate();
+        app.component::<CompBundleB>().replicate();
+        app.interpolate_bundle_with::<(CompBundleA, CompBundleB)>(InterpolationFns::interpolate(
+            bundle_lerp,
+        ));
         app.component::<CompCustomInterp>()
             .replicate()
             .add_custom_interpolation();
@@ -232,7 +254,7 @@ impl Plugin for ProtocolPlugin {
         app.component::<CompCorr>()
             .replicate()
             .predict()
-            .add_linear_correction_fn()
+            .add_correction()
             .add_linear_interpolation();
         app.component::<CompMap>().replicate().predict();
         app.local_rollback::<CompNotNetworked>();
@@ -277,16 +299,7 @@ impl Plugin for ProtocolPlugin {
         );
         // app.component::<Collider>().replicate();
 
-        match self.avian_mode {
-            AvianReplicationMode::Position => {
-                app.add_plugins(FrameInterpolationPlugin::<Position>::default());
-                app.add_plugins(FrameInterpolationPlugin::<Rotation>::default());
-            }
-            AvianReplicationMode::PositionButInterpolateTransform
-            | AvianReplicationMode::Transform => {
-                app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
-            }
-        }
+        app.add_plugins(FrameInterpolationPlugin);
 
         match self.avian_mode {
             AvianReplicationMode::Position
@@ -294,20 +307,20 @@ impl Plugin for ProtocolPlugin {
                 app.component::<Position>()
                     .replicate()
                     .predict()
-                    .add_linear_correction_fn()
+                    .add_correction()
                     .add_linear_interpolation();
 
                 app.component::<Rotation>()
                     .replicate()
                     .predict()
-                    .add_linear_correction_fn()
+                    .add_correction()
                     .add_linear_interpolation();
             }
             AvianReplicationMode::Transform => {
                 app.component::<Transform>()
                     .replicate()
                     .predict()
-                    .add_linear_correction_fn::<Isometry2d>()
+                    .add_linear_correction::<Isometry2d>()
                     .add_interpolation_with(TransformLinearInterpolation::lerp);
             }
         }

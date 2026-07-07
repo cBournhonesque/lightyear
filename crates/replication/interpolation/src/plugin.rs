@@ -1,22 +1,17 @@
-use crate::SyncComponent;
 use crate::despawn::configure_delayed_interpolated_despawn;
-use crate::interpolate::{interpolate, update_confirmed_history, update_confirmed_history_diff};
-use crate::registry::{
-    InterpolationRegistry, insert_confirmed_history_on_interpolated,
-    insert_confirmed_history_on_interpolated_diff,
-};
+use crate::interpolate::{apply_interpolation, update_interpolation_history};
+use crate::registry::InterpolationRegistry;
 use crate::timeline::TimelinePlugin;
-use bevy_app::{App, Plugin, PreUpdate, Update};
+use bevy_app::{App, Plugin, Update};
 use bevy_ecs::{
     component::Component,
+    prelude::*,
     schedule::{IntoScheduleConfigs, SystemSet},
 };
 use bevy_reflect::Reflect;
-use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::Tick;
+use lightyear_core::prelude::{Interpolated, Tick};
 use lightyear_core::time::PositiveTickDelta;
-use lightyear_replication::ReplicationSystems;
 use lightyear_serde::reader::Reader;
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
@@ -79,56 +74,44 @@ pub type InterpolationSet = InterpolationSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum InterpolationSystems {
-    // PreUpdate Sets,
-    /// Sync components from the confirmed to the interpolated entity, and insert the ConfirmedHistory
-    Sync,
-
-    // Update
-    /// Update component history
-    /// (add new values from confirmed updates and pop values that are older than interpolation)
+    /// Update component histories and apply Lightyear-owned interpolation.
+    ///
+    /// This runs in two ordered phases. The first phase updates histories and
+    /// applies pending component insertions/removals at the interpolation
+    /// timeline. Deferred commands are flushed before the second phase writes
+    /// interpolated values for rules that enabled the apply phase.
     ///
     /// This can be in Update since we use the confirmed.tick to add values to the history, which is independent
     /// from the local tick.
     Prepare,
-    /// Interpolate between last 2 server states. Has to be overridden if
-    /// `InterpolationConfig.custom_interpolation_logic` is set to true
+    /// Run user interpolation systems after Lightyear has prepared histories.
+    ///
+    /// Use this set for custom interpolation rules registered with
+    /// `InterpolationFns::history_only`.
     Interpolate,
 
     /// SystemSet encompassing all other interpolation sets
     All,
 }
 
-/// Add per-component systems related to interpolation
-pub(crate) fn add_prepare_interpolation_systems<C: SyncComponent>(app: &mut App) {
-    // TODO: maybe create an overarching prediction set that contains all others?
-    app.add_observer(insert_confirmed_history_on_interpolated::<C>);
-    app.add_systems(
-        Update,
-        update_confirmed_history::<C>
-            .chain()
-            .in_set(InterpolationSystems::Prepare),
-    );
-}
-
-pub(crate) fn add_prepare_interpolation_diff_systems<C: SyncComponent + RepliconDiffable>(
-    app: &mut App,
+/// Backfills `ConfirmedHistory<C>` for registered interpolation rules when
+/// `Interpolated` is added after the live replicated component already exists.
+fn backfill_confirmed_histories_on_interpolated(
+    trigger: On<Add, Interpolated>,
+    interpolation_registry: Res<InterpolationRegistry>,
+    mut commands: Commands,
 ) {
-    app.add_observer(insert_confirmed_history_on_interpolated_diff::<C>);
-    app.add_systems(
-        Update,
-        update_confirmed_history_diff::<C>
-            .chain()
-            .in_set(InterpolationSystems::Prepare),
-    );
-}
+    let Some(archetype) = trigger.trigger().new_archetype else {
+        return;
+    };
 
-// We add the interpolate system in different function because we might not want to add them
-// in case there is custom interpolation logic.
-pub fn add_interpolation_systems<C: SyncComponent>(app: &mut App) {
-    app.add_systems(
-        Update,
-        interpolate::<C>.in_set(InterpolationSystems::Interpolate),
-    );
+    for (live_component_id, history_component_id, backfill) in
+        interpolation_registry.confirmed_history_backfill_fns()
+    {
+        if archetype.contains(live_component_id) && !archetype.contains(history_component_id) {
+            backfill(trigger.entity, &mut commands);
+        }
+    }
 }
 
 impl Plugin for InterpolationPlugin {
@@ -138,18 +121,12 @@ impl Plugin for InterpolationPlugin {
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();
         configure_delayed_interpolated_despawn(app);
+        app.add_observer(backfill_confirmed_histories_on_interpolated);
 
         // Host-Clients have no interpolation delay
         app.register_required_components::<HostClient, InterpolationDelay>();
 
         // SETS
-        app.configure_sets(
-            PreUpdate,
-            InterpolationSystems::Sync
-                .in_set(InterpolationSystems::All)
-                .chain()
-                .after(ReplicationSystems::Receive),
-        );
         app.configure_sets(
             Update,
             (
@@ -160,6 +137,18 @@ impl Plugin for InterpolationPlugin {
                 .in_set(InterpolationSystems::All)
                 .chain(),
         );
+        app.add_systems(
+            Update,
+            (update_interpolation_history, apply_interpolation)
+                .chain()
+                .in_set(InterpolationSystems::Prepare),
+        );
+    }
+
+    fn finish(&self, app: &mut App) {
+        app.world_mut()
+            .resource_mut::<InterpolationRegistry>()
+            .finalize();
     }
 }
 

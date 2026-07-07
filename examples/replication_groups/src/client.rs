@@ -6,7 +6,9 @@ use bevy::prelude::*;
 use lightyear::prelude::input::client::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
-use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
+use lightyear_frame_interpolation::{
+    FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
+};
 
 pub struct ExampleClientPlugin;
 
@@ -32,10 +34,7 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(handle_controlled_spawn);
         app.add_observer(handle_interpolated_spawn);
 
-        // add visual interpolation for the predicted snake (which gets updated in the FixedUpdate schedule)
-        // (updating it only during FixedUpdate might cause visual artifacts, see:
-        //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        app.add_plugins(FrameInterpolationPlugin::<PlayerPosition>::default());
+        app.add_plugins(FrameInterpolationPlugin);
         app.add_systems(Update, debug_pre_visual_interpolation);
         app.add_systems(Last, debug_post_visual_interpolation);
     }
@@ -107,9 +106,7 @@ pub(crate) fn handle_predicted_spawn(
         // so that the position gets updated smoothly every frame
         // (updating it only during FixedUpdate might cause visual artifacts, see:
         //  https://cbournhonesque.github.io/lightyear/book/concepts/advanced_replication/visual_interpolation.html)
-        commands
-            .entity(entity)
-            .insert(FrameInterpolate::<PlayerPosition>::default());
+        commands.entity(entity).insert(FrameInterpolate);
     }
 }
 
@@ -155,7 +152,7 @@ pub(crate) fn handle_interpolated_spawn(
 
 pub(crate) fn debug_pre_visual_interpolation(
     timeline: Res<LocalTimeline>,
-    query: Query<(&PlayerPosition, &FrameInterpolate<PlayerPosition>)>,
+    query: Query<(&PlayerPosition, &FrameInterpolationHistory<PlayerPosition>)>,
 ) {
     let tick = timeline.tick();
     for (position, interpolate_status) in query.iter() {
@@ -170,7 +167,7 @@ pub(crate) fn debug_pre_visual_interpolation(
 
 pub(crate) fn debug_post_visual_interpolation(
     timeline: Res<LocalTimeline>,
-    query: Query<(&PlayerPosition, &FrameInterpolate<PlayerPosition>)>,
+    query: Query<(&PlayerPosition, &FrameInterpolationHistory<PlayerPosition>)>,
 ) {
     let tick = timeline.tick();
     for (position, interpolate_status) in query.iter() {

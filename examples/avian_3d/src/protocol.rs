@@ -80,7 +80,7 @@ impl Plugin for ProtocolPlugin {
 
         // app.component::<ComputedMass>().replicate().predict();
 
-        // Position and Rotation have a `correction_fn` set, which is used to smear rollback errors
+        // Position and Rotation use their interpolation rules to smear rollback errors
         // over a few frames, just for the rendering part in postudpate.
         //
         // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
@@ -89,14 +89,14 @@ impl Plugin for ProtocolPlugin {
             .replicate()
             .predict()
             .with_rollback_condition(position_should_rollback)
-            .add_linear_correction_fn()
+            .add_correction()
             .add_linear_interpolation();
 
         app.component::<Rotation>()
             .replicate()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
-            .add_linear_correction_fn()
+            .add_correction()
             .add_linear_interpolation();
     }
 }

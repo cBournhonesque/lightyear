@@ -5,29 +5,37 @@
 //! This can cause some visual inconsistencies (jitter) because the frames (Update schedule) don't correspond exactly to
 //! the FixedUpdate schedule: there can be frames with several fixed-update ticks, and some frames with no fixed-update ticks.
 //!
-//! To solve this, we will visually display the state of the game with 1 tick of delay
+//! To solve this, we visually display the state of the game with 1 tick of delay.
 //! For example if on the Update state we have an overstep of 0.7 and the current tick is 10,
-//! we will display the state of the game interpolated at 0.7 between tick 9 and tick 10.
+//! we display the state of the game interpolated at 0.7 between tick 9 and tick 10.
 //!
-//! Another way to solve this would to run an extra 'partial' simulation step with 0.7 dt and use this for the visual state.
+//! Another way to solve this would be to run an extra 'partial' simulation step with 0.7 dt and use this for the visual state.
 //!
 //! To enable FrameInterpolation:
-//! - you will have to register an interpolation function for the component in the protocol
-//! - FrameInterpolation is not enabled by default, you have to add the plugin manually
-//! - To enable FrameInterpolation on a given entity, you need to add the [`FrameInterpolate`] component to it manually
-//! ```rust
+//! - register an interpolation rule for the component or bundle. Existing
+//!   interpolation rules are reused by default; if the component should not use
+//!   delayed interpolation history, register it with
+//!   [`InterpolationFns::no_history`](lightyear_interpolation::rules::InterpolationFns::no_history).
+//! - FrameInterpolation is not enabled by default; add [`FrameInterpolationPlugin`] manually
+//! - To enable FrameInterpolation on a given entity, add the type-erased [`FrameInterpolate`] marker to it manually
+//! ```rust,ignore
 //! # use lightyear_frame_interpolation::prelude::*;
+//! # use lightyear_interpolation::prelude::*;
 //! # use bevy_app::App;
 //! # use bevy_ecs::prelude::*;
 //!
 //! # #[derive(Component, PartialEq, Clone, Debug)]
-//! # struct Component1;
+//! # struct Component1(f32);
+//! # fn lerp_component(start: Component1, end: Component1, t: f32) -> Component1 {
+//! #     Component1(start.0 + (end.0 - start.0) * t)
+//! # }
 //!
 //! let mut app = App::new();
-//! app.add_plugins(FrameInterpolationPlugin::<Component1>::default());
+//! app.add_plugins(FrameInterpolationPlugin);
+//! app.interpolate_with::<Component1>(InterpolationFns::no_history(lerp_component));
 //!
 //! fn spawn_entity(mut commands: Commands) {
-//!     commands.spawn(FrameInterpolate::<Component1>::default());
+//!     commands.spawn(FrameInterpolate);
 //! }
 //! ```
 
@@ -37,36 +45,34 @@ extern crate alloc;
 #[cfg(feature = "std")]
 extern crate std;
 
-pub mod prelude {
-    pub use crate::{FrameInterpolate, FrameInterpolationPlugin, FrameInterpolationSystems};
-}
+mod archetypes;
 
-// #[cfg(test)]
-// mod tests;
-
-// TODO: in post-update, interpolate the visual state of the game between with 1 tick of delay.
-// - we need to store the component values of the previous tick
-// - then in PostUpdate (visual interpolation) we interpolate between the previous tick and the current tick using the overstep
-// - in PreUpdate, we restore the component value to the previous tick values
+use crate::archetypes::FrameInterpolationWorld;
 use bevy_app::prelude::*;
-use bevy_ecs::component::Mutable;
-use bevy_ecs::prelude::*;
-use bevy_ecs::schedule::common_conditions::not;
+use bevy_ecs::{
+    component::{ComponentId, ComponentIdFor},
+    observer::Observer,
+    prelude::*,
+    schedule::common_conditions::not,
+};
+use bevy_math::{
+    Curve,
+    curve::{Ease, EaseFunction, EasingCurve},
+};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
-use bevy_utils::prelude::DebugName;
-use core::fmt::Debug;
-use lightyear_core::prelude::LocalTimeline;
+pub use lightyear_core::frame_interpolation::{FrameInterpolate, FrameInterpolationHistory};
 use lightyear_core::timeline::is_in_rollback;
-use lightyear_interpolation::prelude::InterpolationRegistry;
+use lightyear_interpolation::registry::InterpolationRegistry;
+use lightyear_interpolation::rules::frame_interpolate::{
+    FrameHistoryComponent, FrameInterpolationContext,
+};
 use lightyear_replication::ReplicationSystems;
+use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use serde::{Deserialize, Serialize};
-use tracing::trace;
+use smallvec::SmallVec;
 
-#[deprecated(note = "Use FrameInterpolationSystems instead")]
-pub type FrameInterpolationSet = FrameInterpolationSystems;
-
-/// System sets used by the `FrameInterpolationPlugin`.
+/// System sets used by [`FrameInterpolationPlugin`].
 ///
 /// These sets help order the systems responsible for:
 /// - Restoring the actual component values before other game logic.
@@ -74,262 +80,580 @@ pub type FrameInterpolationSet = FrameInterpolationSystems;
 /// - Performing the visual interpolation itself.
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum FrameInterpolationSystems {
-    /// Restore the correct component values when we start the FixedMainLoop
+    /// Restore the correct component values when we start the FixedMainLoop.
     Restore,
-    /// Update the previous/current component values used for visual interpolation
+    /// Update the previous/current component values used for visual interpolation.
     Update,
-    /// Interpolate the visual state of the game with 1 tick of delay
+    /// Interpolate the visual state of the game with 1 tick of delay.
     Interpolate,
 }
 
-/// Bevy plugin to enable visual interpolation for a specific component `C`.
+#[deprecated(note = "Use FrameInterpolationSystems instead")]
+pub type FrameInterpolationSet = FrameInterpolationSystems;
+
+/// If present, this marker indicates that we will skip applying frame interpolation.
 ///
-/// This plugin adds systems to store the state of component `C` at each `FixedUpdate` tick
-/// and then interpolate between the previous and current tick's state during the `PostUpdate`
-/// schedule, using the `Time<Fixed>::overstep_percentage`. This helps smooth
-/// visuals when the rendering framerate doesn't align perfectly with the fixed simulation rate.
+/// This can be useful for example if a character teleports and you don't want
+/// to interpolate between the two positions.
 ///
-/// To use this, the component `C` must implement `Component<Mutability=Mutable> + Clone` and have an
-/// interpolation function registered in the `InterpolationRegistry`.
-/// You also need to add the `FrameInterpolate<C>` component to entities
-/// for which you want to enable this visual interpolation.
-pub struct FrameInterpolationPlugin<C> {
-    _marker: core::marker::PhantomData<C>,
+/// You can add this directly on the client-side, or you can also add it on the
+/// sender-side and replicate the component.
+#[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
+pub struct SkipFrameInterpolation;
+
+/// Linear frame interpolation for components implementing [`Ease`].
+pub fn linear_frame_interpolation<C: Ease + Clone>(start: C, end: C, t: f32) -> C {
+    let curve = EasingCurve::new(start, end, EaseFunction::Linear);
+    curve.sample_unchecked(t)
 }
 
-impl<C> Default for FrameInterpolationPlugin<C> {
-    fn default() -> Self {
-        Self {
-            _marker: core::marker::PhantomData,
+#[derive(Resource, Debug, Default)]
+struct FrameHistoryComponents {
+    components: SmallVec<[FrameHistoryComponent; 8]>,
+}
+
+/// Ensures every registered `FrameInterpolationHistory<C>` exists when an
+/// entity has both `FrameInterpolate` and the matching live `C`.
+///
+/// This is installed once by [`FrameInterpolationPlugin::finish`]. It watches
+/// `FrameInterpolate` plus every registered live component id that owns frame
+/// history. When `FrameInterpolate` is added, it backfills all matching
+/// histories on the entity. When a watched component is added to an already
+/// frame-interpolated entity, it only checks components from that trigger.
+fn insert_frame_histories_on_frame_interpolate(
+    trigger: On<Add>,
+    frame_history_components: Res<FrameHistoryComponents>,
+    frame_interpolate_id: ComponentIdFor<FrameInterpolate>,
+    mut commands: Commands,
+) {
+    let Some(archetype) = trigger.trigger().new_archetype else {
+        return;
+    };
+    if !archetype.contains(frame_interpolate_id.get()) {
+        return;
+    }
+
+    let added_components = trigger.trigger().components;
+    let frame_interpolate_added = added_components.contains(&frame_interpolate_id.get());
+    for component in &frame_history_components.components {
+        if !frame_interpolate_added && !added_components.contains(&component.live_component_id()) {
+            continue;
+        }
+        if archetype.contains(component.live_component_id())
+            && !archetype.contains(component.history_component_id())
+        {
+            (component.insert_history())(trigger.entity, &mut commands);
         }
     }
 }
 
-impl<C: Component<Mutability = Mutable> + Clone + Debug> Plugin for FrameInterpolationPlugin<C> {
+fn install_frame_history_observer(app: &mut App) {
+    let frame_interpolate_id = app.world_mut().register_component::<FrameInterpolate>();
+    let components = {
+        let registry = app.world().resource::<InterpolationRegistry>();
+        let mut components = SmallVec::<[FrameHistoryComponent; 8]>::new();
+        for component in registry.frame_history_components() {
+            if !components
+                .iter()
+                .any(|existing: &FrameHistoryComponent| existing.kind() == component.kind())
+            {
+                components.push(component);
+            }
+        }
+        components
+    };
+    if components.is_empty() {
+        return;
+    }
+
+    let mut watched_components = SmallVec::<[ComponentId; 8]>::new();
+    watched_components.push(frame_interpolate_id);
+    watched_components.extend(
+        components
+            .iter()
+            .map(FrameHistoryComponent::live_component_id),
+    );
+    app.world_mut()
+        .insert_resource(FrameHistoryComponents { components });
+    app.world_mut().spawn(
+        Observer::new(insert_frame_histories_on_frame_interpolate)
+            .with_components(watched_components),
+    );
+}
+
+/// Bevy plugin that enables type-erased frame interpolation.
+///
+/// This plugin adds systems to store fixed-update component values and then
+/// interpolate between the previous and current fixed tick during `PostUpdate`,
+/// using [`Time<Fixed>`]'s overstep. This helps smooth visuals when the
+/// rendering framerate doesn't align perfectly with the fixed simulation rate.
+///
+/// To use this, register an interpolation rule in the [`InterpolationRegistry`]
+/// and add [`FrameInterpolate`] to entities for which you want visual
+/// interpolation.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use bevy_app::App;
+/// use bevy_ecs::prelude::*;
+/// use lightyear_frame_interpolation::prelude::*;
+/// use lightyear_interpolation::prelude::*;
+///
+/// #[derive(Component, Clone, PartialEq)]
+/// struct Position(f32);
+///
+/// fn lerp_position(start: Position, end: Position, t: f32) -> Position {
+///     Position(start.0 + (end.0 - start.0) * t)
+/// }
+///
+/// let mut app = App::new();
+/// app.add_plugins(FrameInterpolationPlugin);
+/// app.interpolate_with::<Position>(InterpolationFns::no_history(lerp_position));
+/// ```
+#[derive(Default)]
+pub struct FrameInterpolationPlugin;
+
+impl Plugin for FrameInterpolationPlugin {
     fn build(&self, app: &mut App) {
+        app.init_resource::<InterpolationRegistry>();
         // SETS
         app.configure_sets(
             RunFixedMainLoop,
             FrameInterpolationSystems::Restore.in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
         );
-        // We don't run UpdateVisualInterpolationState in rollback because we that would be a waste to do
-        // it for each rollback frame
-        // At the end of rollback, we have a system in lightyear_prediction that manually sets the FrameInterpolate component.
+        // We don't update frame interpolation history during rollback because
+        // that would be a waste to do for each rollback frame.
+        // At the end of rollback, lightyear_prediction manually updates the
+        // FrameInterpolationHistory component.
         app.configure_sets(
-            FixedLast,
+            FixedPostUpdate,
             FrameInterpolationSystems::Update.run_if(not(is_in_rollback)),
         );
         app.configure_sets(
             PostUpdate,
             FrameInterpolationSystems::Interpolate
                 .before(bevy_transform::TransformSystems::Propagate)
-                // we don't want the visual interpolation value to be the one replicated!
+                // We don't want the visual interpolation value to be the one replicated.
                 .after(ReplicationSystems::Send),
         );
 
         // SYSTEMS
         app.add_systems(
             RunFixedMainLoop,
-            restore_from_visual_interpolation::<C>.in_set(FrameInterpolationSystems::Restore),
+            restore_frame_interpolation.in_set(FrameInterpolationSystems::Restore),
         );
         app.add_systems(
             FixedPostUpdate,
-            update_visual_interpolation_status::<C>.in_set(FrameInterpolationSystems::Update),
+            update_frame_interpolation_histories.in_set(FrameInterpolationSystems::Update),
         );
         app.add_systems(
             PostUpdate,
-            visual_interpolation::<C>.in_set(FrameInterpolationSystems::Interpolate),
+            apply_frame_interpolation.in_set(FrameInterpolationSystems::Interpolate),
         );
+    }
+
+    fn finish(&self, app: &mut App) {
+        install_frame_history_observer(app);
     }
 }
 
-// TODO: we might want to add this automatically to some entities that are predicted?
-/// Component that stores the previous value of a component for visual interpolation
-/// For now we will only use this to interpolate components that are updated during the FixedUpdate schedule.
-/// Hence, some values are not included in the struct:
-/// - start_tick = current_tick - 1
-/// - start_value = previous_value
-/// - end_tick = current_tick
-/// - end_value = current_value
-/// - overstep = `Time<Fixed>`.overstep_percentage() = TimeManager.overstep()
-#[derive(Component, PartialEq, Debug)]
-pub struct FrameInterpolate<C: Component> {
-    /// If true, every change of the component due to visual interpolation will trigger change detection
-    /// (this can be useful for `Transform` to trigger a `TransformPropagate` system)
-    ///
-    /// If using `FrameInterpolation<Position>`: This is important so that syncing from Position->Transform works correctly in PostUpdate
-    /// If using `FrameInterpolation<Transform>`: This is important so that changes in Transform trigger a TransformPropagate
-    pub trigger_change_detection: bool,
-    /// Value of the component at the previous tick
-    pub previous_value: Option<C>,
-    /// Value of the component at the current tick
-    pub current_value: Option<C>,
-}
-
-// Manual implementation because we don't want to force `Component` to have a `Default` bound
-impl<C: Component> Default for FrameInterpolate<C> {
-    fn default() -> Self {
-        Self {
-            trigger_change_detection: true,
-            previous_value: None,
-            current_value: None,
+pub(crate) fn restore_frame_interpolation(
+    mut frame_world: FrameInterpolationWorld,
+    interpolation_registry: Res<InterpolationRegistry>,
+) {
+    frame_world.update_archetypes(&interpolation_registry);
+    let world = frame_world.world;
+    for (archetype, cached_archetype) in frame_world.iter_archetypes() {
+        for component in cached_archetype.history_components() {
+            (component.restore_frame_history())(world, archetype, component);
         }
     }
 }
 
-/// If present, this marker indicates that we will skip applying frame interpolation.
-///
-/// This can be useful for example if a character teleports and you don't want to interpolate between
-/// the two positions.
-///
-/// You can add this directly on the client-side, or you can also add it on the sender-side and replicate the
-/// component.
-#[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
-pub struct SkipFrameInterpolation;
+pub(crate) fn update_frame_interpolation_histories(
+    mut frame_world: FrameInterpolationWorld,
+    interpolation_registry: Res<InterpolationRegistry>,
+    mut commands: Commands,
+) {
+    let mut deferred_apply = DeferredEntityCommands::default();
 
-/// Currently we will only support components that are present in the protocol and have a SyncMetadata implementation
-pub(crate) fn visual_interpolation<C: Component<Mutability = Mutable> + Clone + Debug>(
+    frame_world.update_archetypes(&interpolation_registry);
+    let world = frame_world.world;
+    for (archetype, cached_archetype) in frame_world.iter_archetypes() {
+        for component in cached_archetype.history_components() {
+            (component.update_frame_history())(world, archetype, component, &mut deferred_apply);
+        }
+    }
+
+    deferred_apply.apply(&mut commands);
+}
+
+pub(crate) fn apply_frame_interpolation(
     time: Res<Time<Fixed>>,
-    timeline: Res<LocalTimeline>,
-    registry: Res<InterpolationRegistry>,
-    mut query: Query<(
-        &mut C,
-        &mut FrameInterpolate<C>,
-        Option<&SkipFrameInterpolation>,
-    )>,
+    mut frame_world: FrameInterpolationWorld,
+    interpolation_registry: Res<InterpolationRegistry>,
+    mut commands: Commands,
 ) {
-    let kind = DebugName::type_name::<C>();
-    let tick = timeline.tick();
-    // TODO: how should we get the overstep? the LocalTimeline is only incremented during FixedUpdate so has an overstep of 0.0
-    //  the InputTimeline seems to have an overstep, but it doesn't match the Time<Fixed> overstep
-    let overstep = time.overstep_fraction();
-    for (mut component, mut interpolate_status, skip_interpolation) in query.iter_mut() {
-        if skip_interpolation.is_some() && interpolate_status.current_value.is_some() {
-            *component = interpolate_status.current_value.clone().unwrap();
-            interpolate_status.previous_value = interpolate_status.current_value.clone();
-            trace!(
-                target: "lightyear_debug::frame_interpolation",
-                kind = "frame_interpolation_skipped",
-                schedule = "PostUpdate",
-                sample_point = "PostUpdate",
-                component = ?kind,
-                local_tick = tick.0,
-                current_value = ?interpolate_status.current_value,
-                "skipped frame interpolation"
+    let mut deferred_apply = DeferredEntityCommands::default();
+    let ctx = FrameInterpolationContext {
+        overstep: time.overstep_fraction().clamp(0.0, 1.0),
+    };
+
+    frame_world.update_archetypes(&interpolation_registry);
+    let world = frame_world.world;
+    for (archetype, cached_archetype) in frame_world.iter_archetypes() {
+        for component in cached_archetype.apply_rules() {
+            (component.apply_frame_interpolation())(
+                world,
+                archetype,
+                &interpolation_registry,
+                component.rule_id(),
+                ctx,
+                cached_archetype.skip_interpolation(),
+                &mut deferred_apply,
             );
-            continue;
-        }
-
-        let Some(previous_value) = &interpolate_status.previous_value else {
-            trace!(?kind, "No previous value, skipping visual interpolation");
-            continue;
-        };
-        let Some(current_value) = &interpolate_status.current_value else {
-            trace!(?kind, "No current value, skipping visual interpolation");
-            continue;
-        };
-
-        let interpolated =
-            registry.interpolate(previous_value.clone(), current_value.clone(), overstep);
-        trace!(
-            ?kind,
-            ?tick,
-            ?previous_value,
-            ?current_value,
-            ?overstep,
-            ?interpolated,
-            "Visual interpolation applied"
-        );
-        trace!(
-            target: "lightyear_debug::frame_interpolation",
-            kind = "frame_interpolation_apply",
-            schedule = "PostUpdate",
-            sample_point = "PostUpdate",
-            component = ?kind,
-            local_tick = tick.0,
-            overstep,
-            previous_value = ?previous_value,
-            current_value = ?current_value,
-            interpolated = ?interpolated,
-            trigger_change_detection = interpolate_status.trigger_change_detection,
-            "applied frame interpolation"
-        );
-        if !interpolate_status.trigger_change_detection {
-            *component.bypass_change_detection() = interpolated;
-        } else {
-            *component = interpolated;
         }
     }
+
+    deferred_apply.apply(&mut commands);
 }
 
-/// Update the previous and current tick values.
-/// Runs in FixedUpdate after FixedUpdate::Main (where the component values are updated)
-///  TODO: do not run this in rollback! since we are updating this in PostRollback
-pub(crate) fn update_visual_interpolation_status<
-    C: Component<Mutability = Mutable> + Clone + Debug,
->(
-    mut query: Query<(Ref<C>, &mut FrameInterpolate<C>)>,
-) {
-    for (component, mut interpolate_status) in query.iter_mut() {
-        if let Some(current_value) = interpolate_status.current_value.take() {
-            interpolate_status.previous_value = Some(current_value);
-        }
-        // this is dangerous because if `current_status` is None, we cannot restore the correct
-        // tick value in `restore_from_visual_interpolation`. We want to always be able to restore
-        // that value because the component value might have changed because of Correction (which runs after FI)
-        // (Even if interpolation is not running, we need to restore!!)
-        // if !component.is_changed() {
-        //     trace!(
-        //         ?component,
-        //         ?interpolate_status,
-        //         "not updating interpolate status current value because component did not change"
-        //     );
-        //     continue;
-        // }
-        interpolate_status.current_value = Some((*component).clone());
-        trace!(
-            ?interpolate_status,
-            "updating interpolate status current_value"
+/// Common frame interpolation exports.
+pub mod prelude {
+    #[allow(deprecated)]
+    pub use crate::{
+        FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
+        FrameInterpolationSet, FrameInterpolationSystems, SkipFrameInterpolation,
+        linear_frame_interpolation,
+    };
+}
+
+#[cfg(test)]
+mod tests;
+
+#[cfg(test)]
+mod unit_tests {
+    use super::*;
+    use bevy_app::{App, FixedPostUpdate, PostUpdate, RunFixedMainLoop};
+    use bevy_ecs::observer::Observer;
+    use bevy_replicon::prelude::RepliconSharedPlugin;
+    use bevy_state::app::StatesPlugin;
+    use core::time::Duration;
+    use lightyear_core::prelude::ConfirmedHistory;
+    use lightyear_interpolation::registry::AppInterpolationExt;
+    use lightyear_interpolation::rules::{InterpolationFns, InterpolationFnsExt};
+    use lightyear_replication::prelude::AppComponentExt;
+    use serde::{Deserialize, Serialize};
+
+    #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]
+    struct FrameA(f32);
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    struct FrameB(f32);
+
+    #[derive(Component, Clone, Debug, PartialEq)]
+    #[component(storage = "SparseSet")]
+    struct SparseFrame(f32);
+
+    fn bundle_lerp(start: (FrameA, FrameB), end: (FrameA, FrameB), t: f32) -> (FrameA, FrameB) {
+        (
+            FrameA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
+            FrameB(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+        )
+    }
+
+    #[test]
+    fn frame_history_observer_inserts_history_when_frame_interpolate_is_added() {
+        let mut app = App::new();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.finish();
+
+        let entity = app.world_mut().spawn(FrameA(1.0)).id();
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_none()
         );
-        trace!(
-            target: "lightyear_debug::frame_interpolation",
-            kind = "frame_interpolation_update_history",
-            schedule = "FixedPostUpdate",
-            sample_point = "FixedPostUpdate",
-            component = ?DebugName::type_name::<C>(),
-            previous_value = ?interpolate_status.previous_value,
-            current_value = ?interpolate_status.current_value,
-            "updated frame interpolation history"
+
+        app.world_mut().entity_mut(entity).insert(FrameInterpolate);
+
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_some()
         );
     }
-}
 
-/// Restore the component value to the non-interpolated value
-pub(crate) fn restore_from_visual_interpolation<
-    C: Component<Mutability = Mutable> + Clone + Debug,
->(
-    mut query: Query<(&mut C, &mut FrameInterpolate<C>)>,
-) {
-    let kind = DebugName::type_name::<C>();
-    for (mut component, interpolate_status) in query.iter_mut() {
-        if let Some(current_value) = &interpolate_status.current_value {
-            trace!(
-                ?kind,
-                visual = ?component,
-                correct = ?current_value,
-                "Restoring correct tick value before FixedMainLoop"
-            );
-            trace!(
-                target: "lightyear_debug::frame_interpolation",
-                kind = "frame_interpolation_restore",
-                schedule = "RunFixedMainLoop",
-                sample_point = "RunFixedMainLoop",
-                component = ?kind,
-                visual = ?component,
-                correct = ?current_value,
-                "restored non-interpolated component value"
-            );
-            *component.bypass_change_detection() = current_value.clone();
-        }
+    #[test]
+    fn frame_history_observer_inserts_history_when_component_is_added() {
+        let mut app = App::new();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.finish();
+
+        let entity = app.world_mut().spawn(FrameInterpolate).id();
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_none()
+        );
+
+        app.world_mut().entity_mut(entity).insert(FrameA(1.0));
+
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn frame_history_observer_inserts_history_when_both_are_spawned() {
+        let mut app = App::new();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.finish();
+
+        let entity = app.world_mut().spawn((FrameA(1.0), FrameInterpolate)).id();
+
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn frame_history_observer_is_shared_by_registered_components() {
+        let mut app = App::new();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(start.0 + (end.0 - start.0) * t)
+        }));
+        app.interpolate_with::<FrameB>(InterpolationFns::no_history(|start, end, t| {
+            FrameB(start.0 + (end.0 - start.0) * t)
+        }));
+        app.finish();
+
+        let observer_count = app
+            .world_mut()
+            .query::<&Observer>()
+            .iter(app.world())
+            .count();
+        assert_eq!(observer_count, 1);
+
+        let entity = app
+            .world_mut()
+            .spawn((FrameA(1.0), FrameB(2.0), FrameInterpolate))
+            .id();
+
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameA>>(entity)
+                .is_some()
+        );
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<FrameB>>(entity)
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn frame_bundle_interpolation_uses_tuple_rule() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_bundle_with::<(FrameA, FrameB)>(InterpolationFns::no_history(bundle_lerp));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameB(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(0.0)),
+                    current_value: Some(FrameA(10.0)),
+                },
+                FrameInterpolationHistory::<FrameB> {
+                    previous_value: Some(FrameB(0.0)),
+                    current_value: Some(FrameB(20.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(105.0)));
+        assert_eq!(app.world().get::<FrameB>(entity), Some(&FrameB(210.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_reuses_no_history_interpolation_rule() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(250));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(10.0 + start.0 + (end.0 - start.0) * t)
+        }));
+
+        assert!(
+            app.world()
+                .components()
+                .component_id::<ConfirmedHistory<FrameA>>()
+                .is_none()
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(0.0)),
+                    current_value: Some(FrameA(8.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(12.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_reuses_history_only_interpolation_rule() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(250));
+        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
+        app.component::<FrameA>().replicate();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(
+            InterpolationFns::history_only()
+                .interpolate(|start, end, t| FrameA(20.0 + start.0 + (end.0 - start.0) * t)),
+        );
+
+        assert!(
+            app.world()
+                .components()
+                .component_id::<ConfirmedHistory<FrameA>>()
+                .is_some()
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(4.0)),
+                    current_value: Some(FrameA(12.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(26.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_uses_filtered_rule_for_frame_interpolate_marker() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(250));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(10.0 + start.0 + (end.0 - start.0) * t)
+        }));
+        app.interpolate_with_priority_filtered::<FrameA, With<FrameInterpolate>>(
+            100,
+            InterpolationFns::no_history(|start, end, t| {
+                FrameA(20.0 + start.0 + (end.0 - start.0) * t)
+            }),
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(4.0)),
+                    current_value: Some(FrameA(12.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(26.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_supports_sparse_set_live_component() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<SparseFrame>(InterpolationFns::no_history(|start, end, t| {
+            SparseFrame(start.0 + (end.0 - start.0) * t)
+        }));
+
+        let entity = app
+            .world_mut()
+            .spawn((FrameInterpolate, SparseFrame(1.0)))
+            .id();
+
+        app.world_mut().run_schedule(FixedPostUpdate);
+        assert_eq!(
+            app.world()
+                .get::<FrameInterpolationHistory<SparseFrame>>(entity)
+                .and_then(|history| history.current_value.as_ref()),
+            Some(&SparseFrame(1.0))
+        );
+
+        app.world_mut().entity_mut(entity).insert(SparseFrame(3.0));
+        app.world_mut().run_schedule(FixedPostUpdate);
+        let history = app
+            .world()
+            .get::<FrameInterpolationHistory<SparseFrame>>(entity)
+            .unwrap();
+        assert_eq!(history.previous_value, Some(SparseFrame(1.0)));
+        assert_eq!(history.current_value, Some(SparseFrame(3.0)));
+
+        app.world_mut().run_schedule(PostUpdate);
+        assert_eq!(
+            app.world().get::<SparseFrame>(entity),
+            Some(&SparseFrame(2.0))
+        );
+
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        assert_eq!(
+            app.world().get::<SparseFrame>(entity),
+            Some(&SparseFrame(3.0))
+        );
     }
 }

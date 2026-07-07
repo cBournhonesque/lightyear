@@ -99,15 +99,15 @@ impl Plugin for ProtocolPlugin {
             .replicate()
             .predict()
             .add_linear_interpolation()
-            // we enable correction without applying Correction on Position.
-            // Instead we will apply Correction/FrameInterpolation on Transform directly.
-            .enable_correction();
+            // Store the previous visual value, but apply correction and frame
+            // interpolation on Transform directly.
+            .custom_correction();
 
         app.component::<Rotation>()
             .replicate()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
-            .enable_correction()
+            .custom_correction()
             .add_linear_interpolation();
 
         // Bullet motion is simulated by Avian from LinearVelocity. Predicted bullets need the same

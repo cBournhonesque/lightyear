@@ -1,8 +1,8 @@
-use crate::SyncComponent;
 use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
 use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
+use crate::{SyncComponent, correction};
 #[cfg(feature = "metrics")]
 use alloc::format;
 use bevy_app::App;
@@ -24,6 +24,7 @@ use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::EntityStorageCtx;
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
+use indexmap::IndexMap;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
@@ -36,7 +37,6 @@ use lightyear_replication::registry::replication::{
     AppComponentExt, ComponentRegistration, ComponentRegistrator,
 };
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
-use lightyear_utils::collections::HashMap;
 use tracing::{debug, error, trace, trace_span};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
@@ -50,9 +50,14 @@ pub struct PredictionMetadata {
     pub prediction_history_id: ComponentId,
     /// Id of the [`ConfirmedHistory<C>`] component
     pub confirmed_history_id: ComponentId,
-    pub(crate) correction: bool,
-    /// Custom interpolation function used to interpolate the rollback error
-    pub(crate) correction_fn: Option<unsafe fn()>,
+    /// store `PreviousVisual<C>`, but the user owns the actual correction logic.
+    pub(crate) custom_correction: bool,
+    /// Type-erased handlers used by the generic post-rollback correction system.
+    ///
+    /// This is only present for components that use Lightyear's built-in
+    /// correction pipeline. Components that call `custom_correction` can
+    /// still provide a custom correction pipeline elsewhere.
+    pub(crate) correction: Option<correction::ErasedPostRollbackCorrection>,
     /// Function used to compare the confirmed component with the predicted component's history
     /// to determine if a rollback is needed. Returns true if we should do a rollback.
     /// Will default to a PartialEq::ne implementation, but can be overridden.
@@ -92,8 +97,8 @@ impl PredictionMetadata {
         Self {
             prediction_history_id,
             confirmed_history_id,
-            correction: false,
-            correction_fn: None,
+            custom_correction: false,
+            correction: None,
             should_rollback: unsafe {
                 core::mem::transmute::<for<'a, 'b> fn(&'a C, &'b C) -> bool, unsafe fn()>(
                     should_rollback,
@@ -115,7 +120,8 @@ pub type ShouldRollbackFn<C> = fn(confirmed: &C, predicted: &C) -> bool;
 
 #[derive(Resource, Default, Debug)]
 pub struct PredictionRegistry {
-    pub prediction_map: HashMap<ComponentKind, PredictionMetadata>,
+    /// Predicted components in registration order.
+    pub prediction_map: IndexMap<ComponentKind, PredictionMetadata>,
 }
 
 impl PredictionRegistry {
@@ -147,40 +153,48 @@ impl PredictionRegistry {
         };
     }
 
-    #[doc(hidden)]
-    pub fn apply_correction<C: SyncComponent, D: Default>(&self, error: D, r: f32) -> Option<D> {
-        self.prediction_map
-            .get(&ComponentKind::of::<C>())
-            .expect(
-                "The component has not been registered for prediction. Did you call `.predict()`?",
-            )
-            .correction_fn
-            .map(|correction_fn| {
-                // SAFETY: the correction_fn was registered as a LerpFn<D>
-                let lerp_fn =
-                    unsafe { core::mem::transmute::<unsafe fn(), LerpFn<D>>(correction_fn) };
-                lerp_fn(D::default(), error, r)
-            })
-    }
-
-    fn enable_correction<C: SyncComponent>(&mut self) {
+    fn custom_correction<C: SyncComponent>(&mut self) {
         self.prediction_map
             .get_mut(&ComponentKind::of::<C>())
             .expect(
                 "The component has not been registered for prediction. Did you call `.predict()`?",
             )
-            .correction = true;
+            .custom_correction = true;
     }
 
-    fn set_correction_fn<C: SyncComponent, D>(&mut self, correction_fn: LerpFn<D>) {
+    fn set_correction_fn<C: SyncComponent>(
+        &mut self,
+        correction: correction::ErasedPostRollbackCorrection,
+    ) {
         let metadata = self
             .prediction_map
             .get_mut(&ComponentKind::of::<C>())
             .expect(
                 "The component has not been registered for prediction. Did you call `.predict()`?",
             );
-        metadata.correction = true;
-        metadata.correction_fn = Some(unsafe { core::mem::transmute(correction_fn) });
+        metadata.correction = Some(correction);
+    }
+
+    pub(crate) fn post_rollback_corrections(
+        &self,
+    ) -> impl Iterator<Item = correction::ErasedPostRollbackCorrection> + '_ {
+        self.prediction_map
+            .values()
+            .filter_map(|metadata| metadata.correction)
+    }
+
+    pub(crate) fn apply_correction<C: SyncComponent, D: Default>(
+        &self,
+        error: D,
+        ratio: f32,
+    ) -> Option<D> {
+        self.prediction_map
+            .get(&ComponentKind::of::<C>())
+            .expect(
+                "The component has not been registered for prediction. Did you call `.predict()`?",
+            )
+            .correction
+            .map(|correction| correction.apply_correction(error, ratio))
     }
 
     /// Returns true if the component is predicted
@@ -206,7 +220,7 @@ impl PredictionRegistry {
         let kind = ComponentKind::of::<C>();
         self.prediction_map
             .get(&kind)
-            .is_some_and(|metadata| metadata.correction)
+            .is_some_and(|metadata| metadata.custom_correction || metadata.correction.is_some())
     }
 
     #[doc(hidden)]
@@ -541,31 +555,71 @@ pub trait PredictionRegistrationExt<C> {
     where
         C: SyncComponent;
 
-    /// Enables correction for this component, without adding the correction systems.
+    /// Marks this component as using custom correction logic.
     ///
-    /// This can be useful if you want to implement the Correction logic yourself,
-    /// for example if Prediction/Rotation are replicated but Correction/FrameInterpolation are applied
-    /// on Transform
+    /// This stores the pre-rollback visual value, but does not add Lightyear's
+    /// built-in correction systems. Use it when correction is applied elsewhere,
+    /// for example when `Position`/`Rotation` are predicted but correction and
+    /// frame interpolation are applied on `Transform`.
+    fn custom_correction(self) -> Self
+    where
+        C: SyncComponent;
+
+    /// Enables correction for this component, without adding the correction systems.
+    #[deprecated(note = "use `custom_correction()` instead")]
     fn enable_correction(self) -> Self
     where
         C: SyncComponent;
 
-    /// Add correction for this component where the interpolation will done using the lerp function
-    /// provided by the [`Ease`] trait.
-    fn add_linear_correction_fn<D>(self) -> Self
+    /// Add visual correction for this component using `C` as its own rollback
+    /// error type.
+    ///
+    /// This is the common case for components where `C: Diffable<C>`.
+    /// Correction smooths a rollback by storing the pre-rollback visual value
+    /// and then decaying the difference between that value and the corrected
+    /// state over several frames.
+    ///
+    /// This does not register an interpolation rule for C. The corrected component
+    /// `C` must have an applicable interpolation rule with an interpolation
+    /// function when correction runs. That rule may be a component rule for
+    /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    fn add_correction(self) -> Self
+    where
+        C: SyncComponent + Diffable<C> + Ease + Default;
+
+    /// Add visual correction for this component using linear interpolation on
+    /// rollback errors of type `D`.
+    ///
+    /// Correction smooths a rollback by storing the pre-rollback visual value
+    /// and then decaying the difference between that value and the corrected
+    /// state over several frames. `D` is the diff type returned by
+    /// [`Diffable::diff`] for `C`; the error is decayed from `D::default()` to
+    /// the current error using [`Ease`] linear interpolation.
+    ///
+    /// This does not register an interpolation rule for C. The corrected component
+    /// `C` must have an applicable interpolation rule with an interpolation
+    /// function when correction runs. That rule may be a component rule for
+    /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    fn add_linear_correction<D>(self) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Ease + Debug + Clone + Default + Send + Sync + 'static;
 
-    /// Add correction for this component where the interpolation will done using the lerp function
-    /// provided by the [`Ease`] trait.
+    /// Add visual correction for this component using `correction_fn` to decay
+    /// rollback errors of type `D`.
     ///
-    /// The generic type `D` represents the type of the delta that will be applied to `C` to smooth the
-    /// rollback error.
+    /// This is the custom version of [`Self::add_linear_correction`]. It is
+    /// useful when the diff type `D` should not use [`Ease`] interpolation, or
+    /// when its decay should follow component-specific logic.
+    ///
+    /// This does not register an interpolation rule for C. The corrected component
+    /// `C` must have an applicable interpolation rule with an interpolation
+    /// function when correction runs. That rule may be a component rule for
+    /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
     fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static;
+        D: Debug + Clone + Default + Send + Sync + 'static;
 
     /// Add a custom comparison function to determine if we should rollback by comparing the
     /// confirmed component with the predicted component's history.
@@ -634,31 +688,54 @@ impl<'a, C> PredictedComponentRegistration<'a, C> {
         self.with_rollback_condition(should_rollback)
     }
 
-    /// Enables correction for this component, without adding the correction systems.
-    pub fn enable_correction(mut self) -> Self
+    /// Marks this component as using custom correction logic.
+    ///
+    /// This stores the pre-rollback visual value, but does not add Lightyear's
+    /// built-in correction systems.
+    pub fn custom_correction(mut self) -> Self
     where
         C: SyncComponent,
     {
-        self.registration = self.registration.enable_correction();
+        self.registration = self.registration.custom_correction();
         self
     }
 
-    /// Add correction for this component where interpolation uses the
-    /// [`Ease`] trait.
-    pub fn add_linear_correction_fn<D>(mut self) -> Self
+    /// Backwards-compatible spelling for [`Self::custom_correction`].
+    #[deprecated(note = "use `.custom_correction()` instead")]
+    pub fn enable_correction(self) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.custom_correction()
+    }
+
+    /// Add visual correction for this component using `C` as its own rollback
+    /// error type.
+    pub fn add_correction(mut self) -> Self
+    where
+        C: SyncComponent + Diffable<C> + Ease + Default,
+    {
+        self.registration = self.registration.add_correction();
+        self
+    }
+
+    /// Add visual correction for this component using linear interpolation on
+    /// rollback errors of type `D`.
+    pub fn add_linear_correction<D>(mut self) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Ease + Debug + Clone + Default + Send + Sync + 'static,
     {
-        self.registration = self.registration.add_linear_correction_fn::<D>();
+        self.registration = self.registration.add_linear_correction::<D>();
         self
     }
 
-    /// Add correction for this component using a custom interpolation function.
+    /// Add visual correction for this component using `correction_fn` to decay
+    /// rollback errors of type `D`.
     pub fn add_correction_fn<D>(mut self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+        D: Debug + Clone + Default + Send + Sync + 'static,
     {
         self.registration = self.registration.add_correction_fn::<D>(correction_fn);
         self
@@ -932,7 +1009,7 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self
     }
 
-    fn enable_correction(self) -> Self
+    fn custom_correction(self) -> Self
     where
         C: SyncComponent,
     {
@@ -947,22 +1024,37 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
-            .enable_correction::<C>();
+            .custom_correction::<C>();
         self
     }
 
-    fn add_linear_correction_fn<D>(self) -> Self
+    #[allow(deprecated)]
+    fn enable_correction(self) -> Self
+    where
+        C: SyncComponent,
+    {
+        self.custom_correction()
+    }
+
+    fn add_correction(self) -> Self
+    where
+        C: SyncComponent + Diffable<C> + Ease + Default,
+    {
+        self.add_linear_correction::<C>()
+    }
+
+    fn add_linear_correction<D>(self) -> Self
     where
         C: SyncComponent + Diffable<D>,
         D: Ease + Debug + Clone + Default + Send + Sync + 'static,
     {
-        self.add_correction_fn(lerp::<D>)
+        self.add_correction_fn::<D>(lerp::<D>)
     }
 
     fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
-        D: Ease + Debug + Clone + Default + Send + Sync + 'static,
+        D: Debug + Clone + Default + Send + Sync + 'static,
     {
         let has_prediction_registry = self
             .app
@@ -972,11 +1064,15 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
         if !has_prediction_registry {
             return self;
         }
-        crate::correction::add_correction_systems::<C, D>(self.app);
+        let correction_fn = correction::ErasedPostRollbackCorrection::new::<C, D>(
+            self.app.world_mut(),
+            correction_fn,
+        );
         self.app
             .world_mut()
             .resource_mut::<PredictionRegistry>()
-            .set_correction_fn::<C, D>(correction_fn);
+            .set_correction_fn::<C>(correction_fn);
+        correction::add_correction_systems::<C, D>(self.app);
         self
     }
 

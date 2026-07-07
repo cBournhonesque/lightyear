@@ -54,7 +54,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_plugins(EntityLabelPlugin);
 
         // set up visual interp plugins for Transform
-        app.add_plugins(FrameInterpolationPlugin::<Transform>::default());
+        app.add_plugins(FrameInterpolationPlugin);
 
         // observers that add VisualInterpolationStatus components to entities which receive
         // a Position
@@ -74,22 +74,14 @@ fn add_frame_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
     trigger: On<Add, Position>,
-    q: Query<Entity, (Without<Wall>, With<Predicted>)>,
+    q: Query<Entity, (Without<Wall>, With<Predicted>, Without<FrameInterpolate>)>,
     mut commands: Commands,
 ) {
     if !q.contains(trigger.entity) {
         return;
     }
     debug!("Adding visual interp component to {:?}", trigger.entity);
-    commands
-        .entity(trigger.entity)
-        .insert(FrameInterpolate::<Transform> {
-            // We must trigger change detection on visual interpolation
-            // to make sure that child entities (sprites, meshes, text)
-            // are also interpolated
-            trigger_change_detection: true,
-            ..default()
-        });
+    commands.entity(trigger.entity).insert(FrameInterpolate);
 }
 
 fn init_camera(mut commands: Commands) {
