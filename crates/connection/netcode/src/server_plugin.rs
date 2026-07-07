@@ -1,5 +1,5 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES};
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
@@ -14,7 +14,7 @@ use lightyear_connection::server::Stopping;
 use lightyear_connection::shared::ConnectionRequestHandler;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkSystems};
+use lightyear_link::{Link, LinkSystems, Unlink};
 use lightyear_transport::plugin::TransportSystems;
 use tracing::{error, info, trace};
 
@@ -302,7 +302,11 @@ impl NetcodeServerPlugin {
                                 .despawn();
                         });
                     if stopping {
-                        // after we sent disconnection packets, we can stop the server
+                        // after we sent disconnection packets, we can stop the server transport
+                        c.trigger(Unlink {
+                            entity: server_entity,
+                            reason: String::from("Server stopped"),
+                        });
                         c.entity(server_entity).insert(Stopped);
                     }
                 });
@@ -333,9 +337,6 @@ impl NetcodeServerPlugin {
         if let Ok((server_entity, mut netcode_server, server)) = query.get_mut(trigger.entity) {
             info!("Stopping netcode server");
 
-            // TODO: should we stop the io?
-            // // stop the ServerIo that is on this entity (for example webtransport server)
-            // commands.trigger_targets(Unlink, server_entity);
             commands.entity(server_entity).insert(Stopping);
 
             // SAFETY: we know that the list of client entities are unique because it is a Relationship

@@ -2,7 +2,7 @@ use crate::protocol::StringMessage;
 use crate::stepper::*;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
-use lightyear_connection::server::Started;
+use lightyear_connection::server::{Started, Stop, Stopped};
 use lightyear_crossbeam::CrossbeamIo;
 use test_log::test;
 
@@ -52,6 +52,23 @@ fn test_setup_client_server() {
     assert!(stepper.client_of(0).contains::<PeerAddr>());
     assert!(stepper.client_of(0).contains::<LocalId>());
     assert!(stepper.client_of(0).contains::<RemoteId>());
+}
+
+#[test]
+fn test_stop_netcode_server_unlinks_transport() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server = stepper.server_entity;
+
+    stepper
+        .server_app
+        .world_mut()
+        .trigger(Stop { entity: server });
+    stepper.frame_step_server_first(10);
+
+    let server = stepper.server();
+    assert!(server.contains::<Stopped>());
+    assert!(server.contains::<Unlinked>());
+    assert!(!server.contains::<Linked>());
 }
 
 /// Check that the client/server setup is correct when the connection type is Raw instead of Netcode
