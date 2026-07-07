@@ -42,6 +42,7 @@
 extern crate alloc;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
+use alloc::string::ToString;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::query::QueryData;
@@ -49,7 +50,9 @@ use bytes::Bytes;
 use core::net::{Ipv4Addr, SocketAddr};
 use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use lightyear_core::time::Instant;
-use lightyear_link::{Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked};
+use lightyear_link::{
+    Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Unlink,
+};
 use tracing::{error, trace};
 
 /// Maximum payload size used by Lightyear's packet transports.
@@ -136,7 +139,7 @@ impl CrossbeamPlugin {
         }
     }
 
-    fn send(mut query: Query<IOQuery, With<Linked>>) {
+    fn send(mut query: Query<IOQuery, With<Linked>>, mut commands: Commands) {
         // Iterate via `pop` so that `Full` can re-queue the failed payload
         // without losing the rest of the batch.
         for mut io in query.iter_mut() {
@@ -157,6 +160,10 @@ impl CrossbeamPlugin {
                             "CrossbeamIo send dropped on entity {entity:?}: channel disconnected"
                         );
                         let _ = io.link.send.drain();
+                        commands.trigger(Unlink {
+                            entity,
+                            reason: "Crossbeam channel disconnected".to_string(),
+                        });
                         break;
                     }
                     Err(TrySendError::Full(p)) => {
@@ -174,8 +181,11 @@ impl CrossbeamPlugin {
         }
     }
 
-    fn receive(mut query: Query<(&mut Link, &mut CrossbeamIo), With<Linked>>) {
-        query.par_iter_mut().for_each(|(mut link, crossbeam_io)| {
+    fn receive(
+        mut query: Query<(Entity, &mut Link, &CrossbeamIo), With<Linked>>,
+        mut commands: Commands,
+    ) {
+        for (entity, mut link, crossbeam_io) in query.iter_mut() {
             // Try to receive all available messages
             loop {
                 match crossbeam_io.receiver.try_recv() {
@@ -185,12 +195,18 @@ impl CrossbeamPlugin {
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {
-                        error!("CrossbeamIO channel is disconnected");
+                        trace!(
+                            "CrossbeamIo receive dropped on entity {entity:?}: channel disconnected"
+                        );
+                        commands.trigger(Unlink {
+                            entity,
+                            reason: "Crossbeam channel disconnected".to_string(),
+                        });
                         break;
                     }
                 }
             }
-        })
+        }
     }
 }
 
@@ -211,13 +227,17 @@ impl Plugin for CrossbeamPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_connection::prelude::{Connected, Disconnected};
+    use lightyear_link::LinkState;
 
     /// Verify the send system tolerates a disconnected peer channel without
-    /// panicking, and that Drain clears the queued payloads on break.
+    /// panicking, clears the queued payloads, and marks the link as unlinked.
     /// This is a pure transport-layer test — no connection plugin is needed.
     #[test]
-    fn send_after_peer_disconnect_does_not_panic() {
-        let (client_io, server_io) = CrossbeamIo::new_pair();
+    fn send_after_peer_disconnect_unlinks_transport() {
+        let (sender, peer_receiver) = crossbeam_channel::unbounded::<Bytes>();
+        let (peer_sender, receiver) = crossbeam_channel::unbounded::<Bytes>();
+        let client_io = CrossbeamIo::new(sender, receiver);
 
         let mut app = App::new();
         app.add_plugins(CrossbeamPlugin);
@@ -229,8 +249,10 @@ mod tests {
             .spawn((Link::new(None), Linked, client_io))
             .id();
 
-        // Drop the peer side of the channel pair before sending.
-        drop(server_io);
+        // Drop only the peer receiver before sending. Keep `peer_sender`
+        // alive so the receive system sees `Empty`, not `Disconnected`,
+        // and this test isolates the send-side unlink path.
+        drop(peer_receiver);
 
         // Queue two payloads; the send system should handle Disconnected
         // gracefully and the Drain on break should clear both.
@@ -252,6 +274,77 @@ mod tests {
             0,
             "Drain should clear queued payloads on disconnect"
         );
+        assert_eq!(link.state, LinkState::Unlinked);
+        assert!(app.world().get::<Linked>(sender_entity).is_none());
+        assert!(
+            app.world()
+                .get::<lightyear_link::Unlinked>(sender_entity)
+                .is_some()
+        );
+        drop(peer_sender);
+    }
+
+    /// Verify the receive side also marks the link as unlinked when the peer
+    /// channel is dropped before any local send attempt observes it.
+    #[test]
+    fn receive_after_peer_disconnect_unlinks_transport() {
+        let (client_io, server_io) = CrossbeamIo::new_pair();
+
+        let mut app = App::new();
+        app.add_plugins(CrossbeamPlugin);
+
+        let client_entity = app
+            .world_mut()
+            .spawn((Link::new(None), Linked, client_io))
+            .id();
+
+        drop(server_io);
+
+        app.update();
+
+        let link = app
+            .world()
+            .get::<Link>(client_entity)
+            .expect("client entity should still have Link");
+        assert_eq!(link.state, LinkState::Unlinked);
+        assert!(app.world().get::<Linked>(client_entity).is_none());
+        assert!(
+            app.world()
+                .get::<lightyear_link::Unlinked>(client_entity)
+                .is_some()
+        );
+    }
+
+    /// A raw client should observe the crossbeam channel disconnect through the
+    /// regular Link -> Connection lifecycle and become Disconnected.
+    #[test]
+    fn peer_disconnect_disconnects_raw_client() {
+        use lightyear_connection::prelude::client::Connect;
+        use lightyear_raw_connection::client::{RawClient, RawConnectionPlugin};
+
+        let (client_io, server_io) = CrossbeamIo::new_pair();
+
+        let mut app = App::new();
+        app.add_plugins(CrossbeamPlugin);
+        app.add_plugins(RawConnectionPlugin);
+
+        let client_entity = app.world_mut().spawn((RawClient, client_io)).id();
+        app.world_mut().trigger(Connect {
+            entity: client_entity,
+        });
+        app.update();
+
+        assert!(app.world().get::<Linked>(client_entity).is_some());
+        assert!(app.world().get::<Connected>(client_entity).is_some());
+        assert!(app.world().get::<Disconnected>(client_entity).is_none());
+
+        drop(server_io);
+
+        app.update();
+
+        assert!(app.world().get::<Linked>(client_entity).is_none());
+        assert!(app.world().get::<Connected>(client_entity).is_none());
+        assert!(app.world().get::<Disconnected>(client_entity).is_some());
     }
 
     /// Verify multi-payload round-trip send/receive between a paired client and
@@ -310,7 +403,7 @@ mod tests {
     #[test]
     fn send_with_bounded_channel_requeues_on_full() {
         let (bounded_sender, _peer_recv_unread) = crossbeam_channel::bounded::<Bytes>(1);
-        let (_, dummy_recv) = crossbeam_channel::unbounded::<Bytes>();
+        let (_dummy_sender, dummy_recv) = crossbeam_channel::unbounded::<Bytes>();
         let client_io = CrossbeamIo::new(bounded_sender, dummy_recv);
 
         let mut app = App::new();
