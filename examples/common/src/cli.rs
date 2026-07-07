@@ -218,11 +218,7 @@ impl Cli {
 
                 let client = app
                     .world_mut()
-                    .spawn((
-                        Client::default(),
-                        Name::new("HostClient"),
-                        LinkOf { server },
-                    ))
+                    .spawn((Client, Name::new("HostClient"), LinkOf { server }))
                     .id();
                 // NOTE: it's ugly but i believe that you need to start the server before
                 //  connecting the host-client for things to work properly

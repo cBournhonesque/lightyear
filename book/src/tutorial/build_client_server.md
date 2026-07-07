@@ -61,7 +61,7 @@ let auth = Authentication::Manual {
 };
 let client = commands
     .spawn((
-        Client::default(),
+        Client,
         LocalAddr(CLIENT_ADDR),
         PeerAddr(SERVER_ADDR),
         Link::new(None),

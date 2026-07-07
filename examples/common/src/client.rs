@@ -49,7 +49,7 @@ impl ExampleClient {
             let settings = entity_mut.take::<ExampleClient>().unwrap();
             let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client_port);
             entity_mut.insert((
-                Client::default(),
+                Client,
                 Link::new(settings.conditioner.clone()),
                 LocalAddr(client_addr),
                 PeerAddr(settings.server_addr),

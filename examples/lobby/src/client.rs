@@ -254,17 +254,20 @@ mod lobby {
         mut contexts: EguiContexts,
         mut lobby_table: ResMut<LobbyTable>,
         lobbies: Option<Single<&Lobbies>>,
-        message_sender: Single<(
-            Entity,
-            &Client,
-            &mut MessageSender<StartGame>,
-            &mut MessageSender<JoinLobby>,
-            &mut MessageSender<ExitLobby>,
-        )>,
+        message_sender: Single<
+            (
+                Entity,
+                ClientState,
+                &mut MessageSender<StartGame>,
+                &mut MessageSender<JoinLobby>,
+                &mut MessageSender<ExitLobby>,
+            ),
+            With<Client>,
+        >,
         app_state: Res<State<AppState>>,
         mut next_app_state: ResMut<NextState<AppState>>,
     ) -> Result {
-        let (client_entity, client, mut send_start_game, mut send_join_lobby, mut exit_lobby) =
+        let (client_entity, state, mut send_start_game, mut send_join_lobby, mut exit_lobby) =
             message_sender.into_inner();
         let window_name = match app_state.get() {
             AppState::Lobby { joined_lobby } => {
@@ -389,16 +392,13 @@ mod lobby {
                     }
                     AppState::Game => {}
                 };
-                match client.state {
-                    ClientState::Disconnected | ClientState::Disconnecting => {
+                if state.is_disconnected() || state.is_disconnecting() {
                         if ui.button("Join lobby list").clicked() {
                             commands.trigger(Connect { entity: client_entity });
                         }
-                    }
-                    ClientState::Connecting => {
+                } else if state.is_connecting() {
                         let _ = ui.button("Connecting");
-                    }
-                    ClientState::Connected => {
+                } else if state.is_connected() {
                         match app_state.get() {
                             AppState::Lobby { joined_lobby } => {
                                 if let Some(lobby_id) = joined_lobby {
@@ -430,7 +430,6 @@ mod lobby {
                                 }
                             }
                         }
-                    }
                 }
             });
         Ok(())
