@@ -330,7 +330,10 @@ pub mod prelude {
 }
 
 #[cfg(test)]
-mod tests {
+mod tests;
+
+#[cfg(test)]
+mod unit_tests {
     use super::*;
     use bevy_app::{App, FixedPostUpdate, PostUpdate, RunFixedMainLoop};
     use bevy_ecs::observer::Observer;
