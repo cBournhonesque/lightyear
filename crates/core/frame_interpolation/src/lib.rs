@@ -330,9 +330,6 @@ pub mod prelude {
 }
 
 #[cfg(test)]
-mod tests;
-
-#[cfg(test)]
 mod unit_tests {
     use super::*;
     use bevy_app::{App, FixedPostUpdate, PostUpdate, RunFixedMainLoop};
