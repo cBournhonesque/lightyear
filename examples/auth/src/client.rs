@@ -190,19 +190,16 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
                     |trigger: On<Pointer<Click>>,
                      mut commands: Commands,
                      mut task_state: ResMut<ConnectTokenRequestTask>,
-                     client: Single<(Entity, &Client)>| {
-                        let (client_entity, client) = client.into_inner();
-                        match client.state {
-                            ClientState::Disconnected => {
-                                info!("Starting task to get ConnectToken");
-                                begin_connect_token_request(&mut task_state);
-                            }
-                            _ => {
-                                info!("Disconnecting from server");
-                                commands.trigger(Disconnect {
-                                    entity: client_entity,
-                                });
-                            }
+                     client: Single<(Entity, ClientState), With<Client>>| {
+                        let (client_entity, state) = client.into_inner();
+                        if state.is_disconnected() {
+                            info!("Starting task to get ConnectToken");
+                            begin_connect_token_request(&mut task_state);
+                        } else {
+                            info!("Disconnecting from server");
+                            commands.trigger(Disconnect {
+                                entity: client_entity,
+                            });
                         };
                     },
                 );
@@ -211,23 +208,19 @@ pub(crate) fn spawn_connect_button(mut commands: Commands) {
 
 #[cfg(feature = "gui")]
 fn update_button_text(
-    client: Single<&Client>,
+    client: Single<ClientState, With<Client>>,
     mut text_query: Query<&mut Text, With<AuthConnectButton>>,
 ) {
     if let Ok(mut text) = text_query.single_mut() {
-        match client.state {
-            ClientState::Disconnecting => {
-                text.0 = "Disconnecting".to_string();
-            }
-            ClientState::Disconnected => {
-                text.0 = "Connect".to_string();
-            }
-            ClientState::Connecting => {
-                text.0 = "Connecting".to_string();
-            }
-            ClientState::Connected => {
-                text.0 = "Disconnect".to_string();
-            }
+        let state = client.into_inner();
+        if state.is_disconnecting() {
+            text.0 = "Disconnecting".to_string();
+        } else if state.is_disconnected() {
+            text.0 = "Connect".to_string();
+        } else if state.is_connecting() {
+            text.0 = "Connecting".to_string();
+        } else if state.is_connected() {
+            text.0 = "Disconnect".to_string();
         }
     }
 }

@@ -33,7 +33,7 @@
 //!
 //! // Client-side connection entity:
 //! let client = commands
-//!     .spawn((Client::default(), RawClient, Link::new(None), io))
+//!     .spawn((Client, RawClient, Link::new(None), io))
 //!     .id();
 //! commands.trigger(Connect { entity: client });  // Connect → LinkStart internally
 //! ```

@@ -124,7 +124,7 @@ impl DetStepper {
         let client_entity = client_app
             .world_mut()
             .spawn((
-                Client::default(),
+                Client,
                 PingManager::new(PingConfig {
                     ping_interval: Duration::default(),
                 }),

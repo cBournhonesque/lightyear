@@ -104,17 +104,14 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
                 .observe(
                     |_: On<Pointer<Click>>,
                      mut commands: Commands,
-                     query: Query<(Entity, &Client)>| {
-                        let Ok((entity, client)) = query.single() else {
+                     query: Query<(Entity, ClientState), With<Client>>| {
+                        let Ok((entity, state)) = query.single() else {
                             return;
                         };
-                        match client.state {
-                            ClientState::Disconnected => {
-                                commands.trigger(Connect { entity });
-                            }
-                            _ => {
-                                commands.trigger(Disconnect { entity });
-                            }
+                        if state.is_disconnected() {
+                            commands.trigger(Connect { entity });
+                        } else {
+                            commands.trigger(Disconnect { entity });
                         };
                     },
                 );
@@ -122,23 +119,19 @@ pub(crate) fn spawn_connect_button(app: &mut App) {
 }
 
 pub(crate) fn update_button_text(
-    client: Single<&Client>,
+    client: Single<ClientState, With<Client>>,
     mut text_query: Query<&mut Text, (With<Button>, With<ClientButton>)>,
 ) {
     if let Ok(mut text) = text_query.single_mut() {
-        match client.state {
-            ClientState::Disconnecting => {
-                text.0 = "Disconnecting".to_string();
-            }
-            ClientState::Disconnected => {
-                text.0 = "Connect".to_string();
-            }
-            ClientState::Connecting => {
-                text.0 = "Connecting".to_string();
-            }
-            ClientState::Connected => {
-                text.0 = "Disconnect".to_string();
-            }
+        let state = client.into_inner();
+        if state.is_disconnecting() {
+            text.0 = "Disconnecting".to_string();
+        } else if state.is_disconnected() {
+            text.0 = "Connect".to_string();
+        } else if state.is_connecting() {
+            text.0 = "Connecting".to_string();
+        } else if state.is_connected() {
+            text.0 = "Disconnect".to_string();
         }
     }
 }

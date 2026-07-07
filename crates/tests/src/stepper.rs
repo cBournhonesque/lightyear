@@ -264,7 +264,7 @@ impl ClientServerStepper {
                     .world_mut()
                     .spawn((
                         // Client + LinkOf = HostServer
-                        Client::default(),
+                        Client,
                         LinkOf {
                             server: self.server_entity,
                         },
@@ -277,7 +277,7 @@ impl ClientServerStepper {
             return 0;
         }
         let mut client = client_app.world_mut().spawn((
-            Client::default(),
+            Client,
             // Send pings every frame, so that the Acks are sent every frame
             PingManager::new(PingConfig {
                 ping_interval: Duration::default(),

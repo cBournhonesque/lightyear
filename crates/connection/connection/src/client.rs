@@ -2,6 +2,7 @@ use alloc::{format, string::String};
 use bevy_app::{App, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::QueryData;
 use bevy_ecs::{reflect::ReflectResource, world::DeferredWorld};
 use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
@@ -22,23 +23,9 @@ pub enum ConnectionError {
     NotConnected,
 }
 
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
-pub enum ClientState {
-    /// Client is connected to the server
-    Connected,
-    /// Client is connecting to the server
-    Connecting,
-    Disconnecting,
-    #[default]
-    /// Client is disconnected from the server
-    Disconnected,
-}
-
 /// Marker component to identify this entity as a Client
 #[derive(Component, Default, Reflect)]
-pub struct Client {
-    pub state: ClientState,
-}
+pub struct Client;
 
 /// Trigger to connect the client
 #[derive(EntityEvent)]
@@ -71,9 +58,6 @@ impl Connected {
                 )
             })
             .0;
-        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
-            client.state = ClientState::Connected;
-        };
         world
             .commands()
             .entity(context.entity)
@@ -91,9 +75,6 @@ pub struct Connecting;
 
 impl Connecting {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
-            client.state = ClientState::Connecting;
-        }
         world
             .commands()
             .entity(context.entity)
@@ -109,9 +90,6 @@ pub struct Disconnected {
 
 impl Disconnected {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
-            client.state = ClientState::Disconnected;
-        }
         if let Some(peer_id) = world.get::<RemoteId>(context.entity).map(|c| c.0) {
             world
                 .resource_mut::<PeerMetadata>()
@@ -131,13 +109,40 @@ pub struct Disconnecting;
 
 impl Disconnecting {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        if let Some(mut client) = world.get_mut::<Client>(context.entity) {
-            client.state = ClientState::Disconnecting;
-        }
         world
             .commands()
             .entity(context.entity)
             .remove::<(Connected, Connecting, Disconnected)>();
+    }
+}
+
+/// Query view over a connection entity's lifecycle marker components.
+///
+/// Unlike the old cached state on [`Client`], this can be queried on both
+/// client entities and server-side `ClientOf` / `LinkOf` entities.
+#[derive(QueryData)]
+pub struct ClientState {
+    pub connected: Has<Connected>,
+    pub connecting: Has<Connecting>,
+    pub disconnecting: Has<Disconnecting>,
+    pub disconnected: Has<Disconnected>,
+}
+
+impl ClientStateItem<'_, '_> {
+    pub fn is_connected(&self) -> bool {
+        self.connected
+    }
+
+    pub fn is_connecting(&self) -> bool {
+        self.connecting
+    }
+
+    pub fn is_disconnecting(&self) -> bool {
+        self.disconnecting
+    }
+
+    pub fn is_disconnected(&self) -> bool {
+        self.disconnected || !(self.connected || self.connecting || self.disconnecting)
     }
 }
 
@@ -189,6 +194,34 @@ impl Plugin for ConnectionPlugin {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::client_of::ClientOf;
+    use bevy_ecs::world::World;
+
     #[test]
     fn test_connection() {}
+
+    #[test]
+    fn client_state_query_reads_lifecycle_markers() {
+        let mut world = World::new();
+        let client = world.spawn(Client).id();
+        let client_of = world.spawn((ClientOf, Connecting)).id();
+        let connected_client_of = world
+            .spawn((ClientOf, RemoteId(PeerId::Local(0)), Connected))
+            .id();
+
+        let mut query = world.query::<ClientState>();
+
+        let state = query.get(&world, client).unwrap();
+        assert!(state.is_disconnected());
+        assert!(!state.is_connecting());
+
+        let state = query.get(&world, client_of).unwrap();
+        assert!(state.is_connecting());
+        assert!(!state.is_disconnected());
+
+        let state = query.get(&world, connected_client_of).unwrap();
+        assert!(state.is_connected());
+        assert!(!state.is_disconnected());
+    }
 }

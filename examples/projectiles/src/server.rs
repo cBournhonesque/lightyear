@@ -453,7 +453,7 @@ mod bot {
         let conditioner = LinkConditionerConfig::average_condition().half();
 
         app.world_mut().spawn((
-            Client::default(),
+            Client,
             BotClient,
             ReplicationSender,
             ReplicationReceiver,

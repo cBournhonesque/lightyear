@@ -26,11 +26,7 @@ fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
     }
     let client = if let Some(server) = config.host_server {
         commands
-            .spawn((
-                Client::default(),
-                Name::new("HostClient"),
-                LinkOf { server },
-            ))
+            .spawn((Client, Name::new("HostClient"), LinkOf { server }))
             .id()
     } else {
         let auth = Authentication::Manual {
@@ -41,7 +37,7 @@ fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
         };
         commands
             .spawn((
-                Client::default(),
+                Client,
                 LocalAddr(CLIENT_ADDR),
                 PeerAddr(SERVER_ADDR),
                 Link::new(None),
