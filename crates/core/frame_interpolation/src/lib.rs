@@ -334,12 +334,16 @@ mod tests {
     use super::*;
     use bevy_app::{App, FixedPostUpdate, PostUpdate, RunFixedMainLoop};
     use bevy_ecs::observer::Observer;
+    use bevy_replicon::prelude::RepliconSharedPlugin;
+    use bevy_state::app::StatesPlugin;
     use core::time::Duration;
     use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_interpolation::registry::AppInterpolationExt;
-    use lightyear_interpolation::rules::InterpolationFns;
+    use lightyear_interpolation::rules::{InterpolationFns, InterpolationFnsExt};
+    use lightyear_replication::prelude::AppComponentExt;
+    use serde::{Deserialize, Serialize};
 
-    #[derive(Component, Clone, Debug, PartialEq)]
+    #[derive(Component, Clone, Debug, PartialEq, Serialize, Deserialize)]
     struct FrameA(f32);
 
     #[derive(Component, Clone, Debug, PartialEq)]
@@ -527,6 +531,80 @@ mod tests {
         app.world_mut().run_schedule(PostUpdate);
 
         assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(12.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_reuses_history_only_interpolation_rule() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(250));
+        app.add_plugins((StatesPlugin, RepliconSharedPlugin::default()));
+        app.component::<FrameA>().replicate();
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(
+            InterpolationFns::history_only()
+                .interpolate(|start, end, t| FrameA(20.0 + start.0 + (end.0 - start.0) * t)),
+        );
+
+        assert!(
+            app.world()
+                .components()
+                .component_id::<ConfirmedHistory<FrameA>>()
+                .is_some()
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(4.0)),
+                    current_value: Some(FrameA(12.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(26.0)));
+    }
+
+    #[test]
+    fn frame_interpolation_uses_filtered_rule_for_frame_interpolate_marker() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(250));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|start, end, t| {
+            FrameA(10.0 + start.0 + (end.0 - start.0) * t)
+        }));
+        app.interpolate_with_priority_filtered::<FrameA, With<FrameInterpolate>>(
+            100,
+            InterpolationFns::no_history(|start, end, t| {
+                FrameA(20.0 + start.0 + (end.0 - start.0) * t)
+            }),
+        );
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                FrameInterpolate,
+                FrameA(-1.0),
+                FrameInterpolationHistory::<FrameA> {
+                    previous_value: Some(FrameA(4.0)),
+                    current_value: Some(FrameA(12.0)),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().get::<FrameA>(entity), Some(&FrameA(26.0)));
     }
 
     #[test]

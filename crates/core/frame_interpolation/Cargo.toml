@@ -33,6 +33,10 @@ bevy_reflect.workspace = true
 bevy_time.workspace = true
 bevy_transform = { workspace = true, features = ["bevy-support"] }
 
+[dev-dependencies]
+bevy_state.workspace = true
+bevy_replicon.workspace = true
+
 [lints]
 workspace = true
 
