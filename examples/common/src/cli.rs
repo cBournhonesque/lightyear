@@ -40,6 +40,10 @@ use {
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Cli {
+    /// Run without windowing/rendering plugins even when the example was built
+    /// with a GUI feature.
+    #[arg(long, global = true)]
+    pub headless: bool,
     #[command(subcommand)]
     pub mode: Option<Mode>,
 }
@@ -71,34 +75,36 @@ impl Cli {
         }
     }
 
-    pub fn create_app(add_inspector: bool, mode: Option<&Mode>) -> App {
+    pub fn headless(&self) -> bool {
+        self.headless || !cfg!(any(feature = "gui2d", feature = "gui3d"))
+    }
+
+    pub fn create_app(add_inspector: bool, mode: Option<&Mode>, headless: bool) -> App {
         #[cfg(any(feature = "gui2d", feature = "gui3d"))]
         {
-            let _ = mode;
-            new_gui_app(add_inspector)
+            if !headless {
+                return new_gui_app(add_inspector);
+            }
         }
-        #[cfg(not(any(feature = "gui2d", feature = "gui3d")))]
-        {
-            // For client-side apps (Client / HostClient), pace the main loop
-            // to ~60 FPS so that headless automation behaves closer to a
-            // real windowed client. Dedicated servers stay unthrottled.
-            let loop_wait = match mode {
-                #[cfg(feature = "client")]
-                Some(Mode::Client { .. }) => {
-                    Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
-                }
-                #[cfg(all(feature = "client", feature = "server"))]
-                Some(Mode::HostClient { .. }) | Some(Mode::Separate { .. }) => {
-                    Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
-                }
-                _ => None,
-            };
-            new_headless_app(loop_wait)
-        }
+        // For client-side apps (Client / HostClient), pace the main loop
+        // to ~60 FPS so that headless automation behaves closer to a
+        // real windowed client. Dedicated servers stay unthrottled.
+        let loop_wait = match mode {
+            #[cfg(feature = "client")]
+            Some(Mode::Client { .. }) => {
+                Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
+            }
+            #[cfg(all(feature = "client", feature = "server"))]
+            Some(Mode::HostClient { .. }) | Some(Mode::Separate { .. }) => {
+                Some(Duration::from_secs_f64(1.0 / HEADLESS_CLIENT_LOOP_HZ))
+            }
+            _ => None,
+        };
+        new_headless_app(loop_wait)
     }
 
     pub fn build_app(&self, tick_duration: Duration, add_inspector: bool) -> App {
-        let mut app = Cli::create_app(add_inspector, self.mode.as_ref());
+        let mut app = Cli::create_app(add_inspector, self.mode.as_ref(), self.headless());
         #[cfg(feature = "server")]
         app.add_observer(apply_server_link_conditioner);
         match self.mode {
@@ -106,22 +112,24 @@ impl Cli {
             Some(Mode::Client { client_id }) => {
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
-                app.add_plugins((
-                    lightyear::prelude::client::ClientPlugins { tick_duration },
-                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
-                    ExampleClientRendererPlugin::new(format!("Client {client_id:?}")),
-                ));
+                app.add_plugins(lightyear::prelude::client::ClientPlugins { tick_duration });
+                #[cfg(any(feature = "gui2d", feature = "gui3d"))]
+                if !self.headless() {
+                    app.add_plugins(ExampleClientRendererPlugin::new(format!(
+                        "Client {client_id:?}"
+                    )));
+                }
                 app
             }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
                 #[cfg(feature = "steam")]
                 app.add_steam_resources(STEAM_APP_ID);
-                app.add_plugins((
-                    lightyear::prelude::server::ServerPlugins { tick_duration },
-                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
-                    ExampleServerRendererPlugin::new("Server".to_string()),
-                ));
+                app.add_plugins(lightyear::prelude::server::ServerPlugins { tick_duration });
+                #[cfg(any(feature = "gui2d", feature = "gui3d"))]
+                if !self.headless() {
+                    app.add_plugins(ExampleServerRendererPlugin::new("Server".to_string()));
+                }
                 app
             }
             #[cfg(all(feature = "client", feature = "server"))]
@@ -131,11 +139,14 @@ impl Cli {
                 app.add_plugins((
                     lightyear::prelude::server::ServerPlugins { tick_duration },
                     lightyear::prelude::client::ClientPlugins { tick_duration },
-                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
-                    ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
-                    #[cfg(any(feature = "gui2d", feature = "gui3d"))]
-                    ExampleServerRendererPlugin::new("Host-Server".to_string()),
                 ));
+                #[cfg(any(feature = "gui2d", feature = "gui3d"))]
+                if !self.headless() {
+                    app.add_plugins((
+                        ExampleClientRendererPlugin::new(format!("Host-Client {client_id:?}")),
+                        ExampleServerRendererPlugin::new("Host-Server".to_string()),
+                    ));
+                }
                 app
             }
             None => {
@@ -311,6 +322,7 @@ pub fn cli() -> Cli {
         if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
             Cli {
+                headless: false,
                 mode: Some(Mode::Client {
                     client_id: Some(client_id),
                 })

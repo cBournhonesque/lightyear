@@ -24,6 +24,7 @@ mod shared;
 
 fn main() {
     let cli = Cli::default();
+    let headless = cli.headless();
 
     let mut app = cli.build_app(Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ), true);
 
@@ -49,7 +50,9 @@ fn main() {
     }
 
     #[cfg(feature = "gui")]
-    app.add_plugins(renderer::ExampleRendererPlugin);
+    if !headless {
+        app.add_plugins(renderer::ExampleRendererPlugin);
+    }
 
     app.run();
 }
