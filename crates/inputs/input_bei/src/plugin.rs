@@ -127,7 +127,8 @@ impl<
         {
             use crate::marker::{
                 add_input_marker_from_binding, add_input_marker_from_parent,
-                add_input_marker_when_action_becomes_ready, propagate_input_marker,
+                add_input_marker_when_action_becomes_ready,
+                add_input_marker_when_prespawned_action_becomes_ready, propagate_input_marker,
             };
             // for rebroadcasting inputs, we insert TriggerState (which inserts the InputBuffer) when ActionOf<C> is added
             // on an entity
@@ -137,6 +138,7 @@ impl<
             app.add_observer(add_input_marker_from_parent::<C>);
             app.add_observer(add_input_marker_from_binding::<C>);
             app.add_observer(add_input_marker_when_action_becomes_ready::<C>);
+            app.add_observer(add_input_marker_when_prespawned_action_becomes_ready::<C>);
             app.add_systems(PreUpdate, resolve_pending_action_of::<C>);
 
             if self.config.rebroadcast_inputs {
