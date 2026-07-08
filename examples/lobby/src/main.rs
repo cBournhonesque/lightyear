@@ -43,6 +43,7 @@ pub fn host_server_port(host: PeerId) -> u16 {
 
 fn main() {
     let cli = Cli::default();
+    let headless = cli.headless();
 
     let tick_duration = Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ);
     let mut app = cli.build_app(tick_duration, true);
@@ -132,7 +133,9 @@ fn main() {
     }
 
     #[cfg(feature = "gui")]
-    app.add_plugins(renderer::ExampleRendererPlugin);
+    if !headless {
+        app.add_plugins(renderer::ExampleRendererPlugin);
+    }
 
     app.run();
 }
