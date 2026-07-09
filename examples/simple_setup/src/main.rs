@@ -73,7 +73,7 @@ fn main() {
             app.add_plugins(ClientPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
             });
-            // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins,
+            // ProtocolPlugin must be added after the Client/Server plugins.
             app.add_plugins(SharedPlugin);
             app.insert_resource(ClientStartupConfig {
                 client_id: 0,
@@ -87,7 +87,7 @@ fn main() {
             app.add_plugins(ServerPlugins {
                 tick_duration: Duration::from_secs_f64(1.0 / FIXED_TIMESTEP_HZ),
             });
-            // NOTE: the ProtocolPlugin must be added AFTER the Client/Server plugins
+            // ProtocolPlugin must be added after the Client/Server plugins.
             app.add_plugins(SharedPlugin);
             app.insert_resource(ServerStartupConfig::default());
             app.add_plugins(server::ExampleServerPlugin);

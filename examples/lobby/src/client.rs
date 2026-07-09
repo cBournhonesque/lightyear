@@ -144,21 +144,19 @@ mod game {
         }
     }
 
-    /// The client input only gets applied to predicted entities that we own
-    /// This works because we only predict the user's controlled entity.
-    /// If we were predicting more entities, we would have to only apply movement to the player owned one.
+    /// Applies local movement only to predicted entities owned by this client.
+    ///
+    /// If this example predicted remote entities, ownership would need to be checked before movement.
     pub(crate) fn player_movement(
         mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
     ) {
         for (position, input) in position_query.iter_mut() {
-            // NOTE: be careful to directly pass Mut<PlayerPosition>
-            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.
             shared_movement_behaviour(position, input);
         }
     }
 
-    /// When the predicted copy of the client-owned entity is spawned, do stuff
-    /// - assign it a different saturation
+    /// Lower the saturation on predicted entities so they are visually distinct.
     pub(crate) fn handle_predicted_spawn(
         mut predicted: Query<(Entity, &mut PlayerColor), Added<Predicted>>,
     ) {
@@ -199,9 +197,7 @@ mod game {
         }
     }
 
-    /// When the predicted copy of the client-owned entity is spawned, do stuff
-    /// - assign it a different saturation
-    /// - keep track of it in the Global resource
+    /// Lower the saturation on interpolated entities so they are visually distinct.
     pub(crate) fn handle_interpolated_spawn(
         mut interpolated: Query<&mut PlayerColor, Added<Interpolated>>,
     ) {

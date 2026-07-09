@@ -92,8 +92,8 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation()
             .add_correction();
 
-        // NOTE: interpolation/correction is only needed for components that are visually displayed!
-        // we still need prediction to be able to correctly predict the physics on the client
+        // LinearVelocity is predicted for client physics, but it does not need
+        // interpolation/correction because it is not rendered directly.
         app.component::<LinearVelocity>().replicate().predict();
 
         app.component::<AngularVelocity>().replicate().predict();

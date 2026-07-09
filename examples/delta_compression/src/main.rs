@@ -25,6 +25,7 @@ use crate::server::ExampleServerPlugin;
 mod automation;
 #[cfg(feature = "client")]
 mod client;
+mod debug;
 mod protocol;
 #[cfg(feature = "gui")]
 mod renderer;

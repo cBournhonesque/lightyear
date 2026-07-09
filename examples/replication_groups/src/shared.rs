@@ -13,7 +13,7 @@ impl Plugin for SharedPlugin {
     }
 }
 
-// This system defines how we update the player's positions when we receive an input
+// Applies movement input to a player position.
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {
@@ -27,9 +27,8 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
     }
 }
 
-// This system defines how we update the player's tails when the head is updated
-// Note: we only apply logic for the Predicted entity on the client (Interpolated is updated
-// during interpolation, and Confirmed is just replicated from Server)
+// Updates predicted tail points when the head moves. Interpolated tails are updated during
+// interpolation, and confirmed tails are replicated from the server.
 pub(crate) fn shared_tail_behaviour(
     player_position: Query<Ref<PlayerPosition>, Or<(With<Predicted>, With<Replicate>)>>,
     mut tails: Query<
@@ -50,7 +49,7 @@ pub(crate) fn shared_tail_behaviour(
         }
         // Update the front if the head turned
         let (front_pos, front_dir) = points.0.front().unwrap().clone();
-        // NOTE: we do not deal with diagonal directions in this example
+        // This example only supports axis-aligned tail segments.
         let front_direction = Direction::from_points(front_pos, parent_position.0);
         // if the head is going in a new direction, add a new point to the front
         if front_direction.map_or(true, |dir| dir != front_dir) {

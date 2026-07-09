@@ -15,13 +15,13 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 mod automation;
 #[cfg(feature = "client")]
 mod client;
+mod debug;
 mod protocol;
 
 #[cfg(feature = "gui")]
 mod renderer;
 #[cfg(feature = "server")]
 mod server;
-// mod settings; // Settings are now handled by common_new
 mod shared;
 
 fn main() {

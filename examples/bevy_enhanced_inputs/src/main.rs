@@ -25,6 +25,7 @@ use lightyear_examples_common::shared::{FIXED_TIMESTEP_HZ, SEND_INTERVAL};
 
 #[cfg(feature = "client")]
 mod client;
+mod debug;
 mod protocol;
 #[cfg(feature = "gui")]
 mod renderer;

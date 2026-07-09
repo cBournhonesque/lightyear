@@ -19,7 +19,7 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
     private_key: [0; 32],
 };
 
-// This system defines how we update the player's positions when we receive an input
+// Applies movement input to a player position.
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     let Inputs::Direction(direction) = input;

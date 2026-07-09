@@ -22,6 +22,7 @@ pub const DEFAULT_INPUT_SYNC_MARGIN_TICKS: f32 = 3.0;
 mod automation;
 #[cfg(feature = "client")]
 mod client;
+mod debug;
 mod protocol;
 
 #[cfg(feature = "gui")]

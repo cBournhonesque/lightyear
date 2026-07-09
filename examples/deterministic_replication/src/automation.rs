@@ -1,4 +1,3 @@
-use avian2d::prelude::Position;
 use bevy::prelude::*;
 #[cfg(feature = "client")]
 use core::time::Duration;
@@ -14,9 +13,8 @@ use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
 #[cfg(feature = "client")]
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
 
-use crate::protocol::PlayerId;
 #[cfg(feature = "client")]
-use crate::protocol::{PlayerActions, PlayerActivationTick};
+use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -31,7 +29,7 @@ impl Plugin for AutomationClientPlugin {
             PreUpdate,
             client::drive_action_state.in_set(InputManagerSystem::ManualControl),
         );
-        app.add_systems(Update, client::mark_debug_players);
+        app.add_systems(Update, crate::debug::client::mark_debug_players);
     }
 }
 
@@ -41,7 +39,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, server::mark_debug_players);
+        app.add_systems(Update, crate::debug::server::mark_debug_players);
     }
 }
 
@@ -146,10 +144,7 @@ mod client {
             if second == first {
                 second = (second + 1) % 4;
             }
-            let other = KEYS[second];
-            // Skip opposite-direction pair which would cancel out visibly
-            // but that's fine — we still want random inputs.
-            keys.push(other);
+            keys.push(KEYS[second]);
         }
         keys
     }
@@ -306,19 +301,6 @@ mod client {
         }
     }
 
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        query: Query<Entity, (Added<PlayerId>, With<Position>)>,
-    ) {
-        for entity in &query {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<Position>([
-                    DebugSamplePoint::Update,
-                ]));
-        }
-    }
-
     fn parse_move_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -335,23 +317,5 @@ mod client {
             }
         }
         keys
-    }
-}
-
-#[cfg(feature = "server")]
-mod server {
-    use super::*;
-
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        query: Query<Entity, (Added<PlayerId>, With<Position>)>,
-    ) {
-        for entity in &query {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<Position>([
-                    DebugSamplePoint::Update,
-                ]));
-        }
     }
 }

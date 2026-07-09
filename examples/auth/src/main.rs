@@ -39,7 +39,6 @@ use lightyear_examples_common::server::{
 mod client;
 #[cfg(feature = "server")]
 mod server;
-// mod settings; // Settings are now handled by common_new
 mod shared;
 
 fn main() {

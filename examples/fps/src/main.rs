@@ -16,6 +16,7 @@ use crate::shared::SharedPlugin;
 mod automation;
 #[cfg(feature = "client")]
 mod client;
+mod debug;
 mod protocol;
 
 #[cfg(feature = "gui")]

@@ -4,7 +4,6 @@
 //! mispredictions/rollbacks.
 use crate::protocol::*;
 use bevy::prelude::*;
-use lightyear::prelude::*;
 use lightyear_examples_common::shared::SharedSettings;
 
 pub struct SharedPlugin;
@@ -12,9 +11,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        app.add_systems(FixedPostUpdate, emit_fixed_post_positions);
-        app.add_systems(Update, emit_confirmed_positions);
-        app.add_systems(PostUpdate, emit_interpolated_positions);
+        crate::debug::register_debug_systems(app);
     }
 }
 
@@ -23,73 +20,9 @@ pub const SHARED_SETTINGS: SharedSettings = SharedSettings {
     private_key: [0; 32],
 };
 
-// This system defines how we update the player's positions when we receive an input
+// Applies movement input to a player position.
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: Vec2) {
     const MOVE_SPEED: f32 = 10.0;
     position.0.y += input.y * MOVE_SPEED;
     position.0.x += input.x * MOVE_SPEED;
-}
-
-pub(crate) fn emit_confirmed_positions(
-    timeline: Res<LocalTimeline>,
-    players: Query<(Entity, &PlayerPosition), (With<PlayerId>, Changed<PlayerPosition>)>,
-) {
-    let tick = timeline.tick();
-    for (entity, position) in players.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::Update,
-            "Update",
-            "confirmed_position",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?position,
-            "confirmed position updated"
-        );
-    }
-}
-
-pub(crate) fn emit_interpolated_positions(
-    timeline: Res<LocalTimeline>,
-    players: Query<(Entity, &PlayerPosition), With<Interpolated>>,
-) {
-    let tick = timeline.tick();
-    for (entity, position) in players.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Interpolation,
-            DebugSamplePoint::PostUpdate,
-            "PostUpdate",
-            "interpolated_position",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?position,
-            "interpolated position"
-        );
-    }
-}
-
-pub(crate) fn emit_fixed_post_positions(
-    timeline: Res<LocalTimeline>,
-    players: Query<
-        (Entity, &PlayerPosition),
-        // (Entity, &PlayerPosition, &ActionState<Inputs>, &InputBuffer<ActionState<Inputs>>),
-        With<PlayerId>,
-    >,
-) {
-    let tick = timeline.tick();
-    // for (entity, position, action_state, input_buffer) in players.iter() {
-    for (entity, position) in players.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::FixedPostUpdate,
-            "FixedPostUpdate",
-            "fixed_post_position",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?position,
-            // ?action_state,
-            // %input_buffer,
-            "Player after movement"
-        );
-    }
 }

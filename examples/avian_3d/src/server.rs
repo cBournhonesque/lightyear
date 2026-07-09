@@ -112,7 +112,6 @@ fn player_shoot(
     }
 }
 
-// Renamed from init, removed start_server
 fn setup(mut commands: Commands) {
     commands.spawn((
         Name::new("Floor"),

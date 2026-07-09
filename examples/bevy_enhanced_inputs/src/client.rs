@@ -34,9 +34,9 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
         .insert(InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced()));
 }
 
-/// The client input only gets applied to predicted entities that we own
-/// This works because we only predict the user's controlled entity.
-/// If we were predicting more entities, we would have to only apply movement to the player owned one.
+/// Applies local movement only to predicted entities owned by this client.
+///
+/// If this example predicted remote entities, ownership would need to be checked before movement.
 fn player_movement(
     trigger: On<Fire<Movement>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
@@ -55,14 +55,12 @@ fn player_movement(
         return;
     }
     if let Ok(position) = position_query.get_mut(trigger.context) {
-        // NOTE: be careful to directly pass Mut<PlayerPosition>
-        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+        // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.
         shared::shared_movement_behaviour(position, trigger.value);
     }
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
+/// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<(&PlayerId, &mut PlayerColor), With<Predicted>>,
@@ -96,9 +94,7 @@ fn add_bindings_to_controlled_actions(
         .insert(Bindings::spawn(Cardinal::wasd_keys()));
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,

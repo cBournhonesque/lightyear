@@ -6,21 +6,13 @@ use bevy::prelude::*;
 use lightyear::prelude::input::client::*;
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
-use lightyear_frame_interpolation::{
-    FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
-};
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
-        // app.add_systems(
-        //     PostUpdate,
-        //     debug_interpolate
-        //         .before(InterpolationSet::PrepareInterpolation)
-        //         .after(InterpolationSet::DespawnFlush),
-        // );
         app.add_systems(
             Update,
             interpolate.in_set(InterpolationSystems::Interpolate),
@@ -35,8 +27,8 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(handle_interpolated_spawn);
 
         app.add_plugins(FrameInterpolationPlugin);
-        app.add_systems(Update, debug_pre_visual_interpolation);
-        app.add_systems(Last, debug_post_visual_interpolation);
+        app.add_systems(Update, crate::debug::client::debug_pre_visual_interpolation);
+        app.add_systems(Last, crate::debug::client::debug_post_visual_interpolation);
     }
 }
 
@@ -76,9 +68,9 @@ pub(crate) fn buffer_input(
     }
 }
 
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
+// Apply local input only to predicted entities owned by this client.
+//
+// If this example predicted remote entities, ownership would need to be checked before movement.
 fn movement(
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
@@ -87,9 +79,7 @@ fn movement(
     }
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Prepare predicted player entities for visual interpolation and distinguish them visually.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
@@ -134,9 +124,7 @@ pub(crate) fn handle_controlled_spawn(
         .insert(InputMarker::<Inputs>::default());
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,
@@ -150,54 +138,8 @@ pub(crate) fn handle_interpolated_spawn(
     }
 }
 
-pub(crate) fn debug_pre_visual_interpolation(
-    timeline: Res<LocalTimeline>,
-    query: Query<(&PlayerPosition, &FrameInterpolationHistory<PlayerPosition>)>,
-) {
-    let tick = timeline.tick();
-    for (position, interpolate_status) in query.iter() {
-        trace!(
-            ?tick,
-            ?position,
-            ?interpolate_status,
-            "pre visual interpolation"
-        );
-    }
-}
-
-pub(crate) fn debug_post_visual_interpolation(
-    timeline: Res<LocalTimeline>,
-    query: Query<(&PlayerPosition, &FrameInterpolationHistory<PlayerPosition>)>,
-) {
-    let tick = timeline.tick();
-    for (position, interpolate_status) in query.iter() {
-        trace!(
-            ?tick,
-            ?position,
-            ?interpolate_status,
-            "post visual interpolation"
-        );
-    }
-}
-
-pub(crate) fn debug_interpolate(
-    timeline: Res<LocalTimeline>,
-    parent_query: Query<(&ConfirmedHistory<PlayerPosition>,)>,
-    tail_query: Query<(&PlayerParent, &ConfirmedHistory<TailPoints>)>,
-) {
-    debug!(tick = ?timeline.tick(), "interpolation debug");
-    for (parent, tail_history) in tail_query.iter() {
-        let parent_history = parent_query
-            .get(parent.0)
-            .expect("Tail entity has no parent entity!");
-        debug!(?parent_history, "parent");
-        debug!(?tail_history, "tail");
-    }
-}
-
-// Here, we want to have a custom interpolation logic, because we need to query two components
-// at once to do the interpolation correctly.
-// We want the interpolated entity to stay on the tail path of the confirmed entity at all times.
+// Custom interpolation needs both the head position and tail points so the interpolated entity
+// stays on the confirmed tail path.
 //
 // We should always interpolate between the confirmed history values that bracket the
 // interpolation tick.

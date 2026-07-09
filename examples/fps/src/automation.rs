@@ -8,9 +8,7 @@ use lightyear_examples_common::automation::{
     env_flag, env_string, sync_pressed_keys, HeadlessInputPlugin,
 };
 
-use crate::protocol::{
-    BulletMarker, InterpolatedBot, PlayerActions, PlayerId, PlayerMarker, PredictedBot, Score,
-};
+use crate::protocol::{InterpolatedBot, PlayerActions, PredictedBot};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -29,7 +27,10 @@ impl Plugin for AutomationClientPlugin {
         );
         app.add_systems(
             Update,
-            (client::mark_debug_players, client::mark_debug_bullets),
+            (
+                crate::debug::client::mark_debug_players,
+                crate::debug::client::mark_debug_bullets,
+            ),
         );
     }
 }
@@ -42,7 +43,10 @@ impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (server::mark_debug_players, server::mark_debug_bullets),
+            (
+                crate::debug::server::mark_debug_players,
+                crate::debug::server::mark_debug_bullets,
+            ),
         );
     }
 }
@@ -174,30 +178,6 @@ mod client {
         }
     }
 
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
-    ) {
-        for entity in &players {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<Score>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
-    pub(super) fn mark_debug_bullets(
-        mut commands: Commands,
-        bullets: Query<Entity, Added<BulletMarker>>,
-    ) {
-        for entity in &bullets {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<PlayerId>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
     fn parse_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -228,35 +208,6 @@ mod client {
                 warn!(token = other, "Ignoring unknown LIGHTYEAR_AIM_TARGET token");
                 AimTarget::Any
             }
-        }
-    }
-}
-
-#[cfg(feature = "server")]
-mod server {
-    use super::*;
-
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
-    ) {
-        for entity in &players {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<Score>([DebugSamplePoint::FixedUpdate]),
-            );
-        }
-    }
-
-    pub(super) fn mark_debug_bullets(
-        mut commands: Commands,
-        bullets: Query<Entity, Added<BulletMarker>>,
-    ) {
-        for entity in &bullets {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<PlayerId>([DebugSamplePoint::FixedUpdate]),
-            );
         }
     }
 }

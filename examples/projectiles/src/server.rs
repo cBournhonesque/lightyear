@@ -410,8 +410,7 @@ mod bot {
         }
     }
 
-    /// Spawn bots when the server starts
-    /// NOTE: this has to be done after `Plugin::finish()` so that BEI has finished building.
+    /// Spawn bots after `Plugin::finish()` so BEI has finished building.
     pub(crate) fn spawn_bots(mut commands: Commands) {
         commands.trigger(SpawnBot);
     }
