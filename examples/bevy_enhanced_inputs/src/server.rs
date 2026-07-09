@@ -12,15 +12,11 @@ use crate::shared;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{Action, ActionOf, Fire};
 use lightyear::connection::client::Connected;
-use lightyear::connection::host::{HostClient, HostServer};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
 use lightyear_examples_common::shared::SEND_INTERVAL;
 
 pub struct ExampleServerPlugin;
-
-#[derive(Component)]
-pub(crate) struct ServerAction;
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
@@ -104,24 +100,14 @@ fn spawn_action_entities(commands: &mut Commands, player_entity: Entity) {
         ReplicateLike {
             root: player_entity,
         },
-        ServerAction,
     ));
 }
 
 /// Applies received client inputs on the server so other clients can observe the result.
 fn movement(
     trigger: On<Fire<Movement>>,
-    host_server: Query<(), With<HostServer>>,
-    server_actions: Query<(), (With<Action<Movement>>, With<ServerAction>)>,
-    controlled_by: Query<&ControlledBy>,
-    host_clients: Query<(), With<HostClient>>,
-    mut position_query: Query<&mut PlayerPosition>,
+    mut position_query: Query<&mut PlayerPosition, With<ControlledBy>>,
 ) {
-    let is_host_server = !host_server.is_empty();
-    if is_host_server && !server_actions.contains(trigger.action) {
-        return;
-    }
-
     if let Ok(position) = position_query.get_mut(trigger.context) {
         shared::shared_movement_behaviour(position, trigger.value);
     }

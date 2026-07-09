@@ -10,7 +10,6 @@ use crate::protocol::*;
 use crate::shared;
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
-use lightyear::connection::host::HostServer;
 use lightyear::input::bei::prelude::{Action, ActionOf, Bindings, Cardinal, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
@@ -40,18 +39,9 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
 fn player_movement(
     trigger: On<Fire<Movement>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
-    _host_server: Query<(), With<HostServer>>,
-    #[cfg(feature = "server")] server_actions: Query<
-        (),
-        (With<Action<Movement>>, With<crate::server::ServerAction>),
-    >,
     mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
 ) {
     if synced_client.is_empty() {
-        return;
-    }
-    #[cfg(feature = "server")]
-    if !_host_server.is_empty() && server_actions.contains(trigger.action) {
         return;
     }
     if let Ok(position) = position_query.get_mut(trigger.context) {
