@@ -17,15 +17,14 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
-        // all actions related-system that can be rolled back should be in FixedUpdate schedule
+        // Rollback-capable action systems must run in FixedUpdate.
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(add_ball_physics);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
         app.add_observer(handle_controlled_spawn);
 
-        // DEBUG
-        app.add_systems(PostUpdate, print_overstep);
+        app.add_systems(PostUpdate, crate::debug::print_overstep);
     }
 }
 
@@ -36,8 +35,8 @@ impl Plugin for ExampleClientPlugin {
 /// We only add the physical properties on the ball that is displayed on screen (i.e the Predicted ball)
 /// We want the ball to be rigid so that when players collide with it, they bounce off.
 ///
-/// However we remove the Position because we want the balls position to be interpolated, without being computed/updated
-/// by the physics engine? Actually this shouldn't matter because we run interpolation in PostUpdate...
+/// The replicated `Position` remains authoritative; this adds only the local physics data needed
+/// for predicted collision response.
 fn add_ball_physics(
     trigger: On<Add, BallMarker>,
     mut commands: Commands,
@@ -50,9 +49,9 @@ fn add_ball_physics(
     }
 }
 
-// The client input only gets applied to predicted entities that we own
-// This works because we only predict the user's controlled entity.
-// If we were predicting more entities, we would have to only apply movement to the player owned one.
+// Apply local input only to predicted entities owned by this client.
+//
+// If this example predicted remote entities, ownership would need to be checked before movement.
 fn player_movement(
     // In host-server mode, the players are already moved by the server system so we don't want
     // to move them twice.
@@ -80,9 +79,7 @@ fn player_movement(
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - add physics components so that its movement can be predicted
+// Prepare predicted player entities for local simulation and distinguish them visually.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut commands: Commands,
@@ -122,8 +119,7 @@ fn handle_controlled_spawn(
     ]));
 }
 
-// When the interpolated copy of the client-owned entity is spawned, do stuff
-// - assign it a different color
+// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, ColorComponent>,
     mut interpolated: Query<&mut ColorComponent, Added<Interpolated>>,
@@ -135,12 +131,4 @@ pub(crate) fn handle_interpolated_spawn(
         };
         color.0 = Color::from(hsva);
     }
-}
-
-// Debug system to check on the oversteps
-fn print_overstep(time: Res<Time<Fixed>>, timeline: Single<&InputTimeline, With<Client>>) {
-    let input_overstep = timeline.overstep();
-    let input_overstep_ms = input_overstep.to_f32() * (time.timestep().as_millis() as f32);
-    let time_overstep = time.overstep();
-    trace!(?input_overstep_ms, ?time_overstep, "overstep");
 }

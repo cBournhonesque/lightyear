@@ -134,8 +134,7 @@ mod game {
     ) {
         if let Ok(remote_id) = query.get(trigger.entity) {
             info!("Client {remote_id:?} disconnected, removing from lobby");
-            // NOTE: games hosted by players will disappear from the lobby list since the host
-            //  is not connected anymore
+            // Player-hosted games leave the lobby list when their host disconnects.
             lobbies.remove_client(remote_id.0, &mut commands);
         }
     }

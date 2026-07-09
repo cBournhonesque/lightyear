@@ -108,7 +108,7 @@ fn spawn_action_entities(commands: &mut Commands, player_entity: Entity) {
     ));
 }
 
-/// Read client inputs and move players in server therefore giving a basis for other clients
+/// Applies received client inputs on the server so other clients can observe the result.
 fn movement(
     trigger: On<Fire<Movement>>,
     host_server: Query<(), With<HostServer>>,

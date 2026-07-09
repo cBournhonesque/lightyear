@@ -38,16 +38,14 @@ pub struct ColorComponent(pub(crate) Color);
 pub struct BulletMarker {
     pub shooter: PeerId,
     pub fire_tick: Tick,
-    pub salt: u64,
     pub prespawn_hash: u64,
 }
 
 impl BulletMarker {
-    pub fn new(shooter: PeerId, fire_tick: Tick, salt: u64, prespawn_hash: u64) -> Self {
+    pub fn new(shooter: PeerId, fire_tick: Tick, prespawn_hash: u64) -> Self {
         Self {
             shooter,
             fire_tick,
-            salt,
             prespawn_hash,
         }
     }

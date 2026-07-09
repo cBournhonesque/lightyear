@@ -54,11 +54,9 @@ impl Plugin for SharedPlugin {
 
         app.add_systems(PreUpdate, despawn_after);
 
-        // debug systems
-        app.add_systems(FixedLast, emit_fixed_last_players);
-        app.add_systems(Last, emit_last_entities);
+        crate::debug::register_debug_systems(app);
 
-        // every system that is physics-based and can be rolled-back has to be in the `FixedUpdate` schedule
+        // Physics-based systems that can roll back must run in FixedUpdate.
         app.add_systems(
             FixedUpdate,
             (
@@ -184,7 +182,7 @@ pub(crate) fn rotate_player(
 ) {
     if let Ok((mut rotation, position)) = player.get_mut(trigger.context) {
         let angle = Vec2::new(0.0, 1.0).angle_to(trigger.value - position.0);
-        // careful to only activate change detection if there was an actual change
+        // Only trigger change detection when the rotation actually changes.
         if (angle - rotation.as_radians()).abs() > EPS {
             *rotation = Rotation::from(angle);
         }
@@ -241,93 +239,6 @@ pub(crate) fn move_player(
         if value.y < 0.0 {
             position.y -= PLAYER_MOVE_SPEED
         }
-    }
-}
-
-pub(crate) fn emit_fixed_last_players(
-    timeline: Res<LocalTimeline>,
-    player: Query<(Entity, &Position), (With<PlayerMarker>, With<PlayerId>)>,
-    // predicted_bullet: Query<
-    //     (Entity, &Position, Option<&PredictionHistory<Position>>),
-    //     (With<BulletMarker>, Without<Confirmed>),
-    // >,
-) {
-    let tick = timeline.tick();
-    for (entity, pos) in player.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::FixedLast,
-            "FixedLast",
-            "player_after_fixed_update",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?pos,
-            "Player after fixed update"
-        );
-    }
-    // for (entity, transform, history) in predicted_bullet.iter() {
-    //     debug!(
-    //         ?tick,
-    //         ?entity,
-    //         pos = ?transform.translation.truncate(),
-    //         ?history,
-    //         "Bullet after fixed update"
-    //     );
-    // }
-}
-
-pub(crate) fn emit_last_entities(
-    timeline: Res<LocalTimeline>,
-    interpolation_timeline: Query<&InterpolationTimeline>,
-    player: Query<
-        (
-            Entity,
-            Option<&Position>,
-            Option<&Rotation>,
-            Option<&Transform>,
-        ),
-        (With<PlayerMarker>, With<PlayerId>, With<Bot>),
-    >,
-    interpolated_bullet: Query<
-        (
-            Entity,
-            Option<&Position>,
-            &ConfirmedHistory<Position>,
-            Option<&Transform>,
-        ),
-        (With<BulletMarker>, With<Interpolated>),
-    >,
-) {
-    let tick = timeline.tick();
-    let interpolate_tick = interpolation_timeline.iter().next().map(|t| t.tick());
-    for (entity, pos, rotation, transform) in player.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::Last,
-            "Last",
-            "player_after_last",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?pos,
-            rotation = ?rotation,
-            transform = ?transform.map(|t| t.translation.truncate()),
-            "Player after last"
-        );
-    }
-    for (entity, position, history, transform) in interpolated_bullet.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Interpolation,
-            DebugSamplePoint::Last,
-            "Last",
-            "interpolated_bullet_after_last",
-            tick = ?tick,
-            interpolation_tick = ?interpolate_tick,
-            entity = ?entity,
-            position = ?position,
-            history = ?history,
-            transform = ?transform.map(|t| t.translation.truncate()),
-            "Bullet after fixed update"
-        );
     }
 }
 
@@ -1391,8 +1302,8 @@ pub(crate) mod direction_only {
     ///     The Replicated entity doesn't spawn any bullet.
     ///     The Interpolated entity spawns a bullet only when the interpolation tick reaches the shooter tick.
     ///
-    ///   NOTE: this could have been an observer if we were only handling predicted spawns. For interpolated spawns
-    ///     we need to make it a system because we need to check the interpolation_tick every tick
+    ///   This could be an observer if it only handled predicted spawns. Interpolated spawns need a
+    ///   system because they must check the interpolation tick every frame.
     pub(crate) fn handle_projectile_spawn(
         mut commands: Commands,
         timeline: Res<LocalTimeline>,

@@ -8,10 +8,7 @@ use lightyear_examples_common::automation::{
     HeadlessInputPlugin, env_flag, env_string, sync_pressed_keys,
 };
 
-use crate::protocol::{
-    Bot, BulletMarker, ClientContext, GameReplicationMode, HitscanVisual, MoveCursor, PlayerId,
-    PlayerMarker, ProjectileReplicationMode, Score, Shoot,
-};
+use crate::protocol::{Bot, MoveCursor, PlayerId, PlayerMarker, Shoot};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -29,9 +26,9 @@ impl Plugin for AutomationClientPlugin {
             Update,
             (
                 client::update_aim,
-                client::mark_debug_players,
-                client::mark_debug_bullets,
-                client::mark_debug_modes,
+                crate::debug::client::mark_debug_players,
+                crate::debug::client::mark_debug_bullets,
+                crate::debug::client::mark_debug_modes,
             ),
         );
     }
@@ -46,9 +43,9 @@ impl Plugin for AutomationServerPlugin {
         app.add_systems(
             Update,
             (
-                server::mark_debug_players,
-                server::mark_debug_bullets,
-                server::mark_debug_modes,
+                crate::debug::server::mark_debug_players,
+                crate::debug::server::mark_debug_bullets,
+                crate::debug::server::mark_debug_modes,
             ),
         );
     }
@@ -131,44 +128,6 @@ mod client {
         }
     }
 
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
-    ) {
-        for entity in &players {
-            commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<PlayerId>([DebugSamplePoint::Update])
-                    .with_component_at::<Score>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
-    pub(super) fn mark_debug_bullets(
-        mut commands: Commands,
-        bullets: Query<Entity, Added<BulletMarker>>,
-    ) {
-        for entity in &bullets {
-            commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
-                    .with_component_at::<HitscanVisual>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
-    pub(super) fn mark_debug_modes(
-        mut commands: Commands,
-        modes: Query<Entity, Added<ClientContext>>,
-    ) {
-        for entity in &modes {
-            commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
-                    .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
     fn parse_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -189,48 +148,5 @@ mod client {
             }
         }
         keys
-    }
-}
-
-#[cfg(feature = "server")]
-mod server {
-    use super::*;
-
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        players: Query<Entity, (With<PlayerMarker>, Added<PlayerId>)>,
-    ) {
-        for entity in &players {
-            commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<PlayerId>([DebugSamplePoint::Update])
-                    .with_component_at::<Score>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
-    pub(super) fn mark_debug_bullets(
-        mut commands: Commands,
-        bullets: Query<Entity, Added<BulletMarker>>,
-    ) {
-        for entity in &bullets {
-            commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<Position>([DebugSamplePoint::Update])
-                    .with_component_at::<BulletMarker>([DebugSamplePoint::Update])
-                    .with_component_at::<HitscanVisual>([DebugSamplePoint::Update]),
-            );
-        }
-    }
-
-    pub(super) fn mark_debug_modes(
-        mut commands: Commands,
-        modes: Query<Entity, Added<ClientContext>>,
-    ) {
-        for entity in &modes {
-            commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
-                    .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
-            );
-        }
     }
 }

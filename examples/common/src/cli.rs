@@ -220,8 +220,8 @@ impl Cli {
                     .world_mut()
                     .spawn((Client, Name::new("HostClient"), LinkOf { server }))
                     .id();
-                // NOTE: it's ugly but i believe that you need to start the server before
-                //  connecting the host-client for things to work properly
+                // Start the server before connecting the host client so connection setup sees
+                // the server entity.
                 app.add_systems(Startup, (start, connect).chain());
             }
             _ => {}

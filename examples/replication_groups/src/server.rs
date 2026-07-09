@@ -94,8 +94,7 @@ pub(crate) fn movement(
         if is_host_server && predicted {
             continue;
         }
-        // NOTE: be careful to directly pass Mut<PlayerPosition>
-        // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+        // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.
         shared_movement_behaviour(position, inputs);
     }
 }

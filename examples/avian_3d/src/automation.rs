@@ -1,9 +1,5 @@
-use avian3d::prelude::Position;
 use bevy::prelude::*;
-use lightyear::prelude::*;
 use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
-
-use crate::protocol::{BlockMarker, CharacterMarker, ColorComponent, ProjectileMarker};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -14,7 +10,7 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, client::mark_debug_entities);
+        app.add_systems(Update, crate::debug::client::mark_debug_entities);
     }
 }
 
@@ -24,7 +20,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, server::mark_debug_entities);
+        app.add_systems(Update, crate::debug::server::mark_debug_entities);
     }
 }
 
@@ -57,29 +53,6 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
     }
 
-    pub(super) fn mark_debug_entities(
-        mut commands: Commands,
-        entities: Query<
-            Entity,
-            (
-                With<Position>,
-                Or<(
-                    Added<CharacterMarker>,
-                    Added<BlockMarker>,
-                    Added<ProjectileMarker>,
-                )>,
-            ),
-        >,
-    ) {
-        for entity in &entities {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<Position>([
-                    DebugSamplePoint::Update,
-                ]));
-        }
-    }
-
     fn parse_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -98,33 +71,5 @@ mod client {
             }
         }
         keys
-    }
-}
-
-#[cfg(feature = "server")]
-mod server {
-    use super::*;
-
-    pub(super) fn mark_debug_entities(
-        mut commands: Commands,
-        entities: Query<
-            Entity,
-            (
-                With<Position>,
-                Or<(
-                    Added<CharacterMarker>,
-                    Added<BlockMarker>,
-                    Added<ProjectileMarker>,
-                )>,
-            ),
-        >,
-    ) {
-        for entity in &entities {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<Position>([
-                    DebugSamplePoint::FixedUpdate,
-                ]));
-        }
     }
 }

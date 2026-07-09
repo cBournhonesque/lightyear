@@ -28,7 +28,7 @@ fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Com
         .insert(InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced()));
 }
 
-/// The client input only gets applied to predicted entities that we own
+/// Applies local movement only to predicted entities owned by this client.
 fn player_movement(
     trigger: On<Fire<Movement>>,
     synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
@@ -51,9 +51,7 @@ fn player_movement(
     }
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
@@ -87,9 +85,7 @@ pub(crate) fn add_bindings_to_controlled_actions(
         .insert(Bindings::spawn((Cardinal::wasd_keys(), Cardinal::arrows())));
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,

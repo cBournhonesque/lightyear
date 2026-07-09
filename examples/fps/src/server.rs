@@ -102,8 +102,8 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
         Name::new("PredictedBot"),
         Replicate::to_clients(NetworkTarget::All),
         PredictionTarget::to_clients(NetworkTarget::All),
-        // NOTE: all predicted entities must be part of the same replication group!
-        // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
+        // All predicted entities must be part of the same replication group.
+        // If the renderer is enabled on the server, do not replicate the visual hierarchy.
         DisableReplicateHierarchy,
         Transform::from_xyz(200.0, 10.0, 0.0),
         RigidBody::Kinematic,
@@ -159,7 +159,6 @@ pub(crate) fn compute_hit_lag_compensation(
                         shooter = ?marker.shooter,
                         shooter_bits = marker.shooter.to_bits(),
                         fire_tick = marker.fire_tick.0 as i64,
-                        salt = marker.salt as i64,
                         prespawn_hash = marker.prespawn_hash,
                         owner = ?controlled_by.owner,
                         owner_is_host_client = owner_is_host_client,
@@ -220,7 +219,6 @@ pub(crate) fn compute_hit_lag_compensation(
                     shooter = ?marker.shooter,
                     shooter_bits = marker.shooter.to_bits(),
                     fire_tick = marker.fire_tick.0 as i64,
-                    salt = marker.salt as i64,
                     prespawn_hash = marker.prespawn_hash,
                     position = ?position,
                     velocity = ?velocity,
@@ -291,7 +289,6 @@ pub(crate) fn compute_hit_prediction(
                     shooter = ?marker.shooter,
                     shooter_bits = marker.shooter.to_bits(),
                     fire_tick = marker.fire_tick.0 as i64,
-                    salt = marker.salt as i64,
                     prespawn_hash = marker.prespawn_hash,
                     position = ?position,
                     velocity = ?velocity,

@@ -1,11 +1,10 @@
 use bevy::prelude::*;
-use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::*;
 use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
 
 #[cfg(feature = "client")]
 use crate::client::AppState;
-use crate::protocol::{Channel1, Inputs, JoinLobby, Lobbies, PlayerId, PlayerPosition, StartGame};
+use crate::protocol::{Channel1, JoinLobby, Lobbies, StartGame};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -21,8 +20,8 @@ impl Plugin for AutomationClientPlugin {
             (
                 client::auto_join_lobby,
                 client::auto_start_game,
-                client::mark_debug_lobbies,
-                client::mark_debug_players,
+                crate::debug::client::mark_debug_lobbies,
+                crate::debug::client::mark_debug_players,
             ),
         );
     }
@@ -38,7 +37,10 @@ impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(
             Update,
-            (server::mark_debug_lobbies, server::mark_debug_players),
+            (
+                crate::debug::server::mark_debug_lobbies,
+                crate::debug::server::mark_debug_players,
+            ),
         );
     }
 }
@@ -158,34 +160,6 @@ mod client {
         *sent = true;
     }
 
-    pub(super) fn mark_debug_lobbies(
-        mut commands: Commands,
-        lobbies: Query<Entity, Added<Lobbies>>,
-    ) {
-        for entity in &lobbies {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<Lobbies>([
-                    DebugSamplePoint::Update,
-                ]));
-        }
-    }
-
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        players: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
-    ) {
-        for (entity, predicted, interpolated) in &players {
-            if predicted || interpolated {
-                commands.entity(entity).insert(
-                    LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::Update])
-                        .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::Update])
-                        .with_component_at::<PlayerId>([DebugSamplePoint::Update]),
-                );
-            }
-        }
-    }
-
     fn parse_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -239,36 +213,5 @@ mod client {
             }
         }
         selected
-    }
-}
-
-#[cfg(any(feature = "client", feature = "server"))]
-mod server {
-    use super::*;
-
-    pub(super) fn mark_debug_lobbies(
-        mut commands: Commands,
-        lobbies: Query<Entity, Added<Lobbies>>,
-    ) {
-        for entity in &lobbies {
-            commands
-                .entity(entity)
-                .insert(LightyearDebug::component_at::<Lobbies>([
-                    DebugSamplePoint::Update,
-                ]));
-        }
-    }
-
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        players: Query<Entity, Added<PlayerId>>,
-    ) {
-        for entity in &players {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<PlayerId>([DebugSamplePoint::FixedUpdate]),
-            );
-        }
     }
 }

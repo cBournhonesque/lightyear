@@ -9,7 +9,6 @@ use avian3d::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::avian3d::plugin::AvianReplicationMode;
 use lightyear::connection::client_of::ClientOf;
-use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prelude::*;
 
 pub const FLOOR_WIDTH: f32 = 100.0;
@@ -123,14 +122,11 @@ impl Plugin for SharedPlugin {
                 .disable::<IslandSleepingPlugin>(),
         );
 
-        // Debug
-        app.add_systems(FixedLast, emit_fixed_last_characters);
-        app.add_systems(Last, emit_last_characters);
+        crate::debug::register_debug_systems(app);
     }
 }
 
-/// Generate pseudo-random color based on `client_id`.
-// Updated to use PeerId
+/// Generates a pseudo-random color from the peer id.
 pub(crate) fn color_from_id(client_id: PeerId) -> Color {
     let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
     let s = 1.0;
@@ -210,70 +206,4 @@ pub fn apply_character_action(
         (new_ground_linear_velocity - ground_linear_velocity) / time.delta_secs();
 
     forces.apply_force(required_acceleration * mass.value());
-}
-
-pub(crate) fn emit_fixed_last_characters(
-    timeline: Res<LocalTimeline>,
-    players: Query<
-        (
-            Entity,
-            &Position,
-            Option<&VisualCorrection<Position>>,
-            Option<&ActionState<CharacterAction>>,
-            Option<&LeafwingBuffer<CharacterAction>>,
-        ),
-        With<CharacterMarker>,
-    >,
-) {
-    let tick = timeline.tick();
-
-    for (entity, position, correction, action_state, input_buffer) in players.iter() {
-        let pressed = action_state.map(|a| a.axis_pair(&CharacterAction::Move));
-        let last_buffer_tick = input_buffer.and_then(|b| b.get_last_with_tick().map(|(t, _)| t));
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::FixedLast,
-            "FixedLast",
-            "character_fixed_last",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?position,
-            correction = ?correction,
-            pressed = ?pressed,
-            last_buffer_tick = ?last_buffer_tick,
-            "Player - FixedLast"
-        );
-    }
-}
-
-pub(crate) fn emit_last_characters(
-    timeline: Res<LocalTimeline>,
-    players: Query<
-        (
-            Entity,
-            &Position,
-            &Transform,
-            Option<&FrameInterpolationHistory<Position>>,
-            Option<&VisualCorrection<Position>>,
-        ),
-        With<CharacterMarker>,
-    >,
-) {
-    let tick = timeline.tick();
-
-    for (entity, position, transform, interpolate, correction) in players.iter() {
-        lightyear_debug_event!(
-            DebugCategory::Component,
-            DebugSamplePoint::Last,
-            "Last",
-            "character_last",
-            tick = ?tick,
-            entity = ?entity,
-            position = ?position,
-            transform = ?transform,
-            interpolate = ?interpolate,
-            correction = ?correction,
-            "Player - Last"
-        );
-    }
 }

@@ -290,7 +290,6 @@ fn hide_interpolated_bullets_after_local_hit(
                     shooter = ?marker.shooter,
                     shooter_bits = marker.shooter.to_bits(),
                     fire_tick = marker.fire_tick.0 as i64,
-                    salt = marker.salt as i64,
                     prespawn_hash = marker.prespawn_hash,
                     bot = ?bot_entity,
                     bullet_position = ?bullet_position,

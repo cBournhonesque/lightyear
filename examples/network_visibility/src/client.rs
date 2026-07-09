@@ -61,9 +61,7 @@ pub(crate) fn movement(
     }
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
@@ -99,9 +97,7 @@ fn handle_controlled_spawn(
         .insert(InputMarker::<Inputs>::default());
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,

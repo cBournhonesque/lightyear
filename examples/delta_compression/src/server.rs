@@ -74,7 +74,7 @@ pub(crate) fn handle_connected(
     );
 }
 
-/// Read client inputs and move players in server therefore giving a basis for other clients
+/// Applies received client inputs on the server so other clients can observe the result.
 fn movement(
     timeline: Res<LocalTimeline>,
     host_server: Query<(), With<HostServer>>,

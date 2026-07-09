@@ -1,6 +1,5 @@
-use crate::protocol::{Direction, Inputs, PlayerId, PlayerPosition};
+use crate::protocol::Direction;
 use bevy::prelude::*;
-use lightyear::prelude::input::native::ActionState;
 use lightyear::prelude::*;
 
 #[cfg(feature = "client")]
@@ -10,7 +9,7 @@ pub struct AutomationClientPlugin;
 impl Plugin for AutomationClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, client::init_automation_settings);
-        app.add_systems(Update, client::mark_debug_player_entities);
+        app.add_systems(Update, crate::debug::client::mark_debug_player_entities);
     }
 }
 
@@ -20,7 +19,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, server::mark_debug_player_entities);
+        app.add_systems(Update, crate::debug::server::mark_debug_player_entities);
     }
 }
 
@@ -189,54 +188,5 @@ pub(crate) mod client {
         value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         value ^ (value >> 31)
-    }
-
-    pub(crate) fn mark_debug_player_entities(
-        mut commands: Commands,
-        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
-    ) {
-        for (entity, predicted, interpolated) in query.iter() {
-            if predicted || interpolated {
-                let input_sample_points = [
-                    DebugSamplePoint::FixedPreUpdate,
-                    DebugSamplePoint::FixedUpdate,
-                ];
-                commands.entity(entity).insert(
-                    LightyearDebug::component_at::<PlayerPosition>([
-                        DebugSamplePoint::Update,
-                        DebugSamplePoint::PostUpdate,
-                    ])
-                    .with_component_at::<Predicted>([
-                        DebugSamplePoint::Update,
-                        DebugSamplePoint::PostUpdate,
-                    ])
-                    .with_component_at::<Interpolated>([
-                        DebugSamplePoint::Update,
-                        DebugSamplePoint::PostUpdate,
-                    ])
-                    .with_component_at::<ActionState<Inputs>>(input_sample_points),
-                );
-            }
-        }
-    }
-}
-
-pub(crate) mod server {
-    use super::*;
-
-    pub(crate) fn mark_debug_player_entities(
-        mut commands: Commands,
-        query: Query<Entity, Added<PlayerId>>,
-    ) {
-        for entity in query.iter() {
-            let input_sample_points = [
-                DebugSamplePoint::FixedPreUpdate,
-                DebugSamplePoint::FixedUpdate,
-            ];
-            let debug =
-                LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<ActionState<Inputs>>(input_sample_points);
-            commands.entity(entity).insert(debug);
-        }
     }
 }

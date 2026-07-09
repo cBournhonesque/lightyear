@@ -38,9 +38,7 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - add physics components so that its movement can be predicted
+// Prepare predicted player entities for client-side hit detection.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerMarker, Predicted)>,
     mut commands: Commands,

@@ -1,9 +1,5 @@
 use bevy::prelude::*;
-use lightyear::prelude::input::native::ActionState;
-use lightyear::prelude::*;
 use lightyear_examples_common::automation::{env_string, sync_pressed_keys, HeadlessInputPlugin};
-
-use crate::protocol::{Inputs, PlayerId, PlayerTrail};
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -14,7 +10,7 @@ impl Plugin for AutomationClientPlugin {
         app.add_plugins(HeadlessInputPlugin);
         app.add_systems(Startup, client::init_settings);
         app.add_systems(First, client::drive_keys);
-        app.add_systems(Update, client::mark_debug_players);
+        app.add_systems(Update, crate::debug::client::mark_debug_players);
     }
 }
 
@@ -24,7 +20,7 @@ pub struct AutomationServerPlugin;
 #[cfg(feature = "server")]
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_systems(Update, server::mark_debug_players);
+        app.add_systems(Update, crate::debug::server::mark_debug_players);
     }
 }
 
@@ -57,21 +53,6 @@ mod client {
         sync_pressed_keys(&mut buttons, &mut previous, &settings.pressed_keys);
     }
 
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
-    ) {
-        for (entity, predicted, interpolated) in &query {
-            if predicted || interpolated {
-                commands
-                    .entity(entity)
-                    .insert(LightyearDebug::component_at::<PlayerTrail>([
-                        DebugSamplePoint::Update,
-                    ]));
-            }
-        }
-    }
-
     fn parse_move_keys(value: Option<String>) -> Vec<KeyCode> {
         let mut keys = Vec::new();
         let Some(value) = value else {
@@ -88,22 +69,5 @@ mod client {
             }
         }
         keys
-    }
-}
-
-#[cfg(feature = "server")]
-mod server {
-    use super::*;
-
-    pub(super) fn mark_debug_players(
-        mut commands: Commands,
-        query: Query<Entity, Added<PlayerId>>,
-    ) {
-        for entity in &query {
-            commands.entity(entity).insert(
-                LightyearDebug::component_at::<PlayerTrail>([DebugSamplePoint::FixedUpdate])
-                    .with_component_at::<ActionState<Inputs>>([DebugSamplePoint::FixedUpdate]),
-            );
-        }
     }
 }

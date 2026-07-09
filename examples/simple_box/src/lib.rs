@@ -5,6 +5,8 @@ pub mod automation;
 #[cfg(feature = "client")]
 pub mod client;
 
+pub mod debug;
+
 #[cfg(feature = "server")]
 pub mod server;
 

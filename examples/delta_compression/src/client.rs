@@ -67,9 +67,9 @@ pub(crate) fn buffer_input(
     });
 }
 
-/// The client input only gets applied to predicted entities that we own
-/// This works because we only predict the user's controlled entity.
-/// If we were predicting more entities, we would have to only apply movement to the player owned one.
+/// Applies local movement only to predicted entities owned by this client.
+///
+/// If this example predicted remote entities, ownership would need to be checked before movement.
 fn player_movement(
     timeline: Res<LocalTimeline>,
     mut trail_query: Query<(&mut PlayerTrail, &ActionState<Inputs>), With<Predicted>>,
@@ -83,9 +83,7 @@ fn player_movement(
     }
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut predicted: Query<&mut PlayerColor, With<Predicted>>,
@@ -121,9 +119,7 @@ pub(crate) fn handle_controlled_spawn(
         .insert(InputMarker::<Inputs>::default());
 }
 
-/// When the predicted copy of the client-owned entity is spawned, do stuff
-/// - assign it a different saturation
-/// - keep track of it in the Global resource
+/// Lower the saturation on interpolated entities so they are visually distinct.
 pub(crate) fn handle_interpolated_spawn(
     trigger: On<Add, PlayerColor>,
     mut interpolated: Query<&mut PlayerColor, With<Interpolated>>,

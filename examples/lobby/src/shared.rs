@@ -12,7 +12,7 @@ impl Plugin for SharedPlugin {
     }
 }
 
-// This system defines how we update the player's positions when we receive an input
+// Applies movement input to a player position.
 pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input: &Inputs) {
     const MOVE_SPEED: f32 = 10.0;
     match input {

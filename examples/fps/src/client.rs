@@ -117,9 +117,7 @@ fn automation_aim_target_enabled() -> bool {
     }
 }
 
-// When the predicted copy of the client-owned entity is spawned, do stuff
-// - assign it a different saturation
-// - add physics components so that its movement can be predicted
+// Lower the saturation on predicted entities so they are visually distinct.
 pub(crate) fn handle_predicted_spawn(
     trigger: On<Add, (PlayerId, Predicted)>,
     mut player_query: Query<&mut ColorComponent, With<Predicted>>,

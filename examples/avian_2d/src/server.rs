@@ -30,9 +30,8 @@ pub(crate) fn handle_new_client(trigger: On<Add, LinkOf>, mut commands: Commands
     commands.entity(trigger.entity).insert(ReplicationSender);
 }
 
-// Renamed from init, removed Global resource, assume ball is always predicted
 fn setup(mut commands: Commands) {
-    // Spawn server-authoritative entities (ball and walls)
+    // Spawn server-authoritative entities.
     commands.spawn((
         Position::default(),
         ColorComponent(css::AZURE.into()),
@@ -67,8 +66,7 @@ fn setup(mut commands: Commands) {
     ));
 }
 
-/// Read client inputs and move players
-/// NOTE: this system can now be run in both client/server!
+/// Applies player input to replicated physics bodies.
 pub(crate) fn movement(
     timeline: Res<LocalTimeline>,
     mut action_query: Query<(
@@ -81,8 +79,7 @@ pub(crate) fn movement(
     let tick = timeline.tick();
     for (entity, position, velocity, action) in action_query.iter_mut() {
         if !action.get_pressed().is_empty() {
-            // NOTE: be careful to directly pass Mut<PlayerPosition>
-            // getting a mutable reference triggers change detection, unless you use `as_deref_mut()`
+            // Pass Mut<LinearVelocity> directly so change detection only fires when movement changes it.
             shared_movement_behaviour(velocity, action);
             trace!(?entity, ?tick, ?position, actions = ?action.get_pressed(), "applying movement to player");
         }
