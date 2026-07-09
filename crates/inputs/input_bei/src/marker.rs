@@ -3,9 +3,6 @@
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::prelude::*;
-use bevy_replicon::client::confirm_history::ConfirmHistory;
-use lightyear_connection::client::Client;
-use lightyear_replication::prelude::{Controlled, ControlledBy, PreSpawned};
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -25,35 +22,8 @@ impl<C> Default for InputMarker<C> {
     }
 }
 
-fn action_targets_local_client<C: Component>(
-    action_of: &ActionOf<C>,
-    contexts: &Query<Option<&ControlledBy>, With<Controlled>>,
-    server_contexts: &Query<&ControlledBy>,
-    clients: &Query<(), With<Client>>,
-) -> bool {
-    match contexts.get(action_of.get()) {
-        Ok(Some(controlled_by)) => clients.get(controlled_by.owner).is_ok(),
-        Ok(None) => true,
-        Err(_) => server_context_owned_by_local_client(action_of, server_contexts, clients),
-    }
-}
-
-fn server_context_owned_by_local_client<C: Component>(
-    action_of: &ActionOf<C>,
-    server_contexts: &Query<&ControlledBy>,
-    clients: &Query<(), With<Client>>,
-) -> bool {
-    server_contexts
-        .get(action_of.get())
-        .is_ok_and(|controlled_by| clients.get(controlled_by.owner).is_ok())
-}
-
 /// Propagate the InputMarker component from the Context entity to the Action entities
 /// whenever an InputMarker is added to a Context entity.
-///
-/// `InputMarker<C>` on the context is the explicit local-input signal, so
-/// confirmed prespawned owner actions should still receive it. Remote
-/// rebroadcasted actions should be attached to contexts without this marker.
 pub(crate) fn propagate_input_marker<C: Component>(
     trigger: On<Add, InputMarker<C>>,
     actions: Query<&Actions<C>>,
@@ -84,87 +54,38 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
     }
 }
 
-/// If Bindings or ActionMock is added to an Action entity, add the InputMarker
-/// to that Action entity once the action has a network-resolvable identity.
-///
-/// Replicated actions become resolvable when [`ConfirmHistory`] is present,
-/// because the client's action entity can then be mapped back to the server
-/// action entity when an input message is sent. Prespawned actions are also
-/// resolvable via their hash. Host-owned authoritative server actions are
-/// already server-world entities, so the host client can send them directly to
-/// the in-app server for rebroadcasting.
+/// If Bindings are added to an Action entity, add the InputMarker to that
+/// Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
-    trigger: On<Add, (Bindings, ActionMock)>,
-    action: Query<(&ActionOf<C>, Has<ConfirmHistory>, Has<PreSpawned>), Without<InputMarker<C>>>,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    server_contexts: Query<&ControlledBy>,
-    clients: Query<(), With<Client>>,
+    trigger: On<Add, Bindings>,
+    action: Query<&Bindings, (With<ActionOf<C>>, Without<InputMarker<C>>)>,
     mut commands: Commands,
 ) {
-    let Ok((action_of, has_confirm_history, has_prespawned)) = action.get(trigger.entity) else {
+    let Ok(bindings) = action.get(trigger.entity) else {
         return;
     };
-    let is_host_owned_server_action =
-        server_context_owned_by_local_client(action_of, &server_contexts, &clients);
-    if (has_confirm_history || has_prespawned || is_host_owned_server_action)
-        && action_targets_local_client(action_of, &contexts, &server_contexts, &clients)
-    {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
+    if bindings.is_empty() {
+        return;
     }
+    commands
+        .entity(trigger.entity)
+        .insert(InputMarker::<C>::default());
 }
 
-/// If an existing bound action becomes network-resolvable, add the InputMarker
-/// once it targets the local client.
-pub(crate) fn add_input_marker_when_action_becomes_ready<C: Component>(
-    trigger: On<Add, ConfirmHistory>,
-    action: Query<
-        &ActionOf<C>,
-        (
-            With<ConfirmHistory>,
-            Or<(With<Bindings>, With<ActionMock>)>,
-            Without<InputMarker<C>>,
-        ),
-    >,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    server_contexts: Query<&ControlledBy>,
-    clients: Query<(), With<Client>>,
+/// If an active ActionMock is inserted on an Action entity, add the InputMarker
+/// to that Action entity.
+pub(crate) fn add_input_marker_from_mock<C: Component>(
+    trigger: On<Insert, ActionMock>,
+    action: Query<&ActionMock, (With<ActionOf<C>>, Without<InputMarker<C>>)>,
     mut commands: Commands,
 ) {
-    let Ok(action_of) = action.get(trigger.entity) else {
+    let Ok(mock) = action.get(trigger.entity) else {
         return;
     };
-    if action_targets_local_client(action_of, &contexts, &server_contexts, &clients) {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
-    }
-}
-
-/// If an existing bound action becomes prespawn-resolvable, add the
-/// InputMarker once it targets the local client.
-pub(crate) fn add_input_marker_when_prespawned_action_becomes_ready<C: Component>(
-    trigger: On<Add, PreSpawned>,
-    action: Query<
-        &ActionOf<C>,
-        (
-            With<PreSpawned>,
-            Or<(With<Bindings>, With<ActionMock>)>,
-            Without<InputMarker<C>>,
-        ),
-    >,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    server_contexts: Query<&ControlledBy>,
-    clients: Query<(), With<Client>>,
-    mut commands: Commands,
-) {
-    let Ok(action_of) = action.get(trigger.entity) else {
+    if !mock.enabled {
         return;
-    };
-    if action_targets_local_client(action_of, &contexts, &server_contexts, &clients) {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
     }
+    commands
+        .entity(trigger.entity)
+        .insert(InputMarker::<C>::default());
 }
