@@ -203,6 +203,6 @@ impl Plugin for UdpPlugin {
             PreUpdate,
             Self::receive.in_set(LinkReceiveSystems::BufferToLink),
         );
-        app.add_systems(PreUpdate, Self::send.in_set(LinkSystems::Send));
+        app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
     }
 }
