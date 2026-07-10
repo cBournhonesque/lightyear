@@ -81,21 +81,12 @@ fn handle_new_character(
 fn handle_controlled_character(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    character_query: Query<
-        Option<&ControlledBy>,
-        (With<CharacterMarker>, Without<InputMap<CharacterAction>>),
-    >,
-    clients: Query<(), With<Client>>,
+    character_query: Query<(), (With<CharacterMarker>, Without<InputMap<CharacterAction>>)>,
 ) {
     let entity = trigger.entity;
-    let Ok(controlled_by) = character_query.get(entity) else {
+    if character_query.get(entity).is_err() {
         return;
     };
-    if let Some(controlled_by) = controlled_by {
-        if clients.get(controlled_by.owner).is_err() {
-            return;
-        }
-    }
     info!("Adding InputMap to controlled character {entity:?}");
     commands.entity(entity).insert(
         InputMap::new([(CharacterAction::Jump, KeyCode::Space)])

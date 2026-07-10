@@ -1,5 +1,5 @@
 use crate::client_server::prediction::trigger_state_rollback;
-use crate::protocol::{BEIAction1, BEIContext};
+use crate::protocol::{BEIAction1, BEIActionVec2, BEIContext};
 use crate::stepper::*;
 use bevy::app::{App, FixedPostUpdate, FixedPreUpdate};
 use bevy::ecs::relationship::Relationship;
@@ -466,6 +466,10 @@ fn test_buffer_inputs_with_delay() {
             .contains::<Action<BEIAction1>>()
     );
 
+    stepper.client_apps[0].init_resource::<Counter>();
+    stepper.client_apps[0]
+        .add_observer(|_: On<Fire<BEIAction1>>, mut counter: ResMut<Counter>| counter.0 += 1);
+
     // mock press on a key
     info!("Mocking press on BEIAction1");
     stepper
@@ -493,6 +497,11 @@ fn test_buffer_inputs_with_delay() {
 
     let action_state = get_action_state_for_tick(client_tick, stepper.client_app());
     assert_eq!(action_state, TriggerState::None);
+    assert_eq!(
+        stepper.client_app().world().resource::<Counter>().0,
+        0,
+        "delayed local input should not fire on the same tick it is sampled"
+    );
     // if we check the next tick (delay of 1), we can see that the InputBuffer contains the ActionState with a press
     let action_state = get_action_state_for_tick(client_tick + 1, stepper.client_app());
     assert_eq!(action_state, TriggerState::Fired);
@@ -510,6 +519,11 @@ fn test_buffer_inputs_with_delay() {
     assert_eq!(action_state, TriggerState::Fired);
     let action_state = get_action_state_for_tick(client_tick + 2, stepper.client_app());
     assert_eq!(action_state, TriggerState::None);
+    assert_eq!(
+        stepper.client_app().world().resource::<Counter>().0,
+        1,
+        "delayed local input should fire when the delayed tick is simulated"
+    );
 
     assert_eq!(
         stepper
@@ -520,6 +534,69 @@ fn test_buffer_inputs_with_delay() {
             .unwrap(),
         &TriggerState::None
     );
+}
+
+#[test]
+fn test_buffer_vec2_inputs_with_delay_preserves_buffered_action_value_dimension() {
+    let mut config = StepperConfig::single();
+    config.init = false;
+    let mut stepper = ClientServerStepper::from_config(config);
+    stepper.client_mut(0).insert(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
+    );
+    stepper.init();
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity is not present in entity map");
+
+    stepper.server_app.world_mut().spawn((
+        ActionOf::<BEIContext>::new(server_entity),
+        Action::<BEIActionVec2>::default(),
+        PreSpawned::new(TEST_HASH + 1),
+        Replicate::to_clients(NetworkTarget::All),
+    ));
+
+    let client_action = stepper
+        .client_app()
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(client_entity),
+            Action::<BEIActionVec2>::default(),
+            PreSpawned::new(TEST_HASH + 1),
+            bei::prelude::InputMarker::<BEIContext>::default(),
+        ))
+        .id();
+
+    stepper.frame_step(1);
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_action)
+        .insert(ActionMock::once(TriggerState::Fired, Vec2::X));
+    stepper.frame_step(1);
+    let client_tick = stepper.client_tick(0);
+
+    let action = stepper.client_app().world().entity(client_action);
+    let delayed_snapshot = action
+        .get::<BEIBuffer<BEIContext>>()
+        .unwrap()
+        .get(client_tick + 1)
+        .expect("the sampled Vec2 input should be buffered at the delayed tick");
+    assert_eq!(delayed_snapshot.state, TriggerState::Fired);
+    assert_eq!(delayed_snapshot.value, ActionValue::Axis2D(Vec2::X));
 }
 
 /// Check that Actions<C> is restored correctly after a rollback

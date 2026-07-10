@@ -559,28 +559,6 @@ fn input_history_depth(prediction_manager: Option<&PredictionManager>) -> u32 {
         .max(HISTORY_DEPTH)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn input_history_depth_covers_prediction_rollback_window() {
-        assert_eq!(input_history_depth(None), HISTORY_DEPTH);
-
-        let mut manager = PredictionManager {
-            rollback_policy: RollbackPolicy {
-                max_rollback_ticks: 100,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        assert_eq!(input_history_depth(Some(&manager)), 101);
-
-        manager.rollback_policy.max_rollback_ticks = 5;
-        assert_eq!(input_history_depth(Some(&manager)), HISTORY_DEPTH);
-    }
-}
-
 // TODO: is this actually necessary? The sync happens in PostUpdate,
 //  so maybe it's ok if the InputMessages contain the pre-sync tick! (since those inputs happened
 //  before the sync). If it's not needed, send the messages directly in FixedPostUpdate!
@@ -1188,5 +1166,27 @@ fn receive_tick_events<S: ActionStateSequence>(
     }
     for message in message_buffer.0.iter_mut() {
         message.end_tick = message.end_tick + delta;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn input_history_depth_covers_prediction_rollback_window() {
+        assert_eq!(input_history_depth(None), HISTORY_DEPTH);
+
+        let mut manager = PredictionManager {
+            rollback_policy: RollbackPolicy {
+                max_rollback_ticks: 100,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert_eq!(input_history_depth(Some(&manager)), 101);
+
+        manager.rollback_policy.max_rollback_ticks = 5;
+        assert_eq!(input_history_depth(Some(&manager)), HISTORY_DEPTH);
     }
 }

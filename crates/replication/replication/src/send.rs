@@ -1056,7 +1056,8 @@ pub(crate) fn handle_new_client_visibility(
         }
     }
 
-    // Hide Controlled for entities not owned by this client
+    // Hide ControlledSend for entities not owned by this client. Receivers
+    // materialize this marker as Controlled.
     for (entity, controlled_by) in controlled_entities.iter() {
         if controlled_by.owner != sender_entity {
             trace!(

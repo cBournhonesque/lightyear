@@ -134,7 +134,7 @@ pub mod prelude {
     pub use crate::ReplicationSystems;
     pub use crate::authority::{AuthorityBroker, GiveAuthority, HasAuthority, RequestAuthority};
     pub use crate::checkpoint::ReplicationCheckpointMap;
-    pub use crate::control::{Controlled, ControlledBy, Lifetime};
+    pub use crate::control::{Controlled, ControlledBy, ControlledSend, Lifetime};
     pub use crate::deferred_entity::DeferredEntityCommands;
     pub use crate::diff_history::HistoryDiffReceiver;
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
@@ -175,7 +175,7 @@ pub enum ReplicationSystems {
     Send,
 }
 
-/// Plugin that registers replicated marker components (`Predicted`, `Interpolated`, `Controlled`)
+/// Plugin that registers replicated marker components (`Predicted`, `Interpolated`, `ControlledSend`)
 /// with replicon on both client and server. This ensures the component ID registry matches
 /// on both sides, which is required for correct deserialization.
 struct SharedComponentRegistrationPlugin;
@@ -190,7 +190,11 @@ impl Plugin for SharedComponentRegistrationPlugin {
         app.replicate::<lightyear_core::prediction::Predicted>();
         #[cfg(feature = "interpolation")]
         app.replicate::<lightyear_core::interpolation::Interpolated>();
-        app.replicate::<control::Controlled>();
+        app.replicate::<control::ControlledSend>()
+            .set_receive_fns::<control::ControlledSend>(
+                control::write_controlled,
+                control::remove_controlled,
+            );
         // ChildOf is registered for replication in HierarchySendPlugin (server-only),
         // but must also be registered on the client so FnsIds match.
         app.replicate_with(RuleFns::new(

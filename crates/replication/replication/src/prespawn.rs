@@ -1,6 +1,6 @@
 //! Handles spawning entities that are predicted
 
-use crate::control::{Controlled, ControlledBy};
+use crate::control::{Controlled, ControlledBy, ControlledSend};
 #[cfg(feature = "interpolation")]
 use crate::prelude::InterpolationTarget;
 #[cfg(feature = "prediction")]
@@ -574,6 +574,7 @@ pub(crate) fn compute_default_hash(
                 // ignore some book-keeping components that are included in the component registry
                 #[allow(unused_mut)]
                 let mut keep = type_id != TypeId::of::<PreSpawned>()
+                    && type_id != TypeId::of::<ControlledSend>()
                     && type_id != TypeId::of::<Controlled>()
                     && type_id != TypeId::of::<Replicate>()
                     && type_id != TypeId::of::<ControlledBy>();

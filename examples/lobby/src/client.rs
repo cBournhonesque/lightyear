@@ -172,25 +172,16 @@ mod game {
     /// Add the local input marker once ownership is known.
     pub(crate) fn handle_controlled_spawn(
         controlled: Query<
-            (Entity, Option<&ControlledBy>),
+            Entity,
             (
                 With<Controlled>,
                 With<PlayerId>,
                 Without<InputMarker<Inputs>>,
             ),
         >,
-        local_clients: Query<(), With<Client>>,
         mut commands: Commands,
     ) {
-        for (entity, controlled_by) in controlled.iter() {
-            // In host-client mode, server-owned entities also carry `Controlled`
-            // because `ControlledBy` requires it on the sender side. Only the
-            // entity owned by the local host-client should receive local input.
-            if controlled_by
-                .is_some_and(|controlled_by| local_clients.get(controlled_by.owner).is_err())
-            {
-                continue;
-            }
+        for entity in controlled.iter() {
             commands
                 .entity(entity)
                 .insert(InputMarker::<Inputs>::default());

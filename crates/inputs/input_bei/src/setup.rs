@@ -1,13 +1,14 @@
+#[cfg(feature = "client")]
+use crate::marker::InputMarker;
 use alloc::vec::Vec;
 use bevy_app::App;
+#[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::prelude::*;
+#[cfg(any(feature = "client", feature = "server"))]
 use bevy_ecs::relationship::Relationship;
+use bevy_replicon::bytes::Bytes;
 use bevy_replicon::prelude::*;
-use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
-use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, SerializeCtx, WriteCtx};
-#[cfg(feature = "client")]
-use bevy_replicon::shared::server_entity_map::ServerEntityMap;
-use bevy_replicon::{bytes::Bytes, postcard_utils};
+use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
 #[cfg(all(feature = "client", feature = "server"))]
 use lightyear_replication::prelude::ControlledBy;
 #[cfg(feature = "client")]
@@ -39,27 +40,6 @@ use {
     lightyear_replication::prelude::{InterpolationTarget, PredictionTarget, ReplicateLike},
 };
 
-/// Client-side placeholder for a replicated [`ActionOf<C>`] whose context
-/// entity has not been mapped yet.
-///
-/// This is deliberately local-only. Once the context entity appears in
-/// Replicon's server-to-client entity map, [`resolve_pending_action_of`]
-/// replaces this component with the real BEI relationship.
-#[derive(Component)]
-pub(crate) struct PendingActionOf<C: Component> {
-    server_context: Entity,
-    marker: core::marker::PhantomData<C>,
-}
-
-impl<C: Component> PendingActionOf<C> {
-    fn new(server_context: Entity) -> Self {
-        Self {
-            server_context,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
-
 pub struct InputRegistryPlugin;
 
 impl InputRegistryPlugin {
@@ -69,10 +49,13 @@ impl InputRegistryPlugin {
     #[cfg(all(feature = "client", feature = "server"))]
     pub(crate) fn add_action_of_host_server_rebroadcast<C: Component>(
         trigger: On<Add, ActionOf<C>>,
-        host_server: Single<(), With<HostServer>>,
+        host_server: Query<(), With<HostServer>>,
         action: Query<&ActionOf<C>, Or<(Without<Remote>, With<PreSpawned>)>>,
         mut commands: Commands,
     ) {
+        if host_server.is_empty() {
+            return;
+        }
         let entity = trigger.entity;
         if let Ok(action_of) = action.get(entity) {
             let context_entity = action_of.get();
@@ -109,31 +92,34 @@ impl InputRegistryPlugin {
         if host_clients.get(controlled_by.owner).is_ok() {
             return;
         }
-        commands.entity(entity).insert(ExternallyMocked);
+        commands
+            .entity(entity)
+            .remove::<(Bindings, InputMarker<C>)>()
+            .insert(ExternallyMocked);
     }
 
     #[cfg(all(feature = "client", feature = "server"))]
     pub(crate) fn mock_non_host_owned_actions_on_controlled_by<C: Component>(
         trigger: On<Add, ControlledBy>,
         host_server: Query<(), With<HostServer>>,
-        controlled: Query<&ControlledBy>,
+        context: Query<(&Actions<C>, &ControlledBy)>,
         host_clients: Query<(), With<HostClient>>,
-        actions: Query<(Entity, &ActionOf<C>), Without<ExternallyMocked>>,
         mut commands: Commands,
     ) {
         if host_server.is_empty() {
             return;
         }
-        let Ok(controlled_by) = controlled.get(trigger.entity) else {
+        let Ok((actions, controlled_by)) = context.get(trigger.entity) else {
             return;
         };
         if host_clients.get(controlled_by.owner).is_ok() {
             return;
         }
-        for (action_entity, action_of) in &actions {
-            if action_of.get() == trigger.entity {
-                commands.entity(action_entity).insert(ExternallyMocked);
-            }
+        for action_entity in actions.iter() {
+            commands
+                .entity(action_entity)
+                .remove::<(Bindings, InputMarker<C>)>()
+                .insert(ExternallyMocked);
         }
     }
 
@@ -177,115 +163,141 @@ impl InputRegistryPlugin {
         }
     }
 
-    /// When the client receives a rebroadcast Action entity with [`Remote`],
-    ///
-    /// Attach ExternallyMocked to it to signify that the ActionState should only be updated
-    /// from rebroadcasted input messages. (in particular, BEI doesn't tick the time for those actions)
+    /// When a remote ActionOf arrives, update its mocked state if its context
+    /// is already present. If the context has not arrived yet, a context
+    /// observer will handle it later.
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
         trigger: On<Add, ActionOf<C>>,
-        single: Single<(), (With<Client>, Without<HostClient>)>,
-        query: Query<&ActionOf<C>, With<Remote>>,
+        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        contexts: Query<(), With<C>>,
         controlled: Query<(), With<Controlled>>,
         mut commands: Commands,
     ) {
-        if let Ok(action_of) = query.get(trigger.entity) {
-            if controlled.contains(action_of.get()) {
-                return;
-            }
-            let entity = trigger.entity;
-            debug!(
-                ?entity,
-                "On client, received ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast",
-                action_of.get(),
-                DebugName::type_name::<C>()
-            );
-
-            commands.entity(entity).insert(
-                // Make sure that the actions are only updated via input messages
-                ExternallyMocked,
-            );
+        if clients.is_empty() {
+            return;
         }
+        let entity = trigger.entity;
+        let Ok((action_of, is_mocked, has_bindings)) = actions.get(entity) else {
+            return;
+        };
+        update_rebroadcast_action_mocking::<C>(
+            entity,
+            is_mocked,
+            has_bindings,
+            contexts.contains(action_of.get()),
+            controlled.contains(action_of.get()),
+            &mut commands,
+        );
+    }
+
+    /// When the context arrives after one or more remote action entities, mock
+    /// or unmock those actions now that the control state can be inspected.
+    #[cfg(feature = "client")]
+    pub(crate) fn on_rebroadcast_context_received<C: Component>(
+        trigger: On<Add, C>,
+        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
+        actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        mut commands: Commands,
+    ) {
+        if clients.is_empty() {
+            return;
+        }
+        let Ok((context_actions, has_controlled)) = contexts.get(trigger.entity) else {
+            return;
+        };
+        update_rebroadcast_actions_for_context::<C>(
+            context_actions,
+            has_controlled,
+            &actions,
+            &mut commands,
+        );
+    }
+
+    /// When Controlled arrives after a remote context/action relationship,
+    /// remove mocking from locally controlled actions.
+    #[cfg(feature = "client")]
+    pub(crate) fn on_rebroadcast_context_controlled<C: Component>(
+        trigger: On<Add, Controlled>,
+        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
+        actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        mut commands: Commands,
+    ) {
+        if clients.is_empty() {
+            return;
+        }
+        let Ok((context_actions, has_controlled)) = contexts.get(trigger.entity) else {
+            return;
+        };
+        update_rebroadcast_actions_for_context::<C>(
+            context_actions,
+            has_controlled,
+            &actions,
+            &mut commands,
+        );
     }
 }
 
-/// Serializes the server context entity targeted by [`ActionOf<C>`].
-///
-/// This uses a custom rule instead of Replicon's default component
-/// serialization because [`ActionOf<C>`] is a relationship component. The
-/// default receive path would call [`EntityMapper::get_mapped`] for the context
-/// entity and create a placeholder if the context has not been mapped yet. That
-/// placeholder is unsafe for a relationship component: Bevy relationship hooks
-/// can observe the target during insertion, and Replicon also asserts if that
-/// buffered placeholder is still pending when the next component in the same
-/// entity bundle is decoded.
-pub(crate) fn serialize_action_of<C: Component>(
-    _ctx: &mut SerializeCtx,
-    action_of: &ActionOf<C>,
-    message: &mut Vec<u8>,
-) -> bevy_ecs::error::Result<()> {
-    postcard_utils::entity_to_extend_mut(&action_of.get(), message)?;
-    Ok(())
-}
-
-/// Deserializes the raw server context entity for stale-message consumption.
-///
-/// The active receive path uses [`write_action_of`] below. This function exists
-/// for Replicon's `RuleFns` contract and for consuming stale updates without
-/// creating mapped placeholder entities.
-pub(crate) fn deserialize_action_of<C: Component>(
-    _ctx: &mut WriteCtx,
-    message: &mut Bytes,
-) -> bevy_ecs::error::Result<ActionOf<C>> {
-    let server_context = postcard_utils::entity_from_buf(message)?;
-    Ok(ActionOf::new(server_context))
-}
-
-/// Receives [`ActionOf<C>`] without using Replicon's placeholder entity mapper.
-///
-/// If the context entity is already mapped, this inserts the real BEI
-/// relationship immediately. If not, it stores [`PendingActionOf<C>`] so the
-/// relationship can be attached later by [`resolve_pending_action_of`].
-pub(crate) fn write_action_of<C: Component>(
-    ctx: &mut WriteCtx,
-    _rule_fns: &RuleFns<ActionOf<C>>,
-    entity: &mut DeferredEntity,
-    message: &mut Bytes,
-) -> bevy_ecs::error::Result<()> {
-    let server_context = postcard_utils::entity_from_buf(message)?;
-    if let Some(&client_context) = ctx.entity_map.to_client().get(&server_context) {
-        entity.insert(ActionOf::<C>::new(client_context));
-        entity.remove::<PendingActionOf<C>>();
-    } else {
-        entity.insert(PendingActionOf::<C>::new(server_context));
-        entity.remove::<ActionOf<C>>();
-    }
-    Ok(())
-}
-
-pub(crate) fn remove_action_of<C: Component>(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
-    entity.remove::<ActionOf<C>>();
-    entity.remove::<PendingActionOf<C>>();
-}
-
-/// Attach delayed BEI relationships once Replicon has mapped their context.
 #[cfg(feature = "client")]
-pub(crate) fn resolve_pending_action_of<C: Component>(
-    entity_map: Option<Res<ServerEntityMap>>,
-    pending: Query<(Entity, &PendingActionOf<C>)>,
-    mut commands: Commands,
+fn update_rebroadcast_actions_for_context<C: Component>(
+    context_actions: &Actions<C>,
+    has_controlled: bool,
+    actions: &Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+    commands: &mut Commands,
 ) {
-    let Some(entity_map) = entity_map else {
-        return;
-    };
-    for (entity, pending) in &pending {
-        let Some(&client_context) = entity_map.to_client().get(&pending.server_context) else {
+    for action_entity in context_actions.iter() {
+        let Ok((_, is_mocked, has_bindings)) = actions.get(action_entity) else {
             continue;
         };
+        update_rebroadcast_action_mocking::<C>(
+            action_entity,
+            is_mocked,
+            has_bindings,
+            true,
+            has_controlled,
+            commands,
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+fn update_rebroadcast_action_mocking<C: Component>(
+    entity: Entity,
+    is_mocked: bool,
+    has_bindings: bool,
+    context_is_ready: bool,
+    context_is_controlled: bool,
+    commands: &mut Commands,
+) {
+    if !context_is_ready {
+        return;
+    }
+
+    if context_is_controlled {
+        if is_mocked {
+            let mut entity_commands = commands.entity(entity);
+            entity_commands.remove::<ExternallyMocked>();
+            if has_bindings {
+                entity_commands.insert(InputMarker::<C>::default());
+            }
+        }
+        return;
+    }
+
+    if !is_mocked {
+        debug!(
+            ?entity,
+            "On client, mocked remote action entity ActionOf<{:?}> from input rebroadcast",
+            DebugName::type_name::<C>()
+        );
         commands
             .entity(entity)
-            .insert(ActionOf::<C>::new(client_context))
-            .remove::<PendingActionOf<C>>();
+            // Make sure that the action is only updated via input messages.
+            .remove::<(Bindings, InputMarker<C>)>()
+            .insert(ExternallyMocked);
     }
 }
 
@@ -295,13 +307,9 @@ pub(crate) fn resolve_pending_action_of<C: Component>(
 /// sends that state through [`BEIStateSequence`](crate::input_message::BEIStateSequence),
 /// whose snapshots include the trigger state, action value, events, and timing.
 /// The [`Action<A>`] component also does not carry the context relationship:
-/// [`ActionOf<C>`] is replicated as its own component, and Replicon's default
-/// mapping path is avoided there because it can create placeholder relationship
-/// targets when the context has not been mapped yet. Instead, Lightyear defers
-/// inserting [`ActionOf<C>`] until the context entity is present in the
-/// server-to-client map. Therefore component replication only needs to create
-/// the correctly typed action component on the receiver, and
-/// [`deserialize_action`] can rebuild it from `Default`.
+/// [`ActionOf<C>`] is replicated as its own component. Therefore component
+/// replication only needs to create the correctly typed action component on the
+/// receiver, and [`deserialize_action`] can rebuild it from `Default`.
 ///
 /// [`ActionOf<C>`]: bevy_enhanced_input::prelude::ActionOf
 fn serialize_action<A: InputAction>(
@@ -330,5 +338,121 @@ impl InputRegistryExt for &mut App {
             ReplicationMode::Once,
         ));
         self
+    }
+}
+
+#[cfg(all(test, feature = "client"))]
+mod tests {
+    use super::*;
+    use lightyear_connection::client::Client;
+    use lightyear_replication::prelude::Controlled;
+
+    #[derive(Component)]
+    struct TestContext;
+
+    fn app_with_rebroadcast_mocking() -> App {
+        let mut app = App::new();
+        app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<TestContext>);
+        app.add_observer(InputRegistryPlugin::on_rebroadcast_context_received::<TestContext>);
+        app.add_observer(InputRegistryPlugin::on_rebroadcast_context_controlled::<TestContext>);
+        app.world_mut().spawn(Client);
+        app
+    }
+
+    #[test]
+    fn controlled_remote_action_is_not_left_externally_mocked() {
+        let mut app = app_with_rebroadcast_mocking();
+        let context = app.world_mut().spawn((TestContext, Controlled)).id();
+        let action = app
+            .world_mut()
+            .spawn((
+                ActionOf::<TestContext>::new(context),
+                Remote,
+                ExternallyMocked,
+                Bindings::default(),
+            ))
+            .id();
+
+        app.update();
+
+        let action = app.world().entity(action);
+        assert!(!action.contains::<ExternallyMocked>());
+        assert!(action.contains::<Bindings>());
+        assert!(action.contains::<InputMarker<TestContext>>());
+    }
+
+    #[test]
+    fn uncontrolled_remote_action_is_externally_mocked() {
+        let mut app = app_with_rebroadcast_mocking();
+        let context = app.world_mut().spawn(TestContext).id();
+        let action = app
+            .world_mut()
+            .spawn((
+                ActionOf::<TestContext>::new(context),
+                Remote,
+                Bindings::default(),
+                InputMarker::<TestContext>::default(),
+            ))
+            .id();
+
+        app.update();
+
+        let action = app.world().entity(action);
+        assert!(action.contains::<ExternallyMocked>());
+        assert!(!action.contains::<Bindings>());
+        assert!(!action.contains::<InputMarker<TestContext>>());
+    }
+
+    #[test]
+    fn remote_action_waits_for_context_before_mocking() {
+        let mut app = app_with_rebroadcast_mocking();
+        let context = app.world_mut().spawn_empty().id();
+        let action = app
+            .world_mut()
+            .spawn((
+                ActionOf::<TestContext>::new(context),
+                Remote,
+                Bindings::default(),
+                InputMarker::<TestContext>::default(),
+            ))
+            .id();
+
+        app.update();
+
+        let action_ref = app.world().entity(action);
+        assert!(!action_ref.contains::<ExternallyMocked>());
+        assert!(action_ref.contains::<Bindings>());
+        assert!(action_ref.contains::<InputMarker<TestContext>>());
+
+        app.world_mut().entity_mut(context).insert(TestContext);
+        app.update();
+
+        let action_ref = app.world().entity(action);
+        assert!(action_ref.contains::<ExternallyMocked>());
+        assert!(!action_ref.contains::<Bindings>());
+        assert!(!action_ref.contains::<InputMarker<TestContext>>());
+    }
+
+    #[test]
+    fn controlled_context_added_later_unmocks_remote_action() {
+        let mut app = app_with_rebroadcast_mocking();
+        let context = app.world_mut().spawn(TestContext).id();
+        let action = app
+            .world_mut()
+            .spawn((
+                ActionOf::<TestContext>::new(context),
+                Remote,
+                Bindings::default(),
+                InputMarker::<TestContext>::default(),
+            ))
+            .id();
+
+        app.update();
+        assert!(app.world().entity(action).contains::<ExternallyMocked>());
+
+        app.world_mut().entity_mut(context).insert(Controlled);
+        app.update();
+
+        assert!(!app.world().entity(action).contains::<ExternallyMocked>());
     }
 }

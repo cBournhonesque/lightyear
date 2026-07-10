@@ -2,10 +2,8 @@
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
+use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_enhanced_input::prelude::*;
-use bevy_replicon::client::confirm_history::ConfirmHistory;
-use lightyear_connection::client::Client;
-use lightyear_replication::prelude::{Controlled, ControlledBy};
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
 ///
@@ -25,31 +23,19 @@ impl<C> Default for InputMarker<C> {
     }
 }
 
-fn action_targets_local_client<C: Component>(
-    action_of: &ActionOf<C>,
-    contexts: &Query<Option<&ControlledBy>, With<Controlled>>,
-    clients: &Query<(), With<Client>>,
-) -> bool {
-    match contexts.get(action_of.get()) {
-        Ok(Some(controlled_by)) => clients.get(controlled_by.owner).is_ok(),
-        Ok(None) => true,
-        Err(_) => false,
-    }
-}
-
 /// Propagate the InputMarker component from the Context entity to the Action entities
 /// whenever an InputMarker is added to a Context entity.
-///
-/// `InputMarker<C>` on the context is the explicit local-input signal, so
-/// confirmed prespawned owner actions should still receive it. Remote
-/// rebroadcasted actions should be attached to contexts without this marker.
 pub(crate) fn propagate_input_marker<C: Component>(
     trigger: On<Add, InputMarker<C>>,
     actions: Query<&Actions<C>>,
+    mocked: Query<(), With<ExternallyMocked>>,
     mut commands: Commands,
 ) {
     if let Ok(actions) = actions.get(trigger.entity) {
         actions.iter().for_each(|action| {
+            if mocked.contains(action) {
+                return;
+            }
             commands.entity(action).insert(InputMarker::<C>::default());
         });
     }
@@ -59,7 +45,7 @@ pub(crate) fn propagate_input_marker<C: Component>(
 /// add the InputMarker to the Action entity as well.
 pub(crate) fn add_input_marker_from_parent<C: Component>(
     trigger: On<Add, ActionOf<C>>,
-    action_of: Query<&ActionOf<C>>,
+    action_of: Query<&ActionOf<C>, Without<ExternallyMocked>>,
     context: Query<(), With<InputMarker<C>>>,
     mut commands: Commands,
 ) {
@@ -73,51 +59,24 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
     }
 }
 
-/// If Bindings or ActionMock is added to an Action entity, add the InputMarker
-/// to that Action entity once the action has a network-resolvable identity.
-///
-/// Replicated/prespawned actions become resolvable when [`ConfirmHistory`] is
-/// present, because the client's action entity can then be mapped back to the
-/// server action entity when an input message is sent.
+/// If Bindings are added to an Action entity, add the InputMarker to that
+/// Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
-    trigger: On<Add, (Bindings, ActionMock)>,
-    action: Query<&ActionOf<C>, (With<ConfirmHistory>, Without<InputMarker<C>>)>,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    clients: Query<(), With<Client>>,
-    mut commands: Commands,
-) {
-    let Ok(action_of) = action.get(trigger.entity) else {
-        return;
-    };
-    if action_targets_local_client(action_of, &contexts, &clients) {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
-    }
-}
-
-/// If an existing bound action becomes network-resolvable, add the InputMarker
-/// once it targets the local client.
-pub(crate) fn add_input_marker_when_action_becomes_ready<C: Component>(
-    trigger: On<Add, ConfirmHistory>,
+    trigger: On<Add, Bindings>,
     action: Query<
-        &ActionOf<C>,
+        (),
         (
-            With<ConfirmHistory>,
-            Or<(With<Bindings>, With<ActionMock>)>,
+            With<ActionOf<C>>,
             Without<InputMarker<C>>,
+            Without<ExternallyMocked>,
         ),
     >,
-    contexts: Query<Option<&ControlledBy>, With<Controlled>>,
-    clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
-    let Ok(action_of) = action.get(trigger.entity) else {
+    if action.get(trigger.entity).is_err() {
         return;
     };
-    if action_targets_local_client(action_of, &contexts, &clients) {
-        commands
-            .entity(trigger.entity)
-            .insert(InputMarker::<C>::default());
-    }
+    commands
+        .entity(trigger.entity)
+        .insert(InputMarker::<C>::default());
 }

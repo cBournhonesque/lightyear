@@ -9,7 +9,7 @@ use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
 use lightyear_messages::MessageManager;
 use lightyear_replication::authority::HasAuthority;
-use lightyear_replication::control::{Controlled, ControlledBy};
+use lightyear_replication::control::{Controlled, ControlledBy, ControlledSend};
 use lightyear_replication::prelude::*;
 use lightyear_replication::send::ReplicatedFrom;
 use test_log::test;
@@ -107,10 +107,10 @@ fn test_interpolation_target_adds_interpolated() {
     );
 }
 
-/// Spawning an entity with `ControlledBy` should automatically add the
-/// `Controlled` marker component via `#[require(Controlled)]`.
+/// Spawning a host-owned entity with `ControlledBy` should add the sender
+/// marker and the host-local receiver marker.
 #[test]
-fn test_controlled_by_adds_controlled() {
+fn test_host_owned_controlled_by_adds_local_controlled() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
     let host_client_entity = stepper.host_client_entity.unwrap();
@@ -129,8 +129,41 @@ fn test_controlled_by_adds_controlled() {
 
     let entity_ref = stepper.server_app.world().entity(server_entity);
     assert!(
+        entity_ref.contains::<ControlledSend>(),
+        "entity should have ControlledSend via #[require(ControlledSend)] on ControlledBy"
+    );
+    assert!(
         entity_ref.contains::<Controlled>(),
-        "entity should have Controlled via #[require(Controlled)] on ControlledBy"
+        "host-owned entity should have host-local Controlled in host-server mode"
+    );
+}
+
+#[test]
+fn test_remote_owned_controlled_by_does_not_add_local_controlled_on_host_server() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
+
+    let remote_client_entity = stepper.client_of_entities[0];
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: remote_client_entity,
+                lifetime: Default::default(),
+            },
+        ))
+        .id();
+    stepper.frame_step(1);
+
+    let entity_ref = stepper.server_app.world().entity(server_entity);
+    assert!(
+        entity_ref.contains::<ControlledSend>(),
+        "entity should have ControlledSend via #[require(ControlledSend)] on ControlledBy"
+    );
+    assert!(
+        !entity_ref.contains::<Controlled>(),
+        "remote-owned server entity should not have host-local Controlled"
     );
 }
 
@@ -264,8 +297,16 @@ fn test_controlled_backfills_when_client_becomes_host_client() {
             .server_app
             .world()
             .entity(server_entity)
+            .contains::<ControlledSend>(),
+        "ControlledSend is added by ControlledBy before the host-local observer runs"
+    );
+    assert!(
+        !stepper
+            .server_app
+            .world()
+            .entity(server_entity)
             .contains::<Controlled>(),
-        "Controlled is currently added before the host-local observer runs"
+        "Controlled should not be present before the owner becomes a HostClient"
     );
 
     connect_host(&mut stepper);

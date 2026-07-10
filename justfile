@@ -38,6 +38,7 @@ clippy_examples:
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
 # jq filters shared by the example/demo build recipe.
+_example_demo_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup")) | .name'
 _example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup") and (.name != "projectiles")) | .name'
 # simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
 
@@ -127,9 +128,16 @@ build_examples *args:
     fi
 
     echo "Building examples: release=$release headless=$headless features=$feature_mode cargo_features=$cargo_features"
-    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '{{ _example_demo_non_projectiles_pkgs_filter }}' | sort | sed 's/^/-p /' | tr "\n" " ")
+    if [ "$projectiles_features" = "$cargo_features" ]; then
+        pkgs_filter='{{ _example_demo_pkgs_filter }}'
+    else
+        pkgs_filter='{{ _example_demo_non_projectiles_pkgs_filter }}'
+    fi
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r "$pkgs_filter" | sort | sed 's/^/-p /' | tr "\n" " ")
     "${cargo_build[@]}" --no-default-features --features="$cargo_features" $pkgs
-    "${cargo_build[@]}" --no-default-features --features="$projectiles_features" -p projectiles
+    if [ "$projectiles_features" != "$cargo_features" ]; then
+        "${cargo_build[@]}" --no-default-features --features="$projectiles_features" -p projectiles
+    fi
 
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.
