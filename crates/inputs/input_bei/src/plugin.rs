@@ -126,11 +126,9 @@ impl<
             app.add_observer(add_input_marker_from_binding::<C>);
 
             if self.config.rebroadcast_inputs {
-                app.add_systems(
-                    PostUpdate,
-                    InputRegistryPlugin::update_rebroadcast_action_mocking::<C>
-                        .after(lightyear_replication::ReplicationSystems::Receive),
-                );
+                app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);
+                app.add_observer(InputRegistryPlugin::on_rebroadcast_context_received::<C>);
+                app.add_observer(InputRegistryPlugin::on_rebroadcast_context_controlled::<C>);
                 #[cfg(feature = "server")]
                 app.add_observer(InputRegistryPlugin::add_action_of_host_server_rebroadcast::<C>);
             }

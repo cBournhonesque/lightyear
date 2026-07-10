@@ -163,45 +163,141 @@ impl InputRegistryPlugin {
         }
     }
 
-    /// Keep replicated remote action entities mocked unless they belong to a
-    /// locally controlled context.
+    /// When a remote ActionOf arrives, update its mocked state if its context
+    /// is already present. If the context has not arrived yet, a context
+    /// observer will handle it later.
     #[cfg(feature = "client")]
-    pub(crate) fn update_rebroadcast_action_mocking<C: Component>(
+    pub(crate) fn on_rebroadcast_action_received<C: Component>(
+        trigger: On<Add, ActionOf<C>>,
         clients: Query<(), (With<Client>, Without<HostClient>)>,
-        actions: Query<(Entity, &ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        contexts: Query<(), With<C>>,
         controlled: Query<(), With<Controlled>>,
         mut commands: Commands,
     ) {
         if clients.is_empty() {
             return;
         }
+        let entity = trigger.entity;
+        let Ok((action_of, is_mocked, has_bindings)) = actions.get(entity) else {
+            return;
+        };
+        update_rebroadcast_action_mocking::<C>(
+            entity,
+            is_mocked,
+            has_bindings,
+            contexts.contains(action_of.get()),
+            controlled.contains(action_of.get()),
+            &mut commands,
+        );
+    }
 
-        for (entity, action_of, is_mocked, has_bindings) in &actions {
-            if controlled.contains(action_of.get()) {
-                if is_mocked {
-                    let mut entity_commands = commands.entity(entity);
-                    entity_commands.remove::<ExternallyMocked>();
-                    if has_bindings {
-                        entity_commands.insert(InputMarker::<C>::default());
-                    }
-                }
-                continue;
-            }
+    /// When the context arrives after one or more remote action entities, mock
+    /// or unmock those actions now that the control state can be inspected.
+    #[cfg(feature = "client")]
+    pub(crate) fn on_rebroadcast_context_received<C: Component>(
+        trigger: On<Add, C>,
+        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
+        actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        mut commands: Commands,
+    ) {
+        if clients.is_empty() {
+            return;
+        }
+        let Ok((context_actions, has_controlled)) = contexts.get(trigger.entity) else {
+            return;
+        };
+        update_rebroadcast_actions_for_context::<C>(
+            context_actions,
+            has_controlled,
+            &actions,
+            &mut commands,
+        );
+    }
 
-            if !is_mocked {
-                debug!(
-                    ?entity,
-                    "On client, mocked remote ActionOf({:?}) for action entity ActionOf<{:?}> from input rebroadcast",
-                    action_of.get(),
-                    DebugName::type_name::<C>()
-                );
-                commands
-                    .entity(entity)
-                    // Make sure that the action is only updated via input messages.
-                    .remove::<(Bindings, InputMarker<C>)>()
-                    .insert(ExternallyMocked);
+    /// When Controlled arrives after a remote context/action relationship,
+    /// remove mocking from locally controlled actions.
+    #[cfg(feature = "client")]
+    pub(crate) fn on_rebroadcast_context_controlled<C: Component>(
+        trigger: On<Add, Controlled>,
+        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
+        actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+        mut commands: Commands,
+    ) {
+        if clients.is_empty() {
+            return;
+        }
+        let Ok((context_actions, has_controlled)) = contexts.get(trigger.entity) else {
+            return;
+        };
+        update_rebroadcast_actions_for_context::<C>(
+            context_actions,
+            has_controlled,
+            &actions,
+            &mut commands,
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+fn update_rebroadcast_actions_for_context<C: Component>(
+    context_actions: &Actions<C>,
+    has_controlled: bool,
+    actions: &Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
+    commands: &mut Commands,
+) {
+    for action_entity in context_actions.iter() {
+        let Ok((_, is_mocked, has_bindings)) = actions.get(action_entity) else {
+            continue;
+        };
+        update_rebroadcast_action_mocking::<C>(
+            action_entity,
+            is_mocked,
+            has_bindings,
+            true,
+            has_controlled,
+            commands,
+        );
+    }
+}
+
+#[cfg(feature = "client")]
+fn update_rebroadcast_action_mocking<C: Component>(
+    entity: Entity,
+    is_mocked: bool,
+    has_bindings: bool,
+    context_is_ready: bool,
+    context_is_controlled: bool,
+    commands: &mut Commands,
+) {
+    if !context_is_ready {
+        return;
+    }
+
+    if context_is_controlled {
+        if is_mocked {
+            let mut entity_commands = commands.entity(entity);
+            entity_commands.remove::<ExternallyMocked>();
+            if has_bindings {
+                entity_commands.insert(InputMarker::<C>::default());
             }
         }
+        return;
+    }
+
+    if !is_mocked {
+        debug!(
+            ?entity,
+            "On client, mocked remote action entity ActionOf<{:?}> from input rebroadcast",
+            DebugName::type_name::<C>()
+        );
+        commands
+            .entity(entity)
+            // Make sure that the action is only updated via input messages.
+            .remove::<(Bindings, InputMarker<C>)>()
+            .insert(ExternallyMocked);
     }
 }
 
@@ -248,7 +344,6 @@ impl InputRegistryExt for &mut App {
 #[cfg(all(test, feature = "client"))]
 mod tests {
     use super::*;
-    use bevy_app::PostUpdate;
     use lightyear_connection::client::Client;
     use lightyear_replication::prelude::Controlled;
 
@@ -257,10 +352,9 @@ mod tests {
 
     fn app_with_rebroadcast_mocking() -> App {
         let mut app = App::new();
-        app.add_systems(
-            PostUpdate,
-            InputRegistryPlugin::update_rebroadcast_action_mocking::<TestContext>,
-        );
+        app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<TestContext>);
+        app.add_observer(InputRegistryPlugin::on_rebroadcast_context_received::<TestContext>);
+        app.add_observer(InputRegistryPlugin::on_rebroadcast_context_controlled::<TestContext>);
         app.world_mut().spawn(Client);
         app
     }
@@ -307,5 +401,58 @@ mod tests {
         assert!(action.contains::<ExternallyMocked>());
         assert!(!action.contains::<Bindings>());
         assert!(!action.contains::<InputMarker<TestContext>>());
+    }
+
+    #[test]
+    fn remote_action_waits_for_context_before_mocking() {
+        let mut app = app_with_rebroadcast_mocking();
+        let context = app.world_mut().spawn_empty().id();
+        let action = app
+            .world_mut()
+            .spawn((
+                ActionOf::<TestContext>::new(context),
+                Remote,
+                Bindings::default(),
+                InputMarker::<TestContext>::default(),
+            ))
+            .id();
+
+        app.update();
+
+        let action_ref = app.world().entity(action);
+        assert!(!action_ref.contains::<ExternallyMocked>());
+        assert!(action_ref.contains::<Bindings>());
+        assert!(action_ref.contains::<InputMarker<TestContext>>());
+
+        app.world_mut().entity_mut(context).insert(TestContext);
+        app.update();
+
+        let action_ref = app.world().entity(action);
+        assert!(action_ref.contains::<ExternallyMocked>());
+        assert!(!action_ref.contains::<Bindings>());
+        assert!(!action_ref.contains::<InputMarker<TestContext>>());
+    }
+
+    #[test]
+    fn controlled_context_added_later_unmocks_remote_action() {
+        let mut app = app_with_rebroadcast_mocking();
+        let context = app.world_mut().spawn(TestContext).id();
+        let action = app
+            .world_mut()
+            .spawn((
+                ActionOf::<TestContext>::new(context),
+                Remote,
+                Bindings::default(),
+                InputMarker::<TestContext>::default(),
+            ))
+            .id();
+
+        app.update();
+        assert!(app.world().entity(action).contains::<ExternallyMocked>());
+
+        app.world_mut().entity_mut(context).insert(Controlled);
+        app.update();
+
+        assert!(!app.world().entity(action).contains::<ExternallyMocked>());
     }
 }
