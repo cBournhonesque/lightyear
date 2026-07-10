@@ -40,6 +40,7 @@ clippy_examples:
 # jq filters shared by the example/demo build recipe.
 _example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup") and (.name != "projectiles")) | .name'
 # simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
+_wasm_example_pkgs_filter := '.packages[] | select(.metadata.bevy_cli.web != null) | .name'
 
 # Build all examples/demos.
 #
@@ -130,6 +131,53 @@ build_examples *args:
     pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '{{ _example_demo_non_projectiles_pkgs_filter }}' | sort | sed 's/^/-p /' | tr "\n" " ")
     "${cargo_build[@]}" --no-default-features --features="$cargo_features" $pkgs
     "${cargo_build[@]}" --no-default-features --features="$projectiles_features" -p projectiles
+
+# Build all examples/demos with a declared WASM web target.
+#
+# Usage:
+#   just build_examples_wasm
+#   just build_examples_wasm release=true
+#
+# Args:
+#   release=true|false   Defaults to false.
+build_examples_wasm *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    usage='usage: just build_examples_wasm [release=true|false]'
+    release=false
+    for arg in {{args}}; do
+        case "$arg" in
+            release=true|release=false)
+                release="${arg#release=}"
+                ;;
+            -h|--help|help)
+                echo "$usage"
+                exit 0
+                ;;
+            *)
+                echo "$usage" >&2
+                echo "unknown argument: $arg" >&2
+                exit 2
+                ;;
+        esac
+    done
+
+    cargo_build=(cargo build -j 1 --target wasm32-unknown-unknown)
+    if [ "$release" = true ]; then
+        cargo_build+=(--release)
+    else
+        export CARGO_PROFILE_DEV_DEBUG="${CARGO_PROFILE_DEV_DEBUG:-0}"
+    fi
+
+    cargo_features="client,netcode,webtransport"
+    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r '{{ _wasm_example_pkgs_filter }}' | sort | sed 's/^/-p /' | tr "\n" " ")
+    if [ -z "$pkgs" ]; then
+        echo "no WASM example packages found" >&2
+        exit 1
+    fi
+
+    echo "Building WASM examples: release=$release cargo_features=$cargo_features"
+    "${cargo_build[@]}" --no-default-features --features="$cargo_features" $pkgs
 
 test:
     # Can´t do --workspace because of feature unification with the packages in examples.

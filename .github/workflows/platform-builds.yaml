@@ -68,6 +68,9 @@ jobs:
           cache-all-crates: true
           shared-key: platform-build-wasm
 
+      - name: Install just
+        run: cargo install just --locked
+
       - name: Build lightyear for WASM
         run: >
           cargo build -p lightyear
@@ -75,12 +78,5 @@ jobs:
           --no-default-features
           --features "std client replication prediction interpolation netcode websocket webtransport"
 
-      - name: Check web examples for WASM
-        run: |
-          for package in $(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.metadata.bevy_cli.web != null) | .name'); do
-            echo "Checking ${package}"
-            cargo check -p "${package}" \
-              --target wasm32-unknown-unknown \
-              --no-default-features \
-              --features client,netcode,webtransport
-          done
+      - name: Build web examples for WASM
+        run: just build_examples_wasm
