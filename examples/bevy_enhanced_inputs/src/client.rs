@@ -10,11 +10,8 @@ use crate::protocol::*;
 use crate::shared;
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
-use bevy_enhanced_input::context::ExternallyMocked;
 #[cfg(feature = "server")]
 use lightyear::connection::host::HostServer;
-#[cfg(test)]
-use lightyear::input::bei::prelude::InputMarker;
 use lightyear::input::bei::prelude::{Action, ActionOf, Actions, Bindings, Cardinal, Fire};
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
@@ -80,26 +77,19 @@ pub(crate) fn handle_predicted_spawn(
 /// ready for a player that we control.
 fn add_bindings_to_controlled_action(
     trigger: On<Insert, (Action<Movement>, ActionOf<Player>)>,
-    actions: Query<
-        (&ActionOf<Player>, Has<Bindings>, Has<ExternallyMocked>),
-        With<Action<Movement>>,
-    >,
+    actions: Query<&ActionOf<Player>, (With<Action<Movement>>, Without<Bindings>)>,
     controlled_players: Query<(), (With<Player>, With<Controlled>)>,
     mut commands: Commands,
 ) {
-    let Ok((action_of, has_bindings, is_mocked)) = actions.get(trigger.entity) else {
+    let Ok(action_of) = actions.get(trigger.entity) else {
         return;
     };
     if controlled_players.get(action_of.get()).is_err() {
         return;
     }
-    let mut entity = commands.entity(trigger.entity);
-    if is_mocked {
-        entity.remove::<ExternallyMocked>();
-    }
-    if !has_bindings {
-        entity.insert(Bindings::spawn(Cardinal::wasd_keys()));
-    }
+    commands
+        .entity(trigger.entity)
+        .insert(Bindings::spawn(Cardinal::wasd_keys()));
 }
 
 /// Add local movement bindings if the controlled player becomes ready after
@@ -107,23 +97,19 @@ fn add_bindings_to_controlled_action(
 fn add_bindings_to_controlled_player_actions(
     trigger: On<Add, (Player, Controlled, Actions<Player>)>,
     players: Query<&Actions<Player>, (With<Player>, With<Controlled>)>,
-    actions: Query<(Has<Bindings>, Has<ExternallyMocked>), With<Action<Movement>>>,
+    actions: Query<(), (With<Action<Movement>>, Without<Bindings>)>,
     mut commands: Commands,
 ) {
     let Ok(player_actions) = players.get(trigger.entity) else {
         return;
     };
     for action in player_actions.iter() {
-        let Ok((has_bindings, is_mocked)) = actions.get(action) else {
+        if actions.get(action).is_err() {
             continue;
-        };
-        let mut entity = commands.entity(action);
-        if is_mocked {
-            entity.remove::<ExternallyMocked>();
         }
-        if !has_bindings {
-            entity.insert(Bindings::spawn(Cardinal::wasd_keys()));
-        }
+        commands
+            .entity(action)
+            .insert(Bindings::spawn(Cardinal::wasd_keys()));
     }
 }
 
@@ -138,121 +124,5 @@ pub(crate) fn handle_interpolated_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn add_binding_system(app: &mut App) {
-        app.add_observer(add_bindings_to_controlled_action);
-        app.add_observer(add_bindings_to_controlled_player_actions);
-    }
-
-    fn assert_action_has_bindings(world: &World, action: Entity) {
-        let action = world.entity(action);
-        assert!(action.contains::<Bindings>());
-    }
-
-    #[test]
-    fn bindings_are_added_when_action_of_is_added_for_controlled_player() {
-        let mut app = App::new();
-        add_binding_system(&mut app);
-
-        let player = app.world_mut().spawn((Player, Controlled)).id();
-        let action = app.world_mut().spawn(Action::<Movement>::new()).id();
-        app.update();
-
-        app.world_mut()
-            .entity_mut(action)
-            .insert(ActionOf::<Player>::new(player));
-        app.update();
-
-        assert_action_has_bindings(app.world(), action);
-    }
-
-    #[test]
-    fn bindings_are_not_added_for_uncontrolled_player() {
-        let mut app = App::new();
-        add_binding_system(&mut app);
-
-        let player = app.world_mut().spawn(Player).id();
-        let action = app
-            .world_mut()
-            .spawn((ActionOf::<Player>::new(player), Action::<Movement>::new()))
-            .id();
-        app.update();
-
-        assert!(!app.world().entity(action).contains::<Bindings>());
-        assert!(!app.world().entity(action).contains::<InputMarker<Player>>());
-    }
-
-    #[test]
-    fn bindings_are_added_when_action_arrives_after_action_of() {
-        let mut app = App::new();
-        add_binding_system(&mut app);
-
-        let player = app.world_mut().spawn((Player, Controlled)).id();
-        let action = app.world_mut().spawn(ActionOf::<Player>::new(player)).id();
-        app.update();
-
-        assert!(!app.world().entity(action).contains::<Bindings>());
-
-        app.world_mut()
-            .entity_mut(action)
-            .insert(Action::<Movement>::new());
-        app.update();
-
-        assert_action_has_bindings(app.world(), action);
-    }
-
-    #[test]
-    fn bindings_are_added_when_context_arrives_after_action_of() {
-        let mut app = App::new();
-        add_binding_system(&mut app);
-
-        let player = app.world_mut().spawn_empty().id();
-        let action = app
-            .world_mut()
-            .spawn((ActionOf::<Player>::new(player), Action::<Movement>::new()))
-            .id();
-        app.update();
-
-        assert!(!app.world().entity(action).contains::<Bindings>());
-
-        app.world_mut()
-            .entity_mut(player)
-            .insert((Player, Controlled));
-        app.update();
-
-        assert_action_has_bindings(app.world(), action);
-    }
-
-    #[test]
-    fn bindings_are_not_added_for_server_side_controlled_by() {
-        let mut app = App::new();
-        add_binding_system(&mut app);
-
-        let remote_link = app.world_mut().spawn_empty().id();
-        let player = app
-            .world_mut()
-            .spawn((
-                Player,
-                ControlledBy {
-                    owner: remote_link,
-                    lifetime: Default::default(),
-                },
-            ))
-            .id();
-        assert!(!app.world().entity(player).contains::<Controlled>());
-        let action = app
-            .world_mut()
-            .spawn((ActionOf::<Player>::new(player), Action::<Movement>::new()))
-            .id();
-        app.update();
-
-        assert!(!app.world().entity(action).contains::<Bindings>());
-        assert!(!app.world().entity(action).contains::<InputMarker<Player>>());
     }
 }

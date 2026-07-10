@@ -104,10 +104,7 @@ fn spawn_action_entities(commands: &mut Commands, player_entity: Entity) {
 }
 
 /// Applies received client inputs on the server so other clients can observe the result.
-fn movement(
-    trigger: On<Fire<Movement>>,
-    mut position_query: Query<&mut PlayerPosition, With<ControlledBy>>,
-) {
+fn movement(trigger: On<Fire<Movement>>, mut position_query: Query<&mut PlayerPosition>) {
     if let Ok(position) = position_query.get_mut(trigger.context) {
         shared::shared_movement_behaviour(position, trigger.value);
     }
