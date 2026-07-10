@@ -199,6 +199,10 @@ pub struct BEIContext;
 #[action_output(bool)]
 pub struct BEIAction1;
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, InputAction)]
+#[action_output(Vec2)]
+pub struct BEIActionVec2;
+
 // Protocol
 pub struct ProtocolPlugin {
     pub avian_mode: AvianReplicationMode,
@@ -284,6 +288,7 @@ impl Plugin for ProtocolPlugin {
             ..default()
         }));
         app.register_input_action::<BEIAction1>();
+        app.register_input_action::<BEIActionVec2>();
 
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             replication_mode: self.avian_mode,

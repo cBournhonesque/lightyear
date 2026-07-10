@@ -157,6 +157,9 @@ pub trait ActionStateSequence:
         tick_duration: Duration,
     ) -> Option<Tick> {
         let last_remote_tick = input_buffer.last_remote_tick;
+        if last_remote_tick.is_some_and(|tick| end_tick <= tick) {
+            return None;
+        }
         let previous_end_tick = input_buffer.end_tick();
 
         let mut previous_predicted_input =
@@ -191,28 +194,24 @@ pub trait ActionStateSequence:
                     Compressed::Input(latest) => latest_received_input = Some(latest),
                     _ => {}
                 }
-                // only try to detect mismatches after the last_remote_tick
-                if last_remote_tick.is_none_or(|t| tick > t) {
-                    if match (&previous_predicted_input, &latest_received_input) {
-                        (Some(prev), Some(latest)) => prev == latest,
-                        (None, None) => true,
-                        _ => false,
-                    } {
-                        if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
-                            input_buffer
-                                .set_raw(tick, Compressed::from(latest_received_input.clone()));
-                        }
-                        continue;
+                if match (&previous_predicted_input, &latest_received_input) {
+                    (Some(prev), Some(latest)) => prev == latest,
+                    (None, None) => true,
+                    _ => false,
+                } {
+                    if previous_end_tick.is_none_or(|end_tick| tick > end_tick) {
+                        input_buffer.set_raw(tick, Compressed::from(latest_received_input.clone()));
                     }
-                    // first mismatch tick! set the new value for the mismatch tick
-                    debug!(
-                        "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
-                    );
-                    input_buffer.set_raw(tick, Compressed::from(latest_received_input.clone()));
-                    // remove all existing inputs in the buffer that come after `tick`
-                    input_buffer.clip_after(tick);
-                    earliest_mismatch = Some(tick);
+                    continue;
                 }
+                // first mismatch tick! set the new value for the mismatch tick
+                debug!(
+                    "Mismatch detected at tick {tick:?} for new_input {latest_received_input:?}. Previous predicted input: {previous_predicted_input:?}"
+                );
+                input_buffer.set_raw(tick, Compressed::from(latest_received_input.clone()));
+                // remove all existing inputs in the buffer that come after `tick`
+                input_buffer.clip_after(tick);
+                earliest_mismatch = Some(tick);
             }
         }
         input_buffer.last_remote_tick = Some(end_tick);

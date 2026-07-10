@@ -12,7 +12,7 @@ use bevy::prelude::*;
 use bevy::DefaultPlugins;
 use bevy::diagnostic::DiagnosticsPlugin;
 use bevy::state::app::StatesPlugin;
-use clap::{Parser, Subcommand};
+use clap::{ArgAction, Parser, Subcommand};
 
 #[cfg(feature = "client")]
 use crate::client::{ClientTransports, ExampleClient, connect};
@@ -36,13 +36,32 @@ use {
     bevy::winit::{UpdateMode, WinitSettings},
 };
 
+fn parse_bool_arg(value: &str) -> Result<bool, String> {
+    if value.eq_ignore_ascii_case("true") {
+        Ok(true)
+    } else if value.eq_ignore_ascii_case("false") {
+        Ok(false)
+    } else {
+        Err("expected `true` or `false`".to_string())
+    }
+}
+
 /// CLI options to create an [`App`]
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Cli {
     /// Run without windowing/rendering plugins even when the example was built
     /// with a GUI feature.
-    #[arg(long, global = true)]
+    #[arg(
+        long,
+        global = true,
+        action = ArgAction::Set,
+        default_value_t = false,
+        default_missing_value = "true",
+        num_args = 0..=1,
+        require_equals = true,
+        value_parser = parse_bool_arg
+    )]
     pub headless: bool,
     #[command(subcommand)]
     pub mode: Option<Mode>,

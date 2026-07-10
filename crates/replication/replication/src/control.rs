@@ -4,11 +4,14 @@ use bevy_app::{App, Plugin};
 use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
-use bevy_replicon::prelude::SingleComponent;
+use bevy_replicon::bytes::Bytes;
+use bevy_replicon::prelude::{RuleFns, SingleComponent};
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
+use bevy_replicon::shared::replication::deferred_entity::DeferredEntity;
 use bevy_replicon::shared::replication::registry::ReplicationRegistry;
+use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use lightyear_connection::client::Disconnected;
 use lightyear_connection::host::HostClient;
 use serde::{Deserialize, Serialize};
@@ -23,9 +26,15 @@ use tracing::trace;
 ///
 /// You can use `With<Controlled>` in queries to distinguish locally
 /// controlled entities from remote ones.
-// TODO: currently we add Controlled on the sender for replication but this could cause issues with authority changes.
 #[derive(Component, Clone, PartialEq, Debug, Default, Reflect, Serialize, Deserialize)]
 pub struct Controlled;
+
+/// Sender-side marker that replicates as [`Controlled`] on the owning receiver.
+///
+/// This keeps [`Controlled`] receiver-local. In host-server mode, server-owned
+/// entities for remote clients carry [`ControlledSend`] but not [`Controlled`].
+#[derive(Component, Clone, PartialEq, Debug, Default, Reflect, Serialize, Deserialize)]
+pub struct ControlledSend;
 
 /// Component on the sender side that lists the entities controlled by the remote peer
 #[derive(Component, Clone, PartialEq, Debug, Reflect)]
@@ -41,8 +50,7 @@ pub struct ControlledByRemote(Vec<Entity>);
 /// despawn the entity. If you want to persist an entity on the receiver side even after the link is disconnected,
 /// see [`Lifetime::Persistent`].
 #[derive(Component, Clone, Copy, PartialEq, Debug, Reflect)]
-// TODO: we add Controlled on the sender side to replicate it to the remote, but this could cause issues with client authority!
-#[require(Controlled)]
+#[require(ControlledSend)]
 #[reflect(Component)]
 #[component(immutable)]
 #[relationship(relationship_target = ControlledByRemote)]
@@ -63,7 +71,7 @@ impl ControlledBy {
     ) {
         let visibility_bit = control_bit.0;
         let owner_entity = controlled_by.get(trigger.entity).unwrap().owner;
-        // Two-pass: first hide Controlled for all clients, then show for owner only
+        // ControlledSend is receiver-local: only the owning client should see it.
         for (sender_entity, mut visibility) in sender.iter_mut() {
             if sender_entity == owner_entity {
                 visibility.set(trigger.entity, visibility_bit, true);
@@ -112,6 +120,21 @@ impl ControlledBy {
     }
 }
 
+pub(crate) fn write_controlled(
+    ctx: &mut WriteCtx,
+    rule_fns: &RuleFns<ControlledSend>,
+    entity: &mut DeferredEntity,
+    message: &mut Bytes,
+) -> bevy_ecs::error::Result<()> {
+    let _ = rule_fns.deserialize(ctx, message)?;
+    entity.insert(Controlled);
+    Ok(())
+}
+
+pub(crate) fn remove_controlled(_ctx: &mut RemoveCtx, entity: &mut DeferredEntity) {
+    entity.remove::<Controlled>();
+}
+
 /// Host-server local emulation for control when a client becomes a host client after entities
 /// already exist.
 fn emulate_controlled_on_host_client_added(
@@ -150,7 +173,7 @@ pub enum Lifetime {
     Persistent,
 }
 
-/// Component-level visibility for [`Controlled`]
+/// Component-level visibility for [`ControlledSend`]
 #[derive(Resource, Deref)]
 pub struct ControlBit(FilterBit);
 
@@ -158,7 +181,8 @@ impl FromWorld for ControlBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<SingleComponent<Controlled>>(world, &mut registry)
+                filter_registry
+                    .register_scope::<SingleComponent<ControlledSend>>(world, &mut registry)
             })
         });
         Self(bit)

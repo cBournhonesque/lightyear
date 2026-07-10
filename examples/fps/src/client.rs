@@ -138,21 +138,12 @@ pub(crate) fn handle_predicted_spawn(
 pub(crate) fn handle_controlled_spawn(
     trigger: On<Add, Controlled>,
     mut commands: Commands,
-    player_query: Query<
-        Option<&ControlledBy>,
-        (With<PlayerMarker>, Without<InputMap<PlayerActions>>),
-    >,
-    clients: Query<(), With<Client>>,
+    player_query: Query<(), (With<PlayerMarker>, Without<InputMap<PlayerActions>>)>,
 ) {
     let entity = trigger.entity;
-    let Ok(controlled_by) = player_query.get(entity) else {
+    if player_query.get(entity).is_err() {
         return;
     };
-    if let Some(controlled_by) = controlled_by {
-        if clients.get(controlled_by.owner).is_err() {
-            return;
-        }
-    }
     commands.entity(entity).insert(InputMap::new([
         (PlayerActions::Up, KeyCode::KeyW),
         (PlayerActions::Down, KeyCode::KeyS),

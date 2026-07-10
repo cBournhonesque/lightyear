@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn test_update_buffer_skip_ticks_before_previous_end() {
+    fn test_update_buffer_keeps_matching_overlap_before_previous_end() {
         let mut input_buffer = BEIBuffer::<Context1>::default();
 
         // Set up buffer with actions at ticks 5 and 6
@@ -506,8 +506,10 @@ mod tests {
         state.state = TriggerState::Fired;
         state.value = ActionValue::Bool(true);
         let first_state = state;
+        let mut first_state_decayed = first_state;
+        first_state_decayed.decay_tick(Duration::default());
         input_buffer.set(Tick(5), first_state);
-        input_buffer.set(Tick(6), first_state);
+        input_buffer.set(Tick(6), first_state_decayed);
         input_buffer.last_remote_tick = Some(Tick(6));
 
         // Create a different action
@@ -515,7 +517,8 @@ mod tests {
         state.value = ActionValue::Bool(false);
         let mut second_state = state;
 
-        // Message covers ticks 5-8, but we should only process ticks 7-8
+        // Message covers ticks 5-8. The overlap matches the existing buffer,
+        // so the old ticks remain unchanged and the new mismatch starts at tick 7.
         let sequence = BEIStateSequence::<Context1> {
             start_state: first_state,
             diffs: vec![
@@ -536,11 +539,54 @@ mod tests {
         assert_eq!(earliest_mismatch, Some(Tick(7)));
         // Ticks 5 and 6 should remain unchanged
         assert_eq!(input_buffer.get(Tick(5)), Some(&first_state));
-        assert_eq!(input_buffer.get(Tick(6)), Some(&first_state));
+        assert_eq!(input_buffer.get(Tick(6)), Some(&first_state_decayed));
         // Ticks 7 and 8 should be updated
         second_state.events = ActionEvents::ONGOING;
         assert_eq!(input_buffer.get(Tick(7)), Some(&second_state));
         assert_eq!(input_buffer.get(Tick(8)), Some(&second_state));
+    }
+
+    #[test]
+    fn test_update_buffer_rewrites_future_overlap_before_last_remote_tick() {
+        let mut input_buffer = BEIBuffer::<Context1>::default();
+
+        let neutral = ActionsSnapshot {
+            value: ActionValue::Bool(false),
+            ..Default::default()
+        };
+        let fired = ActionsSnapshot {
+            state: TriggerState::Fired,
+            value: ActionValue::Bool(true),
+            events: ActionEvents::FIRE,
+            ..Default::default()
+        };
+
+        // Earlier input-delay packets predicted ticks 10..=14 as neutral.
+        for tick in 10..=14 {
+            input_buffer.set(Tick(tick), neutral);
+        }
+        input_buffer.last_remote_tick = Some(Tick(14));
+
+        // A newer packet overlaps those ticks and corrects them to the real input.
+        let sequence = BEIStateSequence::<Context1> {
+            start_state: fired,
+            diffs: vec![
+                Compressed::SameAsPrecedent,
+                Compressed::SameAsPrecedent,
+                Compressed::SameAsPrecedent,
+                Compressed::SameAsPrecedent,
+            ],
+            marker: Default::default(),
+        };
+
+        let earliest_mismatch =
+            sequence.update_buffer(&mut input_buffer, Tick(15), Duration::default());
+
+        assert_eq!(earliest_mismatch, Some(Tick(11)));
+        for tick in 11..=15 {
+            assert_eq!(input_buffer.get(Tick(tick)), Some(&fired));
+        }
+        assert_eq!(input_buffer.last_remote_tick, Some(Tick(15)));
     }
 
     /// Even if last_remote_tick < end_tick, we should correctly compute the mismatch

@@ -2,6 +2,7 @@
 
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
+use bevy_enhanced_input::context::ExternallyMocked;
 use bevy_enhanced_input::prelude::*;
 
 /// Marker component that indicates that the entity is actively listening for physical user inputs.
@@ -27,10 +28,14 @@ impl<C> Default for InputMarker<C> {
 pub(crate) fn propagate_input_marker<C: Component>(
     trigger: On<Add, InputMarker<C>>,
     actions: Query<&Actions<C>>,
+    mocked: Query<(), With<ExternallyMocked>>,
     mut commands: Commands,
 ) {
     if let Ok(actions) = actions.get(trigger.entity) {
         actions.iter().for_each(|action| {
+            if mocked.contains(action) {
+                return;
+            }
             commands.entity(action).insert(InputMarker::<C>::default());
         });
     }
@@ -40,7 +45,7 @@ pub(crate) fn propagate_input_marker<C: Component>(
 /// add the InputMarker to the Action entity as well.
 pub(crate) fn add_input_marker_from_parent<C: Component>(
     trigger: On<Add, ActionOf<C>>,
-    action_of: Query<&ActionOf<C>>,
+    action_of: Query<&ActionOf<C>, Without<ExternallyMocked>>,
     context: Query<(), With<InputMarker<C>>>,
     mut commands: Commands,
 ) {
@@ -58,33 +63,19 @@ pub(crate) fn add_input_marker_from_parent<C: Component>(
 /// Action entity.
 pub(crate) fn add_input_marker_from_binding<C: Component>(
     trigger: On<Add, Bindings>,
-    action: Query<&Bindings, (With<ActionOf<C>>, Without<InputMarker<C>>)>,
+    action: Query<
+        (),
+        (
+            With<ActionOf<C>>,
+            Without<InputMarker<C>>,
+            Without<ExternallyMocked>,
+        ),
+    >,
     mut commands: Commands,
 ) {
-    let Ok(bindings) = action.get(trigger.entity) else {
+    if action.get(trigger.entity).is_err() {
         return;
     };
-    if bindings.is_empty() {
-        return;
-    }
-    commands
-        .entity(trigger.entity)
-        .insert(InputMarker::<C>::default());
-}
-
-/// If an active ActionMock is inserted on an Action entity, add the InputMarker
-/// to that Action entity.
-pub(crate) fn add_input_marker_from_mock<C: Component>(
-    trigger: On<Insert, ActionMock>,
-    action: Query<&ActionMock, (With<ActionOf<C>>, Without<InputMarker<C>>)>,
-    mut commands: Commands,
-) {
-    let Ok(mock) = action.get(trigger.entity) else {
-        return;
-    };
-    if !mock.enabled {
-        return;
-    }
     commands
         .entity(trigger.entity)
         .insert(InputMarker::<C>::default());

@@ -3,7 +3,7 @@ use crate::stepper::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::mock::{ActionMock, MockSpan};
 use bevy_enhanced_input::action::{Action, TriggerState};
-use bevy_enhanced_input::prelude::{ActionOf, ActionValue, Actions};
+use bevy_enhanced_input::prelude::{ActionOf, ActionValue, Actions, Fire};
 use lightyear::input::bei::input_message::BEIBuffer;
 use lightyear::input::bei::prelude::InputMarker;
 use lightyear::input::input_buffer::Compressed;
@@ -161,10 +161,13 @@ fn test_host_client_action_rebroadcasts_to_remote_client() {
         .server_app
         .world_mut()
         .entity_mut(server_action)
-        .insert(ActionMock::new(
-            TriggerState::Fired,
-            ActionValue::Bool(true),
-            MockSpan::Manual,
+        .insert((
+            ActionMock::new(
+                TriggerState::Fired,
+                ActionValue::Bool(true),
+                MockSpan::Manual,
+            ),
+            InputMarker::<BEIContext>::default(),
         ));
 
     stepper.frame_step(4);
@@ -209,6 +212,93 @@ fn test_host_client_action_rebroadcasts_to_remote_client() {
         .get::<BEIBuffer<BEIContext>>()
         .expect("Server should buffer the host client's input before rebroadcasting it");
     assert_buffer_contains_fired_input(server_buffer, "host-server input buffer");
+}
+
+#[derive(Resource, Default)]
+struct BeiFireCount(usize);
+
+/// Regression for host-server mode with a remote netcode client driving its
+/// own action. The remote client's input should update the shared host-server
+/// action state and emit BEI events on the server.
+#[test]
+fn test_remote_client_action_updates_server_action_state_in_host_server() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
+    stepper.server_app.init_resource::<BeiFireCount>();
+    stepper
+        .server_app
+        .add_observer(|_: On<Fire<BEIAction1>>, mut count: ResMut<BeiFireCount>| {
+            count.0 += 1;
+        });
+
+    let remote_owner = stepper.client_of_entities[0];
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            PredictionTarget::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: remote_owner,
+                lifetime: Default::default(),
+            },
+            BEIContext,
+        ))
+        .id();
+
+    let server_action = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            ActionOf::<BEIContext>::new(server_entity),
+            Action::<BEIAction1>::default(),
+            Replicate::to_clients(NetworkTarget::All),
+        ))
+        .id();
+
+    stepper.frame_step_server_first(1);
+
+    let remote_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity not replicated to remote client");
+    let remote_action = stepper.client_apps[0]
+        .world()
+        .get::<Actions<BEIContext>>(remote_entity)
+        .expect("remote context should have BEI actions")
+        .collection()[0];
+
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(remote_action)
+        .insert((
+            ActionMock::new(
+                TriggerState::Fired,
+                ActionValue::Bool(true),
+                MockSpan::Manual,
+            ),
+            InputMarker::<BEIContext>::default(),
+        ));
+
+    stepper.frame_step(24);
+
+    let state = stepper
+        .server_app
+        .world()
+        .entity(server_action)
+        .get::<TriggerState>()
+        .expect("server action should have BEI trigger state");
+    assert_eq!(
+        *state,
+        TriggerState::Fired,
+        "server action state should apply the remote client's BEI input"
+    );
+    assert!(
+        stepper.server_app.world().resource::<BeiFireCount>().0 > 0,
+        "server should emit Fire<BEIAction1> for the remote client's input"
+    );
 }
 
 fn assert_buffer_contains_fired_input(buffer: &BEIBuffer<BEIContext>, label: &str) {
