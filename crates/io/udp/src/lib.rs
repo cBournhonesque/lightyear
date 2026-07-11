@@ -9,7 +9,11 @@
 //! [`server`] module provides [`server::ServerUdpIo`] and `ServerUdpPlugin` for a listening server
 //! socket that creates one child [`Link`] per remote address.
 
-use core::io::ErrorKind;
+// `core::io` is still unstable on the nightly toolchain used to build docs, and this crate already
+// requires `std` for `UdpSocket`.
+#![allow(clippy::std_instead_of_core)]
+
+use std::io::ErrorKind;
 use std::net::UdpSocket;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
