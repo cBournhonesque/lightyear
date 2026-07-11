@@ -72,6 +72,8 @@ impl Plugin for ProtocolPlugin {
         });
 
         // components
+        app.component::<Name>().replicate();
+
         app.component::<PlayerId>().replicate();
 
         app.component::<ColorComponent>().replicate();

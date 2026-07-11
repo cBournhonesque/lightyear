@@ -192,9 +192,9 @@ mod tests {
 
     use alloc::vec;
     use bevy_reflect::Reflect;
+    use core::time::Duration;
     use leafwing_input_manager::Actionlike;
     use serde::{Deserialize, Serialize};
-    use std::time::Duration;
     use test_log::test;
 
     #[derive(
@@ -568,5 +568,28 @@ mod tests {
         expected.set_update_state_from_state();
         expected.set_fixed_update_state_from_state();
         assert_eq!(input_buffer.get(Tick(3)).unwrap().0, expected);
+    }
+
+    #[test]
+    fn test_update_buffer_ignores_mismatches_at_confirmed_ticks() {
+        let mut input_buffer = InputBuffer::default();
+        let mut confirmed = ActionState::<Action>::default();
+        confirmed.press(&Action::Jump);
+        input_buffer.set(Tick(2), confirmed.clone().into());
+        input_buffer.last_remote_tick = Some(Tick(2));
+
+        let mut overlapping = ActionState::<Action>::default();
+        overlapping.press(&Action::Run);
+        let sequence = LeafwingSequence::<Action> {
+            // Tick 2 is redundant history and must not be compared or overwritten.
+            start_state: overlapping,
+            // Tick 3 is new and is the first tick eligible for mismatch detection.
+            diffs: vec![vec![]],
+        };
+
+        let mismatch = sequence.update_buffer(&mut input_buffer, Tick(3), Duration::default());
+
+        assert_eq!(mismatch, Some(Tick(3)));
+        assert_eq!(input_buffer.get(Tick(2)).unwrap().0, confirmed);
     }
 }

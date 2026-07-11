@@ -60,10 +60,6 @@ impl PluginGroup for ServerPlugins {
         #[cfg(feature = "replication")]
         let builder = builder.add(LightyearRepliconServerBackend);
 
-        #[cfg(feature = "deterministic")]
-        let builder =
-            builder.add(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
-
         let builder = builder.add(lightyear_connection::host::HostPlugin);
 
         // IO

@@ -9,7 +9,8 @@
 //! [`server`] module provides [`server::ServerUdpIo`] and `ServerUdpPlugin` for a listening server
 //! socket that creates one child [`Link`] per remote address.
 
-use std::{io::ErrorKind, net::UdpSocket};
+use core::io::ErrorKind;
+use std::net::UdpSocket;
 
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_app::prelude::*;

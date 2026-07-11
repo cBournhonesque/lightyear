@@ -16,12 +16,6 @@ pub struct ExampleServerPlugin;
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationServerPlugin);
-        if !app
-            .is_plugin_added::<lightyear_deterministic_replication::prelude::ChecksumReceivePlugin>(
-            )
-        {
-            app.add_plugins(lightyear_deterministic_replication::prelude::ChecksumReceivePlugin);
-        }
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));
         app.add_observer(handle_new_client);
         app.add_observer(handle_connected);

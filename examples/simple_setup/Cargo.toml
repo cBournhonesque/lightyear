@@ -14,6 +14,7 @@ publish = false
 [features]
 default = ["client", "server", "netcode", "webtransport"]
 client = ["lightyear/client"]
+gui = []
 server = ["lightyear/server"]
 netcode = ["lightyear/netcode"]
 webtransport = [
@@ -43,7 +44,7 @@ async-compat.workspace = true
 [package.metadata.bevy_cli.web]
 rustflags = ["--cfg", "getrandom_backend=\"wasm_js\""]
 default-features = false
-features = ["client", "netcode", "webtransport"]
+features = ["client", "gui", "netcode", "webtransport"]
 
 [lints]
 workspace = true

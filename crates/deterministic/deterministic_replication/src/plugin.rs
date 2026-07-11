@@ -2,13 +2,16 @@ use crate::Deterministic;
 use bevy_app::{App, Plugin};
 use lightyear_prediction::rollback::DeterministicPredicted;
 
-/// Shared setup for deterministic replication — automatically inserted by
-/// [`ChecksumSendPlugin`], [`ChecksumReceivePlugin`] and
-/// [`LateJoinCatchUpPlugin`] so users rarely need to add it directly.
+/// Shared setup for deterministic replication.
 ///
+/// This is automatically inserted by [`ChecksumPlugin`],
+/// [`ChecksumSendPlugin`] and [`ChecksumReceivePlugin`], so users normally add
+/// [`ChecksumPlugin`] from their shared protocol when they want checksum
+/// verification.
+///
+/// [`ChecksumPlugin`]: crate::prelude::ChecksumPlugin
 /// [`ChecksumSendPlugin`]: crate::prelude::ChecksumSendPlugin
 /// [`ChecksumReceivePlugin`]: crate::prelude::ChecksumReceivePlugin
-/// [`LateJoinCatchUpPlugin`]: crate::prelude::LateJoinCatchUpPlugin
 pub struct DeterministicReplicationPlugin;
 
 impl Plugin for DeterministicReplicationPlugin {

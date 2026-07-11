@@ -14,8 +14,7 @@ use lightyear_sync::client::ClientPlugin as LightyearClientPlugin;
 use crate::input_message::LeafwingSequence;
 #[cfg(any(feature = "client", feature = "server"))]
 use leafwing_input_manager::plugin::InputManagerPlugin;
-#[allow(unused_imports)]
-use tracing::{info, trace};
+use tracing::trace;
 
 pub struct InputPlugin<A> {
     pub config: InputConfig<A>,
@@ -33,6 +32,16 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
     fn build(&self, app: &mut App) {
         app.register_type::<InputBuffer<ActionState<A>, A>>();
         app.register_type::<ActionState<A>>();
+
+        #[cfg(feature = "client")]
+        if !app.is_plugin_added::<lightyear_inputs::plugin::InputPlugin<LeafwingSequence<A>>>() {
+            // Message directions register required components on `Client`.
+            // Do that before users can spawn a Client entity, while still
+            // deferring Leafwing's client-only runtime systems to `finish`.
+            app.add_plugins(
+                lightyear_inputs::plugin::InputPlugin::<LeafwingSequence<A>>::default(),
+            );
+        }
 
         #[cfg(feature = "server")]
         {
@@ -79,6 +88,7 @@ impl<A: LeafwingUserAction> Plugin for InputPlugin<A> {
                     lightyear_inputs::client::InputSystems::RestoreInputs
                         .before(InputManagerSystem::Tick),
                 );
+
                 return;
             }
         }

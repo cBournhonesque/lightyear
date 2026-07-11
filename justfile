@@ -133,8 +133,11 @@ build_examples *args:
     else
         pkgs_filter='{{ _example_demo_non_projectiles_pkgs_filter }}'
     fi
-    pkgs=$(cargo metadata --no-deps --format-version 1 | jq -r "$pkgs_filter" | sort | sed 's/^/-p /' | tr "\n" " ")
-    "${cargo_build[@]}" --no-default-features --features="$cargo_features" $pkgs
+    package_args=()
+    while IFS= read -r pkg; do
+        package_args+=(-p "$pkg")
+    done < <(cargo metadata --no-deps --format-version 1 | jq -r "$pkgs_filter" | sort)
+    "${cargo_build[@]}" --no-default-features --features="$cargo_features" "${package_args[@]}"
     if [ "$projectiles_features" != "$cargo_features" ]; then
         "${cargo_build[@]}" --no-default-features --features="$projectiles_features" -p projectiles
     fi
@@ -144,10 +147,10 @@ test:
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d udp websocket crossbeam steam"
+    input_native leafwing input_bei avian2d lightyear_avian2d/f32 udp websocket crossbeam steam"
     cargo test -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d udp websocket crossbeam steam"
+    input_native leafwing input_bei avian3d lightyear_avian3d/f32 udp websocket crossbeam steam"
     cargo test -p lightyear_aeronet --all-features
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`.
     cargo test -p lightyear_avian --no-default-features --features="std 2d lag_compensation"
@@ -195,8 +198,8 @@ lightyear:
     cargo clippy -p lightyear --no-default-features --features="std input_native" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std leafwing" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std input_bei" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="avian2d" -- -D warnings --no-deps
-    cargo clippy -p lightyear --no-default-features --features="avian3d" -- -D warnings --no-deps
+    cargo clippy -p lightyear --no-default-features --features="avian2d lightyear_avian2d/f32" -- -D warnings --no-deps
+    cargo clippy -p lightyear --no-default-features --features="avian3d lightyear_avian3d/f32" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="udp" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="websocket" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std crossbeam" -- -D warnings --no-deps
@@ -204,10 +207,10 @@ lightyear:
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`
     cargo clippy -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d udp websocket crossbeam steam" -- -D warnings --no-deps
+    input_native leafwing input_bei avian2d lightyear_avian2d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d udp websocket crossbeam steam" -- -D warnings --no-deps
+    input_native leafwing input_bei avian3d lightyear_avian3d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
     # cargo clippy -p lightyear --tests --no-default-features -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std client" -- -D warnings --no-deps
@@ -224,8 +227,8 @@ lightyear:
     cargo clippy -p lightyear --tests --no-default-features --features="std input_native" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std leafwing" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std input_bei" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="avian2d" -- -D warnings --no-deps
-    cargo clippy -p lightyear --tests --no-default-features --features="avian3d" -- -D warnings --no-deps
+    cargo clippy -p lightyear --tests --no-default-features --features="avian2d lightyear_avian2d/f32" -- -D warnings --no-deps
+    cargo clippy -p lightyear --tests --no-default-features --features="avian3d lightyear_avian3d/f32" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="udp" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="websocket" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std crossbeam" -- -D warnings --no-deps
@@ -233,10 +236,10 @@ lightyear:
     # You can't use `--all-features` because of conflict between `avian2d` and `avian3d`
     cargo clippy -p lightyear --tests --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian2d udp websocket crossbeam steam" -- -D warnings --no-deps
+    input_native leafwing input_bei avian2d lightyear_avian2d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std client server replication \
     interpolation trace metrics netcode webtransport webtransport_self_signed webtransport_dangerous_configuration \
-    input_native leafwing input_bei avian3d udp websocket crossbeam steam" -- -D warnings --no-deps
+    input_native leafwing input_bei avian3d lightyear_avian3d/f32 udp websocket crossbeam steam" -- -D warnings --no-deps
 
 lightyear_aeronet:
     cargo clippy -p lightyear_aeronet --no-default-features -- -D warnings --no-deps

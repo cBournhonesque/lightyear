@@ -54,6 +54,43 @@ pub struct ChecksumHistory {
     history: BTreeMap<Tick, u64>,
 }
 
+/// Shared checksum protocol plugin.
+///
+/// Add this from the shared protocol after `ClientPlugins` / `ServerPlugins`
+/// and before spawning networking entities. It installs the client send and/or
+/// server receive checksum plugins based on which Lightyear side plugins are
+/// present.
+pub struct ChecksumPlugin;
+
+impl Plugin for ChecksumPlugin {
+    fn build(&self, app: &mut App) {
+        if !app.is_plugin_added::<DeterministicReplicationPlugin>() {
+            app.add_plugins(DeterministicReplicationPlugin);
+        }
+
+        #[cfg(feature = "client")]
+        if app.is_plugin_added::<lightyear_sync::client::ClientPlugin>()
+            && !app.is_plugin_added::<ChecksumSendPlugin>()
+        {
+            app.add_plugins(ChecksumSendPlugin);
+        }
+
+        #[cfg(feature = "server")]
+        if app.is_plugin_added::<lightyear_sync::server::ServerPlugin>()
+            && !app.is_plugin_added::<ChecksumReceivePlugin>()
+        {
+            app.add_plugins(ChecksumReceivePlugin);
+        }
+    }
+}
+
+fn register_checksum_message(app: &mut App) {
+    if !app.is_message_registered::<ChecksumMessage>() {
+        app.register_message::<ChecksumMessage>()
+            .add_direction(NetworkDirection::ClientToServer);
+    }
+}
+
 /// Plugin that can be added to clients to compute and send checksums for all deterministic entities with hashable components.
 ///
 /// The server will receive these checksums and verify them against its own computed checksums.
@@ -145,10 +182,7 @@ impl Plugin for ChecksumSendPlugin {
         // we need the LastConfirmedInput to compute the checksums
         app.register_required_components::<InputTimeline, LastConfirmedInput>();
 
-        if !app.is_message_registered::<ChecksumMessage>() {
-            app.register_message::<ChecksumMessage>()
-                .add_direction(NetworkDirection::ClientToServer);
-        }
+        register_checksum_message(app);
     }
 
     fn finish(&self, app: &mut App) {
@@ -267,11 +301,10 @@ impl Plugin for ChecksumReceivePlugin {
         // the server will check the checksum validity
         app.register_required_components::<Server, ChecksumHistory>();
 
-        if !app.is_message_registered::<ChecksumMessage>() {
-            app.register_message::<ChecksumMessage>()
-                .add_direction(NetworkDirection::ClientToServer);
-        }
+        register_checksum_message(app);
+    }
 
+    fn finish(&self, app: &mut App) {
         app.add_systems(
             PostUpdate,
             (
@@ -279,9 +312,6 @@ impl Plugin for ChecksumReceivePlugin {
                 ChecksumReceivePlugin::receive_checksum_message,
             ),
         );
-    }
-
-    fn finish(&self, app: &mut App) {
         app.add_systems(FixedLast, ChecksumReceivePlugin::compute_and_store_checksum);
     }
 }

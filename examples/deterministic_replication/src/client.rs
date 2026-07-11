@@ -14,11 +14,6 @@ pub struct ExampleClientPlugin;
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
-        if !app
-            .is_plugin_added::<lightyear_deterministic_replication::prelude::ChecksumSendPlugin>()
-        {
-            app.add_plugins(lightyear_deterministic_replication::prelude::ChecksumSendPlugin);
-        }
         // LateJoinCatchUpPlugin itself is added by ProtocolPlugin (in
         // SharedPlugin) so message registration precedes client-entity
         // spawn in `cli.spawn_connections`.

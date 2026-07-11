@@ -82,5 +82,5 @@ jobs:
             cargo check -p "${package}" \
               --target wasm32-unknown-unknown \
               --no-default-features \
-              --features client,netcode,webtransport
+              --features client,gui,netcode,webtransport
           done

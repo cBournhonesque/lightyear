@@ -276,7 +276,7 @@ mod tests {
     use bevy_enhanced_input::prelude::InputAction;
     use bevy_reflect::Reflect;
     use test_log::test;
-    use tracing::info;
+    use tracing::trace;
 
     struct Context1;
 
@@ -385,7 +385,7 @@ mod tests {
         let earliest_mismatch =
             sequence.update_buffer(&mut input_buffer, Tick(7), Duration::default());
 
-        info!("Input buffer after update: {:?}", input_buffer);
+        trace!("Input buffer after update: {:?}", input_buffer);
 
         // With empty buffer, the first tick received is a mismatch
         assert_eq!(earliest_mismatch, Some(Tick(5)));
@@ -607,7 +607,7 @@ mod tests {
         input_buffer.set(Tick(7), first_state_decay);
         input_buffer.last_remote_tick = Some(Tick(6));
 
-        info!("Input buffer before update: {:?}", input_buffer);
+        trace!("Input buffer before update: {:?}", input_buffer);
 
         let sequence = BEIStateSequence::<Context1> {
             start_state: first_state,
