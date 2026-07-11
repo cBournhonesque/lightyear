@@ -1,5 +1,8 @@
 use super::rollback::{RollbackPlugin, RollbackSystems, prepare_rollback};
 use crate::SyncComponent;
+use crate::correction::{
+    repair_frame_interpolation_history, update_frame_interpolation_post_rollback,
+};
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
 use crate::manager::PredictionManager;
@@ -94,7 +97,13 @@ pub fn add_non_networked_rollback_systems<C: Component<Mutability = Mutable> + C
     app.add_observer(handle_tick_event_prediction_history::<C>);
     app.add_systems(
         PreUpdate,
-        prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
+        (
+            prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
+            repair_frame_interpolation_history::<C>
+                .in_set(RollbackSystems::EndRollback)
+                .before(update_frame_interpolation_post_rollback)
+                .before(super::rollback::end_rollback),
+        ),
     );
     app.add_systems(
         FixedPostUpdate,
@@ -168,6 +177,10 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
             // TODO: for mode=simple/once, we still need to re-add the component if the entity ends up not being despawned!
             // check_rollback::<C>.in_set(PredictionSet::CheckRollback),
             prepare_rollback::<C>.in_set(RollbackSystems::Prepare),
+            repair_frame_interpolation_history::<C>
+                .in_set(RollbackSystems::EndRollback)
+                .before(update_frame_interpolation_post_rollback)
+                .before(super::rollback::end_rollback),
         ),
     );
     app.add_systems(
