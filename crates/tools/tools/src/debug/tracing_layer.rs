@@ -170,8 +170,10 @@ where
     }
 }
 
-/// Bevy `LogPlugin::custom_layer` hook that installs [`LightyearDebugLayer`].
+/// Bevy `LogPlugin::custom_layer` hook that installs [`LightyearDebugLayer`]
+/// when `LIGHTYEAR_DEBUG_FILE` is set.
 pub fn lightyear_debug_custom_layer(_: &mut App) -> Option<BoxedLayer> {
+    std::env::var_os(LIGHTYEAR_DEBUG_FILE_ENV)?;
     match LightyearDebugLayer::from_env() {
         Ok(layer) => Some(Box::new(layer)),
         Err(error) => {

@@ -57,8 +57,8 @@ impl DetStepper {
             MetricsPlugin::new(None),
         ));
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
-        // `ChecksumReceivePlugin` is auto-registered by `server::ServerPlugins`
-        // when the `deterministic` feature is enabled on `lightyear`.
+        // `ChecksumPlugin` is registered by the deterministic protocol so
+        // checksum setup stays in the shared protocol registration order.
         server_app.add_plugins(protocol);
 
         let server_entity = server_app
@@ -105,8 +105,8 @@ impl DetStepper {
         client_app.edit_schedule(PostUpdate, |schedule| {
             schedule.set_executor(SingleThreadedExecutor::new());
         });
-        // `ChecksumSendPlugin` is auto-registered by `client::ClientPlugins`
-        // when the `deterministic` feature is enabled on `lightyear`.
+        // `ChecksumPlugin` is registered by the deterministic protocol so
+        // checksum setup stays in the shared protocol registration order.
         client_app.add_plugins(self.protocol);
 
         client_app.finish();

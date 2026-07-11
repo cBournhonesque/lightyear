@@ -1,6 +1,9 @@
 //! # Lightyear Deterministic Replication
 //!
 //! Utilities for lockstep-style deterministic simulation on top of Lightyear:
+//! - [`ChecksumPlugin`] registers the checksum protocol and installs the
+//!   client/server checksum systems for whichever Lightyear side plugins are
+//!   present.
 //! - [`ChecksumSendPlugin`] / [`ChecksumReceivePlugin`] compute and verify
 //!   XOR checksums of prediction history across client and server.
 //! - [`LateJoinCatchUpPlugin`] lets a client that connects mid-game request
@@ -9,6 +12,7 @@
 //! - [`DeterministicReplicationPlugin`] wires up the shared archetype
 //!   index used by both features.
 //!
+//! [`ChecksumPlugin`]: crate::prelude::ChecksumPlugin
 //! [`ChecksumSendPlugin`]: crate::prelude::ChecksumSendPlugin
 //! [`ChecksumReceivePlugin`]: crate::prelude::ChecksumReceivePlugin
 //! [`LateJoinCatchUpPlugin`]: crate::prelude::LateJoinCatchUpPlugin
@@ -36,11 +40,11 @@ mod plugin;
 
 /// Commonly used items from the `lightyear_deterministic_replication` crate.
 pub mod prelude {
-    pub use crate::checksum::ChecksumMessage;
     #[cfg(feature = "client")]
     pub use crate::checksum::ChecksumSendPlugin;
     #[cfg(feature = "server")]
     pub use crate::checksum::{ChecksumHistory, ChecksumReceivePlugin};
+    pub use crate::checksum::{ChecksumMessage, ChecksumPlugin};
     #[cfg(feature = "replication")]
     pub use crate::late_join::{
         AppCatchUpExt, CatchUpRegistry, CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems,

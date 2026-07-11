@@ -8,7 +8,7 @@ use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated};
+use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated, ChecksumPlugin};
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -89,6 +89,7 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
+        app.add_plugins(ChecksumPlugin);
 
         // Late-join catch-up: shared between client and server so it must
         // be registered before `cli.spawn_connections` adds the Client /

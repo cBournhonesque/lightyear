@@ -21,7 +21,7 @@ use lightyear::prelude::input::InputRegistryExt;
 use lightyear::prelude::input::bei;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{
-    AppCatchUpExt, CatchUpMode, LateJoinCatchUpPlugin,
+    AppCatchUpExt, CatchUpMode, ChecksumPlugin, LateJoinCatchUpPlugin,
 };
 use lightyear_prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use serde::{Deserialize, Serialize};
@@ -112,6 +112,7 @@ impl Plugin for DetProtocolPlugin {
         }));
         app.register_input_action::<DetMovement>();
 
+        app.add_plugins(ChecksumPlugin);
         app.add_plugins(LateJoinCatchUpPlugin);
         app.register_catchup_filter::<
             (Position, Rotation, LinearVelocity, AngularVelocity),
