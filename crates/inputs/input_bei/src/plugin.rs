@@ -60,7 +60,7 @@ use serde::de::DeserializeOwned;
 /// The replicated [`Action`] component is structural: it recreates the typed BEI
 /// action entity on the receiver, but does not carry runtime input state. The
 /// action relationship is replicated directly through [`ActionOf<C>`].
-
+///
 /// Live action state is sent by [`BEIStateSequence`] input messages. The owning
 /// client adds [`InputMarker`] to local action entities, buffers BEI trigger
 /// state/value/time each tick, and sends those snapshots to the server. If input
