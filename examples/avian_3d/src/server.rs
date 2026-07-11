@@ -47,9 +47,23 @@ impl Plugin for ExampleServerPlugin {
 fn handle_character_actions(
     time: Res<Time>,
     spatial_query: SpatialQuery,
-    mut query: Query<(Entity, &ComputedMass, &ActionState<CharacterAction>, Forces)>,
+    host_server: Query<(), With<HostServer>>,
+    mut query: Query<(
+        Entity,
+        &ComputedMass,
+        &ActionState<CharacterAction>,
+        Forces,
+        Has<Predicted>,
+    )>,
 ) {
-    for (entity, mass, action_state, forces) in &mut query {
+    let is_host_server = !host_server.is_empty();
+    for (entity, mass, action_state, forces, predicted) in &mut query {
+        // In host-client mode the client system runs on this same authoritative entity because
+        // PredictionTarget adds Predicted in the shared world. Let that system apply the action
+        // once; applying it here as well would double the force.
+        if is_host_server && predicted {
+            continue;
+        }
         apply_character_action(entity, mass, &time, &spatial_query, action_state, forces);
     }
 }
