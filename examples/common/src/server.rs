@@ -14,7 +14,6 @@ use bevy::ecs::lifecycle::HookContext;
 use bevy::ecs::world::DeferredWorld;
 #[cfg(not(target_family = "wasm"))]
 use bevy::tasks::IoTaskPool;
-use lightyear::core::time::Instant;
 use lightyear::netcode::{NetcodeServer, PRIVATE_KEY_BYTES};
 use lightyear::prelude::server::*;
 use lightyear::prelude::*;
@@ -50,9 +49,6 @@ pub struct ExampleServer {
     pub shared: SharedSettings,
 }
 
-#[derive(Component, Clone, Debug)]
-pub(crate) struct ServerLinkConditioner(Option<RecvLinkConditioner>);
-
 impl ExampleServer {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
         let entity = context.entity;
@@ -61,7 +57,7 @@ impl ExampleServer {
             let settings = entity_mut.take::<ExampleServer>().unwrap();
             entity_mut.insert((
                 Name::from("Server"),
-                ServerLinkConditioner(settings.conditioner.clone()),
+                Server::new(settings.conditioner.clone()),
             ));
 
             let add_netcode = |entity_mut: &mut EntityWorldMut| {
@@ -124,31 +120,6 @@ impl ExampleServer {
             };
             Ok(())
         });
-    }
-}
-
-pub(crate) fn apply_server_link_conditioner(
-    trigger: On<Add, LinkOf>,
-    mut links: Query<(&LinkOf, &mut Link)>,
-    servers: Query<&ServerLinkConditioner, With<Server>>,
-) {
-    let Ok((link_of, mut link)) = links.get_mut(trigger.entity) else {
-        return;
-    };
-    let Ok(server_conditioner) = servers.get(link_of.server) else {
-        return;
-    };
-    if link.recv.conditioner.is_some() {
-        return;
-    }
-    let Some(conditioner) = server_conditioner.0.clone() else {
-        return;
-    };
-
-    let queued_packets: Vec<_> = link.recv.drain().collect();
-    link.recv.conditioner = Some(conditioner);
-    for packet in queued_packets {
-        link.recv.push(packet, Instant::now());
     }
 }
 
