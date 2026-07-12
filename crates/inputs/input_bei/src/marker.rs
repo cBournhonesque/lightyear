@@ -1,5 +1,6 @@
 //! Add an [`InputMarker<C>`] component automatically to [`Action`] entities that need it
 
+use bevy_ecs::entity_disabling::Disabled;
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::Relationship;
 use bevy_enhanced_input::context::ExternallyMocked;
@@ -41,21 +42,29 @@ pub(crate) fn propagate_input_marker<C: Component>(
     }
 }
 
-/// When an Action entity is added to a Context entity that has an InputMarker,
-/// add the InputMarker to the Action entity as well.
-pub(crate) fn add_input_marker_from_parent<C: Component>(
+/// Inherits client-side markers when an action is added to a context.
+///
+/// [`InputMarker`] makes a locally-controlled action available to Lightyear's input pipeline.
+/// [`Disabled`] ensures that actions created after their context was disabled are skipped too.
+pub(crate) fn add_action_markers_from_context<C: Component>(
     trigger: On<Add, ActionOf<C>>,
-    action_of: Query<&ActionOf<C>, Without<ExternallyMocked>>,
-    context: Query<(), With<InputMarker<C>>>,
+    action_of: Query<&ActionOf<C>, (Without<ExternallyMocked>, Allow<Disabled>)>,
+    context: Query<(Has<InputMarker<C>>, Has<Disabled>), (With<C>, Allow<Disabled>)>,
     mut commands: Commands,
 ) {
     let Ok(action_of) = action_of.get(trigger.entity) else {
         return;
     };
-    if context.get(action_of.get()).is_ok() {
+    let Ok((has_input_marker, disabled)) = context.get(action_of.get()) else {
+        return;
+    };
+    if has_input_marker {
         commands
             .entity(trigger.entity)
             .insert(InputMarker::<C>::default());
+    }
+    if disabled {
+        commands.entity(trigger.entity).insert(Disabled);
     }
 }
 

@@ -10,6 +10,8 @@ extern crate std;
 
 pub mod input_message;
 
+#[cfg(feature = "client")]
+mod disable;
 mod marker;
 mod plugin;
 mod setup;
