@@ -104,3 +104,76 @@ impl WebSocketServerPlugin {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::net::{Ipv4Addr, SocketAddr};
+    use std::{thread, time::Duration};
+
+    use lightyear_aeronet::AeronetLink;
+    use lightyear_link::{LinkStart, Unlink, Unlinked};
+
+    fn server_config(addr: SocketAddr) -> ServerConfig {
+        ServerConfig::builder()
+            .with_bind_address(addr)
+            .with_no_encryption()
+    }
+
+    fn spawn_server(app: &mut App, addr: SocketAddr) -> Entity {
+        let entity = app
+            .world_mut()
+            .spawn((
+                LocalAddr(addr),
+                WebSocketServerIo {
+                    config: server_config(addr),
+                },
+            ))
+            .id();
+        app.world_mut().trigger(LinkStart { entity });
+        entity
+    }
+
+    fn run_app_until(app: &mut App, mut predicate: impl FnMut(&World) -> bool) {
+        let start = std::time::Instant::now();
+        while start.elapsed() < Duration::from_secs(2) {
+            app.update();
+            if predicate(app.world()) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        panic!("ran out of time to fulfil predicate");
+    }
+
+    #[test]
+    fn unlink_releases_server_socket_for_reuse() {
+        let mut app = App::new();
+        app.add_plugins(WebSocketServerPlugin);
+
+        let server = spawn_server(&mut app, SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0));
+        run_app_until(&mut app, |world| world.get::<Linked>(server).is_some());
+        let local_addr = app.world().get::<LocalAddr>(server).unwrap().0;
+        assert_ne!(local_addr.port(), 0);
+
+        app.world_mut().trigger(Unlink {
+            entity: server,
+            reason: "test shutdown".to_string(),
+        });
+        run_app_until(&mut app, |world| {
+            world.get::<Unlinked>(server).is_some() && world.get::<AeronetLink>(server).is_none()
+        });
+        thread::sleep(Duration::from_millis(100));
+
+        let restarted_server = spawn_server(&mut app, local_addr);
+        run_app_until(&mut app, |world| {
+            world.get::<Linked>(restarted_server).is_some()
+                || world.get::<Unlinked>(restarted_server).is_some()
+        });
+
+        assert!(
+            app.world().get::<Linked>(restarted_server).is_some(),
+            "expected restarted server to bind to {local_addr}"
+        );
+    }
+}
