@@ -114,16 +114,20 @@ impl<
         app.replicate_once::<ActionOf<C>>();
         #[cfg(feature = "client")]
         {
+            use crate::disable::{disable_context_actions, enable_context_actions};
             use crate::marker::{
-                add_input_marker_from_binding, add_input_marker_from_parent, propagate_input_marker,
+                add_action_markers_from_context, add_input_marker_from_binding,
+                propagate_input_marker,
             };
             // for rebroadcasting inputs, we insert TriggerState (which inserts the InputBuffer) when ActionOf<C> is added
             // on an entity
             app.register_required_components::<ActionOf<C>, TriggerState>();
 
             app.add_observer(propagate_input_marker::<C>);
-            app.add_observer(add_input_marker_from_parent::<C>);
+            app.add_observer(add_action_markers_from_context::<C>);
             app.add_observer(add_input_marker_from_binding::<C>);
+            app.add_observer(disable_context_actions::<C>);
+            app.add_observer(enable_context_actions::<C>);
 
             if self.config.rebroadcast_inputs {
                 app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<C>);

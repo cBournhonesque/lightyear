@@ -2,6 +2,7 @@ use crate::client_server::prediction::trigger_state_rollback;
 use crate::protocol::{BEIAction1, BEIActionVec2, BEIContext};
 use crate::stepper::*;
 use bevy::app::{App, FixedPostUpdate, FixedPreUpdate};
+use bevy::ecs::entity_disabling::Disabled;
 use bevy::ecs::relationship::Relationship;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::TriggerState;
@@ -357,6 +358,86 @@ fn test_server_replicated_action_sends_inputs_after_client_adds_bindings() {
             .resource::<SawServerFiredAction>()
             .0,
         "server should eventually receive the fired action state via mapped entity input messages"
+    );
+}
+
+#[test]
+fn test_disabled_context_propagates_to_actions() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((BEIContext, Replicate::to_clients(NetworkTarget::All)))
+        .id();
+    stepper.frame_step(3);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity is not present in entity map");
+    let (client_action, server_action) =
+        spawn_action_pair(&mut stepper, client_entity, server_entity, TEST_HASH + 1);
+    stepper.frame_step(1);
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_action)
+        .insert((
+            ActionMock::new(
+                TriggerState::Fired,
+                ActionValue::Bool(true),
+                MockSpan::Manual,
+            ),
+            bei::prelude::InputMarker::<BEIContext>::default(),
+        ));
+    stepper.frame_step(5);
+
+    let server_end_before_disable = stepper
+        .server_app
+        .world()
+        .entity(server_action)
+        .get::<BEIBuffer<BEIContext>>()
+        .unwrap()
+        .end_tick()
+        .expect("active input should have reached the server");
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Disabled);
+    stepper.frame_step(1);
+
+    let client_action_ref = stepper.client_app().world().entity(client_action);
+    assert!(client_action_ref.contains::<Disabled>());
+
+    stepper.frame_step(4);
+    assert_eq!(
+        stepper
+            .server_app
+            .world()
+            .entity(server_action)
+            .get::<BEIBuffer<BEIContext>>()
+            .unwrap()
+            .end_tick(),
+        Some(server_end_before_disable)
+    );
+
+    stepper
+        .client_app()
+        .world_mut()
+        .entity_mut(client_entity)
+        .remove::<Disabled>();
+    stepper.frame_step(1);
+    assert!(
+        !stepper
+            .client_app()
+            .world()
+            .entity(client_action)
+            .contains::<Disabled>()
     );
 }
 
