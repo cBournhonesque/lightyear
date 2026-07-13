@@ -14,6 +14,9 @@ This example showcases several things:
   The client will just consider that other players are doing the same thing as the last time it received their inputs.
   You can use the parameter `--predict` on the server to enable this behaviour (if not, other players will be
   interpolated).
+- compound Avian bodies: each player rigid-body root has no collider of its own. Its physical shape uses a direct
+  child collider, a collider below a transform-only intermediate child, and a sensor child on a separate collision
+  layer. Predicted clients reconstruct those local-only physics components from replicated part blueprints.
 - The prediction behaviour can be adjusted by two parameters:
     - `input_delay`: the number of frames it will take for an input to be executed. If the input delay is greater than
       the RTT,

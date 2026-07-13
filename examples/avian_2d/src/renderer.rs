@@ -1,5 +1,5 @@
 use crate::protocol::*;
-use crate::shared::Wall;
+use crate::shared::{color_from_id, Wall};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
@@ -53,11 +53,14 @@ fn init(mut commands: Commands) {
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
     players: Query<(&Position, &Rotation, &ColorComponent), With<PlayerId>>,
+    player_parts: Query<(&GlobalTransform, &PlayerPart)>,
     balls: Query<(&Position, &ColorComponent), With<BallMarker>>,
     walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
 ) {
     for (position, rotation, color) in &players {
         debug!("Draw player at position {position:?}");
+        // The root has no collider. Keep a faint outline so confirmed and
+        // interpolated roots remain easy to distinguish from their parts.
         gizmos.rect_2d(
             Isometry2d {
                 rotation: Rot2 {
@@ -67,8 +70,28 @@ pub(crate) fn draw_elements(
                 translation: Vec2::new(position.x, position.y),
             },
             Vec2::ONE * PLAYER_SIZE,
-            color.0,
+            color.0.with_alpha(0.18),
         );
+    }
+    for (global, part) in &player_parts {
+        let transform = global.compute_transform();
+        let position = transform.translation.truncate();
+        let rotation = Rot2::radians(2.0 * transform.rotation.z.atan2(transform.rotation.w));
+        let color = color_from_id(part.owner);
+        match part.kind {
+            PlayerPartKind::Hull => gizmos.rect_2d(
+                Isometry2d::new(position, rotation),
+                Vec2::new(28.0, 22.0),
+                color,
+            ),
+            PlayerPartKind::Nose => {
+                gizmos.circle_2d(position, 9.0, color);
+            }
+            PlayerPartKind::Sensor => {
+                gizmos.circle_2d(position, 27.0, color.with_alpha(0.25));
+            }
+            PlayerPartKind::Pivot => {}
+        }
     }
     for (position, color) in &balls {
         gizmos.circle_2d(Vec2::new(position.x, position.y), BALL_SIZE, color.0);

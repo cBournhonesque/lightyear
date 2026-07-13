@@ -10,7 +10,10 @@ use lightyear::prelude::*;
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin};
+use crate::shared::{
+    color_from_id, materialize_player_part, shared_movement_behaviour, PlayerBodyBundle,
+    SharedPlugin,
+};
 
 pub struct ExampleClientPlugin;
 
@@ -22,9 +25,16 @@ impl Plugin for ExampleClientPlugin {
         app.add_observer(add_ball_physics);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
+        app.add_observer(materialize_player_part_transform);
         app.add_observer(handle_controlled_spawn);
 
-        app.add_systems(PostUpdate, crate::debug::print_overstep);
+        app.add_systems(
+            PostUpdate,
+            (
+                crate::debug::print_overstep,
+                materialize_predicted_player_parts.after(TransformSystems::Propagate),
+            ),
+        );
     }
 }
 
@@ -93,7 +103,37 @@ pub(crate) fn handle_predicted_spawn(
         color.0 = Color::from(hsva);
         commands
             .entity(trigger.entity)
-            .insert(PhysicsBundle::player());
+            .insert(PlayerBodyBundle::dynamic());
+    }
+}
+
+fn materialize_player_part_transform(
+    trigger: On<Add, PlayerPart>,
+    parts: Query<&PlayerPart>,
+    mut commands: Commands,
+) {
+    if let Ok(part) = parts.get(trigger.entity) {
+        materialize_player_part(&mut commands, trigger.entity, *part, false, None);
+    }
+}
+
+#[derive(Component)]
+struct PlayerPartPhysicsReady;
+
+fn materialize_predicted_player_parts(
+    parts: Query<(Entity, &PlayerPart), (With<Predicted>, Without<PlayerPartPhysicsReady>)>,
+    roots: Query<(Entity, &PlayerId), (With<Predicted>, With<RigidBody>)>,
+    mut commands: Commands,
+) {
+    for (entity, part) in &parts {
+        let Some(root) = roots
+            .iter()
+            .find_map(|(entity, player)| (player.0 == part.owner).then_some(entity))
+        else {
+            continue;
+        };
+        materialize_player_part(&mut commands, entity, *part, true, Some(root));
+        commands.entity(entity).insert(PlayerPartPhysicsReady);
     }
 }
 

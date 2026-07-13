@@ -1225,6 +1225,24 @@ mod tests {
     }
 
     fn add_dynamic_proxy(app: &mut App, collider: Entity, body: Entity, aabb: ColliderAabb) {
+        add_dynamic_proxy_with(
+            app,
+            collider,
+            body,
+            aabb,
+            CollisionLayers::default(),
+            ColliderTreeProxyFlags::empty(),
+        );
+    }
+
+    fn add_dynamic_proxy_with(
+        app: &mut App,
+        collider: Entity,
+        body: Entity,
+        aabb: ColliderAabb,
+        layers: CollisionLayers,
+        flags: ColliderTreeProxyFlags,
+    ) {
         let proxy_id = app
             .world_mut()
             .resource_mut::<ColliderTrees>()
@@ -1234,8 +1252,8 @@ mod tests {
                 ColliderTreeProxy {
                     collider,
                     body: Some(body),
-                    layers: CollisionLayers::default(),
-                    flags: ColliderTreeProxyFlags::empty(),
+                    layers,
+                    flags,
                 },
             );
         let proxy_key = ColliderTreeProxyKey::new(proxy_id, ColliderTreeType::Dynamic);
@@ -1289,6 +1307,235 @@ mod tests {
             app.world()
                 .resource::<ContactGraph>()
                 .contains(collider1, collider2)
+        );
+    }
+
+    fn overlapping_aabb(center: Vector) -> ColliderAabb {
+        ColliderAabb::new(center, Vector::splat(1.0))
+    }
+
+    fn repair_fixture() -> (App, Entity, Entity, Entity, Entity) {
+        let mut app = App::new();
+        app.init_resource::<ColliderTrees>();
+        app.init_resource::<ContactGraph>();
+        let body1 = app.world_mut().spawn_empty().id();
+        let body2 = app.world_mut().spawn_empty().id();
+        let collider1 = app.world_mut().spawn_empty().id();
+        let collider2 = app.world_mut().spawn_empty().id();
+        (app, body1, body2, collider1, collider2)
+    }
+
+    #[test]
+    fn repair_respects_collision_layers() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy_with(
+            &mut app,
+            collider1,
+            body1,
+            overlapping_aabb(Vector::ZERO),
+            CollisionLayers::from_bits(0b0001, 0b0001),
+            ColliderTreeProxyFlags::empty(),
+        );
+        add_dynamic_proxy_with(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+            CollisionLayers::from_bits(0b0010, 0b0010),
+            ColliderTreeProxyFlags::empty(),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn repair_restores_sensor_pair_without_constraints() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy_with(
+            &mut app,
+            collider1,
+            body1,
+            overlapping_aabb(Vector::ZERO),
+            CollisionLayers::default(),
+            ColliderTreeProxyFlags::SENSOR,
+        );
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        let graph = app.world().resource::<ContactGraph>();
+        let (_, pair) = graph
+            .get(collider1, collider2)
+            .expect("sensor pair not repaired");
+        assert!(!pair.generates_constraints());
+    }
+
+    #[test]
+    fn repair_skips_custom_filter_pairs() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy_with(
+            &mut app,
+            collider1,
+            body1,
+            overlapping_aabb(Vector::ZERO),
+            CollisionLayers::default(),
+            ColliderTreeProxyFlags::CUSTOM_FILTER,
+        );
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn repair_skips_colliders_on_same_compound_body() {
+        let (mut app, body, _, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy(&mut app, collider1, body, overlapping_aabb(Vector::ZERO));
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn repair_excludes_disabled_colliders() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy(&mut app, collider1, body1, overlapping_aabb(Vector::ZERO));
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+        app.world_mut()
+            .entity_mut(collider2)
+            .insert(ColliderDisabled);
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn child_position_tracks_local_transform_and_reparenting() {
+        let mut app = App::new();
+        let body1_position = Position(Vector::new(10.0, 0.0));
+        let body1_rotation = Rotation::radians(core::f32::consts::FRAC_PI_2);
+        let body1 = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                body1_position,
+                body1_rotation,
+                GlobalTransform::IDENTITY,
+            ))
+            .id();
+        let body2_position = Position(Vector::new(-5.0, 3.0));
+        let body2_rotation = Rotation::radians(-0.5);
+        let body2 = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                body2_position,
+                body2_rotation,
+                GlobalTransform::IDENTITY,
+            ))
+            .id();
+        let local1 = ColliderTransform {
+            translation: Vector::new(2.0, 0.0),
+            rotation: Rotation::radians(0.25),
+            scale: Vector::ONE,
+        };
+        let child = app
+            .world_mut()
+            .spawn((
+                ChildOf(body1),
+                GlobalTransform::IDENTITY,
+                Position::default(),
+                Rotation::default(),
+                ColliderOf { body: body1 },
+            ))
+            .id();
+        app.world_mut().entity_mut(child).insert(local1);
+
+        app.world_mut()
+            .run_system_once(LightyearAvianPlugin::update_child_collider_position)
+            .unwrap();
+
+        assert_eq!(
+            *app.world().get::<Position>(child).unwrap(),
+            Position(body1_position.0 + body1_rotation * local1.translation)
+        );
+        assert_eq!(
+            *app.world().get::<Rotation>(child).unwrap(),
+            body1_rotation * local1.rotation
+        );
+
+        let local2 = ColliderTransform {
+            translation: Vector::new(-1.0, 4.0),
+            rotation: Rotation::radians(-0.3),
+            scale: Vector::ONE,
+        };
+        app.world_mut()
+            .entity_mut(child)
+            .insert((ChildOf(body2), ColliderOf { body: body2 }));
+        app.world_mut().entity_mut(child).insert(local2);
+        app.world_mut()
+            .run_system_once(LightyearAvianPlugin::update_child_collider_position)
+            .unwrap();
+
+        assert_eq!(
+            *app.world().get::<Position>(child).unwrap(),
+            Position(body2_position.0 + body2_rotation * local2.translation)
+        );
+        assert_eq!(
+            *app.world().get::<Rotation>(child).unwrap(),
+            body2_rotation * local2.rotation
         );
     }
 }

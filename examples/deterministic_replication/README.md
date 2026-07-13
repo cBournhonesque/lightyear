@@ -1,5 +1,10 @@
 # Features
 
+- The ball is an asymmetric compound Avian body with a direct child collider, a collider below a transform-only
+  intermediate child, and a sensor child on a separate collision layer. The hierarchy is pre-spawned identically on
+  every peer so input rollback and state-based catch-up exercise child-collider broad-phase and contact state.
+- Every physical child is explicitly enrolled in deterministic rollback so its derived collider state is restored
+  during replay.
 
 
 

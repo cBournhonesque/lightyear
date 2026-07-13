@@ -27,15 +27,24 @@ impl PhysicsBundle {
             restitution: Restitution::new(0.5),
         }
     }
+}
 
-    pub(crate) fn player() -> Self {
-        Self {
-            collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
-            collider_density: ColliderDensity(0.2),
-            rigid_body: RigidBody::Dynamic,
-            restitution: Restitution::new(0.3),
-        }
-    }
+/// The replicated blueprint for one entity in the player's compound collider hierarchy.
+///
+/// The actual Avian components are installed locally. This keeps colliders out of the
+/// network protocol while still replicating the hierarchy and its stable logical identity.
+#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
+pub struct PlayerPart {
+    pub(crate) owner: PeerId,
+    pub(crate) kind: PlayerPartKind,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
+pub enum PlayerPartKind {
+    Hull,
+    Pivot,
+    Nose,
+    Sensor,
 }
 
 // Components
@@ -75,6 +84,8 @@ impl Plugin for ProtocolPlugin {
         app.component::<Name>().replicate();
 
         app.component::<PlayerId>().replicate();
+
+        app.component::<PlayerPart>().replicate_once();
 
         app.component::<ColorComponent>().replicate();
 

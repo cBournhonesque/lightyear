@@ -13,6 +13,7 @@ use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 const MAX_VELOCITY: f32 = 200.0;
 const WALL_SIZE: f32 = 350.0;
 const BALL_PRESPAWN_HASH: u64 = 0xD37E_12B4_0000_0001;
+const BALL_PART_PRESPAWN_HASH: u64 = 0xD37E_12B4_1000_0000;
 
 /// SharedPlugin between the client and server.
 #[derive(Clone)]
@@ -145,8 +146,9 @@ pub(crate) fn spawn_ball(
 ) -> Entity {
     let mut ball = commands.spawn((
         Position::default(),
+        Rotation::radians(0.2),
         ColorComponent(css::AZURE.into()),
-        PhysicsBundle::ball(),
+        BallBodyBundle::dynamic(),
         BallMarker,
         DeterministicPredicted {
             skip_despawn: true,
@@ -167,7 +169,86 @@ pub(crate) fn spawn_ball(
             ball.insert(CatchUpGated);
         }
     }
-    ball.id()
+    let ball = ball.id();
+    spawn_ball_parts(commands, ball, mode, is_server, is_client);
+    ball
+}
+
+#[cfg_attr(not(feature = "server"), allow(unused_variables))]
+fn spawn_ball_parts(
+    commands: &mut Commands,
+    root: Entity,
+    mode: &CatchUpMode,
+    is_server: bool,
+    is_client: bool,
+) {
+    fn finish_part(
+        entity: &mut EntityCommands,
+        part: BallPart,
+        mode: &CatchUpMode,
+        is_server: bool,
+        is_client: bool,
+    ) {
+        entity.insert(part);
+        entity.insert(DeterministicPredicted {
+            skip_despawn: true,
+            ..default()
+        });
+        if *mode == CatchUpMode::StateBasedCatchUp {
+            entity.insert(PreSpawned::new(BALL_PART_PRESPAWN_HASH + part as u64));
+            #[cfg(feature = "server")]
+            if is_server {
+                entity.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
+            } else if is_client {
+                entity.insert(CatchUpGated);
+            }
+            #[cfg(not(feature = "server"))]
+            if is_client {
+                entity.insert(CatchUpGated);
+            }
+        }
+    }
+
+    let mut core = commands.spawn((
+        ChildOf(root),
+        Transform::from_xyz(-2.0, -1.0, 0.0).with_rotation(Quat::from_rotation_z(-0.17)),
+        Collider::circle(12.0),
+        ColliderDensity(0.05),
+        Restitution::new(1.0),
+        CollisionLayers::default(),
+        Name::from("BallCoreCollider"),
+    ));
+    finish_part(&mut core, BallPart::Core, mode, is_server, is_client);
+
+    let mut pivot = commands.spawn((
+        ChildOf(root),
+        Transform::from_xyz(4.0, 2.0, 0.0).with_rotation(Quat::from_rotation_z(0.31)),
+        Name::from("BallColliderPivot"),
+    ));
+    finish_part(&mut pivot, BallPart::Pivot, mode, is_server, is_client);
+    let pivot = pivot.id();
+
+    let mut lobe = commands.spawn((
+        ChildOf(pivot),
+        Transform::from_xyz(6.0, 1.0, 0.0).with_rotation(Quat::from_rotation_z(0.23)),
+        Collider::circle(8.0),
+        ColliderDensity(0.04),
+        Restitution::new(1.0),
+        CollisionLayers::from_bits(0b0010, LayerMask::ALL.0),
+        Name::from("BallLobeCollider"),
+    ));
+    finish_part(&mut lobe, BallPart::Lobe, mode, is_server, is_client);
+
+    let mut sensor = commands.spawn((
+        ChildOf(root),
+        Transform::from_xyz(1.0, 3.0, 0.0),
+        Collider::circle(20.0),
+        Sensor,
+        CollisionEventsEnabled,
+        CollisionLayers::from_bits(0b0100, LayerMask::ALL.0),
+        Name::from("BallSensorCollider"),
+    ));
+    finish_part(&mut sensor, BallPart::Sensor, mode, is_server, is_client);
 }
 
 pub(crate) fn player_bundle(peer_id: PeerId) -> impl Bundle {

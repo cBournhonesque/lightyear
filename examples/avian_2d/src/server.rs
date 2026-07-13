@@ -1,7 +1,10 @@
 use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin, WallBundle};
+use crate::shared::{
+    color_from_id, shared_movement_behaviour, spawn_player_parts, PlayerBodyBundle, SharedPlugin,
+    WallBundle,
+};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::platform::collections::HashMap;
@@ -102,18 +105,23 @@ pub(crate) fn replicate_players(
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
     info!("Spawn player for client {client_id:?}");
-    commands.spawn((
-        PlayerId(client_id),
-        Position::from(Vec2::new(-50.0, y)),
-        ColorComponent(color),
-        Replicate::to_clients(NetworkTarget::All),
-        // Predict to all players
-        PredictionTarget::to_clients(NetworkTarget::All),
-        ControlledBy {
-            owner: entity,
-            lifetime: Default::default(),
-        },
-        PhysicsBundle::player(),
-        Name::from("Player"),
-    ));
+    let player = commands
+        .spawn((
+            PlayerId(client_id),
+            Position::from(Vec2::new(-50.0, y)),
+            Rotation::radians(0.15),
+            AngularVelocity(0.35),
+            ColorComponent(color),
+            Replicate::to_clients(NetworkTarget::All),
+            // Predict to all players
+            PredictionTarget::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: entity,
+                lifetime: Default::default(),
+            },
+            PlayerBodyBundle::dynamic(),
+            Name::from("Player"),
+        ))
+        .id();
+    spawn_player_parts(&mut commands, player, client_id);
 }

@@ -23,21 +23,25 @@ pub(crate) struct PhysicsBundle {
 }
 
 impl PhysicsBundle {
-    pub(crate) fn ball() -> Self {
-        Self {
-            collider: Collider::circle(BALL_SIZE),
-            collider_density: ColliderDensity(0.05),
-            rigid_body: RigidBody::Dynamic,
-            restitution: Restitution::new(1.0),
-        }
-    }
-
     pub(crate) fn player() -> Self {
         Self {
             collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
             collider_density: ColliderDensity(0.2),
             rigid_body: RigidBody::Dynamic,
             restitution: Restitution::new(1.0),
+        }
+    }
+}
+
+#[derive(Bundle)]
+pub(crate) struct BallBodyBundle {
+    pub(crate) rigid_body: RigidBody,
+}
+
+impl BallBodyBundle {
+    pub(crate) fn dynamic() -> Self {
+        Self {
+            rigid_body: RigidBody::Dynamic,
         }
     }
 }
@@ -66,6 +70,14 @@ pub struct ColorComponent(pub(crate) Color);
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct BallMarker;
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BallPart {
+    Core,
+    Pivot,
+    Lobe,
+    Sensor,
+}
 
 // Inputs
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy, Hash, Reflect, Actionlike)]

@@ -19,6 +19,7 @@ use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
 };
 use approx::assert_relative_eq;
+use avian2d::collision::contact_types::ContactGraph;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use bevy_enhanced_input::prelude::{
@@ -28,8 +29,113 @@ use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_messages::MessageManager;
+use lightyear_prediction::diagnostics::PredictionMetrics;
 use std::collections::HashMap;
 use test_log::test;
+
+#[derive(Resource, Default)]
+struct ChildContactObserved(bool);
+
+fn track_child_contacts(
+    graph: Res<ContactGraph>,
+    parts: Query<
+        Entity,
+        (
+            With<crate::client_server::deterministic::protocol::DetBallPart>,
+            With<Collider>,
+        ),
+    >,
+    mut observed: ResMut<ChildContactObserved>,
+) {
+    if observed.0 {
+        return;
+    }
+    observed.0 = parts.iter().any(|collider| {
+        graph
+            .contact_pairs_with(collider)
+            .any(|pair| pair.is_touching())
+    });
+}
+
+fn install_child_contact_tracker(app: &mut App) {
+    app.init_resource::<ChildContactObserved>();
+    app.add_systems(FixedLast, track_child_contacts);
+}
+
+fn assert_compound_ball(world: &mut World, label: &str) {
+    use crate::client_server::deterministic::protocol::DetBallPart;
+
+    let root = world
+        .query_filtered::<Entity, With<DetBallMarker>>()
+        .single(world)
+        .expect("expected one deterministic ball");
+    assert!(
+        world.get::<Collider>(root).is_none(),
+        "{label}: compound ball root must not have a collider"
+    );
+
+    let mut query = world.query::<(
+        Entity,
+        &DetBallPart,
+        Option<&ColliderOf>,
+        Option<&ColliderAabb>,
+        Option<&CollisionLayers>,
+        Has<Sensor>,
+        Has<DeterministicPredicted>,
+    )>();
+    let parts = query
+        .iter(world)
+        .map(
+            |(entity, part, collider_of, aabb, layers, sensor, deterministic)| {
+                (
+                    entity,
+                    *part,
+                    collider_of.copied(),
+                    aabb.is_some(),
+                    layers.copied(),
+                    sensor,
+                    deterministic,
+                )
+            },
+        )
+        .collect::<Vec<_>>();
+    assert_eq!(
+        parts.len(),
+        4,
+        "{label}: missing compound ball parts: {parts:?}"
+    );
+    for (_, part, collider_of, has_aabb, layers, sensor, deterministic) in parts {
+        assert!(
+            deterministic,
+            "{label}: explicit rollback membership missing for {part:?}"
+        );
+        if part == DetBallPart::Pivot {
+            assert!(
+                collider_of.is_none(),
+                "{label}: pivot must be transform-only"
+            );
+            continue;
+        }
+        assert_eq!(
+            collider_of.map(|collider_of| collider_of.body),
+            Some(root),
+            "{label}: {part:?} is attached to the wrong rigid body"
+        );
+        assert!(
+            has_aabb,
+            "{label}: {part:?} is missing its broad-phase AABB"
+        );
+        assert!(
+            layers.is_some(),
+            "{label}: {part:?} is missing collision layers"
+        );
+        assert_eq!(
+            sensor,
+            part == DetBallPart::Sensor,
+            "{label}: sensor marker mismatch for {part:?}"
+        );
+    }
+}
 
 #[derive(Resource, Clone)]
 struct RandomDrive {
@@ -304,11 +410,18 @@ fn assert_island_stress_balls_are_finite(world: &mut World) {
 /// rollback state that is not represented by replicated components.
 #[test]
 fn test_input_only_two_clients() {
-    let mut stepper = DetStepper::new_server();
+    let mut stepper = DetStepper::new_server_with_protocol(DetProtocolPlugin {
+        compound_ball: true,
+        ..default()
+    });
     let _c0 = stepper.new_client();
     let _c1 = stepper.new_client();
 
     configure_stepper(&mut stepper, 50);
+    install_child_contact_tracker(&mut stepper.server_app);
+    for client_app in &mut stepper.client_apps {
+        install_child_contact_tracker(client_app);
+    }
 
     stepper.start();
     stepper.connect_all();
@@ -330,6 +443,14 @@ fn test_input_only_two_clients() {
 
     // Let replication settle so clients receive the initial player state.
     stepper.frame_step(15);
+
+    assert_compound_ball(stepper.server_app.world_mut(), "server");
+    for client_id in 0..2 {
+        assert_compound_ball(
+            stepper.client_app(client_id).world_mut(),
+            &format!("client {client_id}"),
+        );
+    }
 
     // On each client, spawn the matching local action entity (PreSpawned).
     for client_id in 0..2 {
@@ -415,7 +536,31 @@ fn test_input_only_two_clients() {
         assert_relative_eq!(c_pos_a.y, server_pos_a.y, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.x, server_pos_b.x, epsilon = 0.01);
         assert_relative_eq!(c_pos_b.y, server_pos_b.y, epsilon = 0.01);
+        let metrics = stepper
+            .client_app(client_id)
+            .world()
+            .resource::<PredictionMetrics>();
+        assert!(
+            metrics.rollbacks > 0,
+            "client {client_id} never rolled back; compound collider rollback path was not exercised"
+        );
+        assert!(
+            stepper
+                .client_app(client_id)
+                .world()
+                .resource::<ChildContactObserved>()
+                .0,
+            "client {client_id} never observed a touching child-collider contact"
+        );
     }
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .resource::<ChildContactObserved>()
+            .0,
+        "server never observed a touching child-collider contact"
+    );
 }
 
 /// Keeps Avian's island graph enabled while rollback replays an input-only
@@ -425,6 +570,7 @@ fn test_input_only_two_clients() {
 fn test_input_only_islands_many_colliders_small_box() {
     let mut stepper = DetStepper::new_server_with_protocol(DetProtocolPlugin {
         enable_islands: true,
+        compound_ball: true,
     });
     let _c0 = stepper.new_client();
     let _c1 = stepper.new_client();

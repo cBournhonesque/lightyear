@@ -13,8 +13,8 @@
 //! `enhanced-determinism` feature + our catch-up machinery).
 
 use crate::client_server::deterministic::protocol::{
-    DetBallMarker, DetBuffer, DetMovement, DetPlayerActivationTick, DetPlayerId, DetWallMarker,
-    Player,
+    DetBallMarker, DetBuffer, DetMovement, DetPlayerActivationTick, DetPlayerId, DetProtocolPlugin,
+    DetWallMarker, Player,
 };
 use crate::client_server::deterministic::stepper::{
     DetStepper, spawn_local_action_on_client, spawn_player_on_server,
@@ -1276,7 +1276,10 @@ fn latest_common_motion_sample_tick(
 /// and sustained random inputs after catch-up has settled.
 #[test]
 fn test_state_based_catchup_two_clients() {
-    let mut stepper = DetStepper::new_server();
+    let mut stepper = DetStepper::new_server_with_protocol(DetProtocolPlugin {
+        compound_ball: true,
+        ..default()
+    });
     let _c0 = stepper.new_client();
     let _c1 = stepper.new_client();
 
