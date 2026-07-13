@@ -129,10 +129,13 @@ impl Plugin for ProtocolPlugin {
         app.component::<PlayerColor>().replicate();
 
         // channels
-        app.add_channel::<Channel1>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-            ..default()
-        })
+        app.add_channel::<Channel1>(
+            ChannelSettings {
+                mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+                ..default()
+            }
+            .with_timeline::<InterpolationTimeline>(),
+        )
         .add_direction(NetworkDirection::ServerToClient);
     }
 }

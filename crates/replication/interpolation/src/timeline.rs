@@ -8,7 +8,7 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::time::Duration;
-use lightyear_connection::client::{Client, Connected};
+use lightyear_connection::client::{Client, Connected, PeerMetadata};
 use lightyear_core::prelude::Rollback;
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
@@ -203,14 +203,17 @@ impl TimelinePlugin {
     fn receive_sender_metadata(
         trigger: On<RemoteEvent<SenderMetadata>>,
         tick_duration: Res<TickDuration>,
+        peer_metadata: Res<PeerMetadata>,
         mut query: Query<&mut InterpolationTimeline>,
     ) {
         let delta = TickDelta::from(trigger.trigger.send_interval);
         let duration = delta.to_duration(tick_duration.0);
-        query.iter_mut().for_each(|mut interpolation_timeline| {
+        if let Some(entity) = peer_metadata.mapping.get(&trigger.from)
+            && let Ok(mut interpolation_timeline) = query.get_mut(*entity)
+        {
             debug!("Updating remote send interval to {:?}", duration);
             interpolation_timeline.context.remote_send_interval = duration;
-        })
+        }
     }
 
     /// Update the timeline in Update based on the [`Time<Virtual>`]
@@ -238,5 +241,79 @@ impl Plugin for TimelinePlugin {
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
         app.add_systems(PreUpdate, Self::advance_timeline);
         app.add_observer(Self::receive_sender_metadata);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_core::id::PeerId;
+    use lightyear_core::time::PositiveTickDelta;
+
+    #[test]
+    fn only_client_connections_get_interpolation_timeline() {
+        let mut app = App::new();
+        app.add_plugins(TimelinePlugin);
+
+        let client = app.world_mut().spawn(Client).id();
+        let client_of = app
+            .world_mut()
+            .spawn(lightyear_connection::client_of::ClientOf)
+            .id();
+        app.world_mut().flush();
+
+        assert!(
+            app.world()
+                .entity(client)
+                .contains::<InterpolationTimeline>()
+        );
+        assert!(
+            !app.world()
+                .entity(client_of)
+                .contains::<InterpolationTimeline>()
+        );
+    }
+
+    #[test]
+    fn sender_metadata_updates_only_the_matching_connection() {
+        let mut app = App::new();
+        app.insert_resource(TickDuration(Duration::from_millis(10)));
+        app.init_resource::<PeerMetadata>();
+        app.add_observer(TimelinePlugin::receive_sender_metadata);
+
+        let first = app.world_mut().spawn(InterpolationTimeline::default()).id();
+        let second = app.world_mut().spawn(InterpolationTimeline::default()).id();
+        let peer = PeerId::Netcode(7);
+        app.world_mut()
+            .resource_mut::<PeerMetadata>()
+            .mapping
+            .insert(peer, first);
+
+        app.world_mut().trigger(RemoteEvent {
+            trigger: SenderMetadata {
+                send_interval: PositiveTickDelta::lit("3"),
+                sender_entity: Entity::PLACEHOLDER,
+            },
+            from: peer,
+        });
+
+        assert_eq!(
+            app.world()
+                .entity(first)
+                .get::<InterpolationTimeline>()
+                .unwrap()
+                .context
+                .remote_send_interval,
+            Duration::from_millis(30)
+        );
+        assert_eq!(
+            app.world()
+                .entity(second)
+                .get::<InterpolationTimeline>()
+                .unwrap()
+                .context
+                .remote_send_interval,
+            Duration::ZERO
+        );
     }
 }

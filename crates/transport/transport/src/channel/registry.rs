@@ -85,6 +85,11 @@ impl ChannelRegistry {
             return (kind, *net_id);
         }
         self.hasher.hash::<C>();
+        self.hasher.hash_value(
+            &settings
+                .delivery_timeline
+                .map(|timeline| timeline.type_name()),
+        );
         self.settings_map.insert(kind, settings);
         let kind = self.kind_map.add::<C>();
         let net_id = self.get_net_from_kind(&kind).unwrap();

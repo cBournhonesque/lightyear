@@ -39,6 +39,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
             priority: f32::INFINITY,
             // Inputs produced on a later frame supersede a locally unsent input message.
             retry_unsent_messages: false,
+            ..Default::default()
         })
         // bidirectional in case of rebroadcasting inputs
         .add_direction(NetworkDirection::Bidirectional);

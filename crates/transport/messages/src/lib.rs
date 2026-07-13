@@ -8,6 +8,19 @@
 //!
 //! The crate also provides a [`MessageManager`] component that manages the process of sending and receiving messages for an entity.
 //! It stores a [`RemoteEntityMap`] that holds a mapping between the local and remote entities.
+//!
+//! ## Timeline-targeted delivery
+//!
+//! A timeline plugin can call [`register_message_timeline`](plugin::register_message_timeline)
+//! during protocol setup. A dedicated channel configured with
+//! [`ChannelSettings::with_timeline`](lightyear_transport::channel::builder::ChannelSettings::with_timeline)
+//! makes typed messages and events remain pending on the receiver until that
+//! timeline on the same connection entity reaches the sender tick. Timeline
+//! selection is channel metadata, so it adds no bytes to individual messages.
+//!
+//! Timeline registration is part of the protocol and must match on both peers.
+//! If the receiving connection does not contain the requested timeline, the
+//! message is rejected with [`MessageError::MissingTimeline`](registry::MessageError::MissingTimeline).
 
 #![no_std]
 
@@ -37,10 +50,10 @@ mod send_trigger;
 pub mod server;
 mod trigger;
 pub mod prelude {
-    pub use crate::plugin::MessageSystems;
+    pub use crate::plugin::{MessageSystems, TimelineMessageConfig, register_message_timeline};
     pub use crate::receive::MessageReceiver;
     pub use crate::receive_event::RemoteEvent;
-    pub use crate::registry::{AppMessageExt, MessageRegistry};
+    pub use crate::registry::{AppMessageExt, MessageRegistry, TimelineKind};
     pub use crate::send::MessageSender;
     pub use crate::send_trigger::EventSender;
     pub use crate::trigger::AppTriggerExt;
@@ -81,5 +94,7 @@ pub struct MessageManager {
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
     /// List of component ids of the [`MessageReceiver<M>`](receive::MessageReceiver) present on this entity
     pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,
+    /// List of component ids of the [`EventReceiver<M>`](receive_event::EventReceiver) present on this entity
+    pub(crate) receive_triggers: Vec<(MessageKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }

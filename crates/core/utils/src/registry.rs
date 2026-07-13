@@ -92,6 +92,17 @@ impl RegistryHasher {
         }
         DebugName::type_name::<T>().hash(&mut self.hasher);
     }
+
+    /// Adds a stable protocol value to the registry hash.
+    ///
+    /// Use this for registration metadata that changes wire semantics but is
+    /// not itself represented by a registered Rust type.
+    pub fn hash_value<T: Hash + ?Sized>(&mut self, value: &T) {
+        if self.hash.is_some() {
+            panic!("Tried to update the protocol after it was finished")
+        }
+        value.hash(&mut self.hasher);
+    }
     pub fn finish(&mut self) -> RegistryHash {
         match self.hash {
             None => {

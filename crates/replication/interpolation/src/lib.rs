@@ -264,6 +264,8 @@ pub mod archetypes;
 pub mod despawn;
 /// Contains interpolation logic.
 pub mod interpolate;
+/// Messages and events released on the interpolation timeline.
+pub mod message;
 /// Provides the `InterpolationPlugin` and related systems for Bevy integration.
 pub mod plugin;
 pub mod registry;

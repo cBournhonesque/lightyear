@@ -16,7 +16,9 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
+use core::any::TypeId;
 use core::time::Duration;
+use lightyear_core::prelude::NetworkTimeline;
 #[cfg(test)]
 use lightyear_link::DEFAULT_MTU;
 use lightyear_link::Link;
@@ -34,6 +36,36 @@ use alloc::{vec, vec::Vec};
 use bevy_utils::prelude::DebugName;
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
+
+/// Type-erased identity of a timeline selected for channel delivery.
+///
+/// The type name is retained so that this setting can participate in the
+/// cross-peer protocol hash; the type id is used for local runtime lookup.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeliveryTimeline {
+    type_id: TypeId,
+    type_name: &'static str,
+}
+
+impl DeliveryTimeline {
+    /// Creates delivery metadata for timeline `T`.
+    pub fn of<T: NetworkTimeline>() -> Self {
+        Self {
+            type_id: TypeId::of::<T>(),
+            type_name: core::any::type_name::<T>(),
+        }
+    }
+
+    /// Returns the local runtime type id of the timeline.
+    pub fn type_id(self) -> TypeId {
+        self.type_id
+    }
+
+    /// Returns the stable Rust type name used by protocol validation.
+    pub fn type_name(self) -> &'static str {
+        self.type_name
+    }
+}
 
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -58,6 +90,12 @@ pub struct ChannelSettings {
     /// message has already been admitted, its remaining fragments are also retained to avoid
     /// guaranteeing an incomplete local send.
     pub retry_unsent_messages: bool,
+    /// Optional receiver timeline that controls when typed messages and events
+    /// sent on this channel become visible.
+    ///
+    /// Configure this through [`with_timeline`](Self::with_timeline). The
+    /// timeline type is channel metadata and is not written into each message.
+    pub delivery_timeline: Option<DeliveryTimeline>,
 }
 
 impl Default for ChannelSettings {
@@ -67,7 +105,52 @@ impl Default for ChannelSettings {
             send_frequency: Duration::default(),
             priority: 1.0,
             retry_unsent_messages: true,
+            delivery_timeline: None,
         }
+    }
+}
+
+impl ChannelSettings {
+    /// Delays typed messages and events received on this channel until `T` on
+    /// the receiving connection reaches the sender tick stamped by transport.
+    ///
+    /// Use a dedicated channel for each delivery timeline. The corresponding
+    /// timeline plugin must register `T` on both peers, and the receiving
+    /// connection entity must contain `T`; otherwise the payload is rejected.
+    pub fn with_timeline<T: NetworkTimeline>(mut self) -> Self {
+        self.delivery_timeline = Some(DeliveryTimeline::of::<T>());
+        self
+    }
+
+    /// Returns the configured delivery timeline type, if this channel delays
+    /// typed message/event visibility.
+    pub fn delivery_timeline(&self) -> Option<TypeId> {
+        self.delivery_timeline.map(DeliveryTimeline::type_id)
+    }
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    use crate::channel::registry::ChannelRegistry;
+
+    struct TestChannel;
+
+    #[test]
+    fn delivery_timeline_changes_channel_protocol_hash() {
+        let mut immediate = ChannelRegistry::default();
+        immediate.add_channel::<TestChannel>(ChannelSettings::default());
+
+        let mut delayed = ChannelRegistry::default();
+        delayed.add_channel::<TestChannel>(ChannelSettings {
+            delivery_timeline: Some(DeliveryTimeline {
+                type_id: TypeId::of::<u32>(),
+                type_name: core::any::type_name::<u32>(),
+            }),
+            ..Default::default()
+        });
+
+        assert_ne!(immediate.finish(), delayed.finish());
     }
 }
 

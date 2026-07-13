@@ -1,6 +1,7 @@
 use crate::Message;
 use crate::multi::MultiMessageSender;
 use crate::prelude::{MessageReceiver, MessageSender};
+use crate::receive_event::EventReceiver;
 use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
@@ -112,7 +113,8 @@ impl<M: Event> TriggerRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
             NetworkDirection::ClientToServer => {
-                // empty because we only have a Sender component, not a Receiver component
+                self.app
+                    .register_required_components::<ClientOf, EventReceiver<M>>();
             }
             NetworkDirection::ServerToClient => {
                 self.app

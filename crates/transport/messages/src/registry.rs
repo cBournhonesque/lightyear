@@ -1,8 +1,14 @@
-use crate::receive::{ClearMessageFn, MessageReceiver, ReceiveMessageFn};
+use crate::receive::{
+    ClearMessageFn, ClearPendingTimelineMessageFn, MessageReceiver, ReceiveMessageFn,
+    ReleaseTimelineMessageFn,
+};
 use crate::send::{MessageSender, SendLocalMessageFn, SendMessageFn};
 use crate::{Message, MessageNetId};
 use bevy_app::App;
-use bevy_ecs::{component::ComponentId, entity::MapEntities, error::Result, resource::Resource};
+use bevy_ecs::{
+    change_detection::MutUntyped, component::ComponentId, entity::MapEntities, error::Result,
+    ptr::Ptr, resource::Resource,
+};
 use bevy_reflect::{Reflect, TypePath};
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
@@ -10,6 +16,7 @@ use core::cell::UnsafeCell;
 use core::hash::Hash;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
+use lightyear_core::prelude::{NetworkTimeline, Tick};
 use lightyear_serde::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
@@ -46,6 +53,22 @@ pub enum MessageError {
     UnrecognizedMessage(MessageKind),
     #[error("the message id {0:?} is not registered")]
     UnrecognizedMessageId(MessageNetId),
+    #[error("the delivery timeline {0:?} is not registered")]
+    TimelineNotRegistered(TimelineKind),
+    #[error("the receiving connection does not contain delivery timeline {0:?}")]
+    MissingTimeline(TimelineKind),
+    #[error("the receiving connection has no event receiver for delivery timeline {0:?}")]
+    MissingTimelineEventReceiver(TimelineKind),
+    #[error(
+        "timeline payload targets tick {target:?}, which is more than {max_future_ticks} ticks ahead of {current:?}"
+    )]
+    TimelineTooFarAhead {
+        target: Tick,
+        current: Tick,
+        max_future_ticks: u32,
+    },
+    #[error("timeline receiver reached its pending payload limit of {limit}")]
+    PendingTimelineOverflow { limit: usize },
     #[error(transparent)]
     TransportError(#[from] lightyear_transport::error::TransportError),
 }
@@ -63,13 +86,34 @@ impl MessageKind {
 
 impl TypeKind for MessageKind {}
 
+/// Runtime identifier for a [`NetworkTimeline`] registered for message delivery.
+///
+/// Timeline identifiers are part of the protocol and must be registered in the
+/// same order on both peers.
+#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Reflect)]
+pub struct TimelineKind(TypeId);
+
+impl TimelineKind {
+    /// Returns the runtime identifier for timeline `T`.
+    #[inline]
+    pub fn of<T: NetworkTimeline>() -> Self {
+        Self(TypeId::of::<T>())
+    }
+}
+
+impl From<TypeId> for TimelineKind {
+    fn from(type_id: TypeId) -> Self {
+        Self(type_id)
+    }
+}
+
 impl From<TypeId> for MessageKind {
     fn from(type_id: TypeId) -> Self {
         Self(type_id)
     }
 }
 
-use crate::receive_event::ReceiveTriggerFn;
+use crate::receive_event::{ClearPendingTimelineEventFn, ReceiveTriggerFn, ReleaseTimelineEventFn};
 use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
 #[derive(Debug, Clone)]
@@ -78,6 +122,9 @@ pub struct ReceiveMessageMetadata {
     pub(crate) component_id: ComponentId,
     pub(crate) receive_message_fn: ReceiveMessageFn,
     pub(crate) message_clear_fn: ClearMessageFn,
+    pub(crate) release_timeline_fn: ReleaseTimelineMessageFn,
+    pub(crate) clear_pending_timeline_fn: ClearPendingTimelineMessageFn,
+    pub(crate) has_pending_timeline_fn: unsafe fn(MutUntyped) -> bool,
 }
 
 #[derive(Debug, Clone, TypePath)]
@@ -94,6 +141,21 @@ pub(crate) struct SendTriggerMetadata {
     pub(crate) component_id: ComponentId,
     pub(crate) send_trigger_fn: SendTriggerFn,
     pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
+}
+
+#[derive(Debug, Clone, TypePath)]
+pub(crate) struct ReceiveTriggerMetadata {
+    pub(crate) component_id: ComponentId,
+    pub(crate) receive_trigger_fn: ReceiveTriggerFn,
+    pub(crate) release_timeline_fn: ReleaseTimelineEventFn,
+    pub(crate) clear_pending_timeline_fn: ClearPendingTimelineEventFn,
+    pub(crate) has_pending_timeline_fn: unsafe fn(MutUntyped) -> bool,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct TimelineMetadata {
+    pub(crate) component_id: ComponentId,
+    pub(crate) tick_fn: unsafe fn(Ptr<'_>) -> Tick,
 }
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
@@ -158,9 +220,10 @@ pub struct MessageRegistry {
     pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
     pub(crate) send_trigger_metadata: HashMap<MessageKind, SendTriggerMetadata>,
     pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
-    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerFn>,
+    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
     pub serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub kind_map: TypeMapper<MessageKind>,
+    pub(crate) timeline_metadata: HashMap<TimelineKind, TimelineMetadata>,
     hasher: RegistryHasher,
 }
 
@@ -191,6 +254,25 @@ fn mapped_context_deserialize<M: MapEntities>(
 }
 
 impl MessageRegistry {
+    pub(crate) fn register_timeline<T: NetworkTimeline>(&mut self, component_id: ComponentId) {
+        let kind = TimelineKind::of::<T>();
+        if self.timeline_metadata.contains_key(&kind) {
+            return;
+        }
+        self.hasher.hash::<T>();
+        self.timeline_metadata.insert(
+            kind,
+            TimelineMetadata {
+                component_id,
+                tick_fn: |ptr| {
+                    // SAFETY: this function is stored with the component id for T.
+                    let timeline = unsafe { ptr.deref::<T>() };
+                    timeline.tick()
+                },
+            },
+        );
+    }
+
     pub(crate) fn register_message<M: Message, I: 'static>(
         &mut self,
         serialize: ContextSerializeFns<SendEntityMap, M, I>,
@@ -226,6 +308,9 @@ impl MessageRegistry {
                 component_id,
                 receive_message_fn: MessageReceiver::<M>::receive_message_typed,
                 message_clear_fn: MessageReceiver::<M>::clear_typed,
+                release_timeline_fn: MessageReceiver::<M>::release_timeline_typed,
+                clear_pending_timeline_fn: MessageReceiver::<M>::clear_pending_timelines_typed,
+                has_pending_timeline_fn: MessageReceiver::<M>::has_pending_timelines_typed,
             },
         );
     }

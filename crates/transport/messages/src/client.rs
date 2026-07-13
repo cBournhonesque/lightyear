@@ -1,5 +1,6 @@
 use crate::Message;
 use crate::prelude::{MessageReceiver, MessageSender};
+use crate::receive_event::EventReceiver;
 use crate::registry::MessageRegistration;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
@@ -34,7 +35,11 @@ impl<M: Event> TriggerRegistration<'_, M> {
                     .try_register_required_components::<Client, EventSender<M>>()
                     .ok();
             }
-            NetworkDirection::ServerToClient => {}
+            NetworkDirection::ServerToClient => {
+                self.app
+                    .try_register_required_components::<Client, EventReceiver<M>>()
+                    .ok();
+            }
             NetworkDirection::Bidirectional => {
                 self.add_client_direction(NetworkDirection::ClientToServer);
                 self.add_client_direction(NetworkDirection::ServerToClient);
