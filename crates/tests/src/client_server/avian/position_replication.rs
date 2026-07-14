@@ -11,13 +11,14 @@ use lightyear_replication::prelude::*;
 use test_log::test;
 
 /// The order is:
-/// - RunFixedMainLoop: Transform -> GlobalTransform THEN GlobalTransform -> Position/Rotation
+/// - RunFixedMainLoop: restore canonical Position/Rotation before fixed simulation, when frame
+///   interpolation is enabled. Transform -> GlobalTransform propagation can still run for child
+///   collider offsets and scale, but Transform is not copied into physics.
 /// - PostUpdate: Position/Rotation -> Transform THEN Transform -> GlobalTransform
 /// - PostUpdate: add Transform based on Position/Rotation THEN Transform -> GlobalTransforms
 ///
-/// One thing to watch out for is that if FrameInterpolation is not enabled, the Position/Rotation
-/// in FixedUpdate is not correct, since it gets updated via TransformToPosition.
-/// FrameInterpolation restores the correct value of Position/Rotation before FixedUpdate.
+/// Position mode remains correct without FrameInterpolation because Position/Rotation are the
+/// one-way authoritative simulation state.
 ///
 /// if child colliders have a RigidBody, they are an independent RigidBody from the parent.
 #[test]

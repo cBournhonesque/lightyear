@@ -19,9 +19,8 @@ impl Plugin for ExampleRendererPlugin {
                 .after(InterpolationSystems::Interpolate)
                 .after(RollbackSystems::VisualCorrection),
         );
-        // FrameInterpolation<Position/Rotation> is now registered in SharedPlugin
-        // so both headless and GUI runs get the Restore system (required for
-        // correct post-rollback Position under AvianReplicationMode::Position).
+        // Frame interpolation is registered in SharedPlugin because visual
+        // correction shares its marker, history, and restore pipeline.
     }
 }
 

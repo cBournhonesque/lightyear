@@ -198,10 +198,10 @@ impl Plugin for ProtocolPlugin {
         app.component::<Weapon>().replicate().predict();
 
         // Position and Rotation use their interpolation rules to smear rollback errors
-        // over a few frames, just for the rendering part in postudpate.
+        // over a few frames, just for rendering in PostUpdate.
         //
-        // They also set `interpolation_fn` which is used by the VisualInterpolationPlugin to smooth
-        // out rendering between fixedupdate ticks.
+        // FrameInterpolationPlugin reuses the same rules to smooth rendering between
+        // fixed ticks on entities marked with FrameInterpolate.
         app.component::<Position>()
             .replicate()
             .predict()

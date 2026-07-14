@@ -97,16 +97,14 @@ impl Plugin for ProtocolPlugin {
             .replicate()
             .predict()
             .add_linear_interpolation()
-            // Store the previous visual value, but apply correction and frame
-            // interpolation on Transform directly.
-            .custom_correction();
+            .add_correction();
 
         app.component::<Rotation>()
             .replicate()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
-            .custom_correction()
-            .add_linear_interpolation();
+            .add_linear_interpolation()
+            .add_correction();
 
         // Bullet motion is simulated by Avian from LinearVelocity. Predicted bullets need the same
         // velocity in rollback history as the server entity, otherwise replay re-simulates from stale

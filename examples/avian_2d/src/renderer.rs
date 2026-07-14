@@ -24,7 +24,9 @@ impl Plugin for ExampleRendererPlugin {
         // add visual interpolation for Position and Rotation
         // (normally we would interpolate on Transform but here this is fine
         // since rendering is done via Gizmos that only depend on Position/Rotation)
-        app.add_plugins(FrameInterpolationPlugin);
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
         app.add_observer(add_frame_interpolation_components);
     }
 }

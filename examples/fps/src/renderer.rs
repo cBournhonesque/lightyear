@@ -34,7 +34,9 @@ impl Plugin for ExampleRendererPlugin {
             FixedPostUpdate,
             hide_interpolated_bullets_after_local_hit.after(PhysicsSystems::StepSimulation),
         );
-        app.add_plugins(FrameInterpolationPlugin);
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
 
         #[cfg(feature = "client")]
         {

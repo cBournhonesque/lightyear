@@ -53,11 +53,13 @@ impl Plugin for ExampleRendererPlugin {
 
         app.add_plugins(EntityLabelPlugin);
 
-        // set up visual interp plugins for Transform
-        app.add_plugins(FrameInterpolationPlugin);
+        // Set up visual interpolation for registered components. A single
+        // type-erased FrameInterpolate marker enables Position and Rotation.
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
 
-        // observers that add VisualInterpolationStatus components to entities which receive
-        // a Position
+        // Add FrameInterpolate to predicted entities once Position is available.
         app.add_observer(add_frame_interpolation_components);
     }
 }
@@ -65,11 +67,11 @@ impl Plugin for ExampleRendererPlugin {
 // Non-wall entities get some frame interpolation by adding the lightyear
 // FrameInterpolate component
 //
-// We query filter With<Predicted> so that the correct client entities get visual-interpolation.
+// We query filter With<Predicted> so the correct client entities get frame interpolation.
 // We don't want to frame interpolate the client's Confirmed entities, since they are not rendered.
 //
-// We must trigger change detection so that the Transform updates from interpolation
-// will be propagated to children (sprites, meshes, text, etc.)
+// Lightyear's Avian integration copies the interpolated/corrected Position and Rotation
+// to Transform before transform propagation, so visual children follow the smoothed pose.
 fn add_frame_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
@@ -80,7 +82,7 @@ fn add_frame_interpolation_components(
     if !q.contains(trigger.entity) {
         return;
     }
-    debug!("Adding visual interp component to {:?}", trigger.entity);
+    debug!("Adding frame interpolation to {:?}", trigger.entity);
     commands.entity(trigger.entity).insert(FrameInterpolate);
 }
 

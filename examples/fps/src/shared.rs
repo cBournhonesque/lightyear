@@ -25,7 +25,12 @@ impl Plugin for SharedPlugin {
         crate::debug::register_debug_systems(app);
 
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
-            replication_mode: AvianReplicationMode::PositionButInterpolateTransform,
+            // Position/Rotation are Avian's canonical simulation state. The same
+            // type-erased FrameInterpolate marker used by the renderer smooths them,
+            // and Lightyear writes the visual result to Transform in PostUpdate.
+            replication_mode: AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
             ..default()
         });
 

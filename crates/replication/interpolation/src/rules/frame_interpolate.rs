@@ -428,8 +428,7 @@ pub(crate) fn restore_frame_history_archetype_erased<C: SyncComponent>(
 /// Applies the selected interpolation rule to live `C` for one archetype.
 ///
 /// Missing live components are inserted through deferred commands; existing
-/// table components use the cached table slice and sparse-set components use
-/// Bevy's sparse storage lookup.
+/// components are updated through Bevy's change-detecting mutable access.
 pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
@@ -462,9 +461,6 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
     let live_component_id = world.components().component_id::<C>();
     let live_component_storage =
         live_component_id.and_then(|component_id| archetype.get_storage_type(component_id));
-    let live_components = live_component_id.and_then(|component_id| {
-        table_component_slice_if_table::<C>(table, component_id, live_component_storage)
-    });
 
     let interpolation = interpolation_registry.interpolation_for_rule::<C>(rule_id);
     for entity in archetype.entities() {
@@ -509,29 +505,21 @@ pub(crate) fn apply_frame_interpolation_archetype_erased<C: SyncComponent>(
             "applied frame interpolation"
         );
         match live_component_storage {
-            Some(StorageType::Table) => {
-                let Some(live_components) = live_components else {
-                    continue;
-                };
-                let component = unsafe { &mut *live_components.get_unchecked(row).get() };
-                *component = interpolated;
-            }
-            Some(StorageType::SparseSet) => {
-                // SAFETY: this cached archetype contains `component_id`, and
-                // the system param declares write access to all frame components.
+            Some(_) => {
                 let Some(component_id) = live_component_id else {
                     continue;
                 };
-                let component = unsafe {
-                    get_component_unchecked_mut(
-                        world,
-                        entity,
-                        archetype.table_id(),
-                        StorageType::SparseSet,
-                        component_id,
-                    )
-                    .deref_mut::<C>()
+                let Ok(entity_cell) = world.get_entity(entity.id()) else {
+                    continue;
                 };
+                // SAFETY: the cached rule declares write access to `component_id`, `C` is a
+                // mutable component, and the history slice refers to a different component id.
+                // `into_inner` deliberately marks the live component as changed before exposing
+                // its pointer, matching an ordinary `Mut<C>` assignment for both storage types.
+                let Ok(component) = (unsafe { entity_cell.get_mut_by_id(component_id) }) else {
+                    continue;
+                };
+                let component = unsafe { component.into_inner().deref_mut::<C>() };
                 *component = interpolated;
             }
             None => deferred_apply.insert(entity.id(), interpolated),

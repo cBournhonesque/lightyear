@@ -1,4 +1,3 @@
-use avian2d::physics_transform::PhysicsTransformConfig;
 use avian2d::prelude::*;
 use bevy::diagnostic::LogDiagnosticsPlugin;
 use bevy::platform::collections::HashMap;
@@ -69,14 +68,12 @@ impl Plugin for SharedPlugin {
 
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
-        app.insert_resource(PhysicsTransformConfig {
-            // this will cause issues for non-rendered entities as the Transform will be used to overwrite Position
-            // for rendered entities it is fine because the FrameInterpolation takes precedence over this.
-            transform_to_position: false,
-            ..default()
-        });
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
-            replication_mode: AvianReplicationMode::Position,
+            replication_mode: AvianReplicationMode::Position {
+                // `update_homing_missiles` authors missile rotation through Transform in
+                // FixedUpdate, so import those changes before Avian physics runs.
+                sync_to_transform: true,
+            },
             ..default()
         });
         app.add_plugins(

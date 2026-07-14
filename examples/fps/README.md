@@ -4,6 +4,12 @@
 
 This example showcases several features that can be useful for building a multiplayer FPS.
 
+It uses `AvianReplicationMode::Position { sync_to_transform: false }`: Avian `Position` and
+`Rotation` are the replicated, predicted simulation state, while the renderer adds the type-erased
+`FrameInterpolate` marker to predicted entities. Frame interpolation and rollback correction
+operate on the physics pose, then the Avian integration writes the visual result to `Transform`
+before transform propagation.
+
 
 #### Prespawning
 

@@ -34,7 +34,7 @@
 //!   while rollback is active, so frame history must be repaired manually.
 //!
 //! Post-rollback processing repairs frame history before creating corrections:
-//! - [`repair_frame_interpolation_history`] runs for every predicted component
+//! - `repair_frame_interpolation_history` runs for every predicted component
 //!   in [`RollbackSystems::EndRollback`]. It updates
 //!   [`FrameInterpolationHistory`] from the corrected live `C` and the previous
 //!   tick entry in [`PredictionHistory`].
@@ -93,6 +93,7 @@ use tracing::trace;
 
 /// The visual value of the component before the rollback started
 #[derive(Component, Debug, Reflect)]
+#[require(FrameInterpolate)]
 pub struct PreviousVisual<C: Component>(pub C);
 
 #[derive(Component, Debug, Reflect)]
@@ -874,6 +875,38 @@ mod tests {
         fn apply_diff(&mut self, delta: &CorrectionB) {
             self.0 += delta.0;
         }
+    }
+
+    #[test]
+    fn correction_registration_adds_frame_interpolation_setup() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconSharedPlugin {
+                auth_method: AuthMethod::None,
+            },
+        ));
+        app.init_resource::<PredictionRegistry>();
+
+        app.component::<CorrectionA>().predict().add_correction();
+        app.interpolate_with::<CorrectionA>(InterpolationFns::no_history(|start, end, t| {
+            CorrectionA(start.0 + (end.0 - start.0) * t)
+        }));
+
+        assert!(app.is_plugin_added::<lightyear_frame_interpolation::FrameInterpolationPlugin>());
+        app.finish();
+
+        let entity = app
+            .world_mut()
+            .spawn((CorrectionA(1.0), PreviousVisual(CorrectionA(2.0))))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<FrameInterpolate>(entity).is_some());
+        assert!(
+            app.world()
+                .get::<FrameInterpolationHistory<CorrectionA>>(entity)
+                .is_some()
+        );
     }
 
     fn bundle_lerp(

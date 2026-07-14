@@ -108,7 +108,9 @@ impl Plugin for SharedPlugin {
 
         // Physics
         app.add_plugins(lightyear::avian3d::plugin::LightyearAvianPlugin {
-            replication_mode: AvianReplicationMode::Position,
+            replication_mode: AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
             ..default()
         });
         app.add_plugins(
