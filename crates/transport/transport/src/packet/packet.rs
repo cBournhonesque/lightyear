@@ -5,7 +5,7 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentIndex, MessageId, SendMessageKey};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
-use lightyear_serde::{ToBytes, varint::varint_len};
+use lightyear_serde::varint::varint_len;
 use lightyear_utils::wrapping_id;
 
 // Internal id that we assign to each packet sent over the network
@@ -41,12 +41,9 @@ pub(crate) const FRAGMENT_SIZE: usize =
 
 /// Metadata about messages included in a packet.
 ///
-/// With the `metrics` feature enabled, this contains every message written into the packet so
-/// channel metrics can be emitted after the final packet passes the bandwidth limiter.
-///
-/// Production-staged packets also record id-less unreliable messages because their commit handles
-/// remove channel-owned pending data only after Link admission. Legacy test builders omit id-less
-/// metadata when metrics are disabled.
+/// There is one entry per staged message. The commit handle updates channel-owned pending data only
+/// after the packet enters `Link.send`; with `metrics`, the same entry also carries the byte count
+/// used for post-admission metrics.
 #[derive(Debug, PartialEq)]
 pub(crate) struct MessageMetadata {
     pub(crate) channel: ChannelId,
@@ -55,10 +52,7 @@ pub(crate) struct MessageMetadata {
     pub(crate) fragment_index: Option<FragmentIndex>,
     pub(crate) num_fragments: Option<u64>,
     /// Channel-owned pending state to update after this packet is admitted to `Link.send`.
-    ///
-    /// Legacy packet-builder entry points used by focused tests do not originate from a channel
-    /// and therefore leave this as `None`.
-    pub(crate) commit: Option<SendCommit>,
+    pub(crate) commit: SendCommit,
     // Size of the message in bytes (for fragments, it's only the size of the fragment)
     #[cfg(feature = "metrics")]
     pub(crate) num_bytes: usize,
@@ -80,35 +74,13 @@ pub(crate) struct PacketCompressionInfo {
 #[derive(Debug)]
 pub(crate) struct Packet {
     pub(crate) payload: Payload,
-    /// Packet-local message metadata.
-    ///
-    /// See [`MessageMetadata`] for the rule that decides whether id-less messages are recorded.
+    /// One packet-local metadata entry per staged message.
     pub(crate) messages: Vec<MessageMetadata>,
     pub(crate) packet_id: PacketId,
-    // How many bytes we know we are going to have to write in the packet, but haven't written yet
-    pub(crate) prewritten_size: usize,
     pub(crate) compression: Option<PacketCompressionInfo>,
 }
 
 impl Packet {
-    /// Check that we can still fit some data in the buffer
-    pub(crate) fn can_fit(&self, size: usize) -> bool {
-        self.payload.len() + size + self.prewritten_size <= MAX_PACKET_SIZE
-    }
-
-    /// Check if we can write a channel_id + the number of messages in the packet.
-    /// If we can, reserve some space for it
-    pub(crate) fn can_fit_channel(&mut self, channel_id: ChannelId) -> bool {
-        let size = channel_id.bytes_len() + 1;
-        // size of the channel + 1 for the number of messages
-        let can_fit = self.can_fit(channel_id.bytes_len() + 1);
-        if can_fit {
-            // reserve the space to write the channel
-            self.prewritten_size += size;
-        }
-        can_fit
-    }
-
     pub(crate) fn num_messages(&self) -> usize {
         self.messages.len()
     }
@@ -119,27 +91,18 @@ impl Packet {
         message: Option<MessageId>,
         fragment_index: Option<FragmentIndex>,
         num_fragments: Option<u64>,
-        commit: Option<SendCommit>,
+        commit: SendCommit,
         #[cfg(feature = "metrics")] num_bytes: usize,
     ) {
-        // Production candidates always carry commit metadata. Legacy focused builders retain the
-        // old optimization of omitting id-less entries when metrics are disabled.
-        if cfg!(feature = "metrics") || message.is_some() || commit.is_some() {
-            self.messages.push(MessageMetadata {
-                channel,
-                message,
-                fragment_index,
-                num_fragments,
-                commit,
-                #[cfg(feature = "metrics")]
-                num_bytes,
-            });
-        }
-    }
-
-    #[allow(unused)]
-    pub(crate) fn is_empty(&self) -> bool {
-        self.messages.is_empty()
+        self.messages.push(MessageMetadata {
+            channel,
+            message,
+            fragment_index,
+            num_fragments,
+            commit,
+            #[cfg(feature = "metrics")]
+            num_bytes,
+        });
     }
 }
 
@@ -216,11 +179,8 @@ mod tests {
 
     #[test]
     fn header_bytes_constant_matches_packet_header_encoding() {
-        let header = PacketHeaderManager::new(1.5).prepare_send_packet_header(
-            PacketType::Data,
-            core::time::Duration::default(),
-            Tick(3),
-        );
+        let header =
+            PacketHeaderManager::new(1.5).preview_send_packet_header(PacketType::Data, Tick(3));
 
         let mut writer = Vec::new();
         header.to_bytes(&mut writer).unwrap();

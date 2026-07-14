@@ -520,9 +520,7 @@ impl TransportPlugin {
 
                 let mut packet_messages = core::mem::take(&mut packet.messages);
                 for metadata in packet_messages.drain(..) {
-                    let commit = metadata
-                        .commit
-                        .expect("staged channel candidate must carry commit metadata");
+                    let commit = metadata.commit;
                     let sender_metadata = transport
                         .senders
                         .get_mut(&commit.channel_kind)
