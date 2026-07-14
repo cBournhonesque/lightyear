@@ -11,10 +11,11 @@ use crate::rules::frame_interpolate::{
     restore_frame_history_archetype_erased, update_frame_history_archetype_erased,
 };
 use crate::rules::{
-    CachedInterpolationApply, CachedInterpolationComponent, ErasedApplyInterpolationFn,
-    ErasedBackfillConfirmedHistoryFn, ErasedInterpolationFns, ErasedLerpFn, ErasedUpdateHistoryFn,
-    InterpolationBundle, InterpolationFns, InterpolationRule, InterpolationRuleConfig,
-    InterpolationRuleId, RuleKind, TupleInterpolationBundle, matches_filter,
+    CachedInterpolationApply, CachedInterpolationComponent, ContextInterpolationFn,
+    ErasedApplyInterpolationFn, ErasedBackfillConfirmedHistoryFn, ErasedInterpolationFns,
+    ErasedUpdateHistoryFn, InterpolationBundle, InterpolationFn, InterpolationFns,
+    InterpolationRule, InterpolationRuleConfig, InterpolationRuleId, InterpolationSampleContext,
+    RuleKind, TupleInterpolationBundle, matches_filter,
 };
 use alloc::vec::Vec;
 use bevy_app::App;
@@ -40,6 +41,7 @@ use bevy_replicon::shared::replication::registry::ctx::{RemoveCtx, WriteCtx};
 use bevy_replicon::shared::replication::storage::{EntityStorageCtx, ReplicationStorage};
 use bevy_utils::prelude::DebugName;
 use core::cmp::Ordering;
+use core::time::Duration;
 use indexmap::IndexMap;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, FrameInterpolationHistory, Interpolated, Tick};
@@ -160,6 +162,13 @@ pub struct InterpolationRegistry {
     rules_by_kind: IndexMap<RuleKind, Vec<InterpolationRuleId>>,
     /// Component kinds whose Replicon receive marker functions have been installed.
     interpolated_marker_fns: HashSet<ComponentKind>,
+    /// Marker registrations deferred until every plugin has finished building.
+    ///
+    /// Interpolation rules may be installed by an integration plugin before
+    /// the application's replication protocol registers the corresponding
+    /// components. Deferring the Replicon receive hooks makes that plugin order
+    /// independent without implicitly adding components to the protocol.
+    pending_interpolated_marker_fns: Vec<(ComponentKind, fn(&mut App))>,
     /// Whether plugin finalization has run.
     ///
     /// Rule registration after finalization is rejected so the type-erased
@@ -171,7 +180,7 @@ impl InterpolationRegistry {
     const FINALIZED_RULE_REGISTRATION_ERROR: &'static str =
         "cannot register interpolation rules after InterpolationRegistry has been finalized";
 
-    pub(crate) fn finalize(&mut self) {
+    fn finalize(&mut self) {
         self.finalized = true;
     }
 
@@ -347,8 +356,8 @@ impl InterpolationRegistry {
             history_component_id,
             history_storage,
             live_component_present,
+            rule_id,
             update_history: rule.fns.update_history?,
-            interpolation: rule.fns.interpolation,
         })
     }
 
@@ -611,7 +620,7 @@ impl InterpolationRegistry {
     /// per-archetype rule cache. It does not support tuple rules; systems that
     /// need bundle priority should select rules for the current archetype.
     #[doc(hidden)]
-    pub fn interpolation_for<C: Component + Clone>(&self) -> Option<LerpFn<C>> {
+    pub fn interpolation_for<C: Component + Clone>(&self) -> Option<&InterpolationFn<C>> {
         self.rules_by_kind
             .get(&RuleKind::of::<C>())?
             .iter()
@@ -619,7 +628,8 @@ impl InterpolationRegistry {
             .find_map(|rule| {
                 rule.fns
                     .interpolation
-                    .map(|interpolation| unsafe { core::mem::transmute(interpolation) })
+                    .as_ref()
+                    .map(|interpolation| interpolation.typed::<C>())
             })
     }
 
@@ -629,34 +639,76 @@ impl InterpolationRegistry {
         history: &ConfirmedHistory<C>,
         interpolation_tick: Tick,
         interpolation_overstep: f32,
+        tick_duration: Option<Duration>,
     ) -> Option<HistoryState<C>> {
         let rule = &self.rules[rule_id.0];
         debug_assert_eq!(rule.kind, RuleKind::of::<C>());
         sample_history_with_interpolation(
-            rule.fns.interpolation,
+            self.interpolation_for_rule::<C>(rule_id),
             history,
             interpolation_tick,
             interpolation_overstep,
+            tick_duration,
         )
     }
 
     pub(crate) fn interpolation_for_rule<S: 'static>(
         &self,
         rule_id: InterpolationRuleId,
-    ) -> Option<LerpFn<S>> {
+    ) -> Option<&InterpolationFn<S>> {
         let rule = &self.rules[rule_id.0];
         debug_assert_eq!(rule.kind, RuleKind::of::<S>());
         rule.fns
             .interpolation
-            .map(|interpolation| unsafe { core::mem::transmute(interpolation) })
+            .as_ref()
+            .map(|interpolation| interpolation.typed::<S>())
     }
 }
 
+/// Installs deferred receive hooks, reconciles interpolation metadata with the
+/// completed replication protocol, and freezes the registry.
+pub(crate) fn finalize_interpolation_registry(app: &mut App) {
+    let pending_marker_fns = {
+        let mut registry = app.world_mut().resource_mut::<InterpolationRegistry>();
+        core::mem::take(&mut registry.pending_interpolated_marker_fns)
+    };
+    for (_, register) in pending_marker_fns {
+        register(app);
+    }
+
+    let interpolated_components = {
+        let registry = app.world().resource::<InterpolationRegistry>();
+        registry
+            .rules
+            .iter()
+            .filter(|rule| rule.owns_history() || rule.applies_component())
+            .flat_map(|rule| rule.members.iter().copied())
+            .collect::<HashSet<_>>()
+    };
+    if let Some(mut component_registry) = app.world_mut().get_resource_mut::<ComponentRegistry>() {
+        for kind in interpolated_components {
+            let Some(replication) = component_registry
+                .component_metadata_map
+                .get_mut(&kind)
+                .and_then(|metadata| metadata.replication.as_mut())
+            else {
+                continue;
+            };
+            replication.set_interpolated(true);
+        }
+    }
+
+    app.world_mut()
+        .resource_mut::<InterpolationRegistry>()
+        .finalize();
+}
+
 pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
-    interpolation: Option<ErasedLerpFn>,
+    interpolation: Option<&InterpolationFn<C>>,
     history: &ConfirmedHistory<C>,
     interpolation_tick: Tick,
     interpolation_overstep: f32,
+    tick_duration: Option<Duration>,
 ) -> Option<HistoryState<C>> {
     let previous_index = (0..history.len())
         .take_while(|i| {
@@ -683,9 +735,13 @@ pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
     // Clamp rather than extrapolate beyond the newest confirmed value. This
     // makes late packets converge to the freshest server state instead of
     // overshooting when motion changes direction.
-    let fraction = (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
-        / (end_tick - start_tick) as f32)
-        .clamp(0.0, 1.0);
+    let context = InterpolationSampleContext::from_ticks(
+        start_tick,
+        end_tick,
+        interpolation_tick,
+        interpolation_overstep,
+        tick_duration,
+    );
     trace!(
         target: "lightyear_debug::interpolation",
         kind = "confirmed_history_sample",
@@ -694,15 +750,14 @@ pub(crate) fn sample_history_with_interpolation<C: Component + Clone>(
         start_tick = start_tick.0,
         end_tick = end_tick.0,
         interpolation_overstep,
-        fraction,
+        fraction = context.t,
         history_len = history.len(),
         "sampled confirmed history for interpolation"
     );
-    let interpolation_fn: LerpFn<C> = unsafe { core::mem::transmute(interpolation) };
-    Some(HistoryState::Updated(interpolation_fn(
+    Some(HistoryState::Updated(interpolation.interpolate(
         start.clone(),
         end.clone(),
-        fraction,
+        context,
     )))
 }
 
@@ -1088,13 +1143,32 @@ impl AppInterpolationExt for App {
 fn register_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
     ensure_interpolation_registry(app);
     let kind = ComponentKind::of::<C>();
-    let already_registered = {
-        let registry = app.world().resource::<InterpolationRegistry>();
-        registry.interpolated_marker_fns.contains(&kind)
-    };
-    if already_registered {
-        return;
+    let component_registered = app
+        .world()
+        .get_resource::<ComponentRegistry>()
+        .is_some_and(|registry| registry.is_registered::<C>());
+    {
+        let mut registry = app.world_mut().resource_mut::<InterpolationRegistry>();
+        if registry.interpolated_marker_fns.contains(&kind)
+            || registry
+                .pending_interpolated_marker_fns
+                .iter()
+                .any(|(pending_kind, _)| *pending_kind == kind)
+        {
+            return;
+        }
+        if !component_registered {
+            registry
+                .pending_interpolated_marker_fns
+                .push((kind, install_interpolated_marker_fns::<C>));
+            return;
+        }
     }
+    install_interpolated_marker_fns::<C>(app);
+}
+
+fn install_interpolated_marker_fns<C: SyncComponent>(app: &mut bevy_app::App) {
+    let kind = ComponentKind::of::<C>();
     app.register_marker_with::<Interpolated>(MarkerConfig {
         priority: 100,
         need_history: true,
@@ -1110,6 +1184,37 @@ fn register_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
     app: &mut bevy_app::App,
 ) {
     ensure_interpolation_registry(app);
+    let kind = ComponentKind::of::<C>();
+    let component_registered = app
+        .world()
+        .get_resource::<ComponentRegistry>()
+        .is_some_and(|registry| registry.is_registered::<C>());
+    {
+        let mut registry = app.world_mut().resource_mut::<InterpolationRegistry>();
+        if registry.interpolated_marker_fns.contains(&kind) {
+            return;
+        }
+        if let Some((_, register)) = registry
+            .pending_interpolated_marker_fns
+            .iter_mut()
+            .find(|(pending_kind, _)| *pending_kind == kind)
+        {
+            *register = install_interpolated_diff_marker_fns::<C>;
+            return;
+        }
+        if !component_registered {
+            registry
+                .pending_interpolated_marker_fns
+                .push((kind, install_interpolated_diff_marker_fns::<C>));
+            return;
+        }
+    }
+    install_interpolated_diff_marker_fns::<C>(app);
+}
+
+fn install_interpolated_diff_marker_fns<C: SyncComponent + RepliconDiffable>(
+    app: &mut bevy_app::App,
+) {
     let kind = ComponentKind::of::<C>();
     app.register_marker_with::<Interpolated>(MarkerConfig {
         priority: 100,
@@ -1256,16 +1361,30 @@ pub(crate) fn backfill_confirmed_history_diff<C: SyncComponent + RepliconDiffabl
 }
 
 pub trait InterpolationRegistrationExt<'a, C>: ComponentRegistrator<'a, C> {
-    /// Add interpolation for this component using the provided [`LerpFn`]
+    /// Add interpolation for this component using the provided [`LerpFn`].
     ///
     /// This will register interpolation systems to interpolate between two confirmed states.
     fn add_interpolation_with(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent;
 
+    /// Add interpolation that receives sample timing in addition to the
+    /// normalized interpolation fraction.
+    fn add_interpolation_with_context(self, interpolation_fn: ContextInterpolationFn<C>) -> Self
+    where
+        C: SyncComponent;
+
     /// Like [`Self::add_interpolation_with`], but for components replicated with
     /// Replicon's diff-based mode.
     fn add_interpolation_diff_with(self, interpolation_fn: LerpFn<C>) -> Self
+    where
+        C: SyncComponent + RepliconDiffable;
+
+    /// Diff-based counterpart to [`Self::add_interpolation_with_context`].
+    fn add_interpolation_diff_with_context(
+        self,
+        interpolation_fn: ContextInterpolationFn<C>,
+    ) -> Self
     where
         C: SyncComponent + RepliconDiffable;
 
@@ -1310,11 +1429,34 @@ where
         ))
     }
 
+    fn add_interpolation_with_context(self, interpolation_fn: ContextInterpolationFn<C>) -> Self
+    where
+        C: SyncComponent,
+    {
+        Self::from_component_registration(add_interpolation_with_context_impl(
+            self.into_component_registration(),
+            interpolation_fn,
+        ))
+    }
+
     fn add_interpolation_diff_with(self, interpolation_fn: LerpFn<C>) -> Self
     where
         C: SyncComponent + RepliconDiffable,
     {
         Self::from_component_registration(add_interpolation_diff_with_impl(
+            self.into_component_registration(),
+            interpolation_fn,
+        ))
+    }
+
+    fn add_interpolation_diff_with_context(
+        self,
+        interpolation_fn: ContextInterpolationFn<C>,
+    ) -> Self
+    where
+        C: SyncComponent + RepliconDiffable,
+    {
+        Self::from_component_registration(add_interpolation_diff_with_context_impl(
             self.into_component_registration(),
             interpolation_fn,
         ))
@@ -1361,15 +1503,17 @@ fn ensure_interpolation_registry(app: &mut App) {
 }
 
 pub(crate) fn mark_interpolated<C: SyncComponent>(app: &mut App) {
-    let mut registry = app.world_mut().resource_mut::<ComponentRegistry>();
-    registry
+    let Some(mut registry) = app.world_mut().get_resource_mut::<ComponentRegistry>() else {
+        return;
+    };
+    let Some(replication) = registry
         .component_metadata_map
         .get_mut(&ComponentKind::of::<C>())
-        .unwrap()
-        .replication
-        .as_mut()
-        .unwrap()
-        .set_interpolated(true);
+        .and_then(|metadata| metadata.replication.as_mut())
+    else {
+        return;
+    };
+    replication.set_interpolated(true);
 }
 
 pub(crate) fn add_interpolation_rule<C, F>(
@@ -1499,6 +1643,23 @@ where
     registration
 }
 
+fn add_interpolation_with_context_impl<'a, C>(
+    registration: ComponentRegistration<'a, C>,
+    interpolation_fn: ContextInterpolationFn<C>,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent,
+{
+    add_interpolation_rule::<C, ()>(
+        registration.app,
+        InterpolationFns::interpolate_with_context(interpolation_fn),
+        InterpolationRuleConfig {
+            priority: SINGLE_COMPONENT_RULE_PRIORITY,
+        },
+    );
+    registration
+}
+
 fn add_interpolation_diff_with_impl<'a, C>(
     registration: ComponentRegistration<'a, C>,
     interpolation_fn: LerpFn<C>,
@@ -1509,6 +1670,23 @@ where
     add_interpolation_diff_rule::<C, ()>(
         registration.app,
         InterpolationFns::interpolate(interpolation_fn),
+        InterpolationRuleConfig {
+            priority: SINGLE_COMPONENT_RULE_PRIORITY,
+        },
+    );
+    registration
+}
+
+fn add_interpolation_diff_with_context_impl<'a, C>(
+    registration: ComponentRegistration<'a, C>,
+    interpolation_fn: ContextInterpolationFn<C>,
+) -> ComponentRegistration<'a, C>
+where
+    C: SyncComponent + RepliconDiffable,
+{
+    add_interpolation_diff_rule::<C, ()>(
+        registration.app,
+        InterpolationFns::interpolate_with_context(interpolation_fn),
         InterpolationRuleConfig {
             priority: SINGLE_COMPONENT_RULE_PRIORITY,
         },
@@ -1829,6 +2007,29 @@ mod tests {
     }
 
     #[test]
+    fn interpolation_rule_can_precede_replication_component_registration() {
+        let mut app = App::new();
+        app.add_plugins((
+            StatesPlugin,
+            RepliconPlugins,
+            crate::plugin::InterpolationPlugin,
+        ));
+
+        app.interpolate_with::<TestComp>(InterpolationFns::interpolate(lerp));
+        app.component::<TestComp>().replicate();
+        app.finish();
+
+        let registry = app.world().resource::<InterpolationRegistry>();
+        assert!(registry.finalized);
+        assert!(registry.pending_interpolated_marker_fns.is_empty());
+        assert!(
+            registry
+                .interpolated_marker_fns
+                .contains(&ComponentKind::of::<TestComp>())
+        );
+    }
+
+    #[test]
     #[should_panic(
         expected = "cannot register interpolation rules after InterpolationRegistry has been finalized"
     )]
@@ -1862,11 +2063,11 @@ mod tests {
 
         let (registry, rule_id) = registry();
         assert_eq!(
-            registry.sample_for_rule(rule_id, &history, Tick(30), 0.0),
+            registry.sample_for_rule(rule_id, &history, Tick(30), 0.0, None),
             Some(HistoryState::Updated(TestComp(10.0)))
         );
         assert_eq!(
-            registry.sample_for_rule(rule_id, &history, Tick(20), 0.5),
+            registry.sample_for_rule(rule_id, &history, Tick(20), 0.5, None),
             Some(HistoryState::Updated(TestComp(10.0)))
         );
     }
@@ -1878,15 +2079,15 @@ mod tests {
 
         let (registry, rule_id) = registry();
         assert_eq!(
-            registry.sample_for_rule(rule_id, &history, Tick(5), 0.0),
+            registry.sample_for_rule(rule_id, &history, Tick(5), 0.0, None),
             None
         );
         assert_eq!(
-            registry.sample_for_rule(rule_id, &history, Tick(10), 0.0),
+            registry.sample_for_rule(rule_id, &history, Tick(10), 0.0, None),
             Some(HistoryState::Updated(TestComp(42.0)))
         );
         assert_eq!(
-            registry.sample_for_rule(rule_id, &history, Tick(50), 0.5),
+            registry.sample_for_rule(rule_id, &history, Tick(50), 0.5, None),
             Some(HistoryState::Updated(TestComp(42.0)))
         );
     }

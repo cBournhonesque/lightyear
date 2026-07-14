@@ -19,6 +19,9 @@
 //! - the history is sampled at the client's [`timeline::InterpolationTimeline`],
 //! - and the sampled value is written back to the live component.
 //!
+//! Applying a sampled value uses Bevy's normal component change detection, so
+//! systems ordered after interpolation can observe it with `Changed<C>`.
+//!
 //! ```rust,ignore
 //! use bevy_app::App;
 //! use bevy_ecs::prelude::*;
@@ -88,6 +91,14 @@
 //!
 //! Components used with these rules must implement [`SyncComponent`]:
 //! `Component<Mutability = Mutable> + Clone + PartialEq`.
+//!
+//! Most interpolation functions use the simple `fn(start, end, fraction)`
+//! shape. Functions that need sample timing can be registered with
+//! [`rules::InterpolationFns::interpolate_with_context`]; they receive
+//! [`rules::InterpolationSampleContext`], which includes the normalized fraction
+//! plus sample duration when it is available. This is useful for interpolation
+//! methods such as Hermite curves that need to scale velocities by the interval
+//! between samples.
 //!
 //! # Custom interpolation systems
 //!
@@ -269,7 +280,8 @@ pub mod prelude {
         AppInterpolationExt, InterpolationRegistrationExt, InterpolationRegistry,
     };
     pub use crate::rules::{
-        InterpolationBundle, InterpolationFns, InterpolationFnsExt, InterpolationRuleConfig,
+        ContextInterpolationFn, InterpolationBundle, InterpolationFn, InterpolationFns,
+        InterpolationFnsExt, InterpolationRuleConfig, InterpolationSampleContext,
     };
     pub use crate::timeline::InterpolationTimeline;
 }

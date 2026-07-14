@@ -65,6 +65,13 @@ Visual correction uses frame-interpolation rules and history. Registering correc
 [`FrameInterpolate`](lightyear_frame_interpolation::FrameInterpolate) when it stores the previous
 visual value. If neither visual feature is wanted, omit correction; rollback then snaps directly
 to canonical physics state.
+
+Position mode automatically registers velocity-aware Hermite interpolation for the
+`(Position, Rotation, LinearVelocity, AngularVelocity)` bundle. Delayed interpolation, frame
+interpolation, and visual correction select it whenever all four components are present. The
+per-component rules remain useful for archetypes that do not contain the complete bundle. This
+does not implicitly replicate those components; the application protocol still chooses which
+components are sent over the network.
 !*/
 use alloc::vec::Vec;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
@@ -199,6 +206,7 @@ impl Plugin for LightyearAvianPlugin {
         app.init_resource::<PhysicsTransformConfig>();
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
+                Self::add_position_rotation_hermite_rule(app);
                 if !self.update_syncs_manually {
                     let mut config = app.world_mut().resource_mut::<PhysicsTransformConfig>();
                     config.position_to_transform = true;
@@ -377,6 +385,16 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    /// Register the canonical Avian pose and velocity bundle once for every
+    /// Position-mode application. The bundle's default priority is its four
+    /// members, so it wins over ordinary single-component rules whenever the
+    /// complete bundle is present.
+    fn add_position_rotation_hermite_rule(app: &mut App) {
+        app.interpolate_bundle_with::<(Position, Rotation, LinearVelocity, AngularVelocity)>(
+            InterpolationFns::interpolate_with_context(crate::types::position_rotation::hermite),
+        );
+    }
+
     // Add a low-priority interpolation function for Transform
     // (that could be used for Correction or FrameInterpolation)
     fn add_transform_frame_interpolation_rule(app: &mut App) {
@@ -950,7 +968,9 @@ impl LightyearAvianPlugin {
 
 #[cfg(test)]
 mod mode_tests {
-    use super::AvianReplicationMode;
+    use super::*;
+    use lightyear_core::prelude::ConfirmedHistory;
+    use lightyear_interpolation::registry::InterpolationRegistry;
 
     #[test]
     fn position_mode_defaults_to_sync_to_transform_disabled() {
@@ -959,6 +979,31 @@ mod mode_tests {
             AvianReplicationMode::Position {
                 sync_to_transform: false
             }
+        );
+    }
+
+    #[test]
+    fn position_mode_registers_pose_velocity_hermite_rule() {
+        let mut app = App::new();
+        app.add_plugins(LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+
+        let registry = app.world().resource::<InterpolationRegistry>();
+        assert!(registry.interpolated::<Position>());
+        assert!(registry.interpolated::<Rotation>());
+        assert!(registry.interpolated::<LinearVelocity>());
+        assert!(registry.interpolated::<AngularVelocity>());
+        assert!(
+            app.world()
+                .components()
+                .component_id::<ConfirmedHistory<Position>>()
+                .is_some(),
+            "the automatic rule must own delayed-interpolation history"
         );
     }
 }
@@ -974,6 +1019,25 @@ mod tests {
     use lightyear_frame_interpolation::{
         FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
     };
+
+    fn seed_stationary_hermite_histories(app: &mut App, entity: Entity, include_previous: bool) {
+        let mut entity = app.world_mut().entity_mut(entity);
+        let mut rotation = entity
+            .get_mut::<FrameInterpolationHistory<Rotation>>()
+            .unwrap();
+        rotation.current_value = Some(Rotation::default());
+        rotation.previous_value = include_previous.then(Rotation::default);
+        let mut linear = entity
+            .get_mut::<FrameInterpolationHistory<LinearVelocity>>()
+            .unwrap();
+        linear.current_value = Some(LinearVelocity::default());
+        linear.previous_value = include_previous.then(LinearVelocity::default);
+        let mut angular = entity
+            .get_mut::<FrameInterpolationHistory<AngularVelocity>>()
+            .unwrap();
+        angular.current_value = Some(AngularVelocity::default());
+        angular.previous_value = include_previous.then(AngularVelocity::default);
+    }
 
     #[test]
     fn position_mode_does_not_copy_stale_transform_into_physics() {
@@ -1065,6 +1129,7 @@ mod tests {
             .get_mut::<FrameInterpolationHistory<Position>>()
             .unwrap()
             .current_value = Some(visual_position);
+        seed_stationary_hermite_histories(&mut app, entity, false);
         app.world_mut().run_schedule(PostUpdate);
 
         let transform = app.world().get::<Transform>(entity).unwrap();
@@ -1117,6 +1182,8 @@ mod tests {
                 },
             ))
             .id();
+
+        seed_stationary_hermite_histories(&mut app, entity, true);
 
         // PostUpdate leaves the interpolated visual pose in both Position and Transform.
         app.world_mut().run_schedule(PostUpdate);
@@ -1236,6 +1303,25 @@ mod tests_3d {
         FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
     };
 
+    fn seed_stationary_hermite_histories(app: &mut App, entity: Entity, include_previous: bool) {
+        let mut entity = app.world_mut().entity_mut(entity);
+        let mut rotation = entity
+            .get_mut::<FrameInterpolationHistory<Rotation>>()
+            .unwrap();
+        rotation.current_value = Some(Rotation::default());
+        rotation.previous_value = include_previous.then(Rotation::default);
+        let mut linear = entity
+            .get_mut::<FrameInterpolationHistory<LinearVelocity>>()
+            .unwrap();
+        linear.current_value = Some(LinearVelocity::default());
+        linear.previous_value = include_previous.then(LinearVelocity::default);
+        let mut angular = entity
+            .get_mut::<FrameInterpolationHistory<AngularVelocity>>()
+            .unwrap();
+        angular.current_value = Some(AngularVelocity::default());
+        angular.previous_value = include_previous.then(AngularVelocity::default);
+    }
+
     #[test]
     fn position_mode_does_not_copy_stale_transform_into_physics() {
         let mut app = App::new();
@@ -1323,6 +1409,7 @@ mod tests_3d {
             .get_mut::<FrameInterpolationHistory<Position>>()
             .unwrap()
             .current_value = Some(visual_position);
+        seed_stationary_hermite_histories(&mut app, entity, false);
         app.world_mut().run_schedule(PostUpdate);
 
         let transform = app.world().get::<Transform>(entity).unwrap();
@@ -1375,6 +1462,8 @@ mod tests_3d {
                 },
             ))
             .id();
+
+        seed_stationary_hermite_histories(&mut app, entity, true);
 
         app.world_mut().run_schedule(PostUpdate);
         assert_eq!(

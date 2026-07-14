@@ -35,6 +35,7 @@ lightyear_frame_interpolation.workspace = true
 lightyear_replication = { workspace = true, features = ["avian3d"] }
 
 avian3d.workspace = true
+bevy_transform_interpolation.workspace = true
 
 
 # bevy

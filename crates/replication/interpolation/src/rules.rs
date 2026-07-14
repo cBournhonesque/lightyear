@@ -13,7 +13,7 @@ pub(crate) use bundle::TupleInterpolationBundle;
 
 use self::frame_interpolate::{FrameHistoryComponent, FrameInterpolationFns};
 use crate::registry::InterpolationRegistry;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use bevy_ecs::archetype::Archetype;
 use bevy_ecs::component::{ComponentId, Components, StorageType};
 use bevy_ecs::prelude::{Commands, Entity};
@@ -23,11 +23,131 @@ use bevy_math::{
     Curve,
     curve::{Ease, EaseFunction, EasingCurve},
 };
-use core::any::TypeId;
+use core::any::{Any, TypeId};
+use core::fmt;
 use core::marker::PhantomData;
+use core::time::Duration;
 use lightyear_core::prelude::Tick;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::registry::{ComponentKind, LerpFn};
+
+/// Context passed to interpolation functions that need more than a normalized fraction.
+///
+/// Most interpolation functions only need [`Self::t`] and can use the
+/// existing [`LerpFn`] shape. More advanced functions, such as Hermite
+/// interpolation with endpoint velocities, can use [`Self::sample_delta_secs`]
+/// to scale velocities by the actual sample interval.
+///
+/// Delayed interpolation computes [`Self::sample_delta_secs`] from the
+/// bracketing history ticks and the configured tick duration. Frame
+/// interpolation and visual correction populate it from the fixed timestep.
+///
+/// # Examples
+///
+/// ```rust,ignore
+/// use lightyear_interpolation::prelude::*;
+/// fn interpolate_position(
+///     start: Position,
+///     end: Position,
+///     ctx: InterpolationSampleContext,
+/// ) -> Position {
+///     let _sample_delta_secs = ctx.sample_delta_secs;
+///     Position(start.0 + (end.0 - start.0) * ctx.t)
+/// }
+/// ```
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InterpolationSampleContext {
+    /// Normalized interpolation fraction in `[0.0, 1.0]`.
+    pub t: f32,
+    /// Duration between the bracketing samples, in seconds, when available.
+    pub sample_delta_secs: Option<f32>,
+}
+
+impl InterpolationSampleContext {
+    /// Creates a context from a normalized interpolation fraction and an
+    /// optional sample interval.
+    pub fn new(t: f32, sample_delta_secs: Option<f32>) -> Self {
+        Self {
+            t,
+            sample_delta_secs,
+        }
+    }
+
+    /// Creates a context when only a normalized interpolation fraction is known.
+    pub fn from_t(t: f32) -> Self {
+        Self {
+            t,
+            sample_delta_secs: None,
+        }
+    }
+
+    pub(crate) fn from_ticks(
+        start_tick: Tick,
+        end_tick: Tick,
+        interpolation_tick: Tick,
+        interpolation_overstep: f32,
+        tick_duration: Option<Duration>,
+    ) -> Self {
+        let tick_delta = end_tick - start_tick;
+        let t = if tick_delta > 0 {
+            (((interpolation_tick - start_tick) as f32 + interpolation_overstep)
+                / tick_delta as f32)
+                .clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let sample_delta_secs = tick_duration
+            .and_then(|tick_duration| sample_delta_secs(start_tick, end_tick, tick_duration));
+        Self {
+            t,
+            sample_delta_secs,
+        }
+    }
+}
+
+fn sample_delta_secs(start_tick: Tick, end_tick: Tick, tick_duration: Duration) -> Option<f32> {
+    let ticks = end_tick - start_tick;
+    (ticks > 0).then_some(tick_duration.as_secs_f32() * ticks as f32)
+}
+
+/// Context-aware interpolation callback stored by a rule.
+///
+/// Unlike [`LerpFn`], this receives the duration between the sampled states
+/// when the caller can determine it.
+pub type ContextInterpolationFn<C> =
+    fn(start: C, other: C, context: InterpolationSampleContext) -> C;
+
+/// Interpolation function stored by a rule.
+///
+/// `Lerp` preserves the `fn(start, end, t)` API. `Contextual` is used
+/// for interpolation that needs sample timing, such as Hermite interpolation
+/// with velocities.
+#[derive(Clone, Copy)]
+pub enum InterpolationFn<C> {
+    /// Interpolation function that receives a normalized interpolation fraction.
+    Lerp(LerpFn<C>),
+    /// Context-aware interpolation function.
+    Contextual(ContextInterpolationFn<C>),
+}
+
+impl<C> fmt::Debug for InterpolationFn<C> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Lerp(_) => f.write_str("InterpolationFn::Lerp(..)"),
+            Self::Contextual(_) => f.write_str("InterpolationFn::Contextual(..)"),
+        }
+    }
+}
+
+impl<C> InterpolationFn<C> {
+    /// Applies the interpolation function using the provided context.
+    pub fn interpolate(&self, start: C, other: C, context: InterpolationSampleContext) -> C {
+        match self {
+            Self::Lerp(interpolation) => interpolation(start, other, context.t),
+            Self::Contextual(interpolation) => interpolation(start, other, context),
+        }
+    }
+}
 
 /// Configuration for an interpolation rule.
 ///
@@ -129,7 +249,7 @@ pub struct InterpolationRuleConfig {
 /// ```
 #[derive(Debug, Clone, Copy)]
 pub struct InterpolationFns<C> {
-    pub(crate) interpolation: Option<LerpFn<C>>,
+    pub(crate) interpolation: Option<InterpolationFn<C>>,
     pipeline: InterpolationPipeline,
     _marker: PhantomData<fn(C)>,
 }
@@ -166,7 +286,20 @@ impl<C> InterpolationFns<C> {
     /// ```
     pub fn interpolate(interpolation: LerpFn<C>) -> Self {
         Self {
-            interpolation: Some(interpolation),
+            interpolation: Some(InterpolationFn::Lerp(interpolation)),
+            pipeline: InterpolationPipeline::Full,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Enables the full Lightyear interpolation pipeline with a callback that
+    /// receives the sample interval.
+    ///
+    /// Use this for interpolation such as Hermite curves whose endpoint
+    /// derivatives must be scaled by the duration between the sampled states.
+    pub fn interpolate_with_context(interpolation: ContextInterpolationFn<C>) -> Self {
+        Self {
+            interpolation: Some(InterpolationFn::Contextual(interpolation)),
             pipeline: InterpolationPipeline::Full,
             _marker: PhantomData,
         }
@@ -220,7 +353,17 @@ impl<C> InterpolationFns<C> {
     /// ```
     pub fn no_history(interpolation: LerpFn<C>) -> Self {
         Self {
-            interpolation: Some(interpolation),
+            interpolation: Some(InterpolationFn::Lerp(interpolation)),
+            pipeline: InterpolationPipeline::NoHistory,
+            _marker: PhantomData,
+        }
+    }
+
+    /// Registers a context-aware interpolation function without delayed
+    /// interpolation history.
+    pub fn no_history_with_context(interpolation: ContextInterpolationFn<C>) -> Self {
+        Self {
+            interpolation: Some(InterpolationFn::Contextual(interpolation)),
             pipeline: InterpolationPipeline::NoHistory,
             _marker: PhantomData,
         }
@@ -338,6 +481,10 @@ pub trait InterpolationFnsExt<C> {
     /// stages the rule owns.
     fn interpolate(self, interpolation: LerpFn<C>) -> Self;
 
+    /// Stores a context-aware interpolation callback on this rule without
+    /// changing which pipeline stages the rule owns.
+    fn interpolate_with_context(self, interpolation: ContextInterpolationFn<C>) -> Self;
+
     /// Stores a linear [`Ease`] interpolation function on this rule.
     fn linear_interpolate(self) -> Self
     where
@@ -346,7 +493,12 @@ pub trait InterpolationFnsExt<C> {
 
 impl<C> InterpolationFnsExt<C> for InterpolationFns<C> {
     fn interpolate(mut self, interpolation: LerpFn<C>) -> Self {
-        self.interpolation = Some(interpolation);
+        self.interpolation = Some(InterpolationFn::Lerp(interpolation));
+        self
+    }
+
+    fn interpolate_with_context(mut self, interpolation: ContextInterpolationFn<C>) -> Self {
+        self.interpolation = Some(InterpolationFn::Contextual(interpolation));
         self
     }
 
@@ -381,16 +533,36 @@ pub(crate) struct UpdateHistoryContext {
     pub(crate) server_complete_tick: Option<Tick>,
     pub(crate) current_interpolate_tick: Tick,
     pub(crate) interpolation_overstep: f32,
-    pub(crate) interpolation: Option<ErasedLerpFn>,
+    pub(crate) tick_duration: Option<Duration>,
 }
 
 /// Type-erased interpolation function stored by the interpolation registry.
 ///
-/// Typed functions are registered as [`LerpFn<C>`] and erased internally so
-/// rules for different components and bundles can share the same cache.
-pub type ErasedInterpolationFn = unsafe fn();
+/// Typed functions are erased internally so rules for different components and
+/// bundles can share the same cache.
+pub(crate) struct ErasedInterpolationFn {
+    inner: Box<dyn Any + Send + Sync + 'static>,
+}
 
-pub(crate) type ErasedLerpFn = ErasedInterpolationFn;
+impl fmt::Debug for ErasedInterpolationFn {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ErasedInterpolationFn(..)")
+    }
+}
+
+impl ErasedInterpolationFn {
+    fn from_typed<S: 'static>(interpolation: InterpolationFn<S>) -> Self {
+        Self {
+            inner: Box::new(interpolation),
+        }
+    }
+
+    pub(crate) fn typed<S: 'static>(&self) -> &InterpolationFn<S> {
+        self.inner
+            .downcast_ref::<InterpolationFn<S>>()
+            .expect("interpolation rule kind and interpolation function type should match")
+    }
+}
 
 /// Returns whether a cached interpolation rule matches an archetype.
 pub(crate) type MatchesArchetypeFn = fn(&Components, &Archetype) -> bool;
@@ -402,8 +574,9 @@ pub(crate) type MatchesArchetypeFn = fn(&Components, &Archetype) -> bool;
 pub(crate) type ErasedUpdateHistoryFn = fn(
     UnsafeWorldCell,
     &Archetype,
+    &InterpolationRegistry,
     &CachedInterpolationComponent,
-    UpdateHistoryContext,
+    &UpdateHistoryContext,
     Option<&mut bevy_replicon::shared::replication::storage::ReplicationStorage>,
     &mut DeferredEntityCommands,
 );
@@ -421,6 +594,7 @@ pub(crate) type ErasedBackfillConfirmedHistoryFn = fn(Entity, &mut Commands);
 pub struct ApplyInterpolationContext {
     pub(crate) interpolation_tick: Tick,
     pub(crate) interpolation_overstep: f32,
+    pub(crate) tick_duration: Option<Duration>,
 }
 
 /// Type-erased function that applies one selected interpolation rule to one archetype.
@@ -441,7 +615,7 @@ pub(crate) type ErasedApplyInterpolationFn = fn(
 /// One value is stored per selected history-owning rule on each cached
 /// interpolated archetype. It lets the update system decide whether the
 /// corresponding live component is currently present on that archetype.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct CachedInterpolationComponent {
     /// Component kind whose history is updated.
     pub(crate) kind: ComponentKind,
@@ -451,10 +625,10 @@ pub(crate) struct CachedInterpolationComponent {
     pub(crate) history_storage: StorageType,
     /// Whether the live component `C` is present on the cached archetype.
     pub(crate) live_component_present: bool,
+    /// ID of the selected rule whose interpolation function samples this history.
+    pub(crate) rule_id: InterpolationRuleId,
     /// Type-erased history update function for `C`.
     pub(crate) update_history: ErasedUpdateHistoryFn,
-    /// Optional interpolation function used when sampling the history.
-    pub(crate) interpolation: Option<ErasedLerpFn>,
 }
 
 impl CachedInterpolationComponent {
@@ -474,12 +648,12 @@ impl CachedInterpolationComponent {
         self.live_component_present
     }
 
-    pub(crate) fn update_history(&self) -> ErasedUpdateHistoryFn {
-        self.update_history
+    pub(crate) fn rule_id(&self) -> InterpolationRuleId {
+        self.rule_id
     }
 
-    pub(crate) fn interpolation(&self) -> Option<ErasedLerpFn> {
-        self.interpolation
+    pub(crate) fn update_history(&self) -> ErasedUpdateHistoryFn {
+        self.update_history
     }
 }
 
@@ -505,9 +679,9 @@ impl CachedInterpolationApply {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct ErasedInterpolationFns {
-    pub(crate) interpolation: Option<ErasedLerpFn>,
+    pub(crate) interpolation: Option<ErasedInterpolationFn>,
     pub(crate) update_history: Option<ErasedUpdateHistoryFn>,
     pub(crate) backfill_confirmed_history: Option<ErasedBackfillConfirmedHistoryFn>,
     pub(crate) apply_interpolation: Option<ErasedApplyInterpolationFn>,
@@ -531,7 +705,7 @@ impl ErasedInterpolationFns {
         Self {
             interpolation: fns
                 .interpolation
-                .map(|f| unsafe { core::mem::transmute::<LerpFn<S>, unsafe fn()>(f) }),
+                .map(ErasedInterpolationFn::from_typed::<S>),
             update_history,
             backfill_confirmed_history,
             apply_interpolation,
@@ -568,7 +742,7 @@ impl RuleKind {
 /// kind, so
 /// [`InterpolationRegistry::select_rule_for_archetype`] can return the first
 /// matching rule.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct InterpolationRule {
     /// Rule key used when selecting a rule for a component or bundle target.
     pub(crate) kind: RuleKind,

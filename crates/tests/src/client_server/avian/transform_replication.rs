@@ -12,13 +12,9 @@ use lightyear_replication::prelude::*;
 use test_log::test;
 
 /// The order is:
-/// - RunFixedMainLoop: Transform -> GlobalTransform THEN GlobalTransform -> Position/Rotation
-/// - PostUpdate: Position/Rotation -> Transform THEN Transform -> GlobalTransform
-/// - PostUpdate: add Transform based on Position/Rotation THEN Transform -> GlobalTransforms
-///
-/// One thing to watch out for is that if FrameInterpolation is not enabled, the Position/Rotation
-/// in FixedUpdate is not correct, since it gets updated via TransformToPosition.
-/// FrameInterpolation restores the correct value of Position/Rotation before FixedUpdate.
+/// - RunFixedMainLoop: restore the canonical Transform before fixed simulation
+/// - FixedPostUpdate: Transform -> Position/Rotation, physics, then Position/Rotation -> Transform
+/// - PostUpdate: interpolate/correct and propagate Transform
 #[test]
 fn test_replicate_transform_rigid_body() {
     let mut config = StepperConfig::single();

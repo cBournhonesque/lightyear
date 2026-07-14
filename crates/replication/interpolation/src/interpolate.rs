@@ -14,11 +14,12 @@ use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
 use bevy_utils::prelude::DebugName;
 use lightyear_core::ecs_utils::{
-    ComponentTableColumn, component_table_column, table_component_slice, table_for_archetype,
+    table_component_slice, table_for_archetype, write_component_with_change_detection,
 };
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
 use lightyear_core::tick::Tick;
+use lightyear_core::tick::TickDuration;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
@@ -45,6 +46,7 @@ pub(crate) fn update_interpolation_history(
     clients: Query<&InterpolationTimeline, Without<Interpolated>>,
     interpolation_registry: Res<InterpolationRegistry>,
     checkpoints: Res<ReplicationCheckpointMap>,
+    tick_duration: Option<Res<TickDuration>>,
     mut replication_storage: Option<ResMut<ReplicationStorage>>,
     mut commands: Commands,
 ) {
@@ -56,6 +58,7 @@ pub(crate) fn update_interpolation_history(
     let current_interpolate_tick = timeline.now().tick();
     let interpolation_overstep = timeline.overstep().to_f32();
     let server_complete_tick = checkpoints.last_confirmed_tick();
+    let tick_duration = tick_duration.as_deref().map(|duration| duration.0);
 
     let mut deferred_apply = DeferredEntityCommands::default();
 
@@ -67,13 +70,14 @@ pub(crate) fn update_interpolation_history(
                 server_complete_tick,
                 current_interpolate_tick,
                 interpolation_overstep,
-                interpolation: component.interpolation(),
+                tick_duration,
             };
             (component.update_history())(
                 world,
                 archetype,
+                &interpolation_registry,
                 component,
-                ctx,
+                &ctx,
                 replication_storage.as_deref_mut(),
                 &mut deferred_apply,
             );
@@ -92,6 +96,7 @@ pub(crate) fn apply_interpolation(
     mut interpolation_world: InterpolationWorld,
     clients: Query<&InterpolationTimeline, Without<Interpolated>>,
     interpolation_registry: Res<InterpolationRegistry>,
+    tick_duration: Option<Res<TickDuration>>,
 ) {
     // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
@@ -103,6 +108,7 @@ pub(crate) fn apply_interpolation(
     let ctx = ApplyInterpolationContext {
         interpolation_tick: current_interpolate_tick,
         interpolation_overstep,
+        tick_duration: tick_duration.as_deref().map(|duration| duration.0),
     };
 
     interpolation_world.update_archetypes(&interpolation_registry);
@@ -123,8 +129,9 @@ pub(crate) fn apply_interpolation(
 pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
+    interpolation_registry: &InterpolationRegistry,
     component: &CachedInterpolationComponent,
-    ctx: UpdateHistoryContext,
+    ctx: &UpdateHistoryContext,
     _replication_storage: Option<&mut ReplicationStorage>,
     deferred_apply: &mut DeferredEntityCommands,
 ) {
@@ -144,16 +151,18 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
         return;
     };
     let present = component.live_component_present();
+    let interpolation = interpolation_registry.interpolation_for_rule::<C>(component.rule_id());
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let row = entity.table_row().index();
         let history = unsafe { &mut *histories.get_unchecked(row).get() };
         update_history_inner::<C>(history, entity_id, ctx);
         let sample = sample_history_with_interpolation(
-            ctx.interpolation,
+            interpolation,
             history,
             ctx.current_interpolate_tick,
             ctx.interpolation_overstep,
+            ctx.tick_duration,
         );
         queue_history_presence::<C>(deferred_apply, entity_id, present, sample);
     }
@@ -162,8 +171,9 @@ pub(crate) fn update_history_archetype_erased<C: Component + Clone>(
 pub(crate) fn update_history_diff_archetype_erased<C>(
     world: UnsafeWorldCell,
     archetype: &Archetype,
+    interpolation_registry: &InterpolationRegistry,
     component: &CachedInterpolationComponent,
-    ctx: UpdateHistoryContext,
+    ctx: &UpdateHistoryContext,
     replication_storage: Option<&mut ReplicationStorage>,
     deferred_apply: &mut DeferredEntityCommands,
 ) where
@@ -188,6 +198,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
         return;
     };
     let present = component.live_component_present();
+    let interpolation = interpolation_registry.interpolation_for_rule::<C>(component.rule_id());
     for entity in archetype.entities() {
         let entity_id = entity.id();
         let Some(history_diff_receiver) = storage.get_mut::<HistoryDiffReceiver<C>>(entity_id)
@@ -224,10 +235,11 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
         }
 
         let sample = sample_history_with_interpolation(
-            ctx.interpolation,
+            interpolation,
             history,
             ctx.current_interpolate_tick,
             ctx.interpolation_overstep,
+            ctx.tick_duration,
         );
         queue_history_presence::<C>(deferred_apply, entity_id, present, sample);
     }
@@ -236,7 +248,7 @@ pub(crate) fn update_history_diff_archetype_erased<C>(
 fn update_history_inner<C: Component + Clone>(
     history: &mut ConfirmedHistory<C>,
     entity: Entity,
-    ctx: UpdateHistoryContext,
+    ctx: &UpdateHistoryContext,
 ) {
     // Replicon's marker fns already ran before this system. If this component received an
     // explicit update or removal at the completed server tick T, `write_history` /
@@ -330,16 +342,17 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
     else {
         return;
     };
-    let components = component_table_column::<C>(world, archetype, table);
+    let interpolation = interpolation_registry.interpolation_for_rule::<C>(rule_id);
 
     for entity in archetype.entities() {
         let row = entity.table_row().index();
         let history = unsafe { &*histories.get_unchecked(row).get() };
-        let Some(HistoryState::Updated(interpolated)) = interpolation_registry.sample_for_rule(
-            rule_id,
+        let Some(HistoryState::Updated(interpolated)) = sample_history_with_interpolation(
+            interpolation,
             history,
             ctx.interpolation_tick,
             ctx.interpolation_overstep,
+            ctx.tick_duration,
         ) else {
             continue;
         };
@@ -355,13 +368,10 @@ pub(crate) fn apply_interpolation_archetype_erased<C: SyncComponent>(
             history_len = history.len(),
             "applied interpolation"
         );
-        match components {
-            ComponentTableColumn::Table(components) => {
-                let component = unsafe { &mut *components.get_unchecked(row).get() };
-                *component = interpolated;
-            }
-            ComponentTableColumn::Missing => {}
-            ComponentTableColumn::NonTable => {}
+        // SAFETY: the erased interpolation system declares write access to C,
+        // and no reference to this entity's live C is held here.
+        unsafe {
+            write_component_with_change_detection::<C>(world, entity.id(), interpolated);
         }
     }
 }
@@ -398,7 +408,9 @@ mod tests {
     use super::*;
     use crate::registry::AppInterpolationExt;
     use crate::registry::{InterpolationRegistry, InterpolationRuleComponentIds};
-    use crate::rules::{InterpolationFns, InterpolationFnsExt, InterpolationRuleConfig};
+    use crate::rules::{
+        InterpolationFns, InterpolationFnsExt, InterpolationRuleConfig, InterpolationSampleContext,
+    };
     use alloc::vec;
     use bevy_app::{App, Update};
     use bevy_ecs::archetype::Archetype;
@@ -417,6 +429,7 @@ mod tests {
     use bevy_time::TimePlugin;
     use core::sync::atomic::{AtomicUsize, Ordering};
     use lightyear_core::prelude::Interpolated;
+    use lightyear_core::tick::TickDuration;
     use lightyear_core::time::TickInstant;
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::diff_history::HistoryDiffReceiver;
@@ -470,6 +483,10 @@ mod tests {
         TestComp(start.0 + (end.0 - start.0) * t)
     }
 
+    fn context_lerp(_start: TestComp, _end: TestComp, ctx: InterpolationSampleContext) -> TestComp {
+        TestComp(ctx.t + ctx.sample_delta_secs.unwrap_or_default())
+    }
+
     fn marker_lerp(_start: TestComp, _end: TestComp, _t: f32) -> TestComp {
         TestComp(42.0)
     }
@@ -482,6 +499,17 @@ mod tests {
         (
             TestComp(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
             TestComp2(200.0 + start.1.0 + (end.1.0 - start.1.0) * t),
+        )
+    }
+
+    fn bundle_context_lerp(
+        _start: (TestComp, TestComp2),
+        _end: (TestComp, TestComp2),
+        ctx: InterpolationSampleContext,
+    ) -> (TestComp, TestComp2) {
+        (
+            TestComp(ctx.t),
+            TestComp2(ctx.sample_delta_secs.unwrap_or_default()),
         )
     }
 
@@ -673,6 +701,19 @@ mod tests {
         insert_confirmed_history(&mut app, default_entity, two_point_history());
         let filtered_entity = app.world_mut().spawn((TestComp(0.0), SmoothRule)).id();
         insert_confirmed_history(&mut app, filtered_entity, two_point_history());
+        app.world_mut().clear_trackers();
+        let default_changed = app
+            .world()
+            .entity(default_entity)
+            .get_change_ticks::<TestComp>()
+            .unwrap()
+            .changed;
+        let filtered_changed = app
+            .world()
+            .entity(filtered_entity)
+            .get_change_ticks::<TestComp>()
+            .unwrap()
+            .changed;
 
         app.update();
 
@@ -683,6 +724,22 @@ mod tests {
         assert_eq!(
             app.world().get::<TestComp>(filtered_entity),
             Some(&TestComp(42.0))
+        );
+        assert_ne!(
+            app.world()
+                .entity(default_entity)
+                .get_change_ticks::<TestComp>()
+                .unwrap()
+                .changed,
+            default_changed
+        );
+        assert_ne!(
+            app.world()
+                .entity(filtered_entity)
+                .get_change_ticks::<TestComp>()
+                .unwrap()
+                .changed,
+            filtered_changed
         );
     }
 
@@ -739,6 +796,26 @@ mod tests {
     }
 
     #[test]
+    fn contextual_interpolation_receives_sample_delta() {
+        let mut app = setup_app(Tick(15), 40);
+        app.world_mut()
+            .insert_resource(TickDuration(core::time::Duration::from_millis(50)));
+        insert_rule::<TestComp, ()>(
+            &mut app,
+            InterpolationFns::interpolate_with_context(context_lerp),
+            InterpolationRuleConfig { priority: 100 },
+        );
+        add_interpolation_test_systems(&mut app);
+
+        let entity = app.world_mut().spawn(TestComp(0.0)).id();
+        insert_confirmed_history(&mut app, entity, two_point_history());
+
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(1.0)));
+    }
+
+    #[test]
     fn selected_history_only_rule_suppresses_default_apply() {
         let mut app = setup_app(Tick(15), 40);
         add_interpolation_test_systems(&mut app);
@@ -784,6 +861,7 @@ mod tests {
         let mut app = App::new();
         app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
         app.insert_resource(ReplicationCheckpointMap::default());
+        app.insert_resource(TickDuration(core::time::Duration::from_millis(100)));
         app.configure_sets(
             Update,
             (
@@ -815,6 +893,19 @@ mod tests {
                 two_point_history2(),
             ))
             .id();
+        app.world_mut().clear_trackers();
+        let first_changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<TestComp>()
+            .unwrap()
+            .changed;
+        let second_changed = app
+            .world()
+            .entity(entity)
+            .get_change_ticks::<TestComp2>()
+            .unwrap()
+            .changed;
 
         app.update();
 
@@ -823,6 +914,66 @@ mod tests {
             app.world().get::<TestComp2>(entity),
             Some(&TestComp2(205.0))
         );
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<TestComp>()
+                .unwrap()
+                .changed,
+            first_changed
+        );
+        assert_ne!(
+            app.world()
+                .entity(entity)
+                .get_change_ticks::<TestComp2>()
+                .unwrap()
+                .changed,
+            second_changed
+        );
+    }
+
+    #[test]
+    fn bundle_contextual_interpolation_receives_sample_delta() {
+        let mut app = App::new();
+        app.add_plugins((TimePlugin, StatesPlugin, RepliconPlugins));
+        app.insert_resource(ReplicationCheckpointMap::default());
+        app.insert_resource(TickDuration(core::time::Duration::from_millis(100)));
+        app.configure_sets(
+            Update,
+            (
+                crate::plugin::InterpolationSystems::Prepare,
+                crate::plugin::InterpolationSystems::Interpolate,
+            )
+                .chain(),
+        );
+        add_interpolation_test_systems(&mut app);
+        app.component::<TestComp>().replicate();
+        app.component::<TestComp2>().replicate();
+        app.interpolate_bundle_with::<(TestComp, TestComp2)>(
+            InterpolationFns::interpolate_with_context(bundle_context_lerp),
+        );
+
+        let mut timeline = InterpolationTimeline::default();
+        timeline.set_now(TickInstant::from(Tick(15)));
+        timeline.remote_send_interval = core::time::Duration::from_millis(40);
+        app.world_mut()
+            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                Interpolated,
+                TestComp(-1.0),
+                TestComp2(-1.0),
+                two_point_history(),
+                two_point_history2(),
+            ))
+            .id();
+
+        app.update();
+
+        assert_eq!(app.world().get::<TestComp>(entity), Some(&TestComp(0.5)));
+        assert_eq!(app.world().get::<TestComp2>(entity), Some(&TestComp2(1.0)));
     }
 
     #[test]
