@@ -70,7 +70,9 @@ impl Plugin for SharedPlugin {
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             replication_mode: AvianReplicationMode::Position {
-                sync_to_transform: false,
+                // `update_homing_missiles` authors missile rotation through Transform in
+                // FixedUpdate, so import those changes before Avian physics runs.
+                sync_to_transform: true,
             },
             ..default()
         });
