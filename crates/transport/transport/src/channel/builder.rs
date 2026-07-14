@@ -322,53 +322,6 @@ pub struct SenderMetadata {
     pub(crate) name: DebugName,
 }
 
-// fn on_add<C: Channel>(mut world: DeferredWorld, context: HookContext) {
-//     let entity = context.entity;
-//     let mut registry = world.resource_mut::<ChannelRegistry>();
-//     // TODO: merge settings and SenderId in a SenderMetadata so that we don't fetch twice
-//     let Some(settings) = registry.settings::<C>() else {
-//         panic!("ChannelSettings not found for channel {}", DebugName::type_name::<C>());
-//     };
-//     let sender_id = registry.get_sender_id::<C>().unwrap();
-//     let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-//     let receiver: ChannelReceiverEnum;
-//     let sender: ChannelSenderEnum;
-//     let mode = settings.mode;
-//     match settings.mode {
-//         ChannelMode::UnorderedUnreliableWithAcks => {
-//             receiver = UnorderedUnreliableReceiver::new().into();
-//             sender = UnorderedUnreliableWithAcksSender::new(settings.send_frequency).into();
-//         }
-//         ChannelMode::UnorderedUnreliable => {
-//             receiver = UnorderedUnreliableReceiver::new().into();
-//             sender = UnorderedUnreliableSender::new(settings.send_frequency).into();
-//         }
-//         ChannelMode::SequencedUnreliable => {
-//             receiver = SequencedUnreliableReceiver::new().into();
-//             sender = SequencedUnreliableSender::new(settings.send_frequency).into();
-//         }
-//         ChannelMode::UnorderedReliable(reliable_settings) => {
-//             receiver = UnorderedReliableReceiver::new().into();
-//             sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-//         }
-//         ChannelMode::SequencedReliable(reliable_settings) => {
-//             receiver = SequencedReliableReceiver::new().into();
-//             sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-//         }
-//         ChannelMode::OrderedReliable(reliable_settings) => {
-//             receiver = OrderedReliableReceiver::new().into();
-//             sender = ReliableSender::new(reliable_settings, settings.send_frequency).into();
-//         }
-//     }
-//     let mut entity_mut = world.entity_mut(entity);
-//     let mut channel_sender = entity_mut.get_mut::<ChannelSender<C>>().unwrap();
-//     channel_sender.sender = sender;
-//     channel_sender.channel_id = channel_id;
-//     let mut transport = entity_mut.get_mut::<Transport>().unwrap();
-//     transport.add_sender::<C>(sender_id, mode);
-//     transport.receivers.insert(channel_id, receiver);
-// }
-
 #[derive(Clone, Copy, Debug, PartialEq)]
 /// ChannelMode specifies how messages are sent and received
 /// See more information [here](https://web.archive.org/web/20250113064633/http://www.jenkinssoftware.com/raknet/manual/reliabilitytypes.html)
@@ -438,13 +391,6 @@ impl ReliableSettings {
         core::cmp::max(delay, self.rtt_resend_min_delay)
     }
 }
-
-/// Default channel to send inputs from client to server. This is a Sequenced Unreliable channel.
-pub struct InputChannel;
-
-/// Channel to send messages related to Authority transfers
-/// This is an Ordered Reliable channel
-pub struct AuthorityChannel;
 
 #[cfg(all(test, feature = "compression_lz4"))]
 mod tests {

@@ -36,18 +36,29 @@ pub(crate) enum SendMessageKey {
     ReliableFragment(MessageId, FragmentIndex),
 }
 
+impl SendMessageKey {
+    /// Position of this message in its channel's current pending order.
+    pub(crate) fn send_order(self) -> u64 {
+        match self {
+            Self::UnreliableSingle(index) | Self::UnreliableFragment(index) => index as u64,
+            Self::ReliableSingle(message_id) | Self::ReliableFragment(message_id, _) => {
+                u64::from(message_id.0)
+            }
+        }
+    }
+}
+
 /// A cheap snapshot of a channel-owned message which is eligible for packet staging.
 ///
-/// Cloning a candidate only clones its [`Bytes`] handle. The underlying message allocation remains
-/// owned by the channel until [`ChannelSend::commit_send`](crate::channel::senders::ChannelSend::commit_send)
-/// is called after the final packet enters `Link.send`.
-#[derive(Clone, Debug, PartialEq)]
+/// Creating a candidate clones only its [`Bytes`] handle. The underlying message allocation
+/// remains owned by the channel until
+/// [`ChannelSend::commit_send`](crate::channel::senders::ChannelSend::commit_send) is called after
+/// the final packet enters `Link.send`.
+#[derive(Debug)]
 pub(crate) struct SendCandidate {
     pub(crate) channel_kind: ChannelKind,
     pub(crate) channel_id: ChannelId,
     pub(crate) key: SendMessageKey,
-    /// Per-channel enqueue order used as a deterministic priority tie-breaker.
-    pub(crate) stable_order: u64,
     pub(crate) message: SendMessage,
     pub(crate) effective_priority: f32,
 }
@@ -57,14 +68,12 @@ impl SendCandidate {
         channel_kind: ChannelKind,
         channel_id: ChannelId,
         key: SendMessageKey,
-        stable_order: u64,
         message: SendMessage,
     ) -> Self {
         Self {
             channel_kind,
             channel_id,
             key,
-            stable_order,
             effective_priority: message.priority,
             message,
         }
@@ -120,26 +129,10 @@ impl MessageData {
         }
     }
 
-    #[allow(unused)]
-    pub fn set_id(&mut self, id: MessageId) {
-        match self {
-            MessageData::Single(data) => data.id = Some(id),
-            MessageData::Fragment(data) => data.message_id = id,
-        };
-    }
-
     pub fn bytes_len(&self) -> usize {
         match self {
             MessageData::Single(data) => data.bytes_len(),
             MessageData::Fragment(data) => data.bytes_len(),
-        }
-    }
-
-    #[allow(unused)]
-    pub fn bytes(&self) -> Bytes {
-        match self {
-            MessageData::Single(data) => data.bytes.clone(),
-            MessageData::Fragment(data) => data.bytes.clone(),
         }
     }
 }

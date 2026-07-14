@@ -7,6 +7,7 @@ use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::{
     ChannelSend, PendingSendMessage, SendFlushOutcome, commit_unreliable_candidate,
+    is_ready_to_send,
 };
 use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{
@@ -26,13 +27,11 @@ pub struct UnorderedUnreliableSender {
     /// Fragmented messages need an id (so they can be reconstructed), this keeps track
     /// of the next id to use
     next_send_fragmented_message_id: MessageId,
-    next_send_order: u64,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
     retry_unsent_messages: bool,
-    eligible_this_flush: bool,
 }
 
 impl UnorderedUnreliableSender {
@@ -46,11 +45,9 @@ impl UnorderedUnreliableSender {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
             next_send_fragmented_message_id: MessageId::default(),
-            next_send_order: 0,
             fragment_sender: FragmentSender::new(),
             timer,
             retry_unsent_messages,
-            eligible_this_flush: false,
         }
     }
 }
@@ -70,8 +67,6 @@ impl ChannelSend for UnorderedUnreliableSender {
         priority: f32,
         compression: CompressionConfig,
     ) -> Option<MessageId> {
-        let stable_order = self.next_send_order;
-        self.next_send_order = self.next_send_order.wrapping_add(1);
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments_for_message(
                 self.next_send_fragmented_message_id,
@@ -79,26 +74,20 @@ impl ChannelSend for UnorderedUnreliableSender {
                 compression,
             ) {
                 self.fragmented_messages_to_send
-                    .push_back(PendingSendMessage::new(
-                        SendMessage {
-                            data: MessageData::Fragment(fragment),
-                            priority,
-                        },
-                        stable_order,
-                    ));
+                    .push_back(PendingSendMessage::new(SendMessage {
+                        data: MessageData::Fragment(fragment),
+                        priority,
+                    }));
             }
             self.next_send_fragmented_message_id += 1;
             Some(self.next_send_fragmented_message_id - 1)
         } else {
             let single_data = SingleData::new(None, message);
             self.single_messages_to_send
-                .push_back(PendingSendMessage::new(
-                    SendMessage {
-                        data: MessageData::Single(single_data),
-                        priority,
-                    },
-                    stable_order,
-                ));
+                .push_back(PendingSendMessage::new(SendMessage {
+                    data: MessageData::Single(single_data),
+                    priority,
+                }));
             None
         }
     }
@@ -109,10 +98,9 @@ impl ChannelSend for UnorderedUnreliableSender {
         channel_id: ChannelId,
         output: &mut Vec<SendCandidate>,
     ) {
-        if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
+        if !is_ready_to_send(self.timer.as_ref()) {
             return;
         }
-        self.eligible_this_flush = true;
         output.extend(
             self.single_messages_to_send
                 .iter()
@@ -123,7 +111,6 @@ impl ChannelSend for UnorderedUnreliableSender {
                         channel_kind,
                         channel_id,
                         SendMessageKey::UnreliableSingle(index),
-                        pending.stable_order,
                         pending.message.clone(),
                     )
                 }),
@@ -138,7 +125,6 @@ impl ChannelSend for UnorderedUnreliableSender {
                         channel_kind,
                         channel_id,
                         SendMessageKey::UnreliableFragment(index),
-                        pending.stable_order,
                         pending.message.clone(),
                     )
                 }),
@@ -155,7 +141,7 @@ impl ChannelSend for UnorderedUnreliableSender {
     }
 
     fn finish_send(&mut self, outcome: SendFlushOutcome) {
-        let discard_unsent = self.eligible_this_flush
+        let discard_unsent = is_ready_to_send(self.timer.as_ref())
             && !self.retry_unsent_messages
             && outcome == SendFlushOutcome::BandwidthLimited;
         if discard_unsent {
@@ -168,7 +154,6 @@ impl ChannelSend for UnorderedUnreliableSender {
             self.fragmented_messages_to_send
                 .retain(|pending| !pending.committed);
         }
-        self.eligible_this_flush = false;
     }
 
     fn receive_ack(&mut self, _: &MessageAck) {}

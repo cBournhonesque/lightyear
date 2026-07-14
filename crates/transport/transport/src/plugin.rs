@@ -656,3 +656,87 @@ impl Plugin for TestTransportPlugin {
         app.add_plugins(TransportPlugin);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use alloc::{vec, vec::Vec};
+
+    use super::*;
+    use crate::channel::builder::{ChannelMode, ChannelSettings};
+    use crate::channel::registry::ChannelKind;
+    use crate::packet::priority_manager::PriorityConfig;
+    use bevy_ecs::system::RunSystemOnce;
+
+    struct RetryChannel;
+    struct DiscardChannel;
+
+    fn spawn_transport<C: crate::channel::Channel>(
+        world: &mut World,
+        settings: ChannelSettings,
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+    ) -> Entity {
+        let mut transport = Transport::new(PriorityConfig::new(1));
+        transport.add_sender::<C>((&settings).into(), settings.mode, channel_id);
+        for value in [1, 2] {
+            transport
+                .send_mut_erased(channel_kind, Bytes::from(vec![value; 1000]), 1.0)
+                .unwrap();
+        }
+        world.spawn((Link::default(), Linked, transport)).id()
+    }
+
+    fn pending_candidates<C: crate::channel::Channel>(world: &mut World, entity: Entity) -> usize {
+        let mut entity = world.entity_mut(entity);
+        let mut transport = entity.get_mut::<Transport>().unwrap();
+        let channel_kind = ChannelKind::of::<C>();
+        let mut candidates = Vec::new();
+        let metadata = transport.senders.get_mut(&channel_kind).unwrap();
+        metadata
+            .sender
+            .collect_send_candidates(channel_kind, metadata.channel_id, &mut candidates);
+        candidates.len()
+    }
+
+    #[test]
+    fn bandwidth_limited_flush_applies_each_channels_retry_policy() {
+        let retry_settings = ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            retry_unsent_messages: true,
+            ..Default::default()
+        };
+        let discard_settings = ChannelSettings {
+            retry_unsent_messages: false,
+            ..retry_settings
+        };
+        let mut registry = ChannelRegistry::default();
+        let (retry_kind, retry_id) = registry.add_channel::<RetryChannel>(retry_settings);
+        let (discard_kind, discard_id) = registry.add_channel::<DiscardChannel>(discard_settings);
+
+        let mut world = World::new();
+        world.insert_resource(registry);
+        world.init_resource::<Time<Real>>();
+        world.init_resource::<LocalTimeline>();
+        let retry_entity =
+            spawn_transport::<RetryChannel>(&mut world, retry_settings, retry_kind, retry_id);
+        let discard_entity = spawn_transport::<DiscardChannel>(
+            &mut world,
+            discard_settings,
+            discard_kind,
+            discard_id,
+        );
+
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+
+        assert_eq!(world.get::<Link>(retry_entity).unwrap().send.len(), 1);
+        assert_eq!(world.get::<Link>(discard_entity).unwrap().send.len(), 1);
+        assert_eq!(
+            pending_candidates::<RetryChannel>(&mut world, retry_entity),
+            1
+        );
+        assert_eq!(
+            pending_candidates::<DiscardChannel>(&mut world, discard_entity),
+            0
+        );
+    }
+}

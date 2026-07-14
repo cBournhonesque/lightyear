@@ -111,16 +111,11 @@ mod tests {
     use crate::packet::header::{PacketHeader, PacketHeaderManager};
     use crate::packet::message::{FragmentData, SingleData};
     use crate::packet::packet_type::PacketType;
-    use bevy_app::App;
     use bevy_platform::collections::HashMap;
-    use bevy_reflect::Reflect;
-    use bevy_utils::default;
     use bytes::Bytes;
     use lightyear_core::prelude::Tick;
 
     use super::*;
-    use crate::channel::builder::{ChannelMode, ChannelSettings};
-    use crate::channel::registry::{AppChannelExt, ChannelRegistry};
     use crate::packet::error::PacketError;
     use lightyear_serde::reader::ReadInteger;
     use lightyear_serde::{SerializationError, ToBytes};
@@ -156,27 +151,6 @@ mod tests {
         }
     }
 
-    #[derive(Reflect)]
-    struct Channel1;
-
-    #[derive(Reflect)]
-    struct Channel2;
-
-    fn get_channel_registry() -> ChannelRegistry {
-        let mut app = App::new();
-
-        let settings = ChannelSettings {
-            mode: ChannelMode::UnorderedUnreliable,
-            ..default()
-        };
-        app.init_resource::<ChannelRegistry>();
-        app.add_channel::<Channel1>(settings);
-        app.add_channel::<Channel2>(settings);
-        app.world_mut()
-            .remove_resource::<ChannelRegistry>()
-            .unwrap()
-    }
-
     #[test]
     fn header_bytes_constant_matches_packet_header_encoding() {
         let header =
@@ -188,141 +162,4 @@ mod tests {
         assert_eq!(writer.len(), HEADER_BYTES);
         assert_eq!(header.bytes_len(), HEADER_BYTES);
     }
-
-    // #[test]
-    // fn test_single_packet_add_messages() {
-    //     let channel_registry = get_channel_registry();
-    //     let manager = PacketBuilder::new(1.5);
-    //     let mut packet = SinglePacket::new();
-    //
-    //     packet.add_message(0, SingleData::new(None, Bytes::from("hello")));
-    //     packet.add_message(0, SingleData::new(None, Bytes::from("world")));
-    //     packet.add_message(1, SingleData::new(None, Bytes::from("!")));
-    //
-    //     assert_eq!(packet.num_messages(), 3);
-    // }
-    //
-    // #[test]
-    // fn test_encode_single_packet() -> anyhow::Result<()> {
-    //     let channel_registry = get_channel_registry();
-    //     let manager = PacketBuilder::new(1.5);
-    //     let mut packet = SinglePacket::new();
-    //
-    //     let mut write_buffer = BitcodeWriter::with_capacity(50);
-    //     let message1 = SingleData::new(None, Bytes::from("hello"));
-    //     let message2 = SingleData::new(None, Bytes::from("world"));
-    //     let message3 = SingleData::new(None, Bytes::from("!"));
-    //
-    //     packet.add_message(0, message1.clone());
-    //     packet.add_message(0, message2.clone());
-    //     packet.add_message(1, message3.clone());
-    //     // add a channel with no messages
-    //     packet.add_channel(2);
-    //
-    //     packet.encode(&mut write_buffer)?;
-    //     let packet_bytes = write_buffer.finish_write();
-    //
-    //     // Encode manually
-    //     let mut expected_write_buffer = BitcodeWriter::with_capacity(50);
-    //     // channel id
-    //     expected_write_buffer.encode(&0u16, Gamma)?;
-    //     // messages, with continuation bit
-    //     expected_write_buffer.serialize(&true)?;
-    //     message1.encode(&mut expected_write_buffer)?;
-    //     expected_write_buffer.serialize(&true)?;
-    //     message2.encode(&mut expected_write_buffer)?;
-    //     expected_write_buffer.serialize(&false)?;
-    //     // channel continue bit
-    //     expected_write_buffer.serialize(&true)?;
-    //     // channel id
-    //     expected_write_buffer.encode(&1u16, Gamma)?;
-    //     // messages with continuation bit
-    //     expected_write_buffer.serialize(&true)?;
-    //     message3.encode(&mut expected_write_buffer)?;
-    //     expected_write_buffer.serialize(&false)?;
-    //     // channel continue bit
-    //     expected_write_buffer.serialize(&true)?;
-    //     // channel id
-    //     expected_write_buffer.encode(&2u16, Gamma)?;
-    //     // messages with continuation bit
-    //     expected_write_buffer.serialize(&false)?;
-    //     // channel continue bit
-    //     expected_write_buffer.serialize(&false)?;
-    //
-    //     let expected_packet_bytes = expected_write_buffer.finish_write();
-    //
-    //     assert_eq!(packet_bytes, expected_packet_bytes);
-    //
-    //     let mut reader = BitcodeReader::start_read(packet_bytes);
-    //     let decoded_packet = SinglePacket::decode(&mut reader)?;
-    //
-    //     assert_eq!(decoded_packet.num_messages(), 3);
-    //     assert_eq!(packet, decoded_packet);
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_encode_fragmented_packet() -> anyhow::Result<()> {
-    //     let channel_registry = get_channel_registry();
-    //     let manager = PacketBuilder::new(1.5);
-    //     let channel_kind = ChannelKind::of::<Channel1>();
-    //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-    //     let bytes = Bytes::from(vec![0; 10]);
-    //     let fragment = FragmentData {
-    //         message_id: MessageId(0),
-    //         fragment_id: 2,
-    //         num_fragments: 3,
-    //         bytes: bytes.clone(),
-    //     };
-    //     let mut packet = FragmentedPacket::new(*channel_id, fragment.clone());
-    //
-    //     let mut write_buffer = BitcodeWriter::with_capacity(100);
-    //     let message1 = SingleData::new(None, Bytes::from("hello"));
-    //     let message2 = SingleData::new(None, Bytes::from("world"));
-    //     let message3 = SingleData::new(None, Bytes::from("!"));
-    //
-    //     packet.packet.add_message(0, message1.clone());
-    //     packet.packet.add_message(0, message2.clone());
-    //     packet.packet.add_message(1, message3.clone());
-    //     // add a channel with no messages
-    //     packet.packet.add_channel(2);
-    //
-    //     packet.encode(&mut write_buffer)?;
-    //     let packet_bytes = write_buffer.finish_write();
-    //
-    //     let mut reader = BitcodeReader::start_read(packet_bytes);
-    //     let decoded_packet = FragmentedPacket::decode(&mut reader)?;
-    //
-    //     assert_eq!(decoded_packet.packet.num_messages(), 3);
-    //     assert_eq!(packet, decoded_packet);
-    //     Ok(())
-    // }
-    //
-    // #[test]
-    // fn test_encode_fragmented_packet_no_single_data() -> anyhow::Result<()> {
-    //     let channel_registry = get_channel_registry();
-    //     let manager = PacketBuilder::new(1.5);
-    //     let channel_kind = ChannelKind::of::<Channel1>();
-    //     let channel_id = channel_registry.get_net_from_kind(&channel_kind).unwrap();
-    //     let bytes = Bytes::from(vec![0; 10]);
-    //     let fragment = FragmentData {
-    //         message_id: MessageId(0),
-    //         fragment_id: 2,
-    //         num_fragments: 3,
-    //         bytes: bytes.clone(),
-    //     };
-    //     let packet = FragmentedPacket::new(*channel_id, fragment.clone());
-    //
-    //     let mut write_buffer = BitcodeWriter::with_capacity(100);
-    //
-    //     packet.encode(&mut write_buffer)?;
-    //     let packet_bytes = write_buffer.finish_write();
-    //
-    //     let mut reader = BitcodeReader::start_read(packet_bytes);
-    //     let decoded_packet = FragmentedPacket::decode(&mut reader)?;
-    //
-    //     assert_eq!(decoded_packet.packet.num_messages(), 0);
-    //     assert_eq!(packet, decoded_packet);
-    //     Ok(())
-    // }
 }

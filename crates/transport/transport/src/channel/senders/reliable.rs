@@ -5,7 +5,7 @@ use bevy_time::{Real, Time, Timer, TimerMode};
 use crate::channel::builder::ReliableSettings;
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::fragment_sender::FragmentSender;
-use crate::channel::senders::{ChannelSend, SendFlushOutcome};
+use crate::channel::senders::{ChannelSend, SendFlushOutcome, is_ready_to_send};
 use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{
     FragmentData, MessageAck, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
@@ -147,7 +147,7 @@ impl ChannelSend for ReliableSender {
         channel_id: ChannelId,
         output: &mut Vec<SendCandidate>,
     ) {
-        if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
+        if !is_ready_to_send(self.timer.as_ref()) {
             return;
         }
 
@@ -189,7 +189,6 @@ impl ChannelSend for ReliableSender {
                             channel_kind,
                             channel_id,
                             SendMessageKey::ReliableSingle(*message_id),
-                            u64::from(message_id.0),
                             SendMessage {
                                 data: SingleData::new(Some(*message_id), bytes.clone()).into(),
                                 priority: unacked_message_with_priority.accumulated_priority,
@@ -207,7 +206,6 @@ impl ChannelSend for ReliableSender {
                                 channel_kind,
                                 channel_id,
                                 SendMessageKey::ReliableFragment(*message_id, f.data.fragment_id),
-                                u64::from(message_id.0),
                                 SendMessage {
                                     data: f.data.clone().into(),
                                     priority: unacked_message_with_priority.accumulated_priority,

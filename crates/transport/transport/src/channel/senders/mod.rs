@@ -10,7 +10,7 @@ use crate::packet::message::{
 use crate::prelude::{ChannelMode, ChannelSettings};
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
-use bevy_time::{Real, Time};
+use bevy_time::{Real, Time, Timer};
 use bytes::Bytes;
 use core::time::Duration;
 use enum_dispatch::enum_dispatch;
@@ -79,7 +79,6 @@ pub(crate) trait ChannelSend {
 #[derive(Debug)]
 pub(super) struct PendingSendMessage {
     pub(super) message: SendMessage,
-    pub(super) stable_order: u64,
     pub(super) committed: bool,
     /// Once one fragment is admitted, retain the rest even on a discard-unsent channel so the
     /// local sender does not guarantee an incomplete fragmented message.
@@ -87,10 +86,9 @@ pub(super) struct PendingSendMessage {
 }
 
 impl PendingSendMessage {
-    pub(super) fn new(message: SendMessage, stable_order: u64) -> Self {
+    pub(super) fn new(message: SendMessage) -> Self {
         Self {
             message,
-            stable_order,
             committed: false,
             fragment_started: false,
         }
@@ -102,6 +100,10 @@ impl PendingSendMessage {
         };
         Some(fragment.message_id)
     }
+}
+
+pub(super) fn is_ready_to_send(timer: Option<&Timer>) -> bool {
+    timer.is_none_or(Timer::is_finished)
 }
 
 pub(super) fn commit_unreliable_candidate(

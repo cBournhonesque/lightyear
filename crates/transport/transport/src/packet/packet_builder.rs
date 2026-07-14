@@ -530,7 +530,6 @@ mod tests {
             channel_kind,
             channel_id,
             SendMessageKey::UnreliableSingle(index),
-            index as u64,
             SendMessage {
                 data: SingleData::new(None, bytes).into(),
                 priority: 1.0,
@@ -551,7 +550,6 @@ mod tests {
                     channel_kind,
                     channel_id,
                     SendMessageKey::UnreliableFragment(index),
-                    u64::from(fragment.message_id.0),
                     SendMessage {
                         data: fragment.into(),
                         priority: 1.0,
@@ -816,7 +814,6 @@ mod tests {
                     channel_kind,
                     channel_id,
                     SendMessageKey::UnreliableFragment(key_offset + fragment_index),
-                    u64::from(message_id.0),
                     SendMessage {
                         data: FragmentData {
                             message_id,
@@ -836,7 +833,6 @@ mod tests {
                 channel_kind,
                 channel_id,
                 SendMessageKey::UnreliableSingle(index),
-                (index + 2) as u64,
                 SendMessage {
                     data: SingleData::new(None, Bytes::from(vec![index as u8; 100])).into(),
                     priority: 1.0,
@@ -886,7 +882,6 @@ mod tests {
                     channel_kind,
                     channel_id,
                     SendMessageKey::UnreliableSingle(index),
-                    index as u64,
                     SendMessage {
                         data: SingleData::new(None, Bytes::new()).into(),
                         priority: 1.0,

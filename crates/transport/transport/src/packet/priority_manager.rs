@@ -137,10 +137,14 @@ impl PriorityManager {
         match (&a.message.data, &b.message.data) {
             (MessageData::Fragment(_), MessageData::Single(_)) => core::cmp::Ordering::Less,
             (MessageData::Single(_), MessageData::Fragment(_)) => core::cmp::Ordering::Greater,
-            (MessageData::Single(a), MessageData::Single(b)) => a.bytes_len().cmp(&b.bytes_len()),
-            (MessageData::Fragment(_), MessageData::Fragment(_)) => core::cmp::Ordering::Equal,
+            (MessageData::Single(a_message), MessageData::Single(b_message)) => a_message
+                .bytes_len()
+                .cmp(&b_message.bytes_len())
+                .then_with(|| a.key.send_order().cmp(&b.key.send_order())),
+            (MessageData::Fragment(a_fragment), MessageData::Fragment(b_fragment)) => {
+                a_fragment.message_id.cmp(&b_fragment.message_id)
+            }
         }
-        .then_with(|| a.stable_order.cmp(&b.stable_order))
         .then_with(|| a.channel_id.cmp(&b.channel_id))
         .then_with(|| a.key.cmp(&b.key))
     }
@@ -200,7 +204,6 @@ mod tests {
             ChannelKind::of::<TurnTrafficChannel>(),
             10,
             SendMessageKey::UnreliableSingle(0),
-            1,
             SendMessage {
                 priority: 100.0,
                 data: SingleData::new(None, Bytes::from_static(b"larger-single")).into(),
@@ -210,7 +213,6 @@ mod tests {
             ChannelKind::of::<FragmentChannel>(),
             5,
             SendMessageKey::UnreliableFragment(0),
-            2,
             SendMessage {
                 priority: 0.1,
                 data: FragmentData {
@@ -227,7 +229,6 @@ mod tests {
             ChannelKind::of::<PingLikeChannel>(),
             1,
             SendMessageKey::UnreliableSingle(0),
-            0,
             SendMessage {
                 priority: 1.0,
                 data: SingleData::new(None, Bytes::from_static(b"small")).into(),
@@ -265,7 +266,6 @@ mod tests {
                 traffic_kind,
                 traffic_channel,
                 SendMessageKey::UnreliableSingle(index),
-                index as u64,
                 SendMessage {
                     priority: 1.0,
                     data: SingleData::new(None, Bytes::from(vec![index as u8; 8])).into(),
@@ -276,7 +276,6 @@ mod tests {
             ping_kind,
             ping_channel,
             SendMessageKey::UnreliableSingle(0),
-            0,
             SendMessage {
                 priority: 1.0,
                 data: SingleData::new(None, Bytes::from_static(b"ping")).into(),
@@ -312,7 +311,6 @@ mod tests {
             fragment_kind,
             fragment_channel,
             SendMessageKey::UnreliableFragment(0),
-            0,
             SendMessage {
                 data: FragmentData {
                     message_id: MessageId(0),
@@ -329,7 +327,6 @@ mod tests {
             ping_kind,
             ping_channel,
             SendMessageKey::UnreliableSingle(0),
-            0,
             SendMessage {
                 data: SingleData::new(None, Bytes::from_static(b"urgent")).into(),
                 priority: 1.0,
@@ -357,7 +354,6 @@ mod tests {
             kind,
             channel,
             SendMessageKey::UnreliableSingle(0),
-            0,
             SendMessage {
                 priority: 1.0,
                 data: SingleData::new(None, Bytes::from_static(b"larger-single")).into(),
@@ -367,7 +363,6 @@ mod tests {
             kind,
             channel,
             SendMessageKey::UnreliableSingle(1),
-            1,
             SendMessage {
                 priority: 1.0,
                 data: SingleData::new(None, Bytes::from_static(b"small")).into(),
@@ -377,7 +372,6 @@ mod tests {
             kind,
             channel,
             SendMessageKey::UnreliableFragment(0),
-            2,
             SendMessage {
                 priority: 1.0,
                 data: FragmentData {
@@ -401,6 +395,49 @@ mod tests {
             panic!("expected two single candidates")
         };
         assert!(small.message.data.bytes_len() < large.message.data.bytes_len());
+    }
+
+    #[test]
+    fn fragment_order_uses_existing_message_and_fragment_ids() {
+        let mut registry = ChannelRegistry::default();
+        let (kind, channel) = registry.add_channel::<FragmentChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            priority: 1.0,
+            ..Default::default()
+        });
+        let mut manager = PriorityManager::new(PriorityConfig::new(1024));
+        for (queue_index, message_id, fragment_id) in [(3, 1, 1), (1, 0, 1), (2, 1, 0), (0, 0, 0)] {
+            manager.candidates_mut().push(SendCandidate::new(
+                kind,
+                channel,
+                SendMessageKey::UnreliableFragment(queue_index),
+                SendMessage {
+                    priority: 1.0,
+                    data: FragmentData {
+                        message_id: MessageId(message_id),
+                        fragment_id: FragmentIndex(fragment_id),
+                        num_fragments: FragmentIndex(2),
+                        compression: (fragment_id == 0).then_some(FragmentCompression::None),
+                        bytes: Bytes::new(),
+                    }
+                    .into(),
+                },
+            ));
+        }
+
+        manager.prioritize(&registry);
+
+        let order = manager
+            .candidates()
+            .iter()
+            .map(|candidate| {
+                let MessageData::Fragment(fragment) = &candidate.message.data else {
+                    panic!("expected fragment candidate")
+                };
+                (fragment.message_id.0, fragment.fragment_id.0)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(order, [(0, 0), (0, 1), (1, 0), (1, 1)]);
     }
 
     #[test]

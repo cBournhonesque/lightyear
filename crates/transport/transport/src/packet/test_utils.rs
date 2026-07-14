@@ -171,7 +171,6 @@ impl PacketLoopFixture {
                         self.channel_kind,
                         self.channel_id,
                         SendMessageKey::UnreliableSingle(index),
-                        index as u64,
                         SendMessage {
                             data: SingleData::new(None, payload).into(),
                             priority: 1.0,

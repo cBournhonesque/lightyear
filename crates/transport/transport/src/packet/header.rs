@@ -1,5 +1,6 @@
 use alloc::{vec, vec::Vec};
 use bevy_platform::hash::FixedHasher;
+#[cfg(feature = "test_utils")]
 use core::convert::TryInto;
 use core::time::Duration;
 use indexmap::IndexMap;
@@ -82,6 +83,7 @@ impl PacketHeader {
     /// This is used by allocation-sensitive tests that parse a sent packet from `&[u8]` and then
     /// return the original `Vec<u8>` to `PacketBuilder`'s buffer pool. Normal receive code should
     /// keep using [`PacketHeader::from_bytes`], which advances a `Reader` past the header.
+    #[cfg(feature = "test_utils")]
     #[doc(hidden)]
     pub(crate) fn read_from_prefix(bytes: &[u8]) -> Result<Self, SerializationError> {
         if bytes.len() < Self::BYTES {
