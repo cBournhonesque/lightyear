@@ -4,8 +4,9 @@
 //! with an `Axis2D` output (Vec2) driving the player's acceleration, plus
 //! a `Player` context component on every player entity.
 //!
-//! Physics uses Avian2D in `AvianReplicationMode::Position`. A ball + walls
-//! are spawned locally on every peer as a deterministic init state.
+//! Physics uses Avian2D in
+//! `AvianReplicationMode::Position { sync_to_transform: false }`. A ball + walls are spawned
+//! locally on every peer as a deterministic init state.
 
 use avian2d::prelude::*;
 use avian2d::{
@@ -98,7 +99,8 @@ impl DetPhysicsBundle {
 /// Shared between server and clients — registers everything needed for
 /// deterministic replication: physics, BEI inputs, catch-up,
 /// frame-interpolation on Position/Rotation (required to preserve
-/// post-rollback state under `AvianReplicationMode::Position`).
+/// post-rollback state under
+/// `AvianReplicationMode::Position { sync_to_transform: false }`).
 #[derive(Clone, Copy, Debug, Default)]
 pub struct DetProtocolPlugin {
     pub enable_islands: bool,
@@ -121,7 +123,9 @@ impl Plugin for DetProtocolPlugin {
         register_avian_catchup_resources(app, self.enable_islands);
 
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
-            replication_mode: lightyear_avian2d::plugin::AvianReplicationMode::Position,
+            replication_mode: lightyear_avian2d::plugin::AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
             rollback_resources: true,
             ..default()
         });
@@ -137,12 +141,13 @@ impl Plugin for DetProtocolPlugin {
         app.add_plugins(physics_plugins);
         app.insert_resource(Gravity(Vec2::ZERO));
 
-        // Frame-interpolation MUST be registered in shared code so that
-        // `FrameInterpolationSystems::Restore` runs in `RunFixedMainLoop`
-        // before Avian's transform→position sync, preserving post-rollback
-        // Position. See the TODO in
-        // `crates/integration/avian/src/plugin.rs::LightyearAvianPlugin::build`.
-        app.add_plugins(FrameInterpolationPlugin);
+        // Keep frame interpolation in shared code so rendered and headless clients use the same
+        // frame-history and correction pipeline. Position mode itself no longer depends on this
+        // restore to remain authoritative; add_correction below also guarantees that the plugin is
+        // installed if this explicit setup is removed later.
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
         app.add_observer(add_frame_interpolation);
 
         app.component::<DetPlayerId>().replicate();

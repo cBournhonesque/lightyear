@@ -35,12 +35,13 @@ impl Plugin for ExampleRendererPlugin {
             add_projectile_cosmetics.before(RollbackSystems::Check),
         );
 
-        // Set up visual interp plugins for Position/Rotation. Position/Rotation is updated in FixedUpdate
-        // by the physics plugin so we make sure that in PostUpdate we interpolate it
-        app.add_plugins(FrameInterpolationPlugin);
+        // Position/Rotation are updated by physics in FixedUpdate, so frame-interpolate them in
+        // PostUpdate for smooth rendering.
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
 
-        // Observers that add VisualInterpolationStatus components to entities
-        // which receive a Position and are predicted
+        // Add the type-erased FrameInterpolate marker to predicted entities with Position.
         app.add_observer(add_visual_interpolation_components);
 
         // We disable rollbacks for projectiles after the initial rollbacks which brings them to the predicted timeline

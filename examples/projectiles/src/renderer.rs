@@ -26,7 +26,9 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_physics_projectile_visuals);
         app.add_observer(add_homing_missile_visuals);
 
-        app.add_plugins(FrameInterpolationPlugin);
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
 
         app.add_plugins(PhysicsDebugPlugin::default())
             .insert_gizmo_config(

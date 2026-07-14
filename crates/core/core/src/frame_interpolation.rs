@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 ///     commands.spawn(FrameInterpolate);
 /// }
 /// ```
-#[derive(Component, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
+#[derive(Component, Default, PartialEq, Serialize, Deserialize, Clone, Debug, Reflect)]
 pub struct FrameInterpolate;
 
 /// Component history used by frame interpolation for component `C`.

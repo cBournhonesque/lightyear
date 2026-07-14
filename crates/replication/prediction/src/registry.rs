@@ -29,6 +29,7 @@ use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prediction::Predicted;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
+use lightyear_frame_interpolation::FrameInterpolationPlugin;
 use lightyear_replication::checkpoint::resolve_message_tick;
 use lightyear_replication::delta::Diffable;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
@@ -583,6 +584,10 @@ pub trait PredictionRegistrationExt<C> {
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    ///
+    /// This automatically installs `FrameInterpolationPlugin`. When rollback
+    /// stores `PreviousVisual<C>`, `FrameInterpolate` is added to the entity as
+    /// a required component.
     fn add_correction(self) -> Self
     where
         C: SyncComponent + Diffable<C> + Ease + Default;
@@ -600,6 +605,10 @@ pub trait PredictionRegistrationExt<C> {
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    ///
+    /// This automatically installs `FrameInterpolationPlugin`. When rollback
+    /// stores `PreviousVisual<C>`, `FrameInterpolate` is added to the entity as
+    /// a required component.
     fn add_linear_correction<D>(self) -> Self
     where
         C: SyncComponent + Diffable<D>,
@@ -616,6 +625,10 @@ pub trait PredictionRegistrationExt<C> {
     /// `C` must have an applicable interpolation rule with an interpolation
     /// function when correction runs. That rule may be a component rule for
     /// `C`, or a bundle rule such as `(A, B)` that contains `C`.
+    ///
+    /// This automatically installs `FrameInterpolationPlugin`. When rollback
+    /// stores `PreviousVisual<C>`, `FrameInterpolate` is added to the entity as
+    /// a required component.
     fn add_correction_fn<D>(self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
@@ -711,6 +724,10 @@ impl<'a, C> PredictedComponentRegistration<'a, C> {
 
     /// Add visual correction for this component using `C` as its own rollback
     /// error type.
+    ///
+    /// The component needs an applicable interpolation rule. The frame
+    /// interpolation plugin and entity marker used by correction are added
+    /// automatically.
     pub fn add_correction(mut self) -> Self
     where
         C: SyncComponent + Diffable<C> + Ease + Default,
@@ -721,6 +738,10 @@ impl<'a, C> PredictedComponentRegistration<'a, C> {
 
     /// Add visual correction for this component using linear interpolation on
     /// rollback errors of type `D`.
+    ///
+    /// The component needs an applicable interpolation rule. The frame
+    /// interpolation plugin and entity marker used by correction are added
+    /// automatically.
     pub fn add_linear_correction<D>(mut self) -> Self
     where
         C: SyncComponent + Diffable<D>,
@@ -732,6 +753,10 @@ impl<'a, C> PredictedComponentRegistration<'a, C> {
 
     /// Add visual correction for this component using `correction_fn` to decay
     /// rollback errors of type `D`.
+    ///
+    /// The component needs an applicable interpolation rule. The frame
+    /// interpolation plugin and entity marker used by correction are added
+    /// automatically.
     pub fn add_correction_fn<D>(mut self, correction_fn: LerpFn<D>) -> Self
     where
         C: SyncComponent + Diffable<D>,
@@ -1063,6 +1088,9 @@ impl<C> PredictionRegistrationExt<C> for ComponentRegistration<'_, C> {
             .is_some();
         if !has_prediction_registry {
             return self;
+        }
+        if !self.app.is_plugin_added::<FrameInterpolationPlugin>() {
+            self.app.add_plugins(FrameInterpolationPlugin);
         }
         let correction_fn = correction::ErasedPostRollbackCorrection::new::<C, D>(
             self.app.world_mut(),

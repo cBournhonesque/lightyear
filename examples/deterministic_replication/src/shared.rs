@@ -25,18 +25,20 @@ impl Plugin for SharedPlugin {
         // bundles
         app.add_systems(Startup, init);
 
-        // Frame interpolation on Position/Rotation. Even without a GUI, we
-        // need this for its `FrameInterpolationSystems::Restore` system to
-        // run in `RunFixedMainLoop` BEFORE Avian's `transform_to_position`
-        // sync — otherwise the post-rollback Position gets overwritten by
-        // the (stale) Transform at the start of each FixedUpdate. See the
-        // TODO in `crates/integration/avian/src/plugin.rs::AvianReplicationMode::Position`.
-        app.add_plugins(FrameInterpolationPlugin);
+        // Visual correction uses the same history and scheduling as frame
+        // interpolation, so install it in shared code for both GUI and headless
+        // clients. Avian Position mode itself no longer depends on this plugin:
+        // Position/Rotation remain authoritative even when it is absent.
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
         app.add_observer(add_frame_interpolation_components);
 
         // physics
         app.add_plugins(lightyear_avian2d::plugin::LightyearAvianPlugin {
-            replication_mode: AvianReplicationMode::Position,
+            replication_mode: AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
             rollback_resources: true,
             ..default()
         });
@@ -85,9 +87,8 @@ fn catch_up_mode_from_env() -> CatchUpMode {
 }
 
 /// Insert `FrameInterpolate` on any
-/// `DeterministicPredicted` entity with `Position`. Required so that
-/// `FrameInterpolationSystems::Restore` runs BEFORE Avian's transform→position
-/// sync at each FixedUpdate iteration, preserving post-rollback Position.
+/// `DeterministicPredicted` entity with `Position`. The marker enables both
+/// frame interpolation and the frame-history-backed visual correction pipeline.
 ///
 /// Triggered on `DeterministicPredicted` add (not `Position` add) because on
 /// the client, catch-up gated entities already have `Position` when

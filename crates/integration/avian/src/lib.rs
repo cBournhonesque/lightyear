@@ -1,8 +1,14 @@
 //! # Lightyear Avian Integration
 //!
-//! This crate provides integration between Lightyear and the Avian physics engine.
+//! This crate integrates Lightyear replication, prediction, rollback, frame interpolation, and
+//! lag compensation with the Avian physics engine.
 //!
-//! It currently includes utilities for lag compensation.
+//! For networked physics, install [`plugin::LightyearAvianPlugin`] and disable Avian's
+//! `PhysicsTransformPlugin` and `PhysicsInterpolationPlugin`. The default and recommended
+//! [`plugin::AvianReplicationMode::Position`] keeps Avian `Position` and `Rotation` authoritative
+//! and writes their final visual values to Bevy `Transform` in `PostUpdate`. Setting its
+//! `sync_to_transform` field to `true` synchronizes that authoritative pose to `Transform` before
+//! `FixedUpdate`, allowing fixed-tick gameplay to use `Transform`.
 #![allow(unexpected_cfgs)]
 #![no_std]
 
@@ -29,10 +35,6 @@ pub use types_3d as types;
 #[cfg(any(feature = "2d", feature = "3d"))]
 pub mod plugin;
 
-#[cfg(feature = "2d")]
-mod correction_2d;
-#[cfg(feature = "3d")]
-mod correction_3d;
 /// Commonly used items for Lightyear Avian integration.
 pub mod prelude {
     #[cfg(feature = "lag_compensation")]

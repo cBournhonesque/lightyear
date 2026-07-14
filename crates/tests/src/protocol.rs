@@ -304,29 +304,30 @@ impl Plugin for ProtocolPlugin {
         );
         // app.component::<Collider>().replicate();
 
-        app.add_plugins(FrameInterpolationPlugin);
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
 
         match self.avian_mode {
-            AvianReplicationMode::Position
-            | AvianReplicationMode::PositionButInterpolateTransform => {
+            AvianReplicationMode::Position { .. } => {
                 app.component::<Position>()
                     .replicate()
                     .predict()
-                    .add_correction()
-                    .add_linear_interpolation();
+                    .add_linear_interpolation()
+                    .add_correction();
 
                 app.component::<Rotation>()
                     .replicate()
                     .predict()
-                    .add_correction()
-                    .add_linear_interpolation();
+                    .add_linear_interpolation()
+                    .add_correction();
             }
             AvianReplicationMode::Transform => {
                 app.component::<Transform>()
                     .replicate()
                     .predict()
-                    .add_linear_correction::<Isometry2d>()
-                    .add_interpolation_with(TransformLinearInterpolation::lerp);
+                    .add_interpolation_with(TransformLinearInterpolation::lerp)
+                    .add_linear_correction::<Isometry2d>();
             }
         }
     }

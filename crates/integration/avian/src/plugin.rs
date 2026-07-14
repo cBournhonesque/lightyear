@@ -2,6 +2,9 @@
 Helpers to network avian components.
 
 Some subtle footguns with avian replication:
+- [`AvianReplicationMode::Position`] is the preferred mode. `Position` and `Rotation` are the
+  canonical simulation state. By default, synchronization is one-way from those components to
+  `Transform`, so gameplay should move physics bodies through `Position` and `Rotation`.
 - for Predicted entities, your `Position` is replicated as `Confirmed<Position>`. This triggers an immediate
   rollback on the client which inserts the correct `Position`.
 - for `Interpolated` entities, it is possible that only one of `Position` or `Rotation` gets added
@@ -24,12 +27,78 @@ PhysicsPlugins::default()
     .disable::<PhysicsTransformPlugin>()
     // FrameInterpolation handles interpolating Position and Rotation
     .disable::<PhysicsInterpolationPlugin>()
-    // If you're doing deterministic replication and keep Avian's island plugins enabled,
-    // LightyearAvianPlugin detects them in `finish()` and automatically rolls back the
-    // island state when `rollback_resources` is true.
 ```
+
+## Position mode scheduling
+
+When frame interpolation and correction are enabled, the important ordering is:
+
+```text
+PreUpdate:
+  receive replication -> rollback and replay -> repair frame history
+
+RunFixedMainLoop (before the fixed loop):
+  restore canonical Position/Rotation
+  -> optionally canonicalize Transform for transform-driven FixedUpdate gameplay
+
+FixedPostUpdate (for every fixed tick):
+  optionally import an authored Transform
+  -> Avian physics
+  -> optionally copy Position/Rotation back to Transform
+  -> prediction history + frame history
+
+PostUpdate:
+  frame-interpolate Position/Rotation
+  -> apply visual correction to Position/Rotation
+  -> copy changed Position/Rotation to Transform
+  -> propagate Transform
+```
+
+The restore step prevents the visual values written in the previous `PostUpdate` from entering
+the next simulation tick. Transform-to-position synchronization is disabled by default, so a stale
+`Transform` cannot overwrite rollback-corrected physics state. Set
+`AvianReplicationMode::Position { sync_to_transform: true }` only when gameplay intentionally
+authors `Transform` during fixed ticks.
+
+Visual correction uses frame-interpolation rules and history. Registering correction with
+`add_correction` installs the frame-interpolation plugin automatically, and rollback adds
+[`FrameInterpolate`](lightyear_frame_interpolation::FrameInterpolate) when it stores the previous
+visual value. If neither visual feature is wanted, omit correction; rollback then snaps directly
+to canonical physics state.
 !*/
 use alloc::vec::Vec;
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+use avian2d::{
+    collider_tree::{
+        ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees, MovedProxies,
+    },
+    collision::collider::{ColliderAabb, EnlargedAabb},
+    collision::contact_types::ContactEdgeFlags,
+    dynamics::solver::{
+        constraint_graph::ConstraintGraph,
+        islands::{BodyIslandNode, PhysicsIslands},
+        joint_graph::JointGraph,
+    },
+    math::*,
+    physics_transform::*,
+    prelude::*,
+};
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+use avian3d::{
+    collider_tree::{
+        ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees, MovedProxies,
+    },
+    collision::collider::{ColliderAabb, EnlargedAabb},
+    collision::contact_types::ContactEdgeFlags,
+    dynamics::solver::{
+        constraint_graph::ConstraintGraph,
+        islands::{BodyIslandNode, PhysicsIslands},
+        joint_graph::JointGraph,
+    },
+    math::*,
+    physics_transform::*,
+    prelude::*,
+};
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
 use bevy_ecs::schedule::{IntoScheduleConfigs, ScheduleLabel};
@@ -41,79 +110,52 @@ use bevy_transform::{TransformSystems, components::Transform};
 #[allow(unused_imports)]
 use tracing::info;
 use tracing::trace;
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-use {
-    crate::correction_2d as correction,
-    avian2d::{
-        collider_tree::{
-            ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-            MovedProxies,
-        },
-        collision::collider::{ColliderAabb, EnlargedAabb},
-        collision::contact_types::ContactEdgeFlags,
-        dynamics::solver::{
-            constraint_graph::ConstraintGraph,
-            islands::{BodyIslandNode, PhysicsIslands},
-            joint_graph::JointGraph,
-        },
-        math::*,
-        physics_transform::*,
-        prelude::*,
-    },
-};
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-use {
-    crate::correction_3d as correction,
-    avian3d::{
-        collider_tree::{
-            ColliderTreeProxyFlags, ColliderTreeProxyKey, ColliderTreeType, ColliderTrees,
-            MovedProxies,
-        },
-        collision::collider::{ColliderAabb, EnlargedAabb},
-        collision::contact_types::ContactEdgeFlags,
-        dynamics::solver::{
-            constraint_graph::ConstraintGraph,
-            islands::{BodyIslandNode, PhysicsIslands},
-            joint_graph::JointGraph,
-        },
-        math::*,
-        physics_transform::*,
-        prelude::*,
-    },
-};
 
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
 use lightyear_interpolation::prelude::{AppInterpolationExt, InterpolationFns};
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
-    PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, PredictionRegistry,
-    RollbackSystems,
+    PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, RollbackSystems,
 };
-use lightyear_replication::prelude::{
-    AppComponentExt, ReplicationSystems, TransformLinearInterpolation,
-};
+use lightyear_replication::prelude::{AppComponentExt, TransformLinearInterpolation};
 
 /// Indicate which components you are replicating over the network
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AvianReplicationMode {
-    /// Replicate the Position component.
-    /// PredictionHistory, Correction and FrameInterpolation also apply to Position.
-    /// Physics updates must be applied directly to Position, NOT to Transform.
-    #[default]
-    Position,
-    /// Replicate the Position component.
-    /// Prediction is done on Position, but Correction and FrameInterpolation apply on Transform.
+    /// Replicate [`Position`] and [`Rotation`].
     ///
-    /// I believe that this currently does NOT handle TransformPropagation to children correctly.
+    /// This is the preferred mode for Avian physics. Prediction history, correction, and frame
+    /// interpolation apply to `Position` and `Rotation`, and the rendered [`Transform`] is written
+    /// from that visual physics state in `PostUpdate`.
     ///
-    /// This is because:
-    /// - Position/Rotation are smaller to serialize and store
-    /// - Correction/FrameInterpolation are a visual component so should operate on Transform
-    PositionButInterpolateTransform,
-    /// Replicate the Transform component.
-    /// PredictionHistory, Correction and FrameInterpolation also apply to Transform.
+    /// Child colliders without their own rigid body still use a local `Transform` to describe
+    /// their offset from the parent body.
+    Position {
+        /// If `true`, synchronize `Position` and `Rotation` to `Transform` before `FixedUpdate`, so
+        /// gameplay can safely read and update `Transform` there. The authored transform is then
+        /// imported into `Position` and `Rotation` before Avian physics runs.
+        ///
+        /// This defaults to `false`, keeping physics authority strictly one-way from `Position` and
+        /// `Rotation` to `Transform`.
+        sync_to_transform: bool,
+    },
+    /// Replicate [`Transform`].
+    ///
+    /// Prediction history, correction, and frame interpolation also apply to `Transform`. Use this
+    /// when application code intentionally treats transforms as authoritative—for example, a
+    /// transform-driven kinematic or animation pipeline—or when local transform data such as scale
+    /// is part of the replicated gameplay state. Avian still simulates with `Position` and
+    /// `Rotation`, so this mode requires synchronization in both directions.
     Transform,
+}
+
+impl Default for AvianReplicationMode {
+    fn default() -> Self {
+        Self::Position {
+            sync_to_transform: false,
+        }
+    }
 }
 
 /// Plugin that integrates Avian with Lightyear for networked physics replication.
@@ -123,9 +165,9 @@ pub enum AvianReplicationMode {
 pub struct LightyearAvianPlugin {
     /// The replication mode to use for the Avian plugin.
     pub replication_mode: AvianReplicationMode,
-    /// If True, lightyear will update the way avian syncs (Position/Rotation <> Transform) are handled.
+    /// If true, Lightyear does not install automatic `Position`/`Rotation`/`Transform` sync systems.
     ///
-    /// Disable if you are an advanced user and want to handle the syncs manually.
+    /// Enable this if you are an advanced user and want to handle all synchronization manually.
     pub update_syncs_manually: bool,
     /// If True, the plugin will rollback resources that are not replicated, such as Collisions.
     /// Enable this if you are using deterministic replication (i.e. are not replicating state).
@@ -156,31 +198,52 @@ impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PhysicsTransformConfig>();
         match self.replication_mode {
-            AvianReplicationMode::Position => {
+            AvianReplicationMode::Position { sync_to_transform } => {
                 if !self.update_syncs_manually {
-                    // TODO: causes issues if no FrameInterpolation is enabled, because we don't override the transform->position with the correct Position
-                    //  (for example in case a rollback updates Position, that change will be overridden by the transform->position)
-                    LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
+                    let mut config = app.world_mut().resource_mut::<PhysicsTransformConfig>();
+                    config.position_to_transform = true;
+                    config.transform_to_position = sync_to_transform;
 
-                    // In case we do the TransformToPosition sync in RunFixedMainLoop, do it BEFORE
-                    // restoring the correct Position in FrameInterpolation::Restore, since we want Position to take priority.
-                    //
-                    // TransformToPosition might be useful for child entities that need Transform->Position propagated.
-                    app.configure_sets(
-                        RunFixedMainLoop,
-                        PhysicsSystems::Prepare
-                            .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
-                            .before(FrameInterpolationSystems::Restore),
-                    );
+                    if sync_to_transform {
+                        // `PostUpdate` leaves the interpolated/corrected visual pose in both
+                        // Position/Rotation and Transform. FrameInterpolationSystems::Restore
+                        // restores only the canonical Position/Rotation before the fixed loop, so
+                        // Transform would otherwise still contain the previous frame's visual pose.
+                        //
+                        // PositionToTransform gives FixedUpdate a canonical local Transform to read
+                        // and modify. Propagate is also needed here so GlobalTransform and the
+                        // transform hierarchy agree with that canonical local Transform before any
+                        // fixed-tick gameplay runs. These systems run once before the whole fixed
+                        // loop; the FixedPostUpdate writeback below prepares Transform between
+                        // multiple fixed ticks in the same rendered frame.
+                        LightyearAvianPlugin::sync_position_to_transform(app, RunFixedMainLoop);
+                        LightyearAvianPlugin::propagate_transform(app, RunFixedMainLoop);
+                        app.configure_sets(
+                            RunFixedMainLoop,
+                            (
+                                FrameInterpolationSystems::Restore,
+                                PhysicsTransformSystems::PositionToTransform,
+                                PhysicsTransformSystems::Propagate,
+                            )
+                                .chain()
+                                .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop),
+                        );
+
+                        // FixedUpdate is allowed to modify Transform in this mode. Propagation in
+                        // the authoritative sync updates GlobalTransform from those local changes,
+                        // then TransformToPosition imports the authored pose before Avian physics
+                        // runs. After physics, PositionToTransform writes the simulated pose back
+                        // so Transform is canonical for the next fixed tick.
+                        LightyearAvianPlugin::sync_transform_to_position_authoritative(
+                            app,
+                            FixedPostUpdate,
+                        );
+                        LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
+                    }
+
+                    // This is the only Position -> Transform sync in the default configuration.
+                    // It observes the final frame-interpolated and corrected physics pose.
                     LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
-                    LightyearAvianPlugin::sync_received_position_to_transform(app);
-
-                    // TODO: it seems like if we apply TransformToPosition in FixedPostUpdate, we need
-                    //  to also run PositionToTransform in FixedPostUpdate; how come?
-                    //  is something modifying Transform in FixedUpdate and re-forcing a sync from Transform to Position, which overwrites
-                    //
-                    // LightyearAvianPlugin::sync_transform_to_position(app, FixedPostUpdate);
-                    // LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                 }
                 // We need to manually update the Position of child colliders after physics run
                 // since avian doesn't do it
@@ -195,6 +258,7 @@ impl Plugin for LightyearAvianPlugin {
                     // update physics before we store the new Position in the history
                     (
                         PhysicsSystems::StepSimulation,
+                        PhysicsSystems::Writeback,
                         (
                             PredictionSystems::UpdateHistory,
                             FrameInterpolationSystems::Update,
@@ -216,82 +280,12 @@ impl Plugin for LightyearAvianPlugin {
                         .chain(),
                 );
             }
-            AvianReplicationMode::PositionButInterpolateTransform => {
-                Self::add_transform_frame_interpolation_rule(app);
-                // Visual correction is a client-only concern but this plugin is added in shared code;
-                // skip on pure servers where PredictionPlugin is not active.
-                app.add_systems(
-                    PreUpdate,
-                    correction::update_frame_interpolation_post_rollback
-                        .in_set(RollbackSystems::EndRollback)
-                        .run_if(resource_exists::<PredictionRegistry>),
-                );
-                app.add_systems(
-                    PostUpdate,
-                    correction::add_visual_correction
-                        .in_set(RollbackSystems::VisualCorrection)
-                        .run_if(resource_exists::<PredictionRegistry>),
-                );
-
-                if !self.update_syncs_manually {
-                    LightyearAvianPlugin::sync_transform_to_position(app, RunFixedMainLoop);
-                    // In case we do the TransformToPosition sync in RunFixedMainLoop, do it AFTER
-                    // restoring the correct Transform in FrameInterpolation::Restore
-                    app.configure_sets(
-                        RunFixedMainLoop,
-                        PhysicsSystems::Prepare
-                            .in_set(RunFixedMainLoopSystems::BeforeFixedMainLoop)
-                            .after(FrameInterpolationSystems::Restore),
-                    );
-                    LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
-                    // Network interpolation updates Position in Update. Sync that interpolated
-                    // Position into Transform before Bevy propagates transforms for rendering.
-                    // Run this before FrameInterpolation/VisualCorrection so those visual systems
-                    // can still override Transform for predicted entities.
-                    LightyearAvianPlugin::sync_position_to_transform(app, PostUpdate);
-                    LightyearAvianPlugin::sync_received_position_to_transform(app);
-                }
-                // We need to manually update the Position of child colliders after physics run
-                // since avian doesn't do it.
-                // Runs after physics because the Parent's Position must be updated.
-                app.add_systems(
-                    RunFixedMainLoop,
-                    LightyearAvianPlugin::update_child_collider_position
-                        .in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
-                );
-
-                app.configure_sets(
-                    FixedPostUpdate,
-                    (
-                        // update physics before we store the new Position in the history
-                        (
-                            PhysicsSystems::StepSimulation,
-                            PredictionSystems::UpdateHistory,
-                        )
-                            .chain(),
-                        // make sure that the Transform has been updated before updating FrameInterpolation<Transform>
-                        (PhysicsSystems::Writeback, FrameInterpolationSystems::Update).chain(),
-                    )
-                        .chain(),
-                );
-                app.configure_sets(
-                    PostUpdate,
-                    (
-                        PhysicsSystems::Writeback,
-                        FrameInterpolationSystems::Interpolate,
-                        // We don't want the correction to be overwritten by FrameInterpolation
-                        RollbackSystems::VisualCorrection,
-                        TransformSystems::Propagate,
-                    )
-                        .chain(),
-                );
-            }
             AvianReplicationMode::Transform => {
                 Self::add_transform_frame_interpolation_rule(app);
                 if !self.update_syncs_manually {
                     // need to run TransformToPosition in FixedPostUpdate since avian uses Position internally
                     // but the user operates on Transform
-                    LightyearAvianPlugin::sync_transform_to_position(app, FixedPostUpdate);
+                    LightyearAvianPlugin::install_transform_to_position_sync(app, FixedPostUpdate);
                     LightyearAvianPlugin::sync_position_to_transform(app, FixedPostUpdate);
                     // make sure the child collider's position is updated before running
                     // PositionToTransform (otherwise the child's Position would not be correct
@@ -571,27 +565,11 @@ impl LightyearAvianPlugin {
         }
     }
 
-    fn sync_transform_to_position(app: &mut App, schedule: impl ScheduleLabel) {
+    fn propagate_transform(app: &mut App, schedule: impl ScheduleLabel) {
         let schedule = schedule.intern();
-        // also add the system ordering for FixedPostUpdate (for ColliderTransformPlugin)
-        app.configure_sets(
-            FixedPostUpdate,
-            (
-                PhysicsTransformSystems::Propagate,
-                PhysicsTransformSystems::TransformToPosition,
-            )
-                .chain()
-                .in_set(PhysicsSystems::Prepare),
-        );
-        // Manually propagate Transform to GlobalTransform before running physics
         app.configure_sets(
             schedule,
-            (
-                PhysicsTransformSystems::Propagate,
-                PhysicsTransformSystems::TransformToPosition,
-            )
-                .chain()
-                .in_set(PhysicsSystems::Prepare),
+            PhysicsTransformSystems::Propagate.in_set(PhysicsSystems::Prepare),
         );
         app.add_systems(
             schedule,
@@ -604,12 +582,106 @@ impl LightyearAvianPlugin {
                 .in_set(PhysicsTransformSystems::Propagate)
                 .run_if(|config: Res<PhysicsTransformConfig>| config.propagate_before_physics),
         );
+    }
+
+    fn install_transform_to_position_sync(app: &mut App, schedule: impl ScheduleLabel) {
+        let schedule = schedule.intern();
+        // also add the system ordering for FixedPostUpdate (for ColliderTransformPlugin)
+        app.configure_sets(
+            FixedPostUpdate,
+            (
+                PhysicsTransformSystems::Propagate,
+                PhysicsTransformSystems::TransformToPosition,
+            )
+                .chain()
+                .in_set(PhysicsSystems::Prepare),
+        );
+        app.configure_sets(
+            schedule,
+            PhysicsTransformSystems::TransformToPosition
+                .in_set(PhysicsSystems::Prepare)
+                .after(PhysicsTransformSystems::Propagate),
+        );
+        Self::propagate_transform(app, schedule);
         app.add_systems(
             schedule,
             transform_to_position
                 .in_set(PhysicsTransformSystems::TransformToPosition)
                 .run_if(|config: Res<PhysicsTransformConfig>| config.transform_to_position),
         );
+    }
+
+    /// Install transform-authoritative synchronization for fixed-tick gameplay.
+    ///
+    /// Avian's normal `transform_to_position` gives precedence to a `Position` changed since the
+    /// previous physics tick. Frame interpolation correctly advances `Position` change detection
+    /// while writing the visual pose in `PostUpdate`, after the previous physics tick. Restoring
+    /// the canonical value before the next fixed loop does not rewind that change tick. Avian's
+    /// conflict rule would therefore reject even a `Transform` that the user authored afterward
+    /// in `FixedUpdate`.
+    ///
+    /// `sync_to_transform: true` explicitly makes `Transform` the authoring API during
+    /// `FixedUpdate`, so this variant deliberately gives the propagated transform precedence at
+    /// the pre-physics boundary. Keeping this as a separate variant limits that override to this
+    /// opt-in path; all other transform-to-position synchronization keeps Avian's normal conflict
+    /// resolution.
+    fn sync_transform_to_position_authoritative(app: &mut App, schedule: impl ScheduleLabel) {
+        let schedule = schedule.intern();
+        app.configure_sets(
+            schedule,
+            PhysicsTransformSystems::TransformToPosition
+                .in_set(PhysicsSystems::Prepare)
+                .after(PhysicsTransformSystems::Propagate),
+        );
+        Self::propagate_transform(app, schedule);
+        app.add_systems(
+            schedule,
+            Self::transform_to_position_authoritative
+                .in_set(PhysicsTransformSystems::TransformToPosition)
+                .run_if(|config: Res<PhysicsTransformConfig>| config.transform_to_position),
+        );
+    }
+
+    fn transform_to_position_authoritative(
+        mut query: Query<
+            (&GlobalTransform, &mut Position, &mut Rotation),
+            (
+                With<RigidBody>,
+                Or<(Changed<Transform>, Changed<GlobalTransform>)>,
+            ),
+        >,
+    ) {
+        for (global_transform, mut position, mut rotation) in &mut query {
+            // The pre-fixed PositionToTransform sync and propagation also trigger this query when
+            // the user did not edit Transform. Only mutating Position/Rotation when the propagated
+            // values actually differ avoids reporting a redundant physics-state change.
+            let (_, global_rotation, global_translation) =
+                global_transform.to_scale_rotation_translation();
+
+            #[cfg(feature = "2d")]
+            {
+                let new_position = global_translation.truncate().adjust_precision();
+                let new_rotation = Rotation::from(global_rotation.adjust_precision());
+                if position.0 != new_position {
+                    position.0 = new_position;
+                }
+                if *rotation != new_rotation {
+                    *rotation = new_rotation;
+                }
+            }
+
+            #[cfg(feature = "3d")]
+            {
+                let new_position = global_translation.adjust_precision();
+                let new_rotation = Rotation(global_rotation.adjust_precision());
+                if position.0 != new_position {
+                    position.0 = new_position;
+                }
+                if *rotation != new_rotation {
+                    *rotation = new_rotation;
+                }
+            }
+        }
     }
 
     fn sync_position_to_transform(app: &mut App, schedule: impl ScheduleLabel) {
@@ -631,10 +703,6 @@ impl LightyearAvianPlugin {
         }
         let schedule = schedule.intern();
 
-        // TODO: do we need to add this in PreUpdate to avoid 1-frame delays?
-        // app.add_systems(PreUpdate, Self::position_rotation_to_transform
-        //     .after(ReplicationSystems::Receive));
-
         app.configure_sets(
             FixedPostUpdate,
             PhysicsTransformSystems::PositionToTransform.in_set(PhysicsSystems::Writeback),
@@ -648,16 +716,6 @@ impl LightyearAvianPlugin {
             schedule,
             (position_to_transform, Self::add_transform)
                 .in_set(PhysicsTransformSystems::PositionToTransform)
-                .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
-        );
-    }
-
-    fn sync_received_position_to_transform(app: &mut App) {
-        app.add_systems(
-            PreUpdate,
-            (position_to_transform, Self::add_transform)
-                .in_set(PhysicsTransformSystems::PositionToTransform)
-                .after(ReplicationSystems::Receive)
                 .run_if(|config: Res<PhysicsTransformConfig>| config.position_to_transform),
         );
     }
@@ -890,12 +948,214 @@ impl LightyearAvianPlugin {
     }
 }
 
+#[cfg(test)]
+mod mode_tests {
+    use super::AvianReplicationMode;
+
+    #[test]
+    fn position_mode_defaults_to_sync_to_transform_disabled() {
+        assert_eq!(
+            AvianReplicationMode::default(),
+            AvianReplicationMode::Position {
+                sync_to_transform: false
+            }
+        );
+    }
+}
+
 #[cfg(all(test, feature = "2d", not(feature = "3d")))]
 mod tests {
     use super::*;
 
     use avian2d::collider_tree::ColliderTreeProxy;
     use bevy_ecs::system::RunSystemOnce;
+    use bevy_time::{Fixed, Time};
+    use core::time::Duration;
+    use lightyear_frame_interpolation::{
+        FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
+    };
+
+    #[test]
+    fn position_mode_does_not_copy_stale_transform_into_physics() {
+        let mut app = App::new();
+        app.init_resource::<bevy_transform::systems::StaticTransformOptimizations>();
+        app.add_plugins((
+            PhysicsSchedulePlugin::default(),
+            LightyearAvianPlugin {
+                replication_mode: AvianReplicationMode::Position {
+                    sync_to_transform: false,
+                },
+                ..Default::default()
+            },
+        ));
+        app.finish();
+
+        assert!(
+            !app.world()
+                .resource::<PhysicsTransformConfig>()
+                .transform_to_position,
+            "Position mode must keep physics authoritative without relying on frame restore"
+        );
+
+        let canonical_position = Position::from_xy(10.0, 20.0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                canonical_position,
+                Rotation::default(),
+                Transform::from_xyz(-5.0, -6.0, 0.0),
+                GlobalTransform::default(),
+            ))
+            .id();
+
+        // Run twice so this also covers an existing entity whose Transform changes after the
+        // synchronization systems have already observed it. No FrameInterpolationPlugin or
+        // FrameInterpolate marker is installed in this app.
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Transform>()
+            .unwrap()
+            .translation = bevy_math::Vec3::new(-50.0, -60.0, 0.0);
+        app.world_mut().run_schedule(RunFixedMainLoop);
+
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&canonical_position)
+        );
+    }
+
+    #[test]
+    fn position_mode_writes_frame_interpolated_pose_to_transform() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.add_plugins((
+            PhysicsSchedulePlugin::default(),
+            FrameInterpolationPlugin,
+            LightyearAvianPlugin {
+                replication_mode: AvianReplicationMode::Position {
+                    sync_to_transform: false,
+                },
+                ..Default::default()
+            },
+        ));
+        app.interpolate_with::<Position>(InterpolationFns::no_history(|_, end, _| end));
+        app.finish();
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                Position::default(),
+                Rotation::default(),
+                Transform::default(),
+                GlobalTransform::default(),
+                FrameInterpolate,
+            ))
+            .id();
+
+        // Warm up Avian's Changed<Position> filter so the next write must be detected from
+        // frame interpolation rather than from the component's spawn tick.
+        app.world_mut().run_schedule(PostUpdate);
+
+        let visual_position = Position::from_xy(4.0, 6.0);
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<FrameInterpolationHistory<Position>>()
+            .unwrap()
+            .current_value = Some(visual_position);
+        app.world_mut().run_schedule(PostUpdate);
+
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert_eq!(transform.translation.truncate(), visual_position.f32());
+    }
+
+    #[test]
+    fn position_mode_can_import_transform_authored_during_fixed_update() {
+        let mut app = App::new();
+        app.init_resource::<bevy_transform::systems::StaticTransformOptimizations>();
+        app.init_resource::<Time>();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins((
+            PhysicsSchedulePlugin::default(),
+            FrameInterpolationPlugin,
+            LightyearAvianPlugin {
+                replication_mode: AvianReplicationMode::Position {
+                    sync_to_transform: true,
+                },
+                ..Default::default()
+            },
+        ));
+        app.interpolate_with::<Position>(InterpolationFns::no_history(|start, end, t| {
+            Position(start.0.lerp(end.0, t as Scalar))
+        }));
+        app.finish();
+
+        assert!(
+            app.world()
+                .resource::<PhysicsTransformConfig>()
+                .transform_to_position
+        );
+
+        let canonical_position = Position::from_xy(10.0, 20.0);
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                canonical_position,
+                Rotation::default(),
+                Transform::from_xyz(10.0, 20.0, 0.0),
+                GlobalTransform::default(),
+                FrameInterpolate,
+                FrameInterpolationHistory::<Position> {
+                    previous_value: Some(Position::default()),
+                    current_value: Some(canonical_position),
+                },
+            ))
+            .id();
+
+        // PostUpdate leaves the interpolated visual pose in both Position and Transform.
+        app.world_mut().run_schedule(PostUpdate);
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&Position::from_xy(5.0, 10.0))
+        );
+
+        // Before FixedUpdate, restore the canonical physics pose and use it to canonicalize
+        // Transform. This prevents the visual pose from being imported into physics.
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&canonical_position)
+        );
+        assert_eq!(
+            app.world()
+                .get::<Transform>(entity)
+                .unwrap()
+                .translation
+                .truncate(),
+            canonical_position.f32()
+        );
+
+        // Model a gameplay system authoring Transform during FixedUpdate. The fixed post-update
+        // prepare pass must import it before Avian's physics step.
+        let authored_position = Position::from_xy(30.0, 40.0);
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Transform>()
+            .unwrap()
+            .translation = authored_position.f32().extend(0.0);
+        app.world_mut().run_schedule(FixedPostUpdate);
+
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&authored_position)
+        );
+    }
 
     fn add_dynamic_proxy(app: &mut App, collider: Entity, body: Entity, aabb: ColliderAabb) {
         let proxy_id = app
@@ -962,6 +1222,187 @@ mod tests {
             app.world()
                 .resource::<ContactGraph>()
                 .contains(collider1, collider2)
+        );
+    }
+}
+
+#[cfg(all(test, feature = "3d", not(feature = "2d")))]
+mod tests_3d {
+    use super::*;
+
+    use bevy_time::{Fixed, Time};
+    use core::time::Duration;
+    use lightyear_frame_interpolation::{
+        FrameInterpolate, FrameInterpolationHistory, FrameInterpolationPlugin,
+    };
+
+    #[test]
+    fn position_mode_does_not_copy_stale_transform_into_physics() {
+        let mut app = App::new();
+        app.init_resource::<bevy_transform::systems::StaticTransformOptimizations>();
+        app.add_plugins((
+            PhysicsSchedulePlugin::default(),
+            LightyearAvianPlugin {
+                replication_mode: AvianReplicationMode::Position {
+                    sync_to_transform: false,
+                },
+                ..Default::default()
+            },
+        ));
+        app.finish();
+
+        assert!(
+            !app.world()
+                .resource::<PhysicsTransformConfig>()
+                .transform_to_position,
+            "Position mode must keep physics authoritative without relying on frame restore"
+        );
+
+        let canonical_position = Position::new(Vector::new(10.0, 20.0, 30.0));
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                canonical_position,
+                Rotation::default(),
+                Transform::from_xyz(-5.0, -6.0, -7.0),
+                GlobalTransform::default(),
+            ))
+            .id();
+
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Transform>()
+            .unwrap()
+            .translation = bevy_math::Vec3::new(-50.0, -60.0, -70.0);
+        app.world_mut().run_schedule(RunFixedMainLoop);
+
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&canonical_position)
+        );
+    }
+
+    #[test]
+    fn position_mode_writes_frame_interpolated_pose_to_transform() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.add_plugins((
+            PhysicsSchedulePlugin::default(),
+            FrameInterpolationPlugin,
+            LightyearAvianPlugin {
+                replication_mode: AvianReplicationMode::Position {
+                    sync_to_transform: false,
+                },
+                ..Default::default()
+            },
+        ));
+        app.interpolate_with::<Position>(InterpolationFns::no_history(|_, end, _| end));
+        app.finish();
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                Position::default(),
+                Rotation::default(),
+                Transform::default(),
+                GlobalTransform::default(),
+                FrameInterpolate,
+            ))
+            .id();
+
+        // Warm up Avian's Changed<Position> filter so the next write must be detected from
+        // frame interpolation rather than from the component's spawn tick.
+        app.world_mut().run_schedule(PostUpdate);
+
+        let visual_position = Position::new(Vector::new(4.0, 6.0, 8.0));
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<FrameInterpolationHistory<Position>>()
+            .unwrap()
+            .current_value = Some(visual_position);
+        app.world_mut().run_schedule(PostUpdate);
+
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert_eq!(transform.translation, visual_position.f32());
+    }
+
+    #[test]
+    fn position_mode_can_import_transform_authored_during_fixed_update() {
+        let mut app = App::new();
+        app.init_resource::<bevy_transform::systems::StaticTransformOptimizations>();
+        app.init_resource::<Time>();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.world_mut()
+            .resource_mut::<Time<Fixed>>()
+            .accumulate_overstep(Duration::from_millis(500));
+        app.add_plugins((
+            PhysicsSchedulePlugin::default(),
+            FrameInterpolationPlugin,
+            LightyearAvianPlugin {
+                replication_mode: AvianReplicationMode::Position {
+                    sync_to_transform: true,
+                },
+                ..Default::default()
+            },
+        ));
+        app.interpolate_with::<Position>(InterpolationFns::no_history(|start, end, t| {
+            Position(start.0.lerp(end.0, t as Scalar))
+        }));
+        app.finish();
+
+        assert!(
+            app.world()
+                .resource::<PhysicsTransformConfig>()
+                .transform_to_position
+        );
+
+        let canonical_position = Position::new(Vector::new(10.0, 20.0, 30.0));
+        let entity = app
+            .world_mut()
+            .spawn((
+                RigidBody::Kinematic,
+                canonical_position,
+                Rotation::default(),
+                Transform::from_xyz(10.0, 20.0, 30.0),
+                GlobalTransform::default(),
+                FrameInterpolate,
+                FrameInterpolationHistory::<Position> {
+                    previous_value: Some(Position::default()),
+                    current_value: Some(canonical_position),
+                },
+            ))
+            .id();
+
+        app.world_mut().run_schedule(PostUpdate);
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&Position::new(Vector::new(5.0, 10.0, 15.0)))
+        );
+
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&canonical_position)
+        );
+        assert_eq!(
+            app.world().get::<Transform>(entity).unwrap().translation,
+            canonical_position.f32()
+        );
+
+        let authored_position = Position::new(Vector::new(30.0, 40.0, 50.0));
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<Transform>()
+            .unwrap()
+            .translation = authored_position.f32();
+        app.world_mut().run_schedule(FixedPostUpdate);
+
+        assert_eq!(
+            app.world().get::<Position>(entity),
+            Some(&authored_position)
         );
     }
 }

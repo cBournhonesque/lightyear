@@ -353,6 +353,21 @@ mod unit_tests {
     #[component(storage = "SparseSet")]
     struct SparseFrame(f32);
 
+    #[derive(Resource, Default)]
+    struct ObservedFrameInterpolationChanges {
+        table: bool,
+        sparse_set: bool,
+    }
+
+    fn observe_frame_interpolation_changes(
+        table: Query<(), Changed<FrameA>>,
+        sparse_set: Query<(), Changed<SparseFrame>>,
+        mut observed: ResMut<ObservedFrameInterpolationChanges>,
+    ) {
+        observed.table = !table.is_empty();
+        observed.sparse_set = !sparse_set.is_empty();
+    }
+
     fn bundle_lerp(start: (FrameA, FrameB), end: (FrameA, FrameB), t: f32) -> (FrameA, FrameB) {
         (
             FrameA(100.0 + start.0.0 + (end.0.0 - start.0.0) * t),
@@ -652,5 +667,44 @@ mod unit_tests {
             app.world().get::<SparseFrame>(entity),
             Some(&SparseFrame(3.0))
         );
+    }
+
+    #[test]
+    fn frame_interpolation_updates_change_detection_for_table_and_sparse_set_components() {
+        let mut app = App::new();
+        app.insert_resource(Time::<Fixed>::from_duration(Duration::from_secs(1)));
+        app.add_plugins(FrameInterpolationPlugin);
+        app.interpolate_with::<FrameA>(InterpolationFns::no_history(|_, end, _| end));
+        app.interpolate_with::<SparseFrame>(InterpolationFns::no_history(|_, end, _| end));
+        app.init_resource::<ObservedFrameInterpolationChanges>();
+        app.add_systems(
+            PostUpdate,
+            observe_frame_interpolation_changes.after(FrameInterpolationSystems::Interpolate),
+        );
+
+        app.world_mut().spawn((
+            FrameInterpolate,
+            FrameA(0.0),
+            SparseFrame(0.0),
+            FrameInterpolationHistory::<FrameA> {
+                previous_value: Some(FrameA(0.0)),
+                current_value: Some(FrameA(1.0)),
+            },
+            FrameInterpolationHistory::<SparseFrame> {
+                previous_value: Some(SparseFrame(0.0)),
+                current_value: Some(SparseFrame(1.0)),
+            },
+        ));
+
+        // Warm up the observer so the next run cannot observe the components' spawn ticks.
+        app.world_mut().run_schedule(PostUpdate);
+        *app.world_mut()
+            .resource_mut::<ObservedFrameInterpolationChanges>() = Default::default();
+
+        app.world_mut().run_schedule(PostUpdate);
+
+        let observed = app.world().resource::<ObservedFrameInterpolationChanges>();
+        assert!(observed.table);
+        assert!(observed.sparse_set);
     }
 }

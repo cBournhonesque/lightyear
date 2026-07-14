@@ -38,6 +38,7 @@
     - [Interpolation](./concepts/advanced_replication/interpolation.md)
     - [Prediction](./concepts/advanced_replication/prediction.md)
     - [Visual Interpolation](./concepts/advanced_replication/visual_interpolation.md)
+    - [Avian Physics](./concepts/advanced_replication/avian.md)
     - [Prespawning](./concepts/advanced_replication/prespawning.md)
     - [ComponentSyncMode](./concepts/advanced_replication/component_sync_mode.md)
     - [Interest management](./concepts/advanced_replication/interest_management.md)

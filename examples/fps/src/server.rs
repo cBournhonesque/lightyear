@@ -74,7 +74,8 @@ pub(crate) fn spawn_player(
         Score(0),
         PlayerId(client_id),
         RigidBody::Kinematic,
-        Transform::from_xyz(0.0, y, 0.0),
+        Position::from_xy(0.0, y),
+        Rotation::default(),
         ColorComponent(color),
         ActionState::<PlayerActions>::default(),
         PlayerMarker,
@@ -91,7 +92,8 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
         InterpolationTarget::to_clients(NetworkTarget::All),
         // in case the renderer is enabled on the server, we don't want the visuals to be replicated!
         DisableReplicateHierarchy,
-        Transform::from_xyz(-200.0, 10.0, 0.0),
+        Position::from_xy(-200.0, 10.0),
+        Rotation::default(),
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),
         // add the component to make lag-compensation possible!
@@ -105,7 +107,8 @@ pub(crate) fn spawn_bots(mut commands: Commands) {
         // All predicted entities must be part of the same replication group.
         // If the renderer is enabled on the server, do not replicate the visual hierarchy.
         DisableReplicateHierarchy,
-        Transform::from_xyz(200.0, 10.0, 0.0),
+        Position::from_xy(200.0, 10.0),
+        Rotation::default(),
         RigidBody::Kinematic,
         Collider::circle(BOT_RADIUS),
     ));
