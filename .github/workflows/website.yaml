@@ -26,6 +26,8 @@ jobs:
           echo `pwd`/mdbook >> $GITHUB_PATH
       - name: Install stable toolchain
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache Rust tooling
+        uses: Swatinem/rust-cache@v2
       - name: Install mdbook-mermaid
         run: cargo install mdbook-mermaid
       - name: Install mdbook-linkcheck

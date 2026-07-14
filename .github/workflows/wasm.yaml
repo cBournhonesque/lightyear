@@ -39,13 +39,18 @@ jobs:
           toolchain: stable
           override: true
 
+      - name: Install WASM target
+        run: rustup target add wasm32-unknown-unknown
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
       - name: Install wasm-bindgen-cli
         run: |
           cargo install wasm-bindgen-cli
 
       - name: Cargo build (for wasm)
         run: |
-          rustup target add wasm32-unknown-unknown
           cd examples
           ./build_wasm.sh
 
