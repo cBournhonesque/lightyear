@@ -1,9 +1,10 @@
 use crate::channel::registry::ChannelRegistry;
-use crate::packet::message::SendCandidate;
+use crate::packet::message::{MessageData, SendCandidate};
 use crate::packet::packet::MAX_PACKET_SIZE;
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
+use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
@@ -92,15 +93,21 @@ impl PriorityManager {
         self.candidates.clear();
     }
 
-    /// Apply priority ordering without taking ownership of channel queues.
+    /// Apply priority and packet-packing order without taking ownership of channel queues.
     ///
-    /// When priority management is disabled, this leaves collection order untouched.
+    /// Fragments precede singles within each priority group so the packet builder can fill the
+    /// final fragment packets with the smallest remaining singles. When priority management is
+    /// disabled, every candidate belongs to one packing group.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
     pub(crate) fn prioritize(&mut self, channel_registry: &ChannelRegistry) {
         if !self.config.enabled {
+            for candidate in &mut self.candidates {
+                candidate.effective_priority = 0.0;
+            }
+            self.candidates.sort_unstable_by(Self::packing_order);
             debug!(
                 num_candidates = self.candidates.len(),
-                "priority disabled; preserving candidate collection order"
+                "priority disabled; applied fragment-first packing order"
             );
             return;
         }
@@ -118,14 +125,24 @@ impl PriorityManager {
         self.candidates.sort_unstable_by(|a, b| {
             b.effective_priority
                 .total_cmp(&a.effective_priority)
-                .then_with(|| a.stable_order.cmp(&b.stable_order))
-                .then_with(|| a.channel_id.cmp(&b.channel_id))
-                .then_with(|| a.key.cmp(&b.key))
+                .then_with(|| Self::packing_order(a, b))
         });
         debug!(
             num_candidates = self.candidates.len(),
             "priority ordering complete"
         );
+    }
+
+    fn packing_order(a: &SendCandidate, b: &SendCandidate) -> core::cmp::Ordering {
+        match (&a.message.data, &b.message.data) {
+            (MessageData::Fragment(_), MessageData::Single(_)) => core::cmp::Ordering::Less,
+            (MessageData::Single(_), MessageData::Fragment(_)) => core::cmp::Ordering::Greater,
+            (MessageData::Single(a), MessageData::Single(b)) => a.bytes_len().cmp(&b.bytes_len()),
+            (MessageData::Fragment(_), MessageData::Fragment(_)) => core::cmp::Ordering::Equal,
+        }
+        .then_with(|| a.stable_order.cmp(&b.stable_order))
+        .then_with(|| a.channel_id.cmp(&b.channel_id))
+        .then_with(|| a.key.cmp(&b.key))
     }
 }
 
@@ -176,7 +193,7 @@ mod tests {
     struct FragmentChannel;
 
     #[test]
-    fn disabled_priority_preserves_candidate_collection_order() {
+    fn disabled_priority_uses_fragment_first_size_ascending_packing_order() {
         let registry = ChannelRegistry::default();
         let mut manager = PriorityManager::default();
         manager.candidates_mut().push(SendCandidate::new(
@@ -186,7 +203,24 @@ mod tests {
             1,
             SendMessage {
                 priority: 100.0,
-                data: SingleData::new(None, Bytes::from_static(b"first")).into(),
+                data: SingleData::new(None, Bytes::from_static(b"larger-single")).into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            ChannelKind::of::<FragmentChannel>(),
+            5,
+            SendMessageKey::UnreliableFragment(0),
+            2,
+            SendMessage {
+                priority: 0.1,
+                data: FragmentData {
+                    message_id: MessageId(0),
+                    fragment_id: FragmentIndex(0),
+                    num_fragments: FragmentIndex(1),
+                    compression: Some(FragmentCompression::None),
+                    bytes: Bytes::from_static(b"fragment"),
+                }
+                .into(),
             },
         ));
         manager.candidates_mut().push(SendCandidate::new(
@@ -196,14 +230,18 @@ mod tests {
             0,
             SendMessage {
                 priority: 1.0,
-                data: SingleData::new(None, Bytes::from_static(b"second")).into(),
+                data: SingleData::new(None, Bytes::from_static(b"small")).into(),
             },
         ));
 
         manager.prioritize(&registry);
 
-        assert_eq!(manager.candidates()[0].channel_id, 10);
+        assert!(matches!(
+            manager.candidates()[0].message.data,
+            MessageData::Fragment(_)
+        ));
         assert_eq!(manager.candidates()[1].channel_id, 1);
+        assert_eq!(manager.candidates()[2].channel_id, 10);
     }
 
     #[test]
@@ -256,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    fn singles_and_fragments_share_one_priority_order() {
+    fn higher_priority_single_precedes_lower_priority_fragment() {
         let mut registry = ChannelRegistry::default();
         let (fragment_kind, fragment_channel) =
             registry.add_channel::<FragmentChannel>(ChannelSettings {
@@ -304,6 +342,65 @@ mod tests {
             manager.candidates()[0].message.data,
             MessageData::Single(_)
         ));
+    }
+
+    #[test]
+    fn equal_priority_uses_fragment_first_size_ascending_packing_order() {
+        let mut registry = ChannelRegistry::default();
+        let (kind, channel) = registry.add_channel::<FragmentChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            priority: 1.0,
+            ..Default::default()
+        });
+        let mut manager = PriorityManager::new(PriorityConfig::new(1024));
+        manager.candidates_mut().push(SendCandidate::new(
+            kind,
+            channel,
+            SendMessageKey::UnreliableSingle(0),
+            0,
+            SendMessage {
+                priority: 1.0,
+                data: SingleData::new(None, Bytes::from_static(b"larger-single")).into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            kind,
+            channel,
+            SendMessageKey::UnreliableSingle(1),
+            1,
+            SendMessage {
+                priority: 1.0,
+                data: SingleData::new(None, Bytes::from_static(b"small")).into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            kind,
+            channel,
+            SendMessageKey::UnreliableFragment(0),
+            2,
+            SendMessage {
+                priority: 1.0,
+                data: FragmentData {
+                    message_id: MessageId(0),
+                    fragment_id: FragmentIndex(0),
+                    num_fragments: FragmentIndex(1),
+                    compression: Some(FragmentCompression::None),
+                    bytes: Bytes::from_static(b"fragment"),
+                }
+                .into(),
+            },
+        ));
+
+        manager.prioritize(&registry);
+
+        assert!(matches!(
+            manager.candidates()[0].message.data,
+            MessageData::Fragment(_)
+        ));
+        let [small, large] = &manager.candidates()[1..] else {
+            panic!("expected two single candidates")
+        };
+        assert!(small.message.data.bytes_len() < large.message.data.bytes_len());
     }
 
     #[test]

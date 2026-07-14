@@ -40,6 +40,7 @@ pub type RecvPayload = Bytes;
 #[derive(Debug, Default)]
 pub(crate) struct CandidateCursor {
     index: usize,
+    single_index: usize,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -207,12 +208,22 @@ impl PacketBuilder {
         cursor: &mut CandidateCursor,
         compression: CompressionConfig,
     ) -> Result<Option<Packet>, PacketError> {
+        // Final fragments can consume singles which appear later in their priority group. Skip
+        // those candidates once the main cursor reaches the single portion of the group.
+        while cursor.index < cursor.single_index
+            && candidates
+                .get(cursor.index)
+                .is_some_and(|candidate| matches!(candidate.message.data, MessageData::Single(_)))
+        {
+            cursor.index += 1;
+        }
         let Some(first) = candidates.get(cursor.index) else {
             return Ok(None);
         };
 
         match &first.message.data {
             MessageData::Fragment(fragment) => {
+                let effective_priority = first.effective_priority;
                 let mut packet = self.new_staged_packet(PacketType::DataFragment, current_tick)?;
                 first.channel_id.to_bytes(&mut packet.payload)?;
                 fragment.to_bytes(&mut packet.payload)?;
@@ -231,21 +242,31 @@ impl PacketBuilder {
                 cursor.index += 1;
 
                 // The wire format permits singles after the final fragment. Preserve the current
-                // behavior of fitting that tail against the uncompressed MTU.
+                // behavior of fitting that tail against the uncompressed MTU. The separate
+                // single cursor can look past other fragments in the same priority group, letting
+                // every fragmented message use its final packet's remaining space.
                 if fragment.is_last_fragment() {
                     let mut batch = None;
-                    while let Some(candidate) = candidates.get(cursor.index) {
-                        if !matches!(candidate.message.data, MessageData::Single(_))
-                            || !Self::try_append_single_candidate(
-                                &mut packet,
-                                candidate,
-                                &mut batch,
-                                CompressionConfig::DISABLED,
-                            )?
+                    cursor.single_index = cursor.single_index.max(cursor.index);
+                    while let Some(candidate) = candidates.get(cursor.single_index) {
+                        if candidate.effective_priority.total_cmp(&effective_priority)
+                            != core::cmp::Ordering::Equal
                         {
                             break;
                         }
-                        cursor.index += 1;
+                        if matches!(candidate.message.data, MessageData::Fragment(_)) {
+                            cursor.single_index += 1;
+                            continue;
+                        }
+                        if !Self::try_append_single_candidate(
+                            &mut packet,
+                            candidate,
+                            &mut batch,
+                            CompressionConfig::DISABLED,
+                        )? {
+                            break;
+                        }
+                        cursor.single_index += 1;
                     }
                 }
 
@@ -274,6 +295,7 @@ impl PacketBuilder {
                     }
                     cursor.index += 1;
                 }
+                cursor.single_index = cursor.single_index.max(cursor.index);
 
                 if packet.messages.is_empty() {
                     let candidate = &candidates[cursor.index];
@@ -1189,9 +1211,7 @@ mod tests {
     use crate::packet::error::PacketError;
     #[cfg(feature = "compression_lz4")]
     use crate::packet::header::PacketHeader;
-    #[cfg(feature = "compression_lz4")]
-    use crate::packet::message::FragmentCompression;
-    use crate::packet::message::{FragmentIndex, MessageId};
+    use crate::packet::message::{FragmentCompression, FragmentIndex, MessageId};
     use crate::packet::message::{SendMessage, SendMessageKey};
     #[cfg(feature = "compression_lz4")]
     use crate::packet::packet::HEADER_BYTES;
@@ -1937,6 +1957,78 @@ mod tests {
 
         let contents = decompress_packet_for_test(packet)?.parse_packet_payload()?;
         assert_eq!(contents.get(channel_id).unwrap(), &vec![fragment.bytes]);
+        Ok(())
+    }
+
+    #[test]
+    fn staged_builder_fills_each_final_fragment_with_singles() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = *channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let mut candidates = Vec::new();
+
+        for (message_id, key_offset) in [(MessageId(0), 0), (MessageId(1), 2)] {
+            for fragment_index in 0..2 {
+                candidates.push(SendCandidate::new(
+                    channel_kind,
+                    channel_id,
+                    SendMessageKey::UnreliableFragment(key_offset + fragment_index),
+                    u64::from(message_id.0),
+                    SendMessage {
+                        data: FragmentData {
+                            message_id,
+                            fragment_id: FragmentIndex(fragment_index as u64),
+                            num_fragments: FragmentIndex(2),
+                            compression: (fragment_index == 0).then_some(FragmentCompression::None),
+                            bytes: Bytes::from(vec![fragment_index as u8; 900]),
+                        }
+                        .into(),
+                        priority: 1.0,
+                    },
+                ));
+            }
+        }
+        candidates.extend((0..5).map(|index| {
+            SendCandidate::new(
+                channel_kind,
+                channel_id,
+                SendMessageKey::UnreliableSingle(index),
+                (index + 2) as u64,
+                SendMessage {
+                    data: SingleData::new(None, Bytes::from(vec![index as u8; 100])).into(),
+                    priority: 1.0,
+                },
+            )
+        }));
+
+        let mut builder = PacketBuilder::new(1.5);
+        let mut cursor = CandidateCursor::default();
+        let mut packets = Vec::new();
+        while let Some(packet) = builder.build_next_packet(
+            Tick(0),
+            &candidates,
+            &mut cursor,
+            CompressionConfig::DISABLED,
+        )? {
+            builder
+                .header_manager
+                .commit_send_packet(packet.packet_id, Duration::default());
+            packets.push(packet);
+        }
+
+        assert_eq!(packets.len(), 5);
+        for packet_index in [1, 3] {
+            let packet = &packets[packet_index];
+            assert_eq!(packet.messages.len(), 3);
+            assert_eq!(packet.messages[0].fragment_index, Some(FragmentIndex(1)));
+            assert!(
+                packet.messages[1..]
+                    .iter()
+                    .all(|metadata| metadata.fragment_index.is_none())
+            );
+        }
+        assert_eq!(packets[4].messages.len(), 1);
+        assert!(packets[4].messages[0].fragment_index.is_none());
         Ok(())
     }
 
