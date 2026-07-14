@@ -26,11 +26,10 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-all-crates: true
-          shared-key: lints
 
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-deps
@@ -57,11 +56,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: llvm-tools-preview
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-all-crates: true
-          shared-key: lints
 
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-deps
@@ -88,8 +86,10 @@ jobs:
         with:
           components: llvm-tools-preview
 
-      - name: Cache crates
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
 
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-deps

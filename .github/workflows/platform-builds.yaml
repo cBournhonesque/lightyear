@@ -39,12 +39,10 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Cache crates
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-all-crates: true
-          shared-key: platform-build-${{ runner.os }}
 
       - name: Build lightyear
         run: cargo build -p lightyear
@@ -61,12 +59,10 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
-      - name: Cache crates
+      - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-          cache-all-crates: true
-          shared-key: platform-build-wasm
 
       - name: Build lightyear for WASM
         run: >

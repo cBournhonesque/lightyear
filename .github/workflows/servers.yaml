@@ -62,6 +62,9 @@ jobs:
       - name: Load example_list.env file
         run: grep -v '^#' ./examples/example_list.env >> $GITHUB_ENV
 
+      - name: Cache Rust tooling
+        uses: Swatinem/rust-cache@v2
+
       - name: Build and publish docker for example server binaries
         uses: docker/build-push-action@v7
         with:
