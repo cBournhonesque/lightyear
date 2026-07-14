@@ -77,6 +77,9 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
+    env:
+      # Keep the flags used to build coverage artifacts visible to rust-cache.
+      RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only -A mismatched_lifetime_syntaxes
     steps:
       - name: Clone repo
         uses: actions/checkout@v7
@@ -86,10 +89,16 @@ jobs:
         with:
           components: llvm-tools-preview
 
+      - name: Activate CI cargo config
+        run: mv .cargo/config_ci.toml .cargo/config.toml
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # This workspace contains many internal library crates that can be
+          # reused when a change only touches part of Lightyear.
+          cache-workspace-crates: true
 
       - name: Install Linux dependencies
         uses: ./.github/actions/install-linux-deps
@@ -103,13 +112,17 @@ jobs:
       - name: Install Tarpaulin
         run: cargo install cargo-tarpaulin
 
-      - name: Activate CI cargo config
-        run: mv .cargo/config_ci.toml .cargo/config.toml
-
       - name: lightyear_tests
-        env:
-          RUSTFLAGS: -A mismatched_lifetime_syntaxes
-        run: cargo tarpaulin --locked -p lightyear_tests --engine llvm --out lcov -- --test-threads=1
+        # Tarpaulin cleans its target directory by default. Keep its
+        # instrumented artifacts separate from regular Cargo builds so both
+        # variants can be restored by rust-cache.
+        run: >
+          cargo tarpaulin --locked -p lightyear_tests
+          --engine llvm
+          --target-dir target/tarpaulin
+          --skip-clean
+          --out lcov
+          -- --test-threads=1
 
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
