@@ -317,12 +317,7 @@ mod tests {
     use lightyear_serde::ToBytes;
 
     fn packet_with_body(packet_type: PacketType, body: &[u8]) -> Packet {
-        let mut header_manager = PacketHeaderManager::new(1.5);
-        let header = header_manager.prepare_send_packet_header(
-            packet_type,
-            core::time::Duration::default(),
-            Tick(0),
-        );
+        let header = PacketHeaderManager::new(1.5).preview_send_packet_header(packet_type, Tick(0));
         let mut payload = Vec::new();
         header.to_bytes(&mut payload).unwrap();
         payload.extend_from_slice(body);
@@ -331,7 +326,6 @@ mod tests {
             payload,
             messages: Vec::<MessageMetadata>::new(),
             packet_id: PacketId(0),
-            prewritten_size: 0,
             compression: None,
         }
     }

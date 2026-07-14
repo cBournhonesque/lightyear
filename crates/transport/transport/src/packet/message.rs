@@ -10,6 +10,7 @@ use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use lightyear_utils::wrapping_id;
 
+use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::packet::compression::CompressionConfig;
 
 // Internal id that we assign to each message sent over the network
@@ -20,8 +21,64 @@ wrapping_id!(MessageId);
 /// It will be serialized as a varint, so it will take only 1 byte if there
 /// are less than 64 fragments in the message.
 // TODO: as an optimization, we could do a varint up to u16, so that we use 1 byte for the first 128 fragments
-#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct FragmentIndex(pub(crate) u64);
+
+/// Identifies a pending message inside its channel for the duration of one send flush.
+///
+/// Queue indices remain valid because unreliable channels only compact their queues after packet
+/// staging and commit have completed. Reliable messages already have a stable [`MessageId`].
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum SendMessageKey {
+    UnreliableSingle(usize),
+    UnreliableFragment(usize),
+    ReliableSingle(MessageId),
+    ReliableFragment(MessageId, FragmentIndex),
+}
+
+impl SendMessageKey {
+    /// Position of this message in its channel's current pending order.
+    pub(crate) fn send_order(self) -> u64 {
+        match self {
+            Self::UnreliableSingle(index) | Self::UnreliableFragment(index) => index as u64,
+            Self::ReliableSingle(message_id) | Self::ReliableFragment(message_id, _) => {
+                u64::from(message_id.0)
+            }
+        }
+    }
+}
+
+/// A cheap snapshot of a channel-owned message which is eligible for packet staging.
+///
+/// Creating a candidate clones only its [`Bytes`] handle. The underlying message allocation
+/// remains owned by the channel until
+/// [`ChannelSend::commit_send`](crate::channel::senders::ChannelSend::commit_send) is called after
+/// the final packet enters `Link.send`.
+#[derive(Debug)]
+pub(crate) struct SendCandidate {
+    pub(crate) channel_kind: ChannelKind,
+    pub(crate) channel_id: ChannelId,
+    pub(crate) key: SendMessageKey,
+    pub(crate) message: SendMessage,
+    pub(crate) effective_priority: f32,
+}
+
+impl SendCandidate {
+    pub(crate) fn new(
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+        key: SendMessageKey,
+        message: SendMessage,
+    ) -> Self {
+        Self {
+            channel_kind,
+            channel_id,
+            key,
+            effective_priority: message.priority,
+            message,
+        }
+    }
+}
 
 /// Struct to keep track of which messages/slices have been received by the remote
 #[derive(Hash, PartialEq, Eq, Debug, Clone, Copy)]
@@ -41,7 +98,7 @@ pub struct MessageAck {
 ///
 /// In the message container, we already store the serialized representation of the message.
 /// The main reason is so that we can avoid copies, by directly serializing references into raw bits
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 #[doc(hidden)]
 pub struct SendMessage {
     pub(crate) data: MessageData,
@@ -57,7 +114,7 @@ pub struct ReceiveMessage {
     pub(crate) compression: CompressionConfig,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) enum MessageData {
     Single(SingleData),
     Fragment(FragmentData),
@@ -72,26 +129,10 @@ impl MessageData {
         }
     }
 
-    #[allow(unused)]
-    pub fn set_id(&mut self, id: MessageId) {
-        match self {
-            MessageData::Single(data) => data.id = Some(id),
-            MessageData::Fragment(data) => data.message_id = id,
-        };
-    }
-
     pub fn bytes_len(&self) -> usize {
         match self {
             MessageData::Single(data) => data.bytes_len(),
             MessageData::Fragment(data) => data.bytes_len(),
-        }
-    }
-
-    #[allow(unused)]
-    pub fn bytes(&self) -> Bytes {
-        match self {
-            MessageData::Single(data) => data.bytes.clone(),
-            MessageData::Fragment(data) => data.bytes.clone(),
         }
     }
 }

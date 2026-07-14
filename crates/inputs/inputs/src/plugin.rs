@@ -37,6 +37,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
             send_frequency: Duration::default(),
             // we always want to include the inputs in the packet
             priority: f32::INFINITY,
+            // Inputs produced on a later frame supersede a locally unsent input message.
+            retry_unsent_messages: false,
         })
         // bidirectional in case of rebroadcasting inputs
         .add_direction(NetworkDirection::Bidirectional);

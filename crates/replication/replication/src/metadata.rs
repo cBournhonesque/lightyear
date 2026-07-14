@@ -134,6 +134,7 @@ impl Plugin for MetadataPlugin {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             send_frequency: Duration::default(),
             priority: 10.0,
+            ..Default::default()
         });
         app.register_event_to_bytes::<SenderMetadata>()
             .add_direction(NetworkDirection::Bidirectional);

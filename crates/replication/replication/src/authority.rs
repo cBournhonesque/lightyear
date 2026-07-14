@@ -197,6 +197,7 @@ impl Plugin for AuthorityPlugin {
             mode: ChannelMode::SequencedReliable(ReliableSettings::default()),
             send_frequency: Default::default(),
             priority: 10.0,
+            ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
         app.register_event::<AuthorityTransferEvent>()

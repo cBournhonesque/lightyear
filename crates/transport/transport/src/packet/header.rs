@@ -1,5 +1,6 @@
 use alloc::{vec, vec::Vec};
 use bevy_platform::hash::FixedHasher;
+#[cfg(feature = "test_utils")]
 use core::convert::TryInto;
 use core::time::Duration;
 use indexmap::IndexMap;
@@ -82,6 +83,7 @@ impl PacketHeader {
     /// This is used by allocation-sensitive tests that parse a sent packet from `&[u8]` and then
     /// return the original `Vec<u8>` to `PacketBuilder`'s buffer pool. Normal receive code should
     /// keep using [`PacketHeader::from_bytes`], which advances a `Reader` past the header.
+    #[cfg(feature = "test_utils")]
     #[doc(hidden)]
     pub(crate) fn read_from_prefix(bytes: &[u8]) -> Result<Self, SerializationError> {
         if bytes.len() < Self::BYTES {
@@ -246,11 +248,10 @@ impl PacketHeaderManager {
         None
     }
 
-    /// Prepare the header of the next packet to send
-    pub(crate) fn prepare_send_packet_header(
-        &mut self,
+    /// Preview the header of the next packet without changing sent-packet state.
+    pub(crate) fn preview_send_packet_header(
+        &self,
         packet_type: PacketType,
-        real: Duration,
         tick: Tick,
     ) -> PacketHeader {
         // if we didn't have a last packet id, start with the maximum value
@@ -259,21 +260,25 @@ impl PacketHeaderManager {
             .recv_buffer
             .last_recv_packet_id
             .unwrap_or(PacketId(u32::MAX));
-        let outgoing_header = PacketHeader {
+        PacketHeader {
             packet_type,
             packet_id: self.next_packet_id,
             last_ack_packet_id,
             ack_bitfield: self.recv_buffer.get_bitfield(),
             tick,
-        };
-        // we build the header only when we actually send the packet, so computing the stats here is valid
+        }
+    }
+
+    /// Commit a previewed packet after its final payload has entered `Link.send`.
+    pub(crate) fn commit_send_packet(&mut self, packet_id: PacketId, real: Duration) {
+        debug_assert_eq!(
+            packet_id, self.next_packet_id,
+            "packets must be committed in preview order"
+        );
         self.stats_manager.sent_packet();
         trace!(?self.next_packet_id, "Sent packet");
-        // keep track of when we sent the packet (so that if we don't get an ack after a certain amount of time we can consider it lost)
-        self.sent_packets_not_acked
-            .insert(self.next_packet_id, real);
+        self.sent_packets_not_acked.insert(packet_id, real);
         self.next_packet_id += 1;
-        outgoing_header
     }
 }
 
@@ -370,6 +375,17 @@ mod tests {
 
     use super::*;
 
+    fn prepare_send_packet_header(
+        manager: &mut PacketHeaderManager,
+        packet_type: PacketType,
+        real: Duration,
+        tick: Tick,
+    ) -> PacketHeader {
+        let header = manager.preview_send_packet_header(packet_type, tick);
+        manager.commit_send_packet(header.packet_id, real);
+        header
+    }
+
     #[test]
     fn test_recv_buffer() {
         let recv_buffer = ReceiveBuffer::new();
@@ -441,19 +457,43 @@ mod tests {
     }
 
     #[test]
+    fn preview_does_not_advance_packet_state_until_commit() {
+        let mut manager = PacketHeaderManager::new(1.5);
+
+        let first = manager.preview_send_packet_header(PacketType::Data, Tick(1));
+        let repeated = manager.preview_send_packet_header(PacketType::Data, Tick(2));
+        assert_eq!(first.packet_id, PacketId(0));
+        assert_eq!(repeated.packet_id, PacketId(0));
+        assert!(manager.sent_packets_not_acked.is_empty());
+
+        manager.commit_send_packet(first.packet_id, Duration::from_millis(10));
+        let next = manager.preview_send_packet_header(PacketType::Data, Tick(3));
+        assert_eq!(next.packet_id, PacketId(1));
+        assert_eq!(
+            manager.sent_packets_not_acked.get(&PacketId(0)),
+            Some(&Duration::from_millis(10))
+        );
+    }
+
+    #[test]
     fn packet_ack_produces_rtt_sample_from_latest_ack() {
         let mut sender = PacketHeaderManager::new(1.5);
         let mut receiver = PacketHeaderManager::new(1.5);
 
-        let sent_header =
-            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(10), Tick(1));
+        let sent_header = prepare_send_packet_header(
+            &mut sender,
+            PacketType::Data,
+            Duration::from_millis(10),
+            Tick(1),
+        );
         assert!(
             receiver
                 .process_recv_packet_header(&sent_header, Duration::from_millis(25))
                 .is_empty()
         );
 
-        let ack_header = receiver.prepare_send_packet_header(
+        let ack_header = prepare_send_packet_header(
+            &mut receiver,
             PacketType::Data,
             Duration::from_millis(25),
             Tick(2),
@@ -476,17 +516,30 @@ mod tests {
         let mut sender = PacketHeaderManager::new(1.5);
         let mut receiver = PacketHeaderManager::new(1.5);
 
-        let sent_0 =
-            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(10), Tick(1));
-        let _sent_1 =
-            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(20), Tick(2));
-        let sent_2 =
-            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(30), Tick(3));
+        let sent_0 = prepare_send_packet_header(
+            &mut sender,
+            PacketType::Data,
+            Duration::from_millis(10),
+            Tick(1),
+        );
+        let _sent_1 = prepare_send_packet_header(
+            &mut sender,
+            PacketType::Data,
+            Duration::from_millis(20),
+            Tick(2),
+        );
+        let sent_2 = prepare_send_packet_header(
+            &mut sender,
+            PacketType::Data,
+            Duration::from_millis(30),
+            Tick(3),
+        );
 
         receiver.process_recv_packet_header(&sent_0, Duration::from_millis(15));
         receiver.process_recv_packet_header(&sent_2, Duration::from_millis(35));
 
-        let ack_header = receiver.prepare_send_packet_header(
+        let ack_header = prepare_send_packet_header(
+            &mut receiver,
             PacketType::Data,
             Duration::from_millis(40),
             Tick(4),

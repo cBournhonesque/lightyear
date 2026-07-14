@@ -1,13 +1,15 @@
-use alloc::collections::{BTreeMap, VecDeque};
+use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
-use bevy_platform::collections::HashSet;
 use bevy_time::{Real, Time, Timer, TimerMode};
 
 use crate::channel::builder::ReliableSettings;
-use crate::channel::senders::ChannelSend;
+use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::{ChannelSend, SendFlushOutcome, is_ready_to_send};
 use crate::packet::compression::CompressionConfig;
-use crate::packet::message::{FragmentData, MessageAck, MessageId, SendMessage, SingleData};
+use crate::packet::message::{
+    FragmentData, MessageAck, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
+};
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_link::LinkStats;
@@ -51,15 +53,6 @@ pub struct ReliableSender {
     /// Message id to use for the next message to be sent
     next_send_message_id: MessageId,
 
-    /// list of single messages that we want to fit into packets and send
-    single_messages_to_send: VecDeque<SendMessage>,
-    /// list of fragmented messages that we want to fit into packets and send
-    fragmented_messages_to_send: VecDeque<SendMessage>,
-
-    /// Set of message ids that we want to send (to prevent sending the same message twice)
-    /// (includes the [`FragmentIndex`](crate::packet::message::FragmentIndex) for fragments)
-    message_ids_to_send: HashSet<MessageAck>,
-
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
     current_rtt: Duration,
@@ -82,9 +75,6 @@ impl ReliableSender {
             reliable_settings,
             unacked_messages: Default::default(),
             next_send_message_id: MessageId(0),
-            single_messages_to_send: Default::default(),
-            fragmented_messages_to_send: Default::default(),
-            message_ids_to_send: Default::default(),
             fragment_sender: FragmentSender::new(),
             current_rtt: Duration::default(),
             current_time: Duration::default(),
@@ -151,12 +141,14 @@ impl ChannelSend for ReliableSender {
         Some(message_id)
     }
 
-    /// Take messages from the buffer of messages to be sent, and build a list of packets
-    /// to be sent
-    /// The messages to be sent need to have been collected prior to this point.
-    fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
-        if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
-            return (VecDeque::new(), VecDeque::new());
+    fn collect_send_candidates(
+        &mut self,
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+        output: &mut Vec<SendCandidate>,
+    ) {
+        if !is_ready_to_send(self.timer.as_ref()) {
+            return;
         }
 
         // Collect the list of messages that need to be sent
@@ -171,7 +163,7 @@ impl ChannelSend for ReliableSender {
                 // or if we sent it a while back but didn't get an ack
                 Some(last_sent) => {
                     resend_delay != Duration::default()
-                        && self.current_time - *last_sent > resend_delay
+                        && self.current_time.saturating_sub(*last_sent) > resend_delay
                 }
             }
         };
@@ -193,19 +185,15 @@ impl ChannelSend for ReliableSender {
                 UnackedMessage::Single { bytes, last_sent } => {
                     if should_send(last_sent) {
                         trace!(?last_sent, ?self.current_time, "Should send message {:?}", message_id);
-                        let message_info = MessageAck {
-                            message_id: *message_id,
-                            fragment_id: None,
-                        };
-                        if !self.message_ids_to_send.contains(&message_info) {
-                            let message = SingleData::new(Some(*message_id), bytes.clone());
-                            self.single_messages_to_send.push_back(SendMessage {
-                                data: message.into(),
+                        output.push(SendCandidate::new(
+                            channel_kind,
+                            channel_id,
+                            SendMessageKey::ReliableSingle(*message_id),
+                            SendMessage {
+                                data: SingleData::new(Some(*message_id), bytes.clone()).into(),
                                 priority: unacked_message_with_priority.accumulated_priority,
-                            });
-                            self.message_ids_to_send.insert(message_info);
-                            *last_sent = Some(self.current_time);
-                        }
+                            },
+                        ));
                     }
                 }
                 UnackedMessage::Fragmented(fragment_acks) => {
@@ -214,54 +202,57 @@ impl ChannelSend for ReliableSender {
                         .iter_mut()
                         .filter(|f| !f.acked && should_send(&f.last_sent))
                         .for_each(|f| {
-                            let message_info = MessageAck {
-                                message_id: *message_id,
-                                fragment_id: Some(f.data.fragment_id),
-                            };
-                            if !self.message_ids_to_send.contains(&message_info) {
-                                let message = f.data.clone();
-                                self.fragmented_messages_to_send.push_back(SendMessage {
-                                    data: message.into(),
+                            output.push(SendCandidate::new(
+                                channel_kind,
+                                channel_id,
+                                SendMessageKey::ReliableFragment(*message_id, f.data.fragment_id),
+                                SendMessage {
+                                    data: f.data.clone().into(),
                                     priority: unacked_message_with_priority.accumulated_priority,
-                                });
-                                self.message_ids_to_send.insert(message_info);
-                                f.last_sent = Some(self.current_time);
-                            }
+                                },
+                            ));
                         })
                 }
             }
         }
-
-        // TODO: is this message_ids_to_send even useful? in which situation would we send the same message twice?
-        // right now, we send everything; so we can reset
-        self.message_ids_to_send.clear();
-        if !self.single_messages_to_send.is_empty() {
-            trace!(
-                "Single messages to send: {:?}",
-                self.single_messages_to_send
-            );
-        }
-
-        // TODO: use double-buffer to reuse allocated memory?
-        (
-            core::mem::take(&mut self.single_messages_to_send),
-            core::mem::take(&mut self.fragmented_messages_to_send),
-        )
-
-        // TODO: handle if we couldn't send all messages?
-        // TODO: update message_ids_to_send?
-        // TODO: get back the list of messages we could not send?
-
-        // // build the packets from those messages
-        // let single_messages_to_send = core::mem::take(&mut self.single_messages_to_send);
-        // let (remaining_messages_to_send, sent_message_ids) =
-        //     packet_manager.pack_messages_within_channel(messages_to_send);
-        // self.messages_to_send = remaining_messages_to_send;
-        //
-        // for message_id in sent_message_ids {
-        //     self.message_ids_to_send.remove(&message_id);
-        // }
     }
+
+    fn commit_send(&mut self, key: SendMessageKey, sent_at: Duration) {
+        match key {
+            SendMessageKey::ReliableSingle(message_id) => {
+                let Some(message) = self.unacked_messages.get_mut(&message_id) else {
+                    debug_assert!(false, "missing reliable message during send commit");
+                    return;
+                };
+                let UnackedMessage::Single { last_sent, .. } = &mut message.unacked_message else {
+                    debug_assert!(false, "reliable send key did not match message shape");
+                    return;
+                };
+                *last_sent = Some(sent_at);
+            }
+            SendMessageKey::ReliableFragment(message_id, fragment_id) => {
+                let Some(message) = self.unacked_messages.get_mut(&message_id) else {
+                    debug_assert!(
+                        false,
+                        "missing fragmented reliable message during send commit"
+                    );
+                    return;
+                };
+                let UnackedMessage::Fragmented(fragments) = &mut message.unacked_message else {
+                    debug_assert!(false, "reliable fragment key did not match message shape");
+                    return;
+                };
+                let Some(fragment) = fragments.get_mut(fragment_id.0 as usize) else {
+                    debug_assert!(false, "missing reliable fragment during send commit");
+                    return;
+                };
+                fragment.last_sent = Some(sent_at);
+            }
+            _ => debug_assert!(false, "unreliable key committed to reliable sender"),
+        }
+    }
+
+    fn finish_send(&mut self, _: SendFlushOutcome) {}
 
     fn receive_ack(&mut self, message_ack: &MessageAck) {
         if let Some(unacked_message) = self.unacked_messages.get_mut(&message_ack.message_id) {
@@ -308,6 +299,8 @@ mod tests {
 
     use super::*;
 
+    struct TestChannel;
+
     #[test]
     fn test_reliable_sender_internals() {
         let mut sender = ReliableSender::new(
@@ -328,21 +321,32 @@ mod tests {
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));
         // Collect the messages to be sent
-        let (single, _) = sender.send_packet();
-        assert_eq!(single.len(), 1);
+        let mut candidates = Vec::new();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
+        assert!(matches!(
+            sender.unacked_messages[&MessageId(0)].unacked_message,
+            UnackedMessage::Single {
+                last_sent: None,
+                ..
+            }
+        ));
+        sender.commit_send(candidates[0].key, sender.current_time);
 
         // Advance by a time that is below the resend threshold
         sender.current_time += Duration::from_millis(100);
-        let (single, _) = sender.send_packet();
-        assert_eq!(single.len(), 0);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.is_empty());
 
         // Advance by a time that is above the resend threshold
         sender.current_time += Duration::from_millis(200);
-        let (single, _) = sender.send_packet();
-        assert_eq!(single.len(), 1);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
         assert_eq!(
-            single.front().unwrap(),
-            &SendMessage {
+            candidates[0].message,
+            SendMessage {
                 data: SingleData::new(Some(MessageId(0)), message1.clone()).into(),
                 // priority is accumulated every time the message is not sent
                 priority: 3.0
@@ -358,7 +362,8 @@ mod tests {
 
         // Advance by a time that is above the resend threshold
         sender.current_time += Duration::from_millis(200);
-        let (single, _) = sender.send_packet();
-        assert_eq!(single.len(), 0);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.is_empty());
     }
 }

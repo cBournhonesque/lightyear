@@ -149,6 +149,7 @@ impl Plugin for PingPlugin {
             send_frequency: Duration::default(),
             // we always want to include the ping in the packet
             priority: f32::INFINITY,
+            ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
         app.register_message_to_bytes::<Ping>()

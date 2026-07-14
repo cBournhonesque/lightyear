@@ -1,22 +1,15 @@
-use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::packet::message::{FragmentData, MessageData, SendMessage, SingleData};
-use alloc::collections::VecDeque;
-use alloc::{vec, vec::Vec};
+use crate::channel::registry::ChannelRegistry;
+use crate::packet::message::{MessageData, SendCandidate};
+use crate::packet::packet::MAX_PACKET_SIZE;
+use alloc::vec::Vec;
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
-use lightyear_core::network::NetId;
+use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
 use tracing::{Level, instrument};
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace};
-
-#[derive(Debug)]
-pub struct BufferedMessage {
-    priority: f32,
-    channel_net_id: NetId,
-    data: MessageData,
-}
 
 #[derive(Debug, Clone)]
 pub struct PriorityConfig {
@@ -38,31 +31,40 @@ impl Default for PriorityConfig {
 }
 
 impl PriorityConfig {
+    /// Enable a sustained byte rate while allowing at least one maximum-sized packet per burst.
+    ///
+    /// Governor cannot admit an item larger than its burst capacity. Keeping the burst at least
+    /// one transport MTU prevents low byte rates from making every valid packet permanently
+    /// inadmissible; it does not change the configured sustained refill rate.
     pub fn new(bytes_per_second_quota: u32) -> Self {
         let cap = bytes_per_second_quota.try_into().unwrap();
+        let burst = bytes_per_second_quota
+            .max(MAX_PACKET_SIZE as u32)
+            .try_into()
+            .unwrap();
         Self {
-            bandwidth_quota: Quota::per_second(cap).allow_burst(cap),
+            bandwidth_quota: Quota::per_second(cap).allow_burst(burst),
             enabled: true,
         }
     }
 }
 
-/// Responsible for restricting the bandwidth used by messages sent over the network.
+/// Reusable scheduler scratch for ordering channel-owned send candidates.
 ///
-/// The messages will be filtered by priority until we reach the bandwidth quota.
-///
-/// Messages that were not sent will have increased priority, which means that they have a higher chance of
-/// being sent in the future.
+/// This type never owns channel queues and does not decide whether a packet was sent. Bandwidth is
+/// consumed separately by [`BandwidthLimiter`] after packet staging and compression.
 #[derive(Debug)]
 pub struct PriorityManager {
     pub(crate) config: PriorityConfig,
-    // TODO: can I do without this limiter?
-    pub(crate) limiter: DefaultDirectRateLimiter,
-    // Internal buffer of data that we want to send
-    // TODO: improve this
-    data_to_send: Vec<(NetId, (VecDeque<SendMessage>, VecDeque<SendMessage>))>,
-    // Messages that could not be sent because of the bandwidth quota
-    // buffered_data: Vec<BufferedMessage>,
+    /// Reused scratch containing cheap snapshots of channel-owned pending messages.
+    candidates: Vec<SendCandidate>,
+}
+
+/// Consumes the configured bandwidth quota using final packet bytes.
+#[derive(Debug)]
+pub(crate) struct BandwidthLimiter {
+    enabled: bool,
+    limiter: DefaultDirectRateLimiter,
 }
 
 impl Default for PriorityManager {
@@ -73,138 +75,87 @@ impl Default for PriorityManager {
 
 impl PriorityManager {
     pub fn new(config: PriorityConfig) -> Self {
-        let quota = config.bandwidth_quota;
         Self {
             config,
-            data_to_send: Vec::new(),
-            limiter: DefaultDirectRateLimiter::direct(quota),
-            // data_to_send: BTreeMap::new(),
-            // buffered_data: Vec::new(),
+            candidates: Vec::new(),
         }
     }
 
-    pub(crate) fn buffer_messages(
-        &mut self,
-        net_id: NetId,
-        single: VecDeque<SendMessage>,
-        fragment: VecDeque<SendMessage>,
-    ) {
-        self.data_to_send.push((net_id, (single, fragment)));
+    pub(crate) fn candidates_mut(&mut self) -> &mut Vec<SendCandidate> {
+        &mut self.candidates
     }
 
-    /// Sort queued messages by priority and return the data to packetize.
+    pub(crate) fn candidates(&self) -> &[SendCandidate] {
+        &self.candidates
+    }
+
+    pub(crate) fn clear(&mut self) {
+        self.candidates.clear();
+    }
+
+    /// Apply priority and packet-packing order without taking ownership of channel queues.
     ///
-    /// Bandwidth quota is intentionally consumed after packet building, because packet building
-    /// can compress selected messages and the limiter should use final packet bytes.
+    /// Fragments precede singles within each priority group so the packet builder can fill the
+    /// final fragment packets with the smallest remaining singles. When priority management is
+    /// disabled, every candidate belongs to one packing group.
     #[cfg_attr(feature = "trace", instrument(level = Level::INFO, skip_all))]
-    pub(crate) fn prioritize(
-        &mut self,
-        channel_registry: &ChannelRegistry,
-    ) -> (
-        Vec<(ChannelId, VecDeque<SingleData>)>,
-        Vec<(ChannelId, VecDeque<FragmentData>)>,
-    ) {
-        // if the bandwidth quota is disabled, just pass all messages through
-        // As an optimization: no need to send the tick of the message, it is the same as the header tick
+    pub(crate) fn prioritize(&mut self, channel_registry: &ChannelRegistry) {
         if !self.config.enabled {
-            let mut single_data = vec![];
-            let mut fragment_data = vec![];
-            for (net_id, (single, fragment)) in self.data_to_send.drain(..) {
-                single_data.push((
-                    net_id,
-                    single
-                        .into_iter()
-                        .map(|message| {
-                            let MessageData::Single(single) = message.data else {
-                                unreachable!()
-                            };
-                            single
-                        })
-                        .collect(),
-                ));
-                fragment_data.push((
-                    net_id,
-                    fragment
-                        .into_iter()
-                        .map(|message| {
-                            let MessageData::Fragment(fragment) = message.data else {
-                                unreachable!()
-                            };
-                            fragment
-                        })
-                        .collect(),
-                ));
+            for candidate in &mut self.candidates {
+                candidate.effective_priority = 0.0;
             }
-            return (single_data, fragment_data);
+            self.candidates.sort_unstable_by(Self::packing_order);
+            debug!(
+                num_candidates = self.candidates.len(),
+                "priority disabled; applied fragment-first packing order"
+            );
+            return;
         }
 
-        // compute the priority of each new message
-        let mut all_messages = self
-            .data_to_send
-            .drain(..)
-            .flat_map(|(net_id, (single, fragment))| {
-                let channel_priority = channel_registry
-                    .settings_from_net_id(net_id)
-                    .unwrap()
-                    .priority;
-                trace!(?channel_priority, num_single=?single.len(), "channel priority");
-                single
-                    .into_iter()
-                    .map(move |single| BufferedMessage {
-                        priority: single.priority * channel_priority,
-                        channel_net_id: net_id,
-                        data: single.data,
-                    })
-                    .chain(fragment.into_iter().map(move |fragment| {
-                        // TODO (IMPORTANT): we should split fragments AFTER priority filtering
-                        //  because if we don't send one fragment, it's over..
-                        BufferedMessage {
-                            priority: fragment.priority * channel_priority,
-                            channel_net_id: net_id,
-                            data: fragment.data,
-                        }
-                    }))
-            })
-            .collect::<Vec<_>>();
+        for candidate in &mut self.candidates {
+            let channel_priority = channel_registry
+                .settings_from_net_id(candidate.channel_id)
+                .expect("candidate channel must be registered")
+                .priority;
+            candidate.effective_priority = candidate.message.priority * channel_priority;
+        }
 
-        // sort from highest priority to lower
-        all_messages.sort_by(|a, b| a.priority.partial_cmp(&b.priority).unwrap());
+        // Every candidate has deterministic tie-breakers, so the in-place unstable sort has
+        // stable observable output without allocating temporary sort storage.
+        self.candidates.sort_unstable_by(|a, b| {
+            b.effective_priority
+                .total_cmp(&a.effective_priority)
+                .then_with(|| Self::packing_order(a, b))
+        });
         debug!(
-            "all messages to send, sorted by priority: {:?}",
-            all_messages
+            num_candidates = self.candidates.len(),
+            "priority ordering complete"
         );
+    }
 
-        // Return messages in priority order. Keep each message as its own channel batch so the
-        // packet builder sees priority ordering instead of a grouping hash-map order.
-        let mut single_data: Vec<(ChannelId, VecDeque<SingleData>)> = vec![];
-        let mut fragment_data: Vec<(ChannelId, VecDeque<FragmentData>)> = vec![];
-        while let Some(buffered_message) = all_messages.pop() {
-            trace!(channel=?buffered_message.channel_net_id, "Selected message with priority {:?}", buffered_message.priority);
-
-            // the message is allowed, add it to the list of messages to send
-            match buffered_message.data {
-                MessageData::Single(single) => {
-                    single_data.push((buffered_message.channel_net_id, VecDeque::from([single])));
-                }
-                MessageData::Fragment(fragment) => {
-                    fragment_data
-                        .push((buffered_message.channel_net_id, VecDeque::from([fragment])));
-                }
+    fn packing_order(a: &SendCandidate, b: &SendCandidate) -> core::cmp::Ordering {
+        match (&a.message.data, &b.message.data) {
+            (MessageData::Fragment(_), MessageData::Single(_)) => core::cmp::Ordering::Less,
+            (MessageData::Single(_), MessageData::Fragment(_)) => core::cmp::Ordering::Greater,
+            (MessageData::Single(a_message), MessageData::Single(b_message)) => a_message
+                .bytes_len()
+                .cmp(&b_message.bytes_len())
+                .then_with(|| a.key.send_order().cmp(&b.key.send_order())),
+            (MessageData::Fragment(a_fragment), MessageData::Fragment(b_fragment)) => {
+                a_fragment.message_id.cmp(&b_fragment.message_id)
             }
         }
+        .then_with(|| a.channel_id.cmp(&b.channel_id))
+        .then_with(|| a.key.cmp(&b.key))
+    }
+}
 
-        let num_messages_sent = single_data
-            .iter()
-            .map(|(_, data)| data.len())
-            .sum::<usize>()
-            + fragment_data
-                .iter()
-                .map(|(_, data)| data.len())
-                .sum::<usize>();
-        debug!(?num_messages_sent, "priority ordering complete.");
-
-        self.data_to_send.clear();
-        (single_data, fragment_data)
+impl BandwidthLimiter {
+    pub(crate) fn new(config: PriorityConfig) -> Self {
+        Self {
+            enabled: config.enabled,
+            limiter: DefaultDirectRateLimiter::direct(config.bandwidth_quota),
+        }
     }
 
     /// Consume bandwidth quota for a final packet payload.
@@ -212,7 +163,7 @@ impl PriorityManager {
     /// Returns false when this packet cannot currently fit. The caller should stop sending for
     /// this tick, because subsequent packets are not higher priority than this one.
     pub(crate) fn consume_packet_quota(&mut self, packet_bytes: u32) -> bool {
-        if !self.config.enabled {
+        if !self.enabled {
             return true;
         }
 
@@ -233,50 +184,265 @@ impl PriorityManager {
 mod tests {
     use super::*;
     use crate::channel::builder::{ChannelMode, ChannelSettings};
+    use crate::channel::registry::ChannelKind;
+    use crate::packet::message::{
+        FragmentCompression, FragmentData, FragmentIndex, MessageData, MessageId, SendCandidate,
+        SendMessage, SendMessageKey, SingleData,
+    };
+    use alloc::vec;
     use bytes::Bytes;
 
     struct PingLikeChannel;
     struct TurnTrafficChannel;
+    struct FragmentChannel;
+
+    #[test]
+    fn disabled_priority_uses_fragment_first_size_ascending_packing_order() {
+        let registry = ChannelRegistry::default();
+        let mut manager = PriorityManager::default();
+        manager.candidates_mut().push(SendCandidate::new(
+            ChannelKind::of::<TurnTrafficChannel>(),
+            10,
+            SendMessageKey::UnreliableSingle(0),
+            SendMessage {
+                priority: 100.0,
+                data: SingleData::new(None, Bytes::from_static(b"larger-single")).into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            ChannelKind::of::<FragmentChannel>(),
+            5,
+            SendMessageKey::UnreliableFragment(0),
+            SendMessage {
+                priority: 0.1,
+                data: FragmentData {
+                    message_id: MessageId(0),
+                    fragment_id: FragmentIndex(0),
+                    num_fragments: FragmentIndex(1),
+                    compression: Some(FragmentCompression::None),
+                    bytes: Bytes::from_static(b"fragment"),
+                }
+                .into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            ChannelKind::of::<PingLikeChannel>(),
+            1,
+            SendMessageKey::UnreliableSingle(0),
+            SendMessage {
+                priority: 1.0,
+                data: SingleData::new(None, Bytes::from_static(b"small")).into(),
+            },
+        ));
+
+        manager.prioritize(&registry);
+
+        assert!(matches!(
+            manager.candidates()[0].message.data,
+            MessageData::Fragment(_)
+        ));
+        assert_eq!(manager.candidates()[1].channel_id, 1);
+        assert_eq!(manager.candidates()[2].channel_id, 10);
+    }
 
     #[test]
     fn infinite_priority_messages_are_ordered_before_traffic_bursts() {
         let mut registry = ChannelRegistry::default();
-        let (_, ping_channel) = registry.add_channel::<PingLikeChannel>(ChannelSettings {
+        let (ping_kind, ping_channel) = registry.add_channel::<PingLikeChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             priority: f32::INFINITY,
             ..Default::default()
         });
-        let (_, traffic_channel) = registry.add_channel::<TurnTrafficChannel>(ChannelSettings {
+        let (traffic_kind, traffic_channel) =
+            registry.add_channel::<TurnTrafficChannel>(ChannelSettings {
+                mode: ChannelMode::UnorderedUnreliable,
+                priority: 1.0,
+                ..Default::default()
+            });
+        let mut manager = PriorityManager::new(PriorityConfig::new(1024));
+
+        manager.candidates_mut().extend((0..120).map(|index| {
+            SendCandidate::new(
+                traffic_kind,
+                traffic_channel,
+                SendMessageKey::UnreliableSingle(index),
+                SendMessage {
+                    priority: 1.0,
+                    data: SingleData::new(None, Bytes::from(vec![index as u8; 8])).into(),
+                },
+            )
+        }));
+        manager.candidates_mut().push(SendCandidate::new(
+            ping_kind,
+            ping_channel,
+            SendMessageKey::UnreliableSingle(0),
+            SendMessage {
+                priority: 1.0,
+                data: SingleData::new(None, Bytes::from_static(b"ping")).into(),
+            },
+        ));
+
+        manager.prioritize(&registry);
+
+        let candidate = manager.candidates().first().expect("expected a candidate");
+        assert_eq!(candidate.channel_id, ping_channel);
+        let crate::packet::message::MessageData::Single(message) = &candidate.message.data else {
+            panic!("expected a single message")
+        };
+        assert_eq!(message.bytes, Bytes::from_static(b"ping"));
+    }
+
+    #[test]
+    fn higher_priority_single_precedes_lower_priority_fragment() {
+        let mut registry = ChannelRegistry::default();
+        let (fragment_kind, fragment_channel) =
+            registry.add_channel::<FragmentChannel>(ChannelSettings {
+                mode: ChannelMode::UnorderedUnreliable,
+                priority: 1.0,
+                ..Default::default()
+            });
+        let (ping_kind, ping_channel) = registry.add_channel::<PingLikeChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            priority: 10.0,
+            ..Default::default()
+        });
+        let mut manager = PriorityManager::new(PriorityConfig::new(1024));
+        manager.candidates_mut().push(SendCandidate::new(
+            fragment_kind,
+            fragment_channel,
+            SendMessageKey::UnreliableFragment(0),
+            SendMessage {
+                data: FragmentData {
+                    message_id: MessageId(0),
+                    fragment_id: FragmentIndex(0),
+                    num_fragments: FragmentIndex(1),
+                    compression: Some(FragmentCompression::None),
+                    bytes: Bytes::from_static(b"fragment"),
+                }
+                .into(),
+                priority: 1.0,
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            ping_kind,
+            ping_channel,
+            SendMessageKey::UnreliableSingle(0),
+            SendMessage {
+                data: SingleData::new(None, Bytes::from_static(b"urgent")).into(),
+                priority: 1.0,
+            },
+        ));
+
+        manager.prioritize(&registry);
+
+        assert!(matches!(
+            manager.candidates()[0].message.data,
+            MessageData::Single(_)
+        ));
+    }
+
+    #[test]
+    fn equal_priority_uses_fragment_first_size_ascending_packing_order() {
+        let mut registry = ChannelRegistry::default();
+        let (kind, channel) = registry.add_channel::<FragmentChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             priority: 1.0,
             ..Default::default()
         });
         let mut manager = PriorityManager::new(PriorityConfig::new(1024));
-
-        manager.buffer_messages(
-            traffic_channel,
-            (0..120)
-                .map(|index| SendMessage {
-                    priority: 1.0,
-                    data: SingleData::new(None, Bytes::from(vec![index as u8; 8])).into(),
-                })
-                .collect(),
-            VecDeque::new(),
-        );
-        manager.buffer_messages(
-            ping_channel,
-            VecDeque::from([SendMessage {
+        manager.candidates_mut().push(SendCandidate::new(
+            kind,
+            channel,
+            SendMessageKey::UnreliableSingle(0),
+            SendMessage {
                 priority: 1.0,
-                data: SingleData::new(None, Bytes::from_static(b"ping")).into(),
-            }]),
-            VecDeque::new(),
-        );
+                data: SingleData::new(None, Bytes::from_static(b"larger-single")).into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            kind,
+            channel,
+            SendMessageKey::UnreliableSingle(1),
+            SendMessage {
+                priority: 1.0,
+                data: SingleData::new(None, Bytes::from_static(b"small")).into(),
+            },
+        ));
+        manager.candidates_mut().push(SendCandidate::new(
+            kind,
+            channel,
+            SendMessageKey::UnreliableFragment(0),
+            SendMessage {
+                priority: 1.0,
+                data: FragmentData {
+                    message_id: MessageId(0),
+                    fragment_id: FragmentIndex(0),
+                    num_fragments: FragmentIndex(1),
+                    compression: Some(FragmentCompression::None),
+                    bytes: Bytes::from_static(b"fragment"),
+                }
+                .into(),
+            },
+        ));
 
-        let (single_data, fragment_data) = manager.prioritize(&registry);
+        manager.prioritize(&registry);
 
-        assert!(fragment_data.is_empty());
-        let (channel, messages) = single_data.first().expect("expected at least one message");
-        assert_eq!(*channel, ping_channel);
-        assert_eq!(messages[0].bytes, Bytes::from_static(b"ping"));
+        assert!(matches!(
+            manager.candidates()[0].message.data,
+            MessageData::Fragment(_)
+        ));
+        let [small, large] = &manager.candidates()[1..] else {
+            panic!("expected two single candidates")
+        };
+        assert!(small.message.data.bytes_len() < large.message.data.bytes_len());
+    }
+
+    #[test]
+    fn fragment_order_uses_existing_message_and_fragment_ids() {
+        let mut registry = ChannelRegistry::default();
+        let (kind, channel) = registry.add_channel::<FragmentChannel>(ChannelSettings {
+            mode: ChannelMode::UnorderedUnreliable,
+            priority: 1.0,
+            ..Default::default()
+        });
+        let mut manager = PriorityManager::new(PriorityConfig::new(1024));
+        for (queue_index, message_id, fragment_id) in [(3, 1, 1), (1, 0, 1), (2, 1, 0), (0, 0, 0)] {
+            manager.candidates_mut().push(SendCandidate::new(
+                kind,
+                channel,
+                SendMessageKey::UnreliableFragment(queue_index),
+                SendMessage {
+                    priority: 1.0,
+                    data: FragmentData {
+                        message_id: MessageId(message_id),
+                        fragment_id: FragmentIndex(fragment_id),
+                        num_fragments: FragmentIndex(2),
+                        compression: (fragment_id == 0).then_some(FragmentCompression::None),
+                        bytes: Bytes::new(),
+                    }
+                    .into(),
+                },
+            ));
+        }
+
+        manager.prioritize(&registry);
+
+        let order = manager
+            .candidates()
+            .iter()
+            .map(|candidate| {
+                let MessageData::Fragment(fragment) = &candidate.message.data else {
+                    panic!("expected fragment candidate")
+                };
+                (fragment.message_id.0, fragment.fragment_id.0)
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(order, [(0, 0), (0, 1), (1, 0), (1, 1)]);
+    }
+
+    #[test]
+    fn bandwidth_burst_can_always_admit_one_mtu_packet() {
+        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1));
+        assert!(limiter.consume_packet_quota(MAX_PACKET_SIZE as u32));
     }
 }
