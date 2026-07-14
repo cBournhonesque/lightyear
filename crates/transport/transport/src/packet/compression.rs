@@ -81,28 +81,6 @@ pub(crate) enum CompressionOutcome {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(crate) enum CompressionCandidate {
-    Disabled,
-    AlreadyCompressed,
-    TooSmall {
-        payload_len: usize,
-    },
-    TooLargeForDecompressionLimit {
-        payload_len: usize,
-        limit: usize,
-    },
-    NotSmaller {
-        original_len: usize,
-        compressed_len: usize,
-    },
-    Compressed {
-        payload: Vec<u8>,
-        original_len: usize,
-        compressed_len: usize,
-    },
-}
-
-#[derive(Debug, PartialEq, Eq)]
 pub(crate) enum PayloadCompressionCandidate {
     Disabled,
     TooSmall {
@@ -123,113 +101,188 @@ pub(crate) enum PayloadCompressionCandidate {
     },
 }
 
-/// Try to compress the packet payload body in place.
+/// Transport-wide compression workspace retained across compression attempts.
 ///
-/// The packet is only modified if the compressed final packet is strictly smaller than the original
-/// packet and still fits in the packet MTU.
-pub(crate) fn try_compress_packet(
-    packet: &mut Packet,
-    config: CompressionConfig,
-    mtu: usize,
-) -> Result<CompressionOutcome, PacketError> {
-    match try_build_compressed_packet_payload(&packet.payload, config, mtu)? {
-        CompressionCandidate::Disabled => Ok(CompressionOutcome::Disabled),
-        CompressionCandidate::AlreadyCompressed => Ok(CompressionOutcome::AlreadyCompressed),
-        CompressionCandidate::TooSmall { payload_len } => {
-            Ok(CompressionOutcome::TooSmall { payload_len })
-        }
-        CompressionCandidate::TooLargeForDecompressionLimit { payload_len, limit } => {
-            Ok(CompressionOutcome::TooLargeForDecompressionLimit { payload_len, limit })
-        }
-        CompressionCandidate::NotSmaller {
-            original_len,
-            compressed_len,
-        } => Ok(CompressionOutcome::NotSmaller {
-            original_len,
-            compressed_len,
-        }),
-        CompressionCandidate::Compressed {
-            payload,
-            original_len,
-            compressed_len,
-        } => {
-            packet.payload = payload;
-            packet.compression = Some(PacketCompressionInfo {
-                original_len,
-                compressed_len,
-            });
-            Ok(CompressionOutcome::Compressed {
-                original_len,
-                compressed_len,
-            })
-        }
+/// LZ4's hash table is shared across compression operations. [`Self::compress`] writes into the
+/// owned output buffer, while [`Self::compress_into`] allows callers to retain their own buffer.
+#[derive(Default)]
+pub(crate) struct CompressionScratch {
+    output: Vec<u8>,
+    #[cfg(feature = "compression_lz4")]
+    lz4_table: Option<lz4_flex::block::CompressTable>,
+}
+
+impl core::fmt::Debug for CompressionScratch {
+    fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut state = formatter.debug_struct("CompressionScratch");
+        state.field("output_capacity", &self.output.capacity());
+        #[cfg(feature = "compression_lz4")]
+        state.field("lz4_table_initialized", &self.lz4_table.is_some());
+        state.finish()
     }
 }
 
-pub(crate) fn try_build_compressed_packet_payload(
+impl CompressionScratch {
+    fn compress_into<'output>(
+        &mut self,
+        payload: &[u8],
+        algorithm: CompressionAlgorithm,
+        output: &'output mut Vec<u8>,
+    ) -> Result<&'output [u8], PacketError> {
+        match algorithm {
+            #[cfg(feature = "compression_lz4")]
+            CompressionAlgorithm::Lz4 => Self::compress_lz4(
+                payload,
+                output,
+                self.lz4_table
+                    .get_or_insert_with(lz4_flex::block::CompressTable::default),
+            ),
+        }
+    }
+
+    fn compress(
+        &mut self,
+        payload: &[u8],
+        algorithm: CompressionAlgorithm,
+    ) -> Result<&[u8], PacketError> {
+        match algorithm {
+            #[cfg(feature = "compression_lz4")]
+            CompressionAlgorithm::Lz4 => Self::compress_lz4(
+                payload,
+                &mut self.output,
+                self.lz4_table
+                    .get_or_insert_with(lz4_flex::block::CompressTable::default),
+            ),
+        }
+    }
+
+    fn take_output(&mut self, len: usize) -> Vec<u8> {
+        debug_assert!(len <= self.output.len());
+        self.output.truncate(len);
+        core::mem::take(&mut self.output)
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    fn compress_lz4<'output>(
+        payload: &[u8],
+        output: &'output mut Vec<u8>,
+        table: &mut lz4_flex::block::CompressTable,
+    ) -> Result<&'output [u8], PacketError> {
+        const SIZE_PREFIX_BYTES: usize = core::mem::size_of::<u32>();
+
+        let uncompressed_len =
+            u32::try_from(payload.len()).map_err(|_| PacketError::CompressionFailed)?;
+        let output_len =
+            SIZE_PREFIX_BYTES + lz4_flex::block::get_maximum_output_size(payload.len());
+        if output.len() < output_len {
+            output.resize(output_len, 0);
+        }
+        output[..SIZE_PREFIX_BYTES].copy_from_slice(&uncompressed_len.to_le_bytes());
+
+        let compressed_len = lz4_flex::block::compress_into_with_table(
+            payload,
+            &mut output[SIZE_PREFIX_BYTES..output_len],
+            table,
+        )
+        .map_err(|_| PacketError::CompressionFailed)?;
+
+        Ok(&output[..SIZE_PREFIX_BYTES + compressed_len])
+    }
+}
+
+/// Compress a packet payload body into reusable output without modifying the packet.
+///
+/// This is also used while packing messages to preserve the behavior of admitting an
+/// uncompressed packet larger than the MTU when its compressed representation still fits.
+pub(crate) fn evaluate_packet_compression(
     packet_payload: &[u8],
     config: CompressionConfig,
     mtu: usize,
-) -> Result<CompressionCandidate, PacketError> {
-    if config.algorithm.is_none() {
-        return Ok(CompressionCandidate::Disabled);
-    }
+    scratch: &mut CompressionScratch,
+    output: &mut Vec<u8>,
+) -> Result<CompressionOutcome, PacketError> {
+    let Some(algorithm) = config.algorithm else {
+        return Ok(CompressionOutcome::Disabled);
+    };
 
     if packet_payload.len() <= HEADER_BYTES {
-        return Ok(CompressionCandidate::TooSmall { payload_len: 0 });
+        return Ok(CompressionOutcome::TooSmall { payload_len: 0 });
     }
 
     let packet_type = PacketType::try_from(packet_payload[PacketHeader::PACKET_TYPE_OFFSET])?;
-    let Some(compressed_packet_type) = packet_type.compressed_variant() else {
-        return Ok(CompressionCandidate::AlreadyCompressed);
-    };
-
-    match try_build_compressed_payload(&packet_payload[HEADER_BYTES..], config)? {
-        PayloadCompressionCandidate::Disabled => Ok(CompressionCandidate::Disabled),
-        PayloadCompressionCandidate::TooSmall { payload_len } => {
-            Ok(CompressionCandidate::TooSmall { payload_len })
-        }
-        PayloadCompressionCandidate::TooLargeForDecompressionLimit { payload_len, limit } => {
-            Ok(CompressionCandidate::TooLargeForDecompressionLimit { payload_len, limit })
-        }
-        PayloadCompressionCandidate::NotSmaller {
-            original_len,
-            compressed_len,
-        } => Ok(CompressionCandidate::NotSmaller {
-            original_len: HEADER_BYTES + original_len,
-            compressed_len: HEADER_BYTES + compressed_len,
-        }),
-        PayloadCompressionCandidate::Compressed {
-            payload: compressed_payload,
-            original_len,
-            compressed_len,
-        } => {
-            let compressed_packet_len = HEADER_BYTES + compressed_len;
-            let original_packet_len = HEADER_BYTES + original_len;
-            if compressed_packet_len > mtu {
-                return Ok(CompressionCandidate::NotSmaller {
-                    original_len: original_packet_len,
-                    compressed_len: compressed_packet_len,
-                });
-            }
-
-            let mut payload = Vec::with_capacity(compressed_packet_len);
-            payload.extend_from_slice(&packet_payload[..HEADER_BYTES]);
-            payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
-            payload.extend_from_slice(&compressed_payload);
-
-            Ok(CompressionCandidate::Compressed {
-                payload,
-                original_len: original_packet_len,
-                compressed_len: compressed_packet_len,
-            })
-        }
+    if packet_type.compressed_variant().is_none() {
+        return Ok(CompressionOutcome::AlreadyCompressed);
     }
+
+    let payload_len = packet_payload.len() - HEADER_BYTES;
+    if payload_len < config.min_payload_size {
+        return Ok(CompressionOutcome::TooSmall { payload_len });
+    }
+    if payload_len > config.max_decompressed_payload_size {
+        return Ok(CompressionOutcome::TooLargeForDecompressionLimit {
+            payload_len,
+            limit: config.max_decompressed_payload_size,
+        });
+    }
+
+    let compressed_payload =
+        scratch.compress_into(&packet_payload[HEADER_BYTES..], algorithm, output)?;
+    let original_len = packet_payload.len();
+    let compressed_len = HEADER_BYTES + compressed_payload.len();
+    if compressed_len >= original_len || compressed_len > mtu {
+        return Ok(CompressionOutcome::NotSmaller {
+            original_len,
+            compressed_len,
+        });
+    }
+
+    Ok(CompressionOutcome::Compressed {
+        original_len,
+        compressed_len,
+    })
 }
 
-pub(crate) fn try_build_compressed_payload(
+/// Compress the packet payload body in place when compression is beneficial.
+///
+/// The packet is only modified if the compressed final packet is strictly smaller than the original
+/// packet and still fits in the packet MTU.
+pub(crate) fn compress_packet(
+    packet: &mut Packet,
+    config: CompressionConfig,
+    mtu: usize,
+    scratch: &mut CompressionScratch,
+    output: &mut Vec<u8>,
+) -> Result<CompressionOutcome, PacketError> {
+    let outcome = evaluate_packet_compression(&packet.payload, config, mtu, scratch, output)?;
+    let CompressionOutcome::Compressed {
+        original_len,
+        compressed_len,
+    } = outcome
+    else {
+        return Ok(outcome);
+    };
+
+    let packet_type = PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
+    let compressed_packet_type = packet_type
+        .compressed_variant()
+        .expect("compression evaluation rejects already-compressed packet types");
+    let compressed_payload_len = compressed_len - HEADER_BYTES;
+    packet.payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
+    packet.payload.truncate(HEADER_BYTES);
+    packet
+        .payload
+        .extend_from_slice(&output[..compressed_payload_len]);
+    packet.compression = Some(PacketCompressionInfo {
+        original_len,
+        compressed_len,
+    });
+    Ok(outcome)
+}
+
+pub(crate) fn compress_fragment(
     payload: &[u8],
     config: CompressionConfig,
+    scratch: &mut CompressionScratch,
 ) -> Result<PayloadCompressionCandidate, PacketError> {
     let Some(algorithm) = config.algorithm else {
         return Ok(PayloadCompressionCandidate::Disabled);
@@ -246,8 +299,7 @@ pub(crate) fn try_build_compressed_payload(
         });
     }
 
-    let compressed_payload = compress_payload(payload, algorithm);
-    let compressed_len = compressed_payload.len();
+    let compressed_len = scratch.compress(payload, algorithm)?.len();
 
     if compressed_len >= payload_len {
         return Ok(PayloadCompressionCandidate::NotSmaller {
@@ -257,7 +309,7 @@ pub(crate) fn try_build_compressed_payload(
     }
 
     Ok(PayloadCompressionCandidate::Compressed {
-        payload: compressed_payload,
+        payload: scratch.take_output(compressed_len),
         original_len: payload_len,
         compressed_len,
     })
@@ -274,13 +326,6 @@ pub(crate) fn decompress_payload(
     match algorithm {
         #[cfg(feature = "compression_lz4")]
         CompressionAlgorithm::Lz4 => decompress_lz4(compressed_payload, config),
-    }
-}
-
-fn compress_payload(payload: &[u8], algorithm: CompressionAlgorithm) -> Vec<u8> {
-    match algorithm {
-        #[cfg(feature = "compression_lz4")]
-        CompressionAlgorithm::Lz4 => lz4_flex::block::compress_prepend_size(payload),
     }
 }
 
@@ -336,8 +381,17 @@ mod tests {
     fn disabled_compression_leaves_packet_unchanged() {
         let mut packet = packet_with_body(PacketType::Data, &[1, 2, 3, 4]);
         let original = packet.payload.clone();
+        let mut scratch = CompressionScratch::default();
+        let mut output = Vec::new();
 
-        let outcome = try_compress_packet(&mut packet, CompressionConfig::DISABLED, 1200).unwrap();
+        let outcome = compress_packet(
+            &mut packet,
+            CompressionConfig::DISABLED,
+            1200,
+            &mut scratch,
+            &mut output,
+        )
+        .unwrap();
 
         assert_eq!(outcome, CompressionOutcome::Disabled);
         assert_eq!(packet.payload, original);
@@ -353,11 +407,18 @@ mod tests {
             min_payload_size: 0,
             ..CompressionConfig::LZ4
         };
+        let original_capacity = packet.payload.capacity();
+        let original_pointer = packet.payload.as_ptr();
+        let mut scratch = CompressionScratch::default();
+        let mut output = Vec::new();
 
-        let outcome = try_compress_packet(&mut packet, config, 1200).unwrap();
+        let outcome =
+            compress_packet(&mut packet, config, 1200, &mut scratch, &mut output).unwrap();
 
         assert!(matches!(outcome, CompressionOutcome::Compressed { .. }));
         assert!(packet.payload.len() < original_len);
+        assert_eq!(packet.payload.capacity(), original_capacity);
+        assert_eq!(packet.payload.as_ptr(), original_pointer);
         assert_eq!(
             PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET]).unwrap(),
             PacketType::DataCompressed
@@ -376,8 +437,11 @@ mod tests {
             min_payload_size: 0,
             ..CompressionConfig::LZ4
         };
+        let mut scratch = CompressionScratch::default();
+        let mut output = Vec::new();
 
-        let outcome = try_compress_packet(&mut packet, config, 1200).unwrap();
+        let outcome =
+            compress_packet(&mut packet, config, 1200, &mut scratch, &mut output).unwrap();
 
         assert!(matches!(outcome, CompressionOutcome::NotSmaller { .. }));
         assert_eq!(packet.payload, original);

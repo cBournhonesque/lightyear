@@ -3,7 +3,7 @@ use crate::channel::receivers::{ChannelReceive, ChannelReceiverEnum};
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::{
@@ -84,6 +84,8 @@ pub struct Transport {
     pub(crate) bandwidth_limiter: BandwidthLimiter,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
+    /// Compression workspace shared by all channel senders and the packet builder.
+    pub(crate) compression_scratch: CompressionScratch,
     /// Stable fragment payload size derived from the link's minimum MTU.
     fragment_size: usize,
     pub compression: CompressionConfig,
@@ -121,6 +123,7 @@ impl Transport {
             priority_manager: PriorityManager::new(priority_config),
             bandwidth_limiter,
             packet_manager: PacketBuilder::default(),
+            compression_scratch: CompressionScratch::default(),
             fragment_size: FRAGMENT_SIZE,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
@@ -298,13 +301,19 @@ impl Transport {
         bytes: SendPayload,
         priority: f32,
     ) -> Result<Option<MessageId>, TransportError> {
-        let sender_metadata = self
-            .senders
+        let compression = self.compression;
+        let Self {
+            senders,
+            compression_scratch,
+            ..
+        } = self;
+        let sender_metadata = senders
             .get_mut(&kind)
             .ok_or(TransportError::ChannelNotFound(kind))?;
-        let message_id = sender_metadata
-            .sender
-            .buffer_send(bytes, priority, self.compression);
+        let message_id =
+            sender_metadata
+                .sender
+                .buffer_send(bytes, priority, compression, compression_scratch);
         Ok(message_id)
     }
 
@@ -337,6 +346,7 @@ impl Transport {
         self.priority_manager = PriorityManager::new(priority_config.clone());
         self.bandwidth_limiter = BandwidthLimiter::new(priority_config);
         self.packet_manager = Default::default();
+        self.compression_scratch = Default::default();
         self.packet_to_message_map = Default::default();
         self.fragment_acks.clear();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
@@ -557,6 +567,7 @@ mod tests {
             &mut cursor,
             compression,
             DEFAULT_MTU,
+            &mut sender_transport.compression_scratch,
         )? {
             sender_transport
                 .packet_manager
@@ -621,6 +632,7 @@ mod tests {
                 &mut cursor,
                 compression,
                 DEFAULT_MTU,
+                &mut transport.compression_scratch,
             )?
             .unwrap();
 

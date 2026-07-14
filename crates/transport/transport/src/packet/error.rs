@@ -14,6 +14,8 @@ pub enum PacketError {
     ChannelReceiveError(#[from] ChannelReceiveError),
     #[error("compression is not supported by this build or transport configuration")]
     UnsupportedCompression,
+    #[error("packet payload could not be compressed")]
+    CompressionFailed,
     #[error("compressed packet payload could not be decompressed")]
     DecompressionFailed,
     #[error("decompressed packet payload size {actual} exceeds configured limit {limit}")]

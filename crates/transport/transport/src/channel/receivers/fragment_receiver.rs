@@ -275,6 +275,8 @@ fn map_fragment_decompression_error(error: PacketError) -> ChannelReceiveError {
 #[cfg(test)]
 mod tests {
     use crate::channel::senders::fragment_sender::FragmentSender;
+    #[cfg(feature = "compression_lz4")]
+    use crate::packet::compression::CompressionScratch;
 
     use super::*;
 
@@ -360,6 +362,7 @@ mod tests {
             MessageId(1),
             message_bytes.clone(),
             compression,
+            &mut CompressionScratch::default(),
         );
 
         assert!(fragments.len() < 3);

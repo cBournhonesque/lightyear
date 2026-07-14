@@ -10,7 +10,7 @@ use crate::channel::senders::{
     ChannelSend, PendingSendMessage, SendFlushOutcome, commit_unreliable_candidate,
     is_ready_to_send,
 };
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::message::{
     MessageAck, MessageData, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
 };
@@ -79,12 +79,16 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         message: Bytes,
         priority: f32,
         compression: CompressionConfig,
+        compression_scratch: &mut CompressionScratch,
     ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
-            let fragments =
-                self.fragment_sender
-                    .build_fragments_for_message(message_id, message, compression);
+            let fragments = self.fragment_sender.build_fragments_for_message(
+                message_id,
+                message,
+                compression,
+                compression_scratch,
+            );
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
@@ -207,6 +211,7 @@ mod tests {
             Bytes::from(vec![0; message_len]),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
 
         let mut candidates = Vec::new();

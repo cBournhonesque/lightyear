@@ -9,7 +9,7 @@ use lightyear_serde::SerializationError;
 use lightyear_serde::varint::varint_parse_len;
 
 use crate::channel::registry::{ChannelId, ChannelKind};
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{SendCandidate, SendMessage, SendMessageKey, SingleData};
@@ -23,10 +23,11 @@ pub struct PacketLoopBatch {
 
 struct PacketLoopChannel;
 
-/// Summary of a completed packet build and parse pass.
+/// Summary of a completed packet-loop pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PacketLoopStats {
     pub packets: usize,
+    pub compressed_packets: usize,
     pub messages: usize,
     pub payload_bytes: usize,
 }
@@ -92,11 +93,17 @@ impl<'a> SlicePacketReader<'a> {
 /// This intentionally bypasses Bevy schedules, typed message serialization, IO, and connection
 /// layers. Call [`prepare_batch`](Self::prepare_batch) before starting an allocation measurement,
 /// then call [`run_batch`](Self::run_batch) inside the measured region.
+///
+/// The compressed variant validates packet headers and staged metadata without decompressing the
+/// payload. Receive-side decompression intentionally creates an owned buffer because queued
+/// messages can outlive the receive system that parsed the packet.
 pub struct PacketLoopFixture {
     packet_builder: PacketBuilder,
+    compression_scratch: CompressionScratch,
     channel_kind: ChannelKind,
     channel_id: ChannelId,
     payloads: Vec<Bytes>,
+    compression: CompressionConfig,
     current_tick: Tick,
     current_real: Duration,
 }
@@ -112,12 +119,24 @@ impl PacketLoopFixture {
             .collect();
         Self {
             packet_builder: PacketBuilder::new(1.5),
+            compression_scratch: CompressionScratch::default(),
             channel_kind: ChannelKind::of::<PacketLoopChannel>(),
             channel_id: 0,
             payloads,
+            compression: CompressionConfig::DISABLED,
             current_tick: Tick(0),
             current_real: Duration::default(),
         }
+    }
+
+    #[cfg(feature = "compression_lz4")]
+    pub fn new_compressed(message_count: usize, payload_len: usize) -> Self {
+        let mut fixture = Self::new(message_count, payload_len);
+        fixture.compression = CompressionConfig {
+            min_payload_size: 0,
+            ..CompressionConfig::LZ4
+        };
+        fixture
     }
 
     pub fn expected_messages(&self) -> usize {
@@ -190,6 +209,14 @@ impl PacketLoopFixture {
 
         let mut cursor = CandidateCursor::default();
         let current_tick = self.current_tick;
+        let expected_payload_bytes = batch
+            .candidates
+            .iter()
+            .map(|candidate| match &candidate.message.data {
+                crate::packet::message::MessageData::Single(message) => message.bytes.len(),
+                crate::packet::message::MessageData::Fragment(_) => unreachable!(),
+            })
+            .sum::<usize>();
         self.current_tick += 1;
         self.current_real += Duration::from_millis(16);
 
@@ -198,16 +225,35 @@ impl PacketLoopFixture {
             current_tick,
             &batch.candidates,
             &mut cursor,
-            CompressionConfig::DISABLED,
+            self.compression,
             lightyear_link::DEFAULT_MTU,
+            &mut self.compression_scratch,
         )? {
             stats.packets += 1;
             let packet_id = packet.packet_id;
             self.packet_builder
                 .header_manager
                 .commit_send_packet(packet_id, real);
-            self.parse_packet_payload(packet.payload.as_slice(), real, &mut stats)?;
+            if self.compression.is_enabled() {
+                let header = PacketHeader::read_from_prefix(packet.payload.as_slice())?;
+                assert!(header.get_packet_type().is_compressed());
+                stats.compressed_packets += 1;
+                stats.messages += packet.messages.len();
+                let _ = self
+                    .packet_builder
+                    .header_manager
+                    .process_recv_packet_header(&header, real);
+                self.packet_builder
+                    .header_manager
+                    .newly_acked_packets
+                    .clear();
+            } else {
+                self.parse_packet_payload(packet.payload.as_slice(), real, &mut stats)?;
+            }
             self.packet_builder.recycle_packet(packet);
+        }
+        if self.compression.is_enabled() {
+            stats.payload_bytes = expected_payload_bytes;
         }
         Ok(stats)
     }
@@ -261,6 +307,7 @@ impl PacketLoopFixture {
         for batch in batches {
             let stats = self.run_batch(batch)?;
             total.packets += stats.packets;
+            total.compressed_packets += stats.compressed_packets;
             total.messages += stats.messages;
             total.payload_bytes += stats.payload_bytes;
         }

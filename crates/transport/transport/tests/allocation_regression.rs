@@ -1,12 +1,14 @@
 #![cfg(feature = "test_utils")]
 
 use std::alloc::System;
+use std::sync::Mutex;
 
 use lightyear_transport::packet::test_utils::PacketLoopFixture;
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 const MESSAGES_PER_BATCH: usize = 4;
 const PAYLOAD_BYTES: usize = 64;
@@ -15,6 +17,7 @@ const MEASURED_MESSAGES: usize = 1_000;
 
 #[test]
 fn packet_send_receive_loop_allocation_budget() {
+    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
     let mut fixture = PacketLoopFixture::new(MESSAGES_PER_BATCH, PAYLOAD_BYTES);
 
     let warmup = fixture.prepare_batches(WARMUP_MESSAGES);
@@ -57,5 +60,44 @@ fn packet_send_receive_loop_allocation_budget() {
     assert_eq!(
         allocation_stats.bytes_allocated, 0,
         "packet loop allocated-byte budget regressed: {allocation_stats:#?}"
+    );
+}
+
+#[cfg(feature = "compression_lz4")]
+#[test]
+fn compressed_packet_build_loop_allocation_budget() {
+    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
+    let mut fixture = PacketLoopFixture::new_compressed(MESSAGES_PER_BATCH, PAYLOAD_BYTES);
+
+    let warmup = fixture.prepare_batches(WARMUP_MESSAGES);
+    let warmup_stats = fixture.run_batches(warmup).unwrap();
+    assert_eq!(warmup_stats.messages, WARMUP_MESSAGES);
+    assert_eq!(warmup_stats.compressed_packets, warmup_stats.packets);
+
+    let batches = fixture.prepare_batches(MEASURED_MESSAGES);
+    let region = Region::new(GLOBAL);
+    let stats = fixture.run_batches(batches).unwrap();
+    let allocation_stats = region.change();
+
+    assert_eq!(stats.messages, MEASURED_MESSAGES);
+    assert_eq!(stats.compressed_packets, stats.packets);
+    assert_eq!(
+        stats.payload_bytes,
+        fixture.expected_payload_bytes_for_messages(MEASURED_MESSAGES)
+    );
+
+    eprintln!("compressed packet build allocation stats: {allocation_stats:#?}");
+
+    assert_eq!(
+        allocation_stats.allocations, 0,
+        "compressed packet build allocation count regressed: {allocation_stats:#?}"
+    );
+    assert_eq!(
+        allocation_stats.reallocations, 0,
+        "compressed packet build reallocation count regressed: {allocation_stats:#?}"
+    );
+    assert_eq!(
+        allocation_stats.bytes_allocated, 0,
+        "compressed packet build allocated-byte budget regressed: {allocation_stats:#?}"
     );
 }

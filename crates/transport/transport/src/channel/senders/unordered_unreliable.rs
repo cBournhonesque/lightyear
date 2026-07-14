@@ -9,7 +9,7 @@ use crate::channel::senders::{
     ChannelSend, PendingSendMessage, SendFlushOutcome, commit_unreliable_candidate,
     is_ready_to_send,
 };
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::message::{
     MessageAck, MessageData, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
 };
@@ -70,12 +70,14 @@ impl ChannelSend for UnorderedUnreliableSender {
         message: Bytes,
         priority: f32,
         compression: CompressionConfig,
+        compression_scratch: &mut CompressionScratch,
     ) -> Option<MessageId> {
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments_for_message(
                 self.next_send_fragmented_message_id,
                 message,
                 compression,
+                compression_scratch,
             ) {
                 self.fragmented_messages_to_send
                     .push_back(PendingSendMessage::new(SendMessage {
@@ -178,6 +180,7 @@ mod tests {
             Bytes::from_static(b"pending"),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
 
         let mut candidates = Vec::new();
@@ -204,6 +207,7 @@ mod tests {
             Bytes::from_static(b"stale"),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
 
         let mut candidates = Vec::new();
@@ -229,6 +233,7 @@ mod tests {
             Bytes::from(vec![0; message_len]),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
 
         let mut candidates = Vec::new();
@@ -245,6 +250,7 @@ mod tests {
             Bytes::from(vec![0; message_len]),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
         partially_sent.collect_send_candidates(
             ChannelKind::of::<TestChannel>(),
@@ -271,6 +277,7 @@ mod tests {
             Bytes::from_static(b"not-yet-eligible"),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
 
         let mut candidates = Vec::new();
