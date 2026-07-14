@@ -52,6 +52,10 @@ impl SequencedUnreliableSender {
 }
 
 impl ChannelSend for SequencedUnreliableSender {
+    fn set_fragment_size(&mut self, fragment_size: usize) {
+        self.fragment_sender.set_fragment_size(fragment_size);
+    }
+
     fn update(&mut self, real_time: &Time<Real>, _: &LinkStats) {
         if let Some(timer) = &mut self.timer {
             timer.tick(real_time.delta());

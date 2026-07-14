@@ -1,9 +1,9 @@
 use crate::channel::registry::ChannelRegistry;
 use crate::packet::message::{MessageData, SendCandidate};
-use crate::packet::packet::MAX_PACKET_SIZE;
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
+use lightyear_link::DEFAULT_MTU;
 use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
@@ -39,7 +39,7 @@ impl PriorityConfig {
     pub fn new(bytes_per_second_quota: u32) -> Self {
         let cap = bytes_per_second_quota.try_into().unwrap();
         let burst = bytes_per_second_quota
-            .max(MAX_PACKET_SIZE as u32)
+            .max(DEFAULT_MTU as u32)
             .try_into()
             .unwrap();
         Self {
@@ -151,10 +151,17 @@ impl PriorityManager {
 }
 
 impl BandwidthLimiter {
-    pub(crate) fn new(config: PriorityConfig) -> Self {
+    pub(crate) fn new(config: PriorityConfig, max_packet_size: usize) -> Self {
+        let max_packet_size = u32::try_from(max_packet_size).unwrap_or(u32::MAX);
+        let min_burst = NonZeroU32::new(max_packet_size.max(1)).unwrap();
+        let quota = if config.bandwidth_quota.burst_size() < min_burst {
+            config.bandwidth_quota.allow_burst(min_burst)
+        } else {
+            config.bandwidth_quota
+        };
         Self {
             enabled: config.enabled,
-            limiter: DefaultDirectRateLimiter::direct(config.bandwidth_quota),
+            limiter: DefaultDirectRateLimiter::direct(quota),
         }
     }
 
@@ -162,11 +169,15 @@ impl BandwidthLimiter {
     ///
     /// Returns false when this packet cannot currently fit. The caller should stop sending for
     /// this tick, because subsequent packets are not higher priority than this one.
-    pub(crate) fn consume_packet_quota(&mut self, packet_bytes: u32) -> bool {
+    pub(crate) fn consume_packet_quota(&mut self, packet_bytes: usize) -> bool {
         if !self.enabled {
             return true;
         }
 
+        let Ok(packet_bytes) = u32::try_from(packet_bytes) else {
+            error!("packet size exceeds bandwidth limiter range");
+            return false;
+        };
         let nonzero_packet_bytes = NonZeroU32::try_from(packet_bytes).unwrap();
         let Ok(result) = self.limiter.check_n(nonzero_packet_bytes) else {
             error!("the bandwidth quota cannot fit a packet of size {packet_bytes}");
@@ -219,6 +230,7 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
+                    fragment_size: 8,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from_static(b"fragment"),
                 }
@@ -316,6 +328,7 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
+                    fragment_size: 8,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from_static(b"fragment"),
                 }
@@ -378,6 +391,7 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
+                    fragment_size: 8,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from_static(b"fragment"),
                 }
@@ -417,6 +431,7 @@ mod tests {
                         message_id: MessageId(message_id),
                         fragment_id: FragmentIndex(fragment_id),
                         num_fragments: FragmentIndex(2),
+                        fragment_size: 0,
                         compression: (fragment_id == 0).then_some(FragmentCompression::None),
                         bytes: Bytes::new(),
                     }
@@ -442,7 +457,7 @@ mod tests {
 
     #[test]
     fn bandwidth_burst_can_always_admit_one_mtu_packet() {
-        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1));
-        assert!(limiter.consume_packet_quota(MAX_PACKET_SIZE as u32));
+        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1), DEFAULT_MTU);
+        assert!(limiter.consume_packet_quota(DEFAULT_MTU));
     }
 }

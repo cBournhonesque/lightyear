@@ -7,6 +7,8 @@ pub enum ChannelReceiveError {
     MissingMessageId,
     #[error("fragmented message declared an invalid fragment count: {num_fragments}")]
     InvalidFragmentCount { num_fragments: u64 },
+    #[error("fragmented message declared an invalid fragment size: {fragment_size}")]
+    InvalidFragmentSize { fragment_size: u64 },
     #[error("fragment index {fragment_index} is outside fragment count {num_fragments}")]
     InvalidFragmentIndex {
         fragment_index: u64,
@@ -14,6 +16,10 @@ pub enum ChannelReceiveError {
     },
     #[error("fragment count changed while reassembling message: expected {expected}, got {actual}")]
     FragmentCountMismatch { expected: usize, actual: usize },
+    #[error("fragment size changed while reassembling message: expected {expected}, got {actual}")]
+    FragmentSizeMismatch { expected: usize, actual: usize },
+    #[error("fragmented message size overflows the local address space")]
+    FragmentedMessageSizeOverflow,
     #[error(
         "fragment compression changed while reassembling message: expected {expected}, got {actual}"
     )]

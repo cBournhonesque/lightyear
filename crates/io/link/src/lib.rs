@@ -43,8 +43,8 @@ pub mod prelude {
     pub use crate::conditioner::{LinkConditionerConfig, LinkConditionerState};
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
-        Link, LinkStart, LinkStats, LinkSystems, Linked, Linking, RecvLinkConditioner, Unlink,
-        Unlinked,
+        DEFAULT_MTU, Link, LinkMtu, LinkStart, LinkStats, LinkSystems, Linked, Linking,
+        MtuTooSmall, RecvLinkConditioner, Unlink, Unlinked,
     };
 
     pub mod server {
@@ -65,6 +65,82 @@ pub type RecvPayload = Bytes;
 /// A transport drains [`LinkSender`] in [`LinkSystems::Send`] and writes the bytes to its concrete
 /// IO backend.
 pub type SendPayload = Bytes;
+
+/// Conservative default maximum payload size for a [`Link`].
+///
+/// Concrete links can advertise a different limit through [`LinkMtu`]. The default remains 1200
+/// bytes because it is safe for the connection and datagram transports supported by Lightyear.
+pub const DEFAULT_MTU: usize = 1200;
+
+/// The minimum and currently available maximum payload size of a [`Link`].
+///
+/// The minimum is stable for the lifetime of a link and lets higher layers choose a fragment size
+/// which remains valid if path-MTU discovery later changes the current value. The current MTU may
+/// grow or shrink, but never below [`min_mtu`](Self::min_mtu).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinkMtu {
+    min_mtu: usize,
+    mtu: usize,
+}
+
+impl LinkMtu {
+    /// Creates link MTU characteristics whose current and minimum values are both `min_mtu`.
+    pub const fn new(min_mtu: usize) -> Self {
+        Self {
+            min_mtu,
+            mtu: min_mtu,
+        }
+    }
+
+    /// Returns the smallest MTU this link will report.
+    pub const fn min_mtu(self) -> usize {
+        self.min_mtu
+    }
+
+    /// Returns the link's current maximum payload size.
+    pub const fn mtu(self) -> usize {
+        self.mtu
+    }
+
+    /// Updates the current MTU without allowing it to fall below the stable minimum.
+    pub const fn set_mtu(&mut self, mtu: usize) -> Result<(), MtuTooSmall> {
+        if mtu < self.min_mtu {
+            return Err(MtuTooSmall {
+                mtu,
+                min: self.min_mtu,
+            });
+        }
+        self.mtu = mtu;
+        Ok(())
+    }
+}
+
+impl Default for LinkMtu {
+    fn default() -> Self {
+        Self::new(DEFAULT_MTU)
+    }
+}
+
+/// Error returned when a current MTU is smaller than a link's stable minimum MTU.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MtuTooSmall {
+    /// Rejected current MTU.
+    pub mtu: usize,
+    /// Smallest MTU accepted by the link.
+    pub min: usize,
+}
+
+impl core::fmt::Display for MtuTooSmall {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "link MTU {} is smaller than its minimum {}",
+            self.mtu, self.min
+        )
+    }
+}
+
+impl core::error::Error for MtuTooSmall {}
 
 /// Current lifecycle state of a [`Link`].
 ///
@@ -101,6 +177,8 @@ pub struct Link {
     pub state: LinkState,
     /// Transport-observed statistics for this link.
     pub stats: LinkStats,
+    /// Minimum and current maximum payload sizes exposed by the concrete link.
+    pub mtu: LinkMtu,
 }
 
 /// Packet conditioner used for inbound [`RecvPayload`] values.
@@ -112,6 +190,11 @@ pub type RecvLinkConditioner = LinkConditioner<RecvPayload>;
 impl Link {
     /// Creates a link with empty send/receive buffers.
     pub fn new(recv_conditioner: Option<RecvLinkConditioner>) -> Self {
+        Self::new_with_mtu(recv_conditioner, LinkMtu::default())
+    }
+
+    /// Creates a link with explicit minimum/current MTU characteristics.
+    pub fn new_with_mtu(recv_conditioner: Option<RecvLinkConditioner>, mtu: LinkMtu) -> Self {
         Self {
             recv: LinkReceiver {
                 buffer: VecDeque::new(),
@@ -120,6 +203,7 @@ impl Link {
             send: LinkSender::default(),
             state: Default::default(),
             stats: LinkStats::default(),
+            mtu,
         }
     }
 }
@@ -452,5 +536,35 @@ impl Plugin for LinkPlugin {
         app.configure_sets(PostUpdate, LinkSystems::Send);
 
         app.add_observer(Self::unlink);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn link_mtu_tracks_stable_minimum_and_current_value() {
+        let mut mtu = LinkMtu::new(900);
+        assert_eq!(mtu.min_mtu(), 900);
+        assert_eq!(mtu.mtu(), 900);
+
+        mtu.set_mtu(1400).unwrap();
+        assert_eq!(mtu.min_mtu(), 900);
+        assert_eq!(mtu.mtu(), 1400);
+
+        assert_eq!(mtu.set_mtu(899), Err(MtuTooSmall { mtu: 899, min: 900 }));
+        assert_eq!(mtu.mtu(), 1400);
+    }
+
+    #[test]
+    fn explicit_link_mtu_does_not_change_link_owned_latency_stats() {
+        let mut link = Link::new_with_mtu(None, LinkMtu::new(512));
+        link.stats.rtt = Duration::from_millis(20);
+        link.stats.jitter = Duration::from_millis(3);
+
+        assert_eq!(link.mtu.mtu(), 512);
+        assert_eq!(link.stats.rtt, Duration::from_millis(20));
+        assert_eq!(link.stats.jitter, Duration::from_millis(3));
     }
 }

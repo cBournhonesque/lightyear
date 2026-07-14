@@ -7,6 +7,7 @@ use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentData, MessageAck, ReceiveMessage, SingleData};
+use crate::packet::packet::{MIN_PACKET_SIZE, fragment_size_for_mtu};
 use crate::packet::packet_type::PacketType;
 #[cfg(feature = "test_utils")]
 use crate::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
@@ -167,6 +168,18 @@ impl TransportPlugin {
                     })
                     .ok();
 
+                let max_fragment_size = match fragment_size_for_mtu(link.mtu.mtu()) {
+                    Some(fragment_size) => fragment_size,
+                    None => {
+                        error!(
+                            mtu = link.mtu.mtu(),
+                            min = MIN_PACKET_SIZE,
+                            "cannot receive transport packets for link MTU"
+                        );
+                        return;
+                    }
+                };
+
                 link.recv
                     .drain()
                     .try_for_each(|packet| {
@@ -238,6 +251,13 @@ impl TransportPlugin {
                             // read the fragment data
                             let channel_id = ChannelId::from_bytes(&mut cursor)?;
                             let fragment_data = FragmentData::from_bytes(&mut cursor)?;
+                            if fragment_data.fragment_size > max_fragment_size {
+                                return Err(PacketError::FragmentExceedsLinkMtu {
+                                    actual: fragment_data.fragment_size,
+                                    max: max_fragment_size,
+                                }
+                                .into());
+                            }
                             let channel_name = channel_registry.get_name_from_net_id(channel_id);
                             #[cfg(feature = "metrics")]
                             {
@@ -396,6 +416,11 @@ impl TransportPlugin {
         query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
+            if let Err(error) = transport.configure_link_mtu(link.mtu) {
+                error!(?error, "cannot send transport packets for link MTU");
+                return;
+            }
+            let mtu = link.mtu.mtu();
 
             // buffer all new messages in the Sender
             if let Some(mut host_client) = host_client {
@@ -451,6 +476,7 @@ impl TransportPlugin {
                     transport.priority_manager.candidates(),
                     &mut candidate_cursor,
                     transport.compression,
+                    mtu,
                 );
                 let mut packet = match staged {
                     Ok(Some(packet)) => packet,
@@ -468,7 +494,7 @@ impl TransportPlugin {
                 let packet_compression = packet.compression;
                 if !transport
                     .bandwidth_limiter
-                    .consume_packet_quota(packet_len as u32)
+                    .consume_packet_quota(packet_len)
                 {
                     // Staging has no channel or packet-header side effects. Reliable messages are
                     // retained; each unreliable channel applies its retry-unsent policy when this
@@ -669,6 +695,7 @@ mod tests {
 
     struct RetryChannel;
     struct DiscardChannel;
+    struct SmallMtuChannel;
 
     fn spawn_transport<C: crate::channel::Channel>(
         world: &mut World,
@@ -738,5 +765,43 @@ mod tests {
             pending_candidates::<DiscardChannel>(&mut world, discard_entity),
             0
         );
+    }
+
+    #[test]
+    fn packet_builder_uses_link_mtu_for_fragmentation_and_packet_size() {
+        let settings = ChannelSettings::default();
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<SmallMtuChannel>(settings);
+
+        let mut transport = Transport::default();
+        transport.add_sender::<SmallMtuChannel>((&settings).into(), settings.mode, channel_id);
+
+        let mut world = World::new();
+        world.insert_resource(registry);
+        world.init_resource::<Time<Real>>();
+        world.init_resource::<LocalTimeline>();
+        let entity = world
+            .spawn((
+                Link::new_with_mtu(None, lightyear_link::LinkMtu::new(256)),
+                Linked,
+                transport,
+            ))
+            .id();
+        world
+            .get::<Transport>(entity)
+            .unwrap()
+            .send_erased(channel_kind, Bytes::from(vec![5; 700]), 1.0)
+            .unwrap();
+
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+
+        let packets = world
+            .get_mut::<Link>(entity)
+            .unwrap()
+            .send
+            .drain()
+            .collect::<Vec<_>>();
+        assert!(packets.len() > 1);
+        assert!(packets.iter().all(|packet| packet.len() <= 256));
     }
 }

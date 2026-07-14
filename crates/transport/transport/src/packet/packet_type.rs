@@ -12,7 +12,9 @@ pub enum PacketType {
     /// - channel_id_2
     /// - num messages
     /// - ...
-    /// - channel_id = 0 = indication of end of packet
+    ///
+    /// Batches continue until the packet payload ends. Channel ID zero is a valid channel and is
+    /// not an end marker.
     Data = 0,
     DataFragment = 1,
     DataCompressed = 2,

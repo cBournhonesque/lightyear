@@ -5,39 +5,59 @@ use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentIndex, MessageId, SendMessageKey};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
+use lightyear_link::DEFAULT_MTU;
 use lightyear_serde::varint::varint_len;
 use lightyear_utils::wrapping_id;
 
 // Internal id that we assign to each packet sent over the network
 wrapping_id!(PacketId);
 
-pub(crate) const MAX_PACKET_SIZE: usize = 1200;
 /// Number of bytes written by [`PacketHeader::to_bytes`].
 ///
-/// Keep this in sync with `PacketHeader` because [`FRAGMENT_SIZE`] depends on it.
-/// If this value is too small, fragment packets can overflow the 1200-byte MTU even when
-/// the fragment payload itself appears to fit.
+/// Keep this in sync with `PacketHeader` because [`fragment_size_for_mtu`] depends on it.
 pub(crate) const HEADER_BYTES: usize = PacketHeader::BYTES;
 
 const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
 const MAX_FRAGMENT_ID_BYTES: usize = 8;
 const MAX_FRAGMENT_COUNT_BYTES: usize = 8;
 const INITIAL_FRAGMENT_COMPRESSION_BYTES: usize = 1;
-const MAX_FRAGMENT_LENGTH_BYTES: usize = varint_len(MAX_PACKET_SIZE as u64);
-const MAX_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
+const FIXED_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
     + 4 // MessageId
     + MAX_FRAGMENT_ID_BYTES
     + MAX_FRAGMENT_COUNT_BYTES
-    + INITIAL_FRAGMENT_COMPRESSION_BYTES
-    + MAX_FRAGMENT_LENGTH_BYTES;
+    + INITIAL_FRAGMENT_COMPRESSION_BYTES;
 
-/// The maximum number of payload bytes in a transport fragment.
+/// Smallest link MTU which can carry one byte with the largest supported fragment identifiers.
+pub(crate) const MIN_PACKET_SIZE: usize = FIXED_FRAGMENT_METADATA_BYTES
+    + HEADER_BYTES
+    + 1 // encoded fragment size
+    + 1 // encoded fragment byte length
+    + 1; // payload
+
+/// Returns the fixed fragment payload size to use for a link's stable minimum MTU.
 ///
-/// This reserves enough room for the packet header plus the largest supported encoded fragment
-/// metadata, including the compression marker on fragment 0. The receiver assumes every non-final
-/// fragment has this fixed size when reconstructing the original message.
-pub(crate) const FRAGMENT_SIZE: usize =
-    MAX_PACKET_SIZE - HEADER_BYTES - MAX_FRAGMENT_METADATA_BYTES;
+/// Each fragment carries this value on the wire, so receivers do not need to share a compile-time
+/// MTU with senders. Reserving the largest identifier encodings ensures every fragment produced at
+/// this size fits even for long-running sessions and very large logical messages.
+pub(crate) const fn fragment_size_for_mtu(mtu: usize) -> Option<usize> {
+    let mtu_varint_bytes = varint_len(mtu as u64);
+    let overhead = HEADER_BYTES
+        + FIXED_FRAGMENT_METADATA_BYTES
+        + mtu_varint_bytes // encoded fragment size
+        + mtu_varint_bytes; // encoded fragment byte length
+    match mtu.checked_sub(overhead) {
+        Some(fragment_size) if fragment_size > 0 => Some(fragment_size),
+        _ => None,
+    }
+}
+
+/// The default maximum number of payload bytes in a transport fragment.
+///
+/// Links with a non-default minimum MTU use [`fragment_size_for_mtu`] instead.
+pub(crate) const FRAGMENT_SIZE: usize = match fragment_size_for_mtu(DEFAULT_MTU) {
+    Some(fragment_size) => fragment_size,
+    None => panic!("default link MTU cannot hold transport fragment metadata"),
+};
 
 /// Metadata about messages included in a packet.
 ///

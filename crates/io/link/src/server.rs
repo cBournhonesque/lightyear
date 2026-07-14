@@ -87,7 +87,7 @@ impl Server {
 }
 
 #[cfg(test)]
-mod tests {
+mod unlink_tests {
     use super::*;
     use crate::{Link, Linked};
 

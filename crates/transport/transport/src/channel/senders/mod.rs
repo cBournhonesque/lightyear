@@ -37,6 +37,9 @@ pub(crate) enum SendFlushOutcome {
 /// A channel is a buffer over packets to be able to add ordering/reliability
 #[enum_dispatch]
 pub(crate) trait ChannelSend {
+    /// Configures the fixed fragment payload size derived from the link's stable minimum MTU.
+    fn set_fragment_size(&mut self, fragment_size: usize);
+
     /// Bookkeeping for the channel
     fn update(&mut self, real_time: &Time<Real>, link_stats: &LinkStats);
 

@@ -4,15 +4,18 @@ use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
 use crate::packet::compression::CompressionConfig;
+use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
-use crate::packet::packet::PacketId;
+use crate::packet::packet::{FRAGMENT_SIZE, MIN_PACKET_SIZE, PacketId, fragment_size_for_mtu};
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::{BandwidthLimiter, PriorityManager};
 use bevy_ecs::component::Component;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::time::Duration;
-use lightyear_link::Link;
+use lightyear_link::{DEFAULT_MTU, Link, LinkMtu};
 #[allow(unused_imports)]
 use tracing::trace;
 
@@ -66,6 +69,7 @@ impl Default for ChannelSettings {
 
 /// Holds information about all the channels present on the entity.
 #[derive(Component)]
+#[component(on_add = Transport::on_add)]
 #[require(Link)]
 pub struct Transport {
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,
@@ -76,6 +80,10 @@ pub struct Transport {
     pub(crate) bandwidth_limiter: BandwidthLimiter,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
+    /// Stable fragment payload size derived from the link's minimum MTU.
+    fragment_size: usize,
+    /// Current link MTU used to configure packet quota bursts.
+    max_packet_size: usize,
     pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
@@ -104,13 +112,15 @@ pub struct Transport {
 impl Transport {
     pub fn new(priority_config: PriorityConfig) -> Self {
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
-        let bandwidth_limiter = BandwidthLimiter::new(priority_config.clone());
+        let bandwidth_limiter = BandwidthLimiter::new(priority_config.clone(), DEFAULT_MTU);
         Self {
             receivers: Default::default(),
             senders: Default::default(),
             priority_manager: PriorityManager::new(priority_config),
             bandwidth_limiter,
             packet_manager: PacketBuilder::default(),
+            fragment_size: FRAGMENT_SIZE,
+            max_packet_size: DEFAULT_MTU,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
             fragment_acks: Default::default(),
@@ -138,6 +148,40 @@ impl Default for Transport {
 }
 
 impl Transport {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let Some(link_mtu) = world.get::<Link>(context.entity).map(|link| link.mtu) else {
+            return;
+        };
+        let Some(mut transport) = world.get_mut::<Transport>(context.entity) else {
+            return;
+        };
+        if let Err(error) = transport.configure_link_mtu(link_mtu) {
+            tracing::error!(?error, "invalid link MTU for transport");
+        }
+    }
+
+    pub(crate) fn configure_link_mtu(&mut self, link_mtu: LinkMtu) -> Result<(), PacketError> {
+        let min_mtu = link_mtu.min_mtu();
+        let fragment_size = fragment_size_for_mtu(min_mtu).ok_or(PacketError::MtuTooSmall {
+            actual: min_mtu,
+            min: MIN_PACKET_SIZE,
+        })?;
+        if self.fragment_size != fragment_size {
+            self.fragment_size = fragment_size;
+            self.senders
+                .values_mut()
+                .for_each(|metadata| metadata.sender.set_fragment_size(fragment_size));
+        }
+
+        let max_packet_size = link_mtu.mtu();
+        if self.max_packet_size != max_packet_size {
+            self.max_packet_size = max_packet_size;
+            self.bandwidth_limiter =
+                BandwidthLimiter::new(self.priority_manager.config.clone(), max_packet_size);
+        }
+        Ok(())
+    }
+
     pub fn has_sender<C: Channel>(&self) -> bool {
         self.senders.contains_key(&ChannelKind::of::<C>())
     }
@@ -150,10 +194,11 @@ impl Transport {
 
     pub fn add_sender<C: Channel>(
         &mut self,
-        sender: ChannelSenderEnum,
+        mut sender: ChannelSenderEnum,
         mode: ChannelMode,
         channel_id: ChannelId,
     ) {
+        sender.set_fragment_size(self.fragment_size);
         self.senders.insert(
             ChannelKind::of::<C>(),
             SenderMetadata {
@@ -276,8 +321,10 @@ impl Transport {
         });
         self.senders.iter_mut().for_each(|(channel_kind, s)| {
             let settings = registry.settings(*channel_kind).unwrap();
+            let mut sender: ChannelSenderEnum = settings.into();
+            sender.set_fragment_size(self.fragment_size);
             *s = SenderMetadata {
-                sender: settings.into(),
+                sender,
                 message_acks: vec![],
                 message_nacks: vec![],
                 messages_sent: vec![],
@@ -288,7 +335,7 @@ impl Transport {
         });
         let priority_config = self.priority_manager.config.clone();
         self.priority_manager = PriorityManager::new(priority_config.clone());
-        self.bandwidth_limiter = BandwidthLimiter::new(priority_config);
+        self.bandwidth_limiter = BandwidthLimiter::new(priority_config, self.max_packet_size);
         self.packet_manager = Default::default();
         self.packet_to_message_map = Default::default();
         self.fragment_acks.clear();
@@ -476,6 +523,7 @@ mod tests {
             &candidates,
             &mut cursor,
             compression,
+            DEFAULT_MTU,
         )? {
             sender_transport
                 .packet_manager
@@ -539,6 +587,7 @@ mod tests {
                 transport.priority_manager.candidates(),
                 &mut cursor,
                 compression,
+                DEFAULT_MTU,
             )?
             .unwrap();
 
@@ -548,7 +597,7 @@ mod tests {
         assert!(
             transport
                 .bandwidth_limiter
-                .consume_packet_quota(packet.payload.len() as u32)
+                .consume_packet_quota(packet.payload.len())
         );
         Ok(())
     }

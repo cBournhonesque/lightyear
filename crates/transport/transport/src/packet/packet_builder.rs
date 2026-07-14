@@ -12,10 +12,14 @@ use crate::packet::packet_type::PacketType;
 use alloc::vec::Vec;
 use bytes::Bytes;
 use lightyear_core::tick::Tick;
+use lightyear_link::DEFAULT_MTU;
 use lightyear_serde::{SerializationError, ToBytes};
 use tracing::trace;
 
-pub const MAX_PACKET_SIZE: usize = 1200;
+/// Default packet size retained for source compatibility.
+///
+/// Packet assembly uses the owning [`lightyear_link::Link`]'s current MTU at runtime.
+pub const MAX_PACKET_SIZE: usize = DEFAULT_MTU;
 pub const MAX_UNFRAGMENTED_PAYLOAD_SIZE: usize = FRAGMENT_SIZE;
 
 pub type Payload = Vec<u8>;
@@ -82,6 +86,13 @@ impl BufferPool {
                 payload
             })
             .unwrap_or_else(|| Vec::with_capacity(self.payload_capacity))
+    }
+
+    fn set_payload_capacity(&mut self, payload_capacity: usize) {
+        if self.payload_capacity != payload_capacity {
+            self.payload_capacity = payload_capacity;
+            self.payloads.clear();
+        }
     }
 
     pub(crate) fn take_message_metadata(&mut self) -> Vec<MessageMetadata> {
@@ -151,7 +162,9 @@ impl PacketBuilder {
         candidates: &[SendCandidate],
         cursor: &mut CandidateCursor,
         compression: CompressionConfig,
+        mtu: usize,
     ) -> Result<Option<Packet>, PacketError> {
+        self.buffer_pool.set_payload_capacity(mtu);
         // Final fragments can consume singles which appear later in their priority group. Skip
         // those candidates once the main cursor reaches the single portion of the group.
         while cursor.index < cursor.single_index
@@ -207,6 +220,7 @@ impl PacketBuilder {
                             candidate,
                             &mut batch,
                             CompressionConfig::DISABLED,
+                            mtu,
                         )? {
                             break;
                         }
@@ -214,10 +228,10 @@ impl PacketBuilder {
                     }
                 }
 
-                if packet.payload.len() > MAX_PACKET_SIZE {
+                if packet.payload.len() > mtu {
                     return Err(PacketError::PacketTooLarge {
                         actual: packet.payload.len(),
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
                 Ok(Some(packet))
@@ -234,6 +248,7 @@ impl PacketBuilder {
                         candidate,
                         &mut batch,
                         compression,
+                        mtu,
                     )? {
                         break;
                     }
@@ -248,12 +263,13 @@ impl PacketBuilder {
                             + candidate.channel_id.bytes_len()
                             + 1
                             + candidate.message.data.bytes_len(),
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
                 Ok(Some(Self::finish_compression_aware_packet(
                     packet,
                     compression,
+                    mtu,
                 )?))
             }
         }
@@ -283,6 +299,7 @@ impl PacketBuilder {
         candidate: &SendCandidate,
         batch: &mut Option<SingleBatchState>,
         compression: CompressionConfig,
+        mtu: usize,
     ) -> Result<bool, PacketError> {
         let MessageData::Single(message) = &candidate.message.data else {
             return Ok(false);
@@ -326,11 +343,11 @@ impl PacketBuilder {
             message.bytes_len(),
         );
 
-        let fits = if packet.payload.len() <= MAX_PACKET_SIZE {
+        let fits = if packet.payload.len() <= mtu {
             true
         } else if compression.is_enabled() {
             matches!(
-                try_build_compressed_packet_payload(&packet.payload, compression)?,
+                try_build_compressed_packet_payload(&packet.payload, compression, mtu)?,
                 CompressionCandidate::Compressed { .. }
             )
         } else {
@@ -353,9 +370,10 @@ impl PacketBuilder {
     fn finish_compression_aware_packet(
         mut packet: Packet,
         compression: CompressionConfig,
+        mtu: usize,
     ) -> Result<Packet, PacketError> {
         let uncompressed_len = packet.payload.len();
-        let outcome = try_compress_packet(&mut packet, compression)?;
+        let outcome = try_compress_packet(&mut packet, compression, mtu)?;
         match outcome {
             CompressionOutcome::Compressed {
                 original_len,
@@ -382,19 +400,19 @@ impl PacketBuilder {
                     Some(original_len),
                     Some(compressed_len),
                 );
-                if uncompressed_len > MAX_PACKET_SIZE {
+                if uncompressed_len > mtu {
                     return Err(PacketError::PacketTooLarge {
                         actual: uncompressed_len,
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
             }
             CompressionOutcome::Disabled => {
                 Self::trace_compression_outcome(&packet, "disabled", uncompressed_len, None, None);
-                if uncompressed_len > MAX_PACKET_SIZE {
+                if uncompressed_len > mtu {
                     return Err(PacketError::PacketTooLarge {
                         actual: uncompressed_len,
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
             }
@@ -406,10 +424,10 @@ impl PacketBuilder {
                     None,
                     None,
                 );
-                if uncompressed_len > MAX_PACKET_SIZE {
+                if uncompressed_len > mtu {
                     return Err(PacketError::PacketTooLarge {
                         actual: uncompressed_len,
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
             }
@@ -421,10 +439,10 @@ impl PacketBuilder {
                     Some(payload_len),
                     None,
                 );
-                if uncompressed_len > MAX_PACKET_SIZE {
+                if uncompressed_len > mtu {
                     return Err(PacketError::PacketTooLarge {
                         actual: uncompressed_len,
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
             }
@@ -436,10 +454,10 @@ impl PacketBuilder {
                     Some(payload_len),
                     None,
                 );
-                if uncompressed_len > MAX_PACKET_SIZE {
+                if uncompressed_len > mtu {
                     return Err(PacketError::PacketTooLarge {
                         actual: uncompressed_len,
-                        mtu: MAX_PACKET_SIZE,
+                        mtu,
                     });
                 }
             }
@@ -566,9 +584,13 @@ mod tests {
     ) -> Result<Vec<Packet>, PacketError> {
         let mut cursor = CandidateCursor::default();
         let mut packets = Vec::new();
-        while let Some(packet) =
-            builder.build_next_packet(Tick(0), candidates, &mut cursor, compression)?
-        {
+        while let Some(packet) = builder.build_next_packet(
+            Tick(0),
+            candidates,
+            &mut cursor,
+            compression,
+            MAX_PACKET_SIZE,
+        )? {
             builder
                 .header_manager
                 .commit_send_packet(packet.packet_id, Duration::default());
@@ -819,6 +841,7 @@ mod tests {
                             message_id,
                             fragment_id: FragmentIndex(fragment_index as u64),
                             num_fragments: FragmentIndex(2),
+                            fragment_size: 900,
                             compression: (fragment_index == 0).then_some(FragmentCompression::None),
                             bytes: Bytes::from(vec![fragment_index as u8; 900]),
                         }
@@ -848,6 +871,7 @@ mod tests {
             &candidates,
             &mut cursor,
             CompressionConfig::DISABLED,
+            MAX_PACKET_SIZE,
         )? {
             builder
                 .header_manager
@@ -898,6 +922,7 @@ mod tests {
                 &candidates,
                 &mut cursor,
                 CompressionConfig::DISABLED,
+                MAX_PACKET_SIZE,
             )?
             .unwrap();
         assert_eq!(packet.messages.len(), 300);
@@ -914,9 +939,95 @@ mod tests {
                     &candidates,
                     &mut cursor,
                     CompressionConfig::DISABLED,
+                    MAX_PACKET_SIZE,
                 )?
                 .is_none()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn final_fragment_tail_uses_actual_single_channel_width_and_rolls_back()
+    -> Result<(), PacketError> {
+        let mtu = 128;
+        let fragment_channel_id = 0;
+        let single_channel_id = 64;
+        assert!(single_channel_id.bytes_len() > fragment_channel_id.bytes_len());
+
+        let single = SingleData::new(None, Bytes::new());
+        let single_wire_len = single_channel_id.bytes_len() + 1 + single.bytes_len();
+        let fragment_len = (0..mtu)
+            .rev()
+            .find(|fragment_len| {
+                let fragment = FragmentData {
+                    message_id: MessageId(0),
+                    fragment_id: FragmentIndex(0),
+                    num_fragments: FragmentIndex(1),
+                    fragment_size: *fragment_len,
+                    compression: Some(FragmentCompression::None),
+                    bytes: Bytes::from(vec![0; *fragment_len]),
+                };
+                let packet_len =
+                    HEADER_BYTES + fragment_channel_id.bytes_len() + fragment.bytes_len();
+                packet_len <= mtu && mtu - packet_len < single_wire_len
+            })
+            .expect("test MTU should leave a tail smaller than the single batch");
+
+        let candidates = vec![
+            SendCandidate::new(
+                ChannelKind::of::<Channel1>(),
+                fragment_channel_id,
+                SendMessageKey::UnreliableFragment(0),
+                SendMessage {
+                    data: FragmentData {
+                        message_id: MessageId(0),
+                        fragment_id: FragmentIndex(0),
+                        num_fragments: FragmentIndex(1),
+                        fragment_size: fragment_len,
+                        compression: Some(FragmentCompression::None),
+                        bytes: Bytes::from(vec![0; fragment_len]),
+                    }
+                    .into(),
+                    priority: 1.0,
+                },
+            ),
+            single_candidate(
+                ChannelKind::of::<Channel2>(),
+                single_channel_id,
+                0,
+                Bytes::new(),
+            ),
+        ];
+
+        let mut builder = PacketBuilder::new(1.5);
+        let mut cursor = CandidateCursor::default();
+        let fragment_packet = builder
+            .build_next_packet(
+                Tick(0),
+                &candidates,
+                &mut cursor,
+                CompressionConfig::DISABLED,
+                mtu,
+            )?
+            .unwrap();
+        assert!(fragment_packet.payload.len() <= mtu);
+        assert_eq!(fragment_packet.messages.len(), 1);
+        builder
+            .header_manager
+            .commit_send_packet(fragment_packet.packet_id, Duration::ZERO);
+
+        let single_packet = builder
+            .build_next_packet(
+                Tick(0),
+                &candidates,
+                &mut cursor,
+                CompressionConfig::DISABLED,
+                mtu,
+            )?
+            .unwrap();
+        assert!(single_packet.payload.len() <= mtu);
+        assert_eq!(single_packet.messages.len(), 1);
+        assert_eq!(single_packet.messages[0].channel, single_channel_id);
         Ok(())
     }
 }

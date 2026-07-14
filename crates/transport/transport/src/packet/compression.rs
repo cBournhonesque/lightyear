@@ -10,7 +10,7 @@ use alloc::vec::Vec;
 
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
-use crate::packet::packet::{HEADER_BYTES, MAX_PACKET_SIZE, Packet, PacketCompressionInfo};
+use crate::packet::packet::{HEADER_BYTES, Packet, PacketCompressionInfo};
 use crate::packet::packet_type::PacketType;
 
 const DEFAULT_MIN_PAYLOAD_SIZE: usize = 128;
@@ -130,8 +130,9 @@ pub(crate) enum PayloadCompressionCandidate {
 pub(crate) fn try_compress_packet(
     packet: &mut Packet,
     config: CompressionConfig,
+    mtu: usize,
 ) -> Result<CompressionOutcome, PacketError> {
-    match try_build_compressed_packet_payload(&packet.payload, config)? {
+    match try_build_compressed_packet_payload(&packet.payload, config, mtu)? {
         CompressionCandidate::Disabled => Ok(CompressionOutcome::Disabled),
         CompressionCandidate::AlreadyCompressed => Ok(CompressionOutcome::AlreadyCompressed),
         CompressionCandidate::TooSmall { payload_len } => {
@@ -168,6 +169,7 @@ pub(crate) fn try_compress_packet(
 pub(crate) fn try_build_compressed_packet_payload(
     packet_payload: &[u8],
     config: CompressionConfig,
+    mtu: usize,
 ) -> Result<CompressionCandidate, PacketError> {
     if config.algorithm.is_none() {
         return Ok(CompressionCandidate::Disabled);
@@ -204,7 +206,7 @@ pub(crate) fn try_build_compressed_packet_payload(
         } => {
             let compressed_packet_len = HEADER_BYTES + compressed_len;
             let original_packet_len = HEADER_BYTES + original_len;
-            if compressed_packet_len > MAX_PACKET_SIZE {
+            if compressed_packet_len > mtu {
                 return Ok(CompressionCandidate::NotSmaller {
                     original_len: original_packet_len,
                     compressed_len: compressed_packet_len,
@@ -335,7 +337,7 @@ mod tests {
         let mut packet = packet_with_body(PacketType::Data, &[1, 2, 3, 4]);
         let original = packet.payload.clone();
 
-        let outcome = try_compress_packet(&mut packet, CompressionConfig::DISABLED).unwrap();
+        let outcome = try_compress_packet(&mut packet, CompressionConfig::DISABLED, 1200).unwrap();
 
         assert_eq!(outcome, CompressionOutcome::Disabled);
         assert_eq!(packet.payload, original);
@@ -352,7 +354,7 @@ mod tests {
             ..CompressionConfig::LZ4
         };
 
-        let outcome = try_compress_packet(&mut packet, config).unwrap();
+        let outcome = try_compress_packet(&mut packet, config, 1200).unwrap();
 
         assert!(matches!(outcome, CompressionOutcome::Compressed { .. }));
         assert!(packet.payload.len() < original_len);
@@ -375,7 +377,7 @@ mod tests {
             ..CompressionConfig::LZ4
         };
 
-        let outcome = try_compress_packet(&mut packet, config).unwrap();
+        let outcome = try_compress_packet(&mut packet, config, 1200).unwrap();
 
         assert!(matches!(outcome, CompressionOutcome::NotSmaller { .. }));
         assert_eq!(packet.payload, original);
