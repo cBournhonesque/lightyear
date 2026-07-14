@@ -172,6 +172,46 @@ fn test_spawn_new_connection() {
         .expect("entity is not present in entity map");
 }
 
+/// When client 2 connects:
+/// - existing entities outside its replication target are not replicated to it
+#[test]
+fn test_spawn_new_connection_respects_replication_target() {
+    use lightyear_core::id::RemoteId;
+
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let client_0_id = stepper.client_of(0).get::<RemoteId>().unwrap().0;
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::Single(client_0_id)),))
+        .id();
+    stepper.frame_step(2);
+    stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity is not present in target client entity map");
+
+    // second client connects
+    stepper.new_client(ClientType::Netcode, None);
+    stepper.init();
+
+    // make sure the entity is not replicated to the newly connected client
+    assert!(
+        stepper
+            .client(1)
+            .get::<MessageManager>()
+            .unwrap()
+            .entity_mapper
+            .get_local(server_entity)
+            .is_none(),
+        "entity is present in non-target client entity map"
+    );
+}
+
 #[test]
 fn test_entity_despawn() {
     for direction in active_replication_directions() {
