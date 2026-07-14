@@ -1,12 +1,18 @@
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use core::time::Duration;
 
-use crate::channel::senders::ChannelSend;
+use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::fragment_ack_receiver::FragmentAckReceiver;
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::{
+    ChannelSend, PendingSendMessage, SendFlushOutcome, commit_unreliable_candidate,
+};
 use crate::packet::compression::CompressionConfig;
-use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
+use crate::packet::message::{
+    MessageAck, MessageData, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
+};
 use bytes::Bytes;
 use lightyear_link::LinkStats;
 
@@ -18,11 +24,12 @@ const DISCARD_AFTER: Duration = Duration::from_millis(3000);
 #[derive(Debug)]
 pub struct UnorderedUnreliableWithAcksSender {
     /// list of single messages that we want to fit into packets and send
-    single_messages_to_send: VecDeque<SendMessage>,
+    single_messages_to_send: VecDeque<PendingSendMessage>,
     /// list of fragmented messages that we want to fit into packets and send
-    fragmented_messages_to_send: VecDeque<SendMessage>,
+    fragmented_messages_to_send: VecDeque<PendingSendMessage>,
     /// Message id to use for the next message to be sent
     next_send_message_id: MessageId,
+    next_send_order: u64,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
     /// Keep track of which fragments were acked, so we can know when the entire fragment message
@@ -30,10 +37,12 @@ pub struct UnorderedUnreliableWithAcksSender {
     fragment_ack_receiver: FragmentAckReceiver,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
+    retry_unsent_messages: bool,
+    eligible_this_flush: bool,
 }
 
 impl UnorderedUnreliableWithAcksSender {
-    pub(crate) fn new(send_frequency: Duration) -> Self {
+    pub(crate) fn new(send_frequency: Duration, retry_unsent_messages: bool) -> Self {
         let timer = if send_frequency == Duration::default() {
             None
         } else {
@@ -43,9 +52,12 @@ impl UnorderedUnreliableWithAcksSender {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
             next_send_message_id: MessageId::default(),
+            next_send_order: 0,
             fragment_sender: FragmentSender::new(),
             fragment_ack_receiver: FragmentAckReceiver::new(),
             timer,
+            retry_unsent_messages,
+            eligible_this_flush: false,
         }
     }
 }
@@ -68,6 +80,8 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
         compression: CompressionConfig,
     ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
+        let stable_order = self.next_send_order;
+        self.next_send_order = self.next_send_order.wrapping_add(1);
         if message.len() > self.fragment_sender.fragment_size {
             let fragments =
                 self.fragment_sender
@@ -75,35 +89,108 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
             self.fragment_ack_receiver
                 .add_new_fragment_to_wait_for(message_id, fragments.len());
             for fragment in fragments {
-                self.fragmented_messages_to_send.push_back(SendMessage {
-                    data: MessageData::Fragment(fragment),
-                    priority,
-                });
+                self.fragmented_messages_to_send
+                    .push_back(PendingSendMessage::new(
+                        SendMessage {
+                            data: MessageData::Fragment(fragment),
+                            priority,
+                        },
+                        stable_order,
+                    ));
             }
         } else {
             let single_data = SingleData::new(Some(message_id), message);
-            self.single_messages_to_send.push_back(SendMessage {
-                data: MessageData::Single(single_data),
-                priority,
-            });
+            self.single_messages_to_send
+                .push_back(PendingSendMessage::new(
+                    SendMessage {
+                        data: MessageData::Single(single_data),
+                        priority,
+                    },
+                    stable_order,
+                ));
         }
         self.next_send_message_id += 1;
         Some(message_id)
     }
 
-    /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
-    fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
+    fn collect_send_candidates(
+        &mut self,
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+        output: &mut Vec<SendCandidate>,
+    ) {
         if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
-            return (VecDeque::new(), VecDeque::new());
+            return;
         }
-        (
-            core::mem::take(&mut self.single_messages_to_send),
-            core::mem::take(&mut self.fragmented_messages_to_send),
-        )
-        // let messages_to_send = core::mem::take(&mut self.messages_to_send);
-        // let (remaining_messages_to_send, _) =
-        //     packet_manager.pack_messages_within_channel(messages_to_send);
-        // self.messages_to_send = remaining_messages_to_send;
+        self.eligible_this_flush = true;
+        output.extend(
+            self.single_messages_to_send
+                .iter()
+                .enumerate()
+                .filter(|(_, pending)| !pending.committed)
+                .map(|(index, pending)| {
+                    SendCandidate::new(
+                        channel_kind,
+                        channel_id,
+                        SendMessageKey::UnreliableSingle(index),
+                        pending.stable_order,
+                        pending.message.clone(),
+                    )
+                }),
+        );
+        output.extend(
+            self.fragmented_messages_to_send
+                .iter()
+                .enumerate()
+                .filter(|(_, pending)| !pending.committed)
+                .map(|(index, pending)| {
+                    SendCandidate::new(
+                        channel_kind,
+                        channel_id,
+                        SendMessageKey::UnreliableFragment(index),
+                        pending.stable_order,
+                        pending.message.clone(),
+                    )
+                }),
+        );
+    }
+
+    fn commit_send(&mut self, key: SendMessageKey, _: Duration) {
+        let committed = commit_unreliable_candidate(
+            &mut self.single_messages_to_send,
+            &mut self.fragmented_messages_to_send,
+            key,
+        );
+        debug_assert!(committed, "invalid unreliable-with-acks send candidate");
+    }
+
+    fn finish_send(&mut self, outcome: SendFlushOutcome) {
+        let discard_unsent = self.eligible_this_flush
+            && !self.retry_unsent_messages
+            && outcome == SendFlushOutcome::BandwidthLimited;
+        if discard_unsent {
+            for pending in self
+                .fragmented_messages_to_send
+                .iter()
+                .filter(|pending| !pending.committed && !pending.fragment_started)
+            {
+                if let MessageData::Fragment(fragment) = &pending.message.data
+                    && fragment.fragment_id.0 == 0
+                {
+                    self.fragment_ack_receiver
+                        .discard_message(fragment.message_id);
+                }
+            }
+            self.single_messages_to_send.clear();
+            self.fragmented_messages_to_send
+                .retain(|pending| !pending.committed && pending.fragment_started);
+        } else {
+            self.single_messages_to_send
+                .retain(|pending| !pending.committed);
+            self.fragmented_messages_to_send
+                .retain(|pending| !pending.committed);
+        }
+        self.eligible_this_flush = false;
     }
 
     /// Notify any subscribers that a message was acked
@@ -112,5 +199,33 @@ impl ChannelSend for UnorderedUnreliableWithAcksSender {
             self.fragment_ack_receiver
                 .receive_fragment_ack(ack.message_id, fragment_index, None);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use alloc::vec;
+
+    use super::*;
+
+    struct TestChannel;
+
+    #[test]
+    fn discarding_wholly_unsent_fragments_clears_ack_tracking() {
+        let mut sender = UnorderedUnreliableWithAcksSender::new(Duration::default(), false);
+        let message_len = sender.fragment_sender.fragment_size * 2 + 1;
+        sender.buffer_send(
+            Bytes::from(vec![0; message_len]),
+            1.0,
+            CompressionConfig::DISABLED,
+        );
+
+        let mut candidates = Vec::new();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.len() > 1);
+
+        sender.finish_send(SendFlushOutcome::BandwidthLimited);
+        assert!(sender.fragmented_messages_to_send.is_empty());
+        assert_eq!(sender.fragment_ack_receiver, FragmentAckReceiver::new());
     }
 }

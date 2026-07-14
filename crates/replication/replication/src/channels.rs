@@ -57,10 +57,13 @@ impl Plugin for RepliconChannelRegistrationPlugin {
         .add_direction(NetworkDirection::Bidirectional);
 
         // ServerChannel::Mutations - Unreliable, Bidirectional
-        // Low priority: component mutations can be delayed if bandwidth is limited
+        // Low priority: component mutations can be dropped if bandwidth is limited because a
+        // later mutation contains fresher state.
         app.add_channel::<RepliconMutationsChannel>(ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             priority: 1.0,
+            // A later mutation contains fresher component state, so do not build a stale backlog.
+            retry_unsent_messages: false,
             ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);

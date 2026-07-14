@@ -88,6 +88,7 @@ impl Plugin for ProtocolCheckPlugin {
             mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             send_frequency: Duration::default(),
             priority: 10.0,
+            ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
 

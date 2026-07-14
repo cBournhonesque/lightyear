@@ -1,7 +1,8 @@
 /// Defines the [`Packet`] struct
 use crate::channel::registry::ChannelId;
+use crate::channel::registry::ChannelKind;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::{FragmentIndex, MessageId};
+use crate::packet::message::{FragmentIndex, MessageId, SendMessageKey};
 use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
 use lightyear_serde::{ToBytes, varint::varint_len};
@@ -43,8 +44,9 @@ pub(crate) const FRAGMENT_SIZE: usize =
 /// With the `metrics` feature enabled, this contains every message written into the packet so
 /// channel metrics can be emitted after the final packet passes the bandwidth limiter.
 ///
-/// Without `metrics`, this only contains messages with an id, because the send path only needs
-/// packet-local metadata for ack/retry bookkeeping.
+/// Production-staged packets also record id-less unreliable messages because their commit handles
+/// remove channel-owned pending data only after Link admission. Legacy test builders omit id-less
+/// metadata when metrics are disabled.
 #[derive(Debug, PartialEq)]
 pub(crate) struct MessageMetadata {
     pub(crate) channel: ChannelId,
@@ -52,9 +54,20 @@ pub(crate) struct MessageMetadata {
     // if the message is fragmented, we store the total number of fragments
     pub(crate) fragment_index: Option<FragmentIndex>,
     pub(crate) num_fragments: Option<u64>,
+    /// Channel-owned pending state to update after this packet is admitted to `Link.send`.
+    ///
+    /// Legacy packet-builder entry points used by focused tests do not originate from a channel
+    /// and therefore leave this as `None`.
+    pub(crate) commit: Option<SendCommit>,
     // Size of the message in bytes (for fragments, it's only the size of the fragment)
     #[cfg(feature = "metrics")]
     pub(crate) num_bytes: usize,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct SendCommit {
+    pub(crate) channel_kind: ChannelKind,
+    pub(crate) key: SendMessageKey,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,8 +82,7 @@ pub(crate) struct Packet {
     pub(crate) payload: Payload,
     /// Packet-local message metadata.
     ///
-    /// See [`MessageMetadata`] for the feature-dependent rule that decides whether id-less
-    /// messages are recorded.
+    /// See [`MessageMetadata`] for the rule that decides whether id-less messages are recorded.
     pub(crate) messages: Vec<MessageMetadata>,
     pub(crate) packet_id: PacketId,
     // How many bytes we know we are going to have to write in the packet, but haven't written yet
@@ -107,17 +119,18 @@ impl Packet {
         message: Option<MessageId>,
         fragment_index: Option<FragmentIndex>,
         num_fragments: Option<u64>,
+        commit: Option<SendCommit>,
         #[cfg(feature = "metrics")] num_bytes: usize,
     ) {
-        // In metrics builds, every message needs metadata so channel/send_* can be emitted only
-        // after the final packet passes bandwidth quota. In non-metrics builds, id-less entries
-        // are skipped to keep packet metadata limited to ack/retry bookkeeping.
-        if cfg!(feature = "metrics") || message.is_some() {
+        // Production candidates always carry commit metadata. Legacy focused builders retain the
+        // old optimization of omitting id-less entries when metrics are disabled.
+        if cfg!(feature = "metrics") || message.is_some() || commit.is_some() {
             self.messages.push(MessageMetadata {
                 channel,
                 message,
                 fragment_index,
                 num_fragments,
+                commit,
                 #[cfg(feature = "metrics")]
                 num_bytes,
             });

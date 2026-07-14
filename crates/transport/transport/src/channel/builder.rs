@@ -7,7 +7,7 @@ use crate::packet::compression::CompressionConfig;
 use crate::packet::message::{MessageAck, MessageId};
 use crate::packet::packet::PacketId;
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
-use crate::packet::priority_manager::PriorityManager;
+use crate::packet::priority_manager::{BandwidthLimiter, PriorityManager};
 use bevy_ecs::component::Component;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
@@ -42,6 +42,15 @@ pub struct ChannelSettings {
     ///
     /// See [`PriorityManager`] for more information.
     pub priority: f32,
+    /// Whether unreliable messages that could not be admitted by the bandwidth limiter should
+    /// remain queued for a later send flush.
+    ///
+    /// This only controls local bandwidth admission. Once a message enters `Link.send`, network
+    /// retransmission behavior is determined by [`ChannelMode`]. Reliable channels always retain
+    /// locally unsent messages regardless of this setting. If any fragment of an unreliable
+    /// message has already been admitted, its remaining fragments are also retained to avoid
+    /// guaranteeing an incomplete local send.
+    pub retry_unsent_messages: bool,
 }
 
 impl Default for ChannelSettings {
@@ -50,6 +59,7 @@ impl Default for ChannelSettings {
             mode: ChannelMode::UnorderedUnreliable,
             send_frequency: Duration::default(),
             priority: 1.0,
+            retry_unsent_messages: true,
         }
     }
 }
@@ -62,6 +72,8 @@ pub struct Transport {
     pub senders: HashMap<ChannelKind, SenderMetadata>,
     /// PriorityManager shared between all channels of this transport
     pub priority_manager: PriorityManager,
+    /// Bandwidth admission is separate from priority ordering and uses final packet bytes.
+    pub(crate) bandwidth_limiter: BandwidthLimiter,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
     pub compression: CompressionConfig,
@@ -92,10 +104,12 @@ pub struct Transport {
 impl Transport {
     pub fn new(priority_config: PriorityConfig) -> Self {
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
+        let bandwidth_limiter = BandwidthLimiter::new(priority_config.clone());
         Self {
             receivers: Default::default(),
             senders: Default::default(),
             priority_manager: PriorityManager::new(priority_config),
+            bandwidth_limiter,
             packet_manager: PacketBuilder::default(),
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
@@ -272,9 +286,12 @@ impl Transport {
                 name: s.name.clone(),
             };
         });
-        self.priority_manager = Default::default();
+        let priority_config = self.priority_manager.config.clone();
+        self.priority_manager = PriorityManager::new(priority_config.clone());
+        self.bandwidth_limiter = BandwidthLimiter::new(priority_config);
         self.packet_manager = Default::default();
         self.packet_to_message_map = Default::default();
+        self.fragment_acks.clear();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         self.send_channel = send_channel;
         self.recv_channel = recv_channel;
@@ -441,7 +458,6 @@ mod tests {
     };
     use crate::packet::packet::{FRAGMENT_SIZE, Packet};
     use crate::packet::packet_type::PacketType;
-    use alloc::collections::VecDeque;
     use bytes::Bytes;
     use lightyear_core::tick::Tick;
     use lightyear_serde::reader::{ReadInteger, Reader};
@@ -482,22 +498,22 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let sender = &mut sender_transport
+        let mut candidates = vec![];
+        sender_transport
             .senders
             .get_mut(&channel_kind)
             .unwrap()
-            .sender;
-        let (single_messages, fragment_messages) = sender.send_packet();
-        assert!(single_messages.is_empty());
-        assert!(!fragment_messages.is_empty());
+            .sender
+            .collect_send_candidates(channel_kind, channel_id, &mut candidates);
+        assert!(!candidates.is_empty());
 
-        let fragments = fragment_messages
-            .into_iter()
-            .map(|message| match message.data {
+        let fragments = candidates
+            .iter()
+            .map(|candidate| match &candidate.message.data {
                 MessageData::Fragment(fragment) => fragment,
                 MessageData::Single(_) => panic!("oversized message should be fragmented"),
             })
-            .collect::<VecDeque<_>>();
+            .collect::<Vec<_>>();
         assert!(fragments.len() < 3);
         assert_eq!(fragments[0].compression, Some(FragmentCompression::Lz4));
         assert!(
@@ -507,15 +523,20 @@ mod tests {
                 .all(|fragment| fragment.compression.is_none())
         );
 
-        let packets = sender_transport
-            .packet_manager
-            .build_packets_with_compression(
-                Duration::default(),
-                Tick(0),
-                vec![],
-                vec![(channel_id, fragments)],
-                compression,
-            )?;
+        let mut cursor = crate::packet::packet_builder::CandidateCursor::default();
+        let mut packets = vec![];
+        while let Some(packet) = sender_transport.packet_manager.build_next_packet(
+            Tick(0),
+            &candidates,
+            &mut cursor,
+            compression,
+        )? {
+            sender_transport
+                .packet_manager
+                .header_manager
+                .commit_send_packet(packet.packet_id, Duration::default());
+            packets.push(packet);
+        }
         assert!(!packets.is_empty());
 
         for packet in packets {
@@ -555,31 +576,33 @@ mod tests {
                 .unwrap();
         }
 
-        let sender = &mut transport.senders.get_mut(&channel_kind).unwrap().sender;
-        let (single_messages, fragment_messages) = sender.send_packet();
-        assert_eq!(single_messages.len(), 8);
-        assert!(fragment_messages.is_empty());
+        let candidates = transport.priority_manager.candidates_mut();
         transport
-            .priority_manager
-            .buffer_messages(channel_id, single_messages, fragment_messages);
+            .senders
+            .get_mut(&channel_kind)
+            .unwrap()
+            .sender
+            .collect_send_candidates(channel_kind, channel_id, candidates);
+        assert_eq!(transport.priority_manager.candidates().len(), 8);
+        transport.priority_manager.prioritize(&registry);
+        let mut cursor = crate::packet::packet_builder::CandidateCursor::default();
+        let packet = transport
+            .packet_manager
+            .build_next_packet(
+                Tick(0),
+                transport.priority_manager.candidates(),
+                &mut cursor,
+                compression,
+            )?
+            .unwrap();
 
-        let (single_data, fragment_data) = transport.priority_manager.prioritize(&registry);
-        let packets = transport.packet_manager.build_packets_with_compression(
-            Duration::default(),
-            Tick(0),
-            single_data,
-            fragment_data,
-            compression,
-        )?;
-
-        assert_eq!(packets.len(), 1);
-        assert_eq!(packets[0].num_messages(), 8);
-        assert!(packets[0].compression.is_some());
-        assert!(packets[0].payload.len() <= 600);
+        assert_eq!(packet.num_messages(), 8);
+        assert!(packet.compression.is_some());
+        assert!(packet.payload.len() <= 600);
         assert!(
             transport
-                .priority_manager
-                .consume_packet_quota(packets[0].payload.len() as u32)
+                .bandwidth_limiter
+                .consume_packet_quota(packet.payload.len() as u32)
         );
         Ok(())
     }

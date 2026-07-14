@@ -1,4 +1,3 @@
-use alloc::collections::VecDeque;
 use alloc::{vec, vec::Vec};
 use core::convert::TryInto;
 use core::time::Duration;
@@ -9,18 +8,20 @@ use lightyear_link::LinkStats;
 use lightyear_serde::SerializationError;
 use lightyear_serde::varint::varint_parse_len;
 
-use crate::channel::registry::ChannelId;
+use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::packet::compression::CompressionConfig;
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeader;
-use crate::packet::message::SingleData;
-use crate::packet::packet_builder::PacketBuilder;
+use crate::packet::message::{SendCandidate, SendMessage, SendMessageKey, SingleData};
+use crate::packet::packet_builder::{CandidateCursor, PacketBuilder};
 use crate::packet::packet_type::PacketType;
 
 /// Opaque packet-builder input prepared outside allocation measurements.
 pub struct PacketLoopBatch {
-    single_data: Vec<(ChannelId, VecDeque<SingleData>)>,
+    candidates: Vec<SendCandidate>,
 }
+
+struct PacketLoopChannel;
 
 /// Summary of a completed packet build and parse pass.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -93,6 +94,7 @@ impl<'a> SlicePacketReader<'a> {
 /// then call [`run_batch`](Self::run_batch) inside the measured region.
 pub struct PacketLoopFixture {
     packet_builder: PacketBuilder,
+    channel_kind: ChannelKind,
     channel_id: ChannelId,
     payloads: Vec<Bytes>,
     current_tick: Tick,
@@ -110,6 +112,7 @@ impl PacketLoopFixture {
             .collect();
         Self {
             packet_builder: PacketBuilder::new(1.5),
+            channel_kind: ChannelKind::of::<PacketLoopChannel>(),
             channel_id: 0,
             payloads,
             current_tick: Tick(0),
@@ -157,16 +160,26 @@ impl PacketLoopFixture {
     }
 
     fn prepare_batch_with_message_count(&self, message_count: usize) -> PacketLoopBatch {
-        let single_data = VecDeque::from_iter(
+        let candidates = Vec::from_iter(
             self.payloads
                 .iter()
                 .take(message_count)
                 .cloned()
-                .map(|payload| SingleData::new(None, payload)),
+                .enumerate()
+                .map(|(index, payload)| {
+                    SendCandidate::new(
+                        self.channel_kind,
+                        self.channel_id,
+                        SendMessageKey::UnreliableSingle(index),
+                        index as u64,
+                        SendMessage {
+                            data: SingleData::new(None, payload).into(),
+                            priority: 1.0,
+                        },
+                    )
+                }),
         );
-        PacketLoopBatch {
-            single_data: vec![(self.channel_id, single_data)],
-        }
+        PacketLoopBatch { candidates }
     }
 
     pub fn run_batch(&mut self, batch: PacketLoopBatch) -> Result<PacketLoopStats, PacketError> {
@@ -176,25 +189,26 @@ impl PacketLoopFixture {
             .update(real, &LinkStats::default());
         self.packet_builder.header_manager.lost_packets.clear();
 
-        let mut packets = self.packet_builder.build_packets_with_compression(
-            real,
-            self.current_tick,
-            batch.single_data,
-            Vec::new(),
-            CompressionConfig::DISABLED,
-        )?;
+        let mut cursor = CandidateCursor::default();
+        let current_tick = self.current_tick;
         self.current_tick += 1;
         self.current_real += Duration::from_millis(16);
 
-        let mut stats = PacketLoopStats {
-            packets: packets.len(),
-            ..Default::default()
-        };
-        for packet in packets.drain(..) {
+        let mut stats = PacketLoopStats::default();
+        while let Some(packet) = self.packet_builder.build_next_packet(
+            current_tick,
+            &batch.candidates,
+            &mut cursor,
+            CompressionConfig::DISABLED,
+        )? {
+            stats.packets += 1;
+            let packet_id = packet.packet_id;
+            self.packet_builder
+                .header_manager
+                .commit_send_packet(packet_id, real);
             self.parse_packet_payload(packet.payload.as_slice(), real, &mut stats)?;
             self.packet_builder.recycle_packet(packet);
         }
-        self.packet_builder.recycle_packet_list(packets);
         Ok(stats)
     }
 

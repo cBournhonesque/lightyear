@@ -1,11 +1,17 @@
 use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use core::time::Duration;
 
-use crate::channel::senders::ChannelSend;
+use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::fragment_sender::FragmentSender;
+use crate::channel::senders::{
+    ChannelSend, PendingSendMessage, SendFlushOutcome, commit_unreliable_candidate,
+};
 use crate::packet::compression::CompressionConfig;
-use crate::packet::message::{MessageAck, MessageData, MessageId, SendMessage, SingleData};
+use crate::packet::message::{
+    MessageAck, MessageData, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
+};
 use bytes::Bytes;
 use lightyear_link::LinkStats;
 
@@ -14,20 +20,23 @@ use lightyear_link::LinkStats;
 #[derive(Debug)]
 pub struct UnorderedUnreliableSender {
     /// list of single messages that we want to fit into packets and send
-    single_messages_to_send: VecDeque<SendMessage>,
+    single_messages_to_send: VecDeque<PendingSendMessage>,
     /// list of fragmented messages that we want to fit into packets and send
-    fragmented_messages_to_send: VecDeque<SendMessage>,
+    fragmented_messages_to_send: VecDeque<PendingSendMessage>,
     /// Fragmented messages need an id (so they can be reconstructed), this keeps track
     /// of the next id to use
     next_send_fragmented_message_id: MessageId,
+    next_send_order: u64,
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
     /// Internal timer to determine if the channel is ready to send messages
     timer: Option<Timer>,
+    retry_unsent_messages: bool,
+    eligible_this_flush: bool,
 }
 
 impl UnorderedUnreliableSender {
-    pub(crate) fn new(send_frequency: Duration) -> Self {
+    pub(crate) fn new(send_frequency: Duration, retry_unsent_messages: bool) -> Self {
         let timer = if send_frequency == Duration::default() {
             None
         } else {
@@ -37,8 +46,11 @@ impl UnorderedUnreliableSender {
             single_messages_to_send: VecDeque::new(),
             fragmented_messages_to_send: VecDeque::new(),
             next_send_fragmented_message_id: MessageId::default(),
+            next_send_order: 0,
             fragment_sender: FragmentSender::new(),
             timer,
+            retry_unsent_messages,
+            eligible_this_flush: false,
         }
     }
 }
@@ -58,42 +70,105 @@ impl ChannelSend for UnorderedUnreliableSender {
         priority: f32,
         compression: CompressionConfig,
     ) -> Option<MessageId> {
+        let stable_order = self.next_send_order;
+        self.next_send_order = self.next_send_order.wrapping_add(1);
         if message.len() > self.fragment_sender.fragment_size {
             for fragment in self.fragment_sender.build_fragments_for_message(
                 self.next_send_fragmented_message_id,
                 message,
                 compression,
             ) {
-                self.fragmented_messages_to_send.push_back(SendMessage {
-                    data: MessageData::Fragment(fragment),
-                    priority,
-                });
+                self.fragmented_messages_to_send
+                    .push_back(PendingSendMessage::new(
+                        SendMessage {
+                            data: MessageData::Fragment(fragment),
+                            priority,
+                        },
+                        stable_order,
+                    ));
             }
             self.next_send_fragmented_message_id += 1;
             Some(self.next_send_fragmented_message_id - 1)
         } else {
             let single_data = SingleData::new(None, message);
-            self.single_messages_to_send.push_back(SendMessage {
-                data: MessageData::Single(single_data),
-                priority,
-            });
+            self.single_messages_to_send
+                .push_back(PendingSendMessage::new(
+                    SendMessage {
+                        data: MessageData::Single(single_data),
+                        priority,
+                    },
+                    stable_order,
+                ));
             None
         }
     }
 
-    /// Take messages from the buffer of messages to be sent, and build a list of packets to be sent
-    fn send_packet(&mut self) -> (VecDeque<SendMessage>, VecDeque<SendMessage>) {
+    fn collect_send_candidates(
+        &mut self,
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+        output: &mut Vec<SendCandidate>,
+    ) {
         if self.timer.as_ref().is_some_and(|t| !t.is_finished()) {
-            return (VecDeque::new(), VecDeque::new());
+            return;
         }
-        (
-            core::mem::take(&mut self.single_messages_to_send),
-            core::mem::take(&mut self.fragmented_messages_to_send),
-        )
-        // let messages_to_send = core::mem::take(&mut self.messages_to_send);
-        // let (remaining_messages_to_send, _) =
-        //     packet_manager.pack_messages_within_channel(messages_to_send);
-        // self.messages_to_send = remaining_messages_to_send;
+        self.eligible_this_flush = true;
+        output.extend(
+            self.single_messages_to_send
+                .iter()
+                .enumerate()
+                .filter(|(_, pending)| !pending.committed)
+                .map(|(index, pending)| {
+                    SendCandidate::new(
+                        channel_kind,
+                        channel_id,
+                        SendMessageKey::UnreliableSingle(index),
+                        pending.stable_order,
+                        pending.message.clone(),
+                    )
+                }),
+        );
+        output.extend(
+            self.fragmented_messages_to_send
+                .iter()
+                .enumerate()
+                .filter(|(_, pending)| !pending.committed)
+                .map(|(index, pending)| {
+                    SendCandidate::new(
+                        channel_kind,
+                        channel_id,
+                        SendMessageKey::UnreliableFragment(index),
+                        pending.stable_order,
+                        pending.message.clone(),
+                    )
+                }),
+        );
+    }
+
+    fn commit_send(&mut self, key: SendMessageKey, _: Duration) {
+        let committed = commit_unreliable_candidate(
+            &mut self.single_messages_to_send,
+            &mut self.fragmented_messages_to_send,
+            key,
+        );
+        debug_assert!(committed, "invalid unreliable send candidate");
+    }
+
+    fn finish_send(&mut self, outcome: SendFlushOutcome) {
+        let discard_unsent = self.eligible_this_flush
+            && !self.retry_unsent_messages
+            && outcome == SendFlushOutcome::BandwidthLimited;
+        if discard_unsent {
+            self.single_messages_to_send.clear();
+            self.fragmented_messages_to_send
+                .retain(|pending| !pending.committed && pending.fragment_started);
+        } else {
+            self.single_messages_to_send
+                .retain(|pending| !pending.committed);
+            self.fragmented_messages_to_send
+                .retain(|pending| !pending.committed);
+        }
+        self.eligible_this_flush = false;
     }
 
     fn receive_ack(&mut self, _: &MessageAck) {}
@@ -101,8 +176,123 @@ impl ChannelSend for UnorderedUnreliableSender {
 
 #[cfg(test)]
 mod tests {
-    // #[test]
-    // fn test_unordered_unreliable_sender_internals() {
-    //     todo!()
-    // }
+    use alloc::vec;
+
+    use super::*;
+
+    struct TestChannel;
+
+    #[test]
+    fn candidates_remain_pending_until_committed() {
+        let mut sender = UnorderedUnreliableSender::new(Duration::default(), true);
+        sender.buffer_send(
+            Bytes::from_static(b"pending"),
+            1.0,
+            CompressionConfig::DISABLED,
+        );
+
+        let mut candidates = Vec::new();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
+
+        // A rejected staged packet calls finish without committing and must not consume data.
+        sender.finish_send(SendFlushOutcome::BandwidthLimited);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
+
+        sender.commit_send(candidates[0].key, Duration::default());
+        sender.finish_send(SendFlushOutcome::Complete);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn retry_unsent_policy_only_discards_after_bandwidth_limit() {
+        let mut sender = UnorderedUnreliableSender::new(Duration::default(), false);
+        sender.buffer_send(
+            Bytes::from_static(b"stale"),
+            1.0,
+            CompressionConfig::DISABLED,
+        );
+
+        let mut candidates = Vec::new();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
+
+        sender.finish_send(SendFlushOutcome::StagingFailed);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
+
+        sender.finish_send(SendFlushOutcome::BandwidthLimited);
+        candidates.clear();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn discard_policy_finishes_started_fragmented_messages() {
+        let mut wholly_unsent = UnorderedUnreliableSender::new(Duration::default(), false);
+        let message_len = wholly_unsent.fragment_sender.fragment_size * 2 + 1;
+        wholly_unsent.buffer_send(
+            Bytes::from(vec![0; message_len]),
+            1.0,
+            CompressionConfig::DISABLED,
+        );
+
+        let mut candidates = Vec::new();
+        wholly_unsent.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.len() > 1);
+
+        wholly_unsent.finish_send(SendFlushOutcome::BandwidthLimited);
+        candidates.clear();
+        wholly_unsent.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.is_empty());
+
+        let mut partially_sent = UnorderedUnreliableSender::new(Duration::default(), false);
+        partially_sent.buffer_send(
+            Bytes::from(vec![0; message_len]),
+            1.0,
+            CompressionConfig::DISABLED,
+        );
+        partially_sent.collect_send_candidates(
+            ChannelKind::of::<TestChannel>(),
+            0,
+            &mut candidates,
+        );
+        let fragment_count = candidates.len();
+
+        partially_sent.commit_send(candidates[0].key, Duration::default());
+        partially_sent.finish_send(SendFlushOutcome::BandwidthLimited);
+        candidates.clear();
+        partially_sent.collect_send_candidates(
+            ChannelKind::of::<TestChannel>(),
+            0,
+            &mut candidates,
+        );
+        assert_eq!(candidates.len(), fragment_count - 1);
+    }
+
+    #[test]
+    fn bandwidth_limit_does_not_discard_messages_before_send_frequency() {
+        let mut sender = UnorderedUnreliableSender::new(Duration::from_secs(1), false);
+        sender.buffer_send(
+            Bytes::from_static(b"not-yet-eligible"),
+            1.0,
+            CompressionConfig::DISABLED,
+        );
+
+        let mut candidates = Vec::new();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert!(candidates.is_empty());
+        sender.finish_send(SendFlushOutcome::BandwidthLimited);
+
+        let mut real = Time::<Real>::default();
+        real.advance_by(Duration::from_secs(1));
+        sender.update(&real, &LinkStats::default());
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        assert_eq!(candidates.len(), 1);
+    }
 }

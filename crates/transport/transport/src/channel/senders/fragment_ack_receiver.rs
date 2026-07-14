@@ -23,6 +23,10 @@ impl FragmentAckReceiver {
             .or_insert_with(|| FragmentAckTracker::new(num_fragments));
     }
 
+    pub fn discard_message(&mut self, message_id: MessageId) {
+        self.fragment_messages.remove(&message_id);
+    }
+
     /// Discard all messages for which the latest ack was received before the cleanup time
     /// (i.e. we probably lost some fragments and we will never get all the acks for this fragmented message)
     ///

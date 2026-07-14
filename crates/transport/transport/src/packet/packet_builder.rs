@@ -6,8 +6,8 @@ use crate::packet::compression::{
 };
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
-use crate::packet::message::{FragmentData, SingleData};
-use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, MessageMetadata, Packet};
+use crate::packet::message::{FragmentData, MessageData, SendCandidate, SingleData};
+use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, MessageMetadata, Packet, SendCommit};
 use crate::packet::packet_type::PacketType;
 use alloc::collections::VecDeque;
 use alloc::vec::Vec;
@@ -35,6 +35,19 @@ const MAX_RETAINED_MESSAGE_METADATA_CAPACITY: usize = 100;
 /// e.g. we receive 1200 bytes from the network, we want to read parts of it (header, channel) but then
 /// store subslices in receiver channels without allocating.
 pub type RecvPayload = Bytes;
+
+/// Position in the ordered send-candidate scratch for the current flush.
+#[derive(Debug, Default)]
+pub(crate) struct CandidateCursor {
+    index: usize,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct SingleBatchState {
+    channel_id: ChannelId,
+    count_offset: usize,
+    count: u8,
+}
 
 /// `PacketBuilder` handles the process of creating a packet (writing the header and packing the
 /// messages into packets)
@@ -182,6 +195,196 @@ impl PacketBuilder {
         self.buffer_pool.recycle_packet_list(packets);
     }
 
+    /// Stage the next packet from globally ordered, channel-owned candidates.
+    ///
+    /// This method only consumes candidate snapshots. It deliberately does not mutate channel
+    /// queues, reliable retry timestamps, packet ids, sent-packet tracking, or bandwidth quota.
+    /// The caller commits those transitions after the returned packet enters `Link.send`.
+    pub(crate) fn build_next_packet(
+        &mut self,
+        current_tick: Tick,
+        candidates: &[SendCandidate],
+        cursor: &mut CandidateCursor,
+        compression: CompressionConfig,
+    ) -> Result<Option<Packet>, PacketError> {
+        let Some(first) = candidates.get(cursor.index) else {
+            return Ok(None);
+        };
+
+        match &first.message.data {
+            MessageData::Fragment(fragment) => {
+                let mut packet = self.new_staged_packet(PacketType::DataFragment, current_tick)?;
+                first.channel_id.to_bytes(&mut packet.payload)?;
+                fragment.to_bytes(&mut packet.payload)?;
+                packet.record_message_metadata(
+                    first.channel_id,
+                    Some(fragment.message_id),
+                    Some(fragment.fragment_id),
+                    Some(fragment.num_fragments.0),
+                    Some(SendCommit {
+                        channel_kind: first.channel_kind,
+                        key: first.key,
+                    }),
+                    #[cfg(feature = "metrics")]
+                    fragment.bytes.len(),
+                );
+                cursor.index += 1;
+
+                // The wire format permits singles after the final fragment. Preserve the current
+                // behavior of fitting that tail against the uncompressed MTU.
+                if fragment.is_last_fragment() {
+                    let mut batch = None;
+                    while let Some(candidate) = candidates.get(cursor.index) {
+                        if !matches!(candidate.message.data, MessageData::Single(_))
+                            || !Self::try_append_single_candidate(
+                                &mut packet,
+                                candidate,
+                                &mut batch,
+                                CompressionConfig::DISABLED,
+                            )?
+                        {
+                            break;
+                        }
+                        cursor.index += 1;
+                    }
+                }
+
+                if packet.payload.len() > MAX_PACKET_SIZE {
+                    return Err(PacketError::PacketTooLarge {
+                        actual: packet.payload.len(),
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+                Ok(Some(Self::finalize_packet(packet)))
+            }
+            MessageData::Single(_) => {
+                let mut packet = self.new_staged_packet(PacketType::Data, current_tick)?;
+                let mut batch = None;
+                while let Some(candidate) = candidates.get(cursor.index) {
+                    if !matches!(candidate.message.data, MessageData::Single(_)) {
+                        break;
+                    }
+                    if !Self::try_append_single_candidate(
+                        &mut packet,
+                        candidate,
+                        &mut batch,
+                        compression,
+                    )? {
+                        break;
+                    }
+                    cursor.index += 1;
+                }
+
+                if packet.messages.is_empty() {
+                    let candidate = &candidates[cursor.index];
+                    return Err(PacketError::PacketTooLarge {
+                        actual: HEADER_BYTES
+                            + candidate.channel_id.bytes_len()
+                            + 1
+                            + candidate.message.data.bytes_len(),
+                        mtu: MAX_PACKET_SIZE,
+                    });
+                }
+                Ok(Some(Self::finish_compression_aware_packet(
+                    packet,
+                    compression,
+                )?))
+            }
+        }
+    }
+
+    fn new_staged_packet(
+        &mut self,
+        packet_type: PacketType,
+        current_tick: Tick,
+    ) -> Result<Packet, SerializationError> {
+        let mut payload = self.buffer_pool.take_payload();
+        let messages = self.buffer_pool.take_message_metadata();
+        let header = self
+            .header_manager
+            .preview_send_packet_header(packet_type, current_tick);
+        header.to_bytes(&mut payload)?;
+        Ok(Packet {
+            payload,
+            messages,
+            packet_id: header.packet_id,
+            prewritten_size: 0,
+            compression: None,
+        })
+    }
+
+    fn try_append_single_candidate(
+        packet: &mut Packet,
+        candidate: &SendCandidate,
+        batch: &mut Option<SingleBatchState>,
+        compression: CompressionConfig,
+    ) -> Result<bool, PacketError> {
+        let MessageData::Single(message) = &candidate.message.data else {
+            return Ok(false);
+        };
+
+        let payload_len = packet.payload.len();
+        let metadata_len = packet.messages.len();
+        let previous_batch = *batch;
+
+        match batch {
+            Some(state)
+                if state.channel_id == candidate.channel_id
+                    && state.count < MAX_MESSAGES_PER_CHANNEL_BATCH as u8 =>
+            {
+                state.count += 1;
+                packet.payload[state.count_offset] = state.count;
+            }
+            _ => {
+                candidate.channel_id.to_bytes(&mut packet.payload)?;
+                let count_offset = packet.payload.len();
+                1u8.to_bytes(&mut packet.payload)?;
+                *batch = Some(SingleBatchState {
+                    channel_id: candidate.channel_id,
+                    count_offset,
+                    count: 1,
+                });
+            }
+        }
+
+        message.to_bytes(&mut packet.payload)?;
+        packet.record_message_metadata(
+            candidate.channel_id,
+            message.id,
+            None,
+            None,
+            Some(SendCommit {
+                channel_kind: candidate.channel_kind,
+                key: candidate.key,
+            }),
+            #[cfg(feature = "metrics")]
+            message.bytes_len(),
+        );
+
+        let fits = if packet.payload.len() <= MAX_PACKET_SIZE {
+            true
+        } else if compression.is_enabled() {
+            matches!(
+                try_build_compressed_packet_payload(&packet.payload, compression)?,
+                CompressionCandidate::Compressed { .. }
+            )
+        } else {
+            false
+        };
+
+        if fits {
+            return Ok(true);
+        }
+
+        if let Some(previous) = previous_batch {
+            packet.payload[previous.count_offset] = previous.count;
+        }
+        packet.payload.truncate(payload_len);
+        packet.messages.truncate(metadata_len);
+        *batch = previous_batch;
+        Ok(false)
+    }
+
     /// Start building new packet, we start with an empty packet
     /// that can write to a given channel
     pub(crate) fn build_new_single_packet(
@@ -237,6 +440,7 @@ impl PacketBuilder {
             Some(fragment_data.message_id),
             Some(fragment_data.fragment_id),
             Some(fragment_data.num_fragments.0),
+            None,
             #[cfg(feature = "metrics")]
             fragment_data.bytes.len(),
         );
@@ -368,17 +572,28 @@ impl PacketBuilder {
                     let mut packet = self.current_packet.take().unwrap();
                     // it's a smaller fragment, fill it with small messages
                     'out: while single_data_idx < single_data.len() {
+                        let (channel_id, single_messages) = &mut single_data[single_data_idx];
                         // if we don't even have space for a new channel, return the packet immediately
-                        if !packet.can_fit_channel(channel_id) {
+                        if !packet.can_fit_channel(*channel_id) {
                             break;
                         }
 
-                        let (channel_id, single_messages) = &mut single_data[single_data_idx];
                         // number of messages for this channel that we will write
                         // (we wait until we know the full number, because we want to write that)
                         let mut num_messages = 0;
                         // fill with messages from the current channel
                         loop {
+                            if num_messages == MAX_MESSAGES_PER_CHANNEL_BATCH
+                                && num_messages < single_messages.len()
+                            {
+                                Self::write_single_messages(
+                                    &mut packet,
+                                    single_messages,
+                                    &mut num_messages,
+                                    *channel_id,
+                                )?;
+                                break 'out;
+                            }
                             // no more messages to send in this channel, try to fill with messages from the next channels
                             if num_messages == single_messages.len() {
                                 Self::write_single_messages(
@@ -450,6 +665,19 @@ impl PacketBuilder {
             let mut num_messages = 0;
             // fill with messages from the current channel
             loop {
+                if num_messages == MAX_MESSAGES_PER_CHANNEL_BATCH
+                    && num_messages < single_messages.len()
+                {
+                    Self::write_single_messages(
+                        &mut packet,
+                        single_messages,
+                        &mut num_messages,
+                        *channel_id,
+                    )?;
+                    self.current_packet = Some(packet);
+                    packets.push(self.finish_packet());
+                    continue 'out;
+                }
                 // no more messages to send in this channel, try to fill with messages from the next channels
                 if num_messages == single_messages.len() {
                     Self::write_single_messages(
@@ -497,6 +725,7 @@ impl PacketBuilder {
         num_messages: &mut usize,
         channel_id: ChannelId,
     ) -> Result<(), SerializationError> {
+        debug_assert!(*num_messages <= MAX_MESSAGES_PER_CHANNEL_BATCH);
         packet.prewritten_size = packet
             .prewritten_size
             .checked_sub(varint_len(channel_id as u64) + 1)
@@ -520,6 +749,7 @@ impl PacketBuilder {
                 packet.record_message_metadata(
                     channel_id,
                     message.id,
+                    None,
                     None,
                     None,
                     #[cfg(feature = "metrics")]
@@ -727,6 +957,7 @@ impl PacketBuilder {
                 packet.record_message_metadata(
                     channel_id,
                     message.id,
+                    None,
                     None,
                     None,
                     #[cfg(feature = "metrics")]
@@ -961,6 +1192,7 @@ mod tests {
     #[cfg(feature = "compression_lz4")]
     use crate::packet::message::FragmentCompression;
     use crate::packet::message::{FragmentIndex, MessageId};
+    use crate::packet::message::{SendMessage, SendMessageKey};
     #[cfg(feature = "compression_lz4")]
     use crate::packet::packet::HEADER_BYTES;
     use crate::packet::packet::MessageMetadata;
@@ -1098,6 +1330,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
                 MessageMetadata {
@@ -1105,6 +1338,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
                 MessageMetadata {
@@ -1112,6 +1346,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
                 MessageMetadata {
@@ -1119,6 +1354,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
             ]
@@ -1461,6 +1697,7 @@ mod tests {
                 message: Some(MessageId(3)),
                 fragment_index: Some(FragmentIndex(0)),
                 num_fragments: Some(fragments.len() as u64),
+                commit: None,
                 #[cfg(feature = "metrics")]
                 num_bytes: fragments[0].bytes.len(),
             }]
@@ -1481,6 +1718,7 @@ mod tests {
                 message: Some(MessageId(3)),
                 fragment_index: Some(FragmentIndex(1)),
                 num_fragments: Some(fragments.len() as u64),
+                commit: None,
                 #[cfg(feature = "metrics")]
                 num_bytes: fragments[1].bytes.len(),
             }]
@@ -1494,6 +1732,7 @@ mod tests {
                     message: Some(MessageId(3)),
                     fragment_index: Some(FragmentIndex(1)),
                     num_fragments: Some(fragments.len() as u64),
+                    commit: None,
                     num_bytes: fragments[1].bytes.len(),
                 },
                 MessageMetadata {
@@ -1501,6 +1740,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
                 MessageMetadata {
@@ -1508,6 +1748,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
                 MessageMetadata {
@@ -1515,6 +1756,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
                 MessageMetadata {
@@ -1522,6 +1764,7 @@ mod tests {
                     message: None,
                     fragment_index: None,
                     num_fragments: None,
+                    commit: None,
                     num_bytes: small_message.bytes_len(),
                 },
             ]
@@ -1694,6 +1937,86 @@ mod tests {
 
         let contents = decompress_packet_for_test(packet)?.parse_packet_payload()?;
         assert_eq!(contents.get(channel_id).unwrap(), &vec![fragment.bytes]);
+        Ok(())
+    }
+
+    #[test]
+    fn staged_builder_splits_channel_batches_at_u8_limit() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = *channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let candidates = (0..300)
+            .map(|index| {
+                SendCandidate::new(
+                    channel_kind,
+                    channel_id,
+                    SendMessageKey::UnreliableSingle(index),
+                    index as u64,
+                    SendMessage {
+                        data: SingleData::new(None, Bytes::new()).into(),
+                        priority: 1.0,
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+
+        let mut builder = PacketBuilder::new(1.5);
+        let mut cursor = CandidateCursor::default();
+        let packet = builder
+            .build_next_packet(
+                Tick(0),
+                &candidates,
+                &mut cursor,
+                CompressionConfig::DISABLED,
+            )?
+            .unwrap();
+        assert_eq!(packet.messages.len(), 300);
+        let packet_id = packet.packet_id;
+        let contents = packet.parse_packet_payload()?;
+        assert_eq!(contents[&channel_id].len(), 300);
+        builder
+            .header_manager
+            .commit_send_packet(packet_id, Duration::default());
+        assert!(
+            builder
+                .build_next_packet(
+                    Tick(0),
+                    &candidates,
+                    &mut cursor,
+                    CompressionConfig::DISABLED,
+                )?
+                .is_none()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_builder_does_not_wrap_channel_batch_count() -> Result<(), PacketError> {
+        let channel_registry = get_channel_registry();
+        let channel_kind = ChannelKind::of::<Channel1>();
+        let channel_id = *channel_registry.get_net_from_kind(&channel_kind).unwrap();
+        let messages = (0..300)
+            .map(|_| SingleData::new(None, Bytes::new()))
+            .collect::<VecDeque<_>>();
+
+        let packets = PacketBuilder::new(1.5).build_packets(
+            Duration::default(),
+            Tick(0),
+            vec![(channel_id, messages)],
+            vec![],
+        )?;
+        let decoded_messages = packets
+            .into_iter()
+            .map(|packet| {
+                packet
+                    .parse_packet_payload()
+                    .map(|contents| contents[&channel_id].len())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .sum::<usize>();
+
+        assert_eq!(decoded_messages, 300);
         Ok(())
     }
 

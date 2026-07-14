@@ -1,7 +1,7 @@
 use crate::channel::builder::Transport;
 use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::channel::senders::ChannelSend;
+use crate::channel::senders::{ChannelSend, SendFlushOutcome};
 use crate::error::TransportError;
 use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
@@ -428,69 +428,57 @@ impl TransportPlugin {
                 Ok::<(), TransportError>(())
             }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
 
-            // flush messages from the Sender to the priority manager
-            transport.senders.values_mut().for_each(|sender_metadata| {
-                let channel_id = sender_metadata.channel_id;
-                let sender = &mut sender_metadata.sender;
-                let (single_data, fragment_data) = sender.send_packet();
-                if !single_data.is_empty() || !fragment_data.is_empty() {
-                    trace!(?channel_id, "send message with channel_id");
-                    transport.priority_manager.buffer_messages(channel_id, single_data, fragment_data);
-                }
-            });
+            // Collect cheap snapshots while each channel retains ownership of its pending queues.
+            transport.priority_manager.clear();
+            {
+                let candidates = transport.priority_manager.candidates_mut();
+                transport.senders.iter_mut().for_each(|(channel_kind, metadata)| {
+                    metadata.sender.collect_send_candidates(
+                        *channel_kind,
+                        metadata.channel_id,
+                        candidates,
+                    );
+                });
+            }
+            transport.priority_manager.prioritize(&channel_registry);
 
-            // get the list of messages to pack, ordered by priority
-            let (single_data, fragment_data) =
-                transport.priority_manager.prioritize(&channel_registry);
-
-            // build actual packets from these messages
-            // TODO: swap to try_for_each when available
-            let Ok(mut packets) =
-                transport.packet_manager
-                    .build_packets_with_compression(real_time.elapsed(), tick, single_data, fragment_data, transport.compression) else {
-                error!("Failed to build packets");
-                return
-            };
-
+            let mut candidate_cursor = crate::packet::packet_builder::CandidateCursor::default();
             let mut total_bytes_sent = 0;
-            let mut packet_drain = packets.drain(..);
-            while let Some(mut packet) = packet_drain.next() {
+            let mut flush_outcome = SendFlushOutcome::Complete;
+            loop {
+                let staged = transport.packet_manager.build_next_packet(
+                    tick,
+                    transport.priority_manager.candidates(),
+                    &mut candidate_cursor,
+                    transport.compression,
+                );
+                let mut packet = match staged {
+                    Ok(Some(packet)) => packet,
+                    Ok(None) => break,
+                    Err(error) => {
+                        flush_outcome = SendFlushOutcome::StagingFailed;
+                        error!(?error, "failed to stage transport packet");
+                        break;
+                    }
+                };
                 trace!(packet_id = ?packet.packet_id, num_messages = ?packet.num_messages(), "sending packet");
                 let packet_id = packet.packet_id;
                 let num_messages = packet.num_messages();
                 let packet_len = packet.payload.len();
                 let packet_compression = packet.compression;
                 if !transport
-                    .priority_manager
+                    .bandwidth_limiter
                     .consume_packet_quota(packet_len as u32)
                 {
-                    // Packets are built from messages ordered by priority. The limiter is checked
-                    // here, after packet building/compression, so quota is charged on final packet
-                    // bytes. Once this packet does not fit, later packets are not higher priority.
-                    //
-                    // Unsent unreliable messages are dropped for this tick. Reliable messages will
-                    // be retried by their channel sender because their ack bookkeeping is only
-                    // updated after a packet is accepted below.
-                    let rejected_packets = core::iter::once(packet).chain(packet_drain.by_ref());
-                    transport.packet_manager.recycle_packets(rejected_packets);
+                    // Staging has no channel or packet-header side effects. Reliable messages are
+                    // retained; each unreliable channel applies its retry-unsent policy when this
+                    // flush finishes. Since bandwidth limiting also enables priority ordering,
+                    // later candidates are not higher priority than this packet.
+                    flush_outcome = SendFlushOutcome::BandwidthLimited;
+                    transport.packet_manager.recycle_packet(packet);
                     break;
                 }
-                #[cfg(feature = "metrics")]
-                for metadata in packet.messages.iter() {
-                    let channel_name = channel_registry.get_name_from_net_id(metadata.channel);
-                    metrics::gauge!("channel/send_messages", "channel" => channel_name)
-                        .increment(1);
-                    metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                        .increment(metadata.num_bytes as f64);
-                }
                 if let Some(compression_info) = packet.compression {
-                    #[cfg(feature = "metrics")]
-                    {
-                        metrics::counter!("transport/compression_saved_bytes").increment(
-                            (compression_info.original_len - compression_info.compressed_len)
-                                as u64,
-                        );
-                    }
                     trace!(
                         original_len = compression_info.original_len,
                         compressed_len = compression_info.compressed_len,
@@ -514,58 +502,84 @@ impl TransportPlugin {
                     "sending transport packet"
                 );
 
-                // TODO: should we update this to include fragment info as well?
-                // Update the packet_to_message_id_map (only for channels that care about acks)
+                // Acceptance into Link.send is the transactional boundary. Packet ids, retry
+                // timestamps, ack maps, and metrics are committed only after this point.
+                total_bytes_sent += packet.payload.len() as u32;
+                link.send.push(Bytes::from(core::mem::take(&mut packet.payload)));
+                transport
+                    .packet_manager
+                    .header_manager
+                    .commit_send_packet(packet_id, real_time.elapsed());
+
+                #[cfg(feature = "metrics")]
+                if let Some(compression_info) = packet.compression {
+                    metrics::counter!("transport/compression_saved_bytes").increment(
+                        (compression_info.original_len - compression_info.compressed_len) as u64,
+                    );
+                }
+
                 let mut packet_messages = core::mem::take(&mut packet.messages);
-                packet_messages
-                    .drain(..)
-                    .try_for_each(|metadata| {
-                        let channel_id = metadata.channel;
-                        let channel_kind = channel_registry
-                            .get_kind_from_net_id(channel_id)
-                            .ok_or(PacketError::ChannelNotFound)?;
-                        let sender_metadata = transport.senders
-                            .get_mut(channel_kind)
-                            .ok_or(PacketError::ChannelNotFound)?;
-                        let Some(message_id) = metadata.message else {
-                            return Ok(());
-                        };
+                for metadata in packet_messages.drain(..) {
+                    let commit = metadata
+                        .commit
+                        .expect("staged channel candidate must carry commit metadata");
+                    let sender_metadata = transport
+                        .senders
+                        .get_mut(&commit.channel_kind)
+                        .expect("staged candidate channel must remain registered during flush");
+                    sender_metadata
+                        .sender
+                        .commit_send(commit.key, real_time.elapsed());
 
-                        sender_metadata.messages_sent.push(message_id);
-                        if sender_metadata.mode.is_watching_acks() {
-                            trace!(
-                                "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
-                                channel_id,
-                                metadata,
-                                packet.packet_id
-                            );
+                    #[cfg(feature = "metrics")]
+                    {
+                        let channel_name =
+                            channel_registry.get_name_from_net_id(metadata.channel);
+                        metrics::gauge!("channel/send_messages", "channel" => channel_name)
+                            .increment(1);
+                        metrics::gauge!("channel/send_bytes", "channel" => channel_name)
+                            .increment(metadata.num_bytes as f64);
+                    }
 
-                            if let Some(num_fragments) = metadata.num_fragments {
-                                transport.fragment_acks.insert(message_id, num_fragments);
-                            }
-                            transport.packet_to_message_map
-                                .entry(packet.packet_id)
-                                .or_default()
-                                .push((*channel_kind, MessageAck {
+                    let Some(message_id) = metadata.message else {
+                        continue;
+                    };
+                    sender_metadata.messages_sent.push(message_id);
+                    if sender_metadata.mode.is_watching_acks() {
+                        trace!(
+                            "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
+                            metadata.channel, metadata, packet.packet_id
+                        );
+
+                        if let Some(num_fragments) = metadata.num_fragments {
+                            transport
+                                .fragment_acks
+                                .entry(message_id)
+                                .or_insert(num_fragments);
+                        }
+                        transport
+                            .packet_to_message_map
+                            .entry(packet.packet_id)
+                            .or_default()
+                            .push((
+                                commit.channel_kind,
+                                MessageAck {
                                     message_id,
                                     fragment_id: metadata.fragment_index,
-                                }));
-                            trace!(?transport.packet_to_message_map, "packet to message");
-                        }
-                        Ok::<(), PacketError>(())
-                    })
-                    .inspect_err(|e| error!("Error updating packet to message ack: {e:?}"))
-                    .ok();
+                                },
+                            ));
+                        trace!(?transport.packet_to_message_map, "packet to message");
+                    }
+                }
                 transport
                     .packet_manager
                     .recycle_message_metadata_list(packet_messages);
-
-                // Upload the packets to the link
-                total_bytes_sent += packet.payload.len() as u32;
-                link.send.push(Bytes::from(packet.payload));
             }
-            drop(packet_drain);
-            transport.packet_manager.recycle_packet_list(packets);
+            transport
+                .senders
+                .values_mut()
+                .for_each(|metadata| metadata.sender.finish_send(flush_outcome));
+            transport.priority_manager.clear();
             if total_bytes_sent > 0 {
                 trace!(
                     target: "lightyear_debug::transport",
