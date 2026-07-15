@@ -52,7 +52,7 @@ impl SendMessageKey {
 ///
 /// Creating a candidate clones only its [`Bytes`] handle. The underlying message allocation
 /// remains owned by the channel until
-/// [`ChannelSend::commit_send`](crate::channel::senders::ChannelSend::commit_send) is called after
+/// [`SendLane::commit_send`](crate::channel::senders::SendLane::commit_send) is called after
 /// the final packet enters `Link.send`.
 #[derive(Debug)]
 pub(crate) struct SendCandidate {

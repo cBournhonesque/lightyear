@@ -460,8 +460,8 @@ mod tests {
         // Add the Transport component with a receiver/sender for channel C, and a receiver/sender for message M
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TestChannel>(registry);
-        transport.add_receiver_from_registry::<TestChannel>(registry);
+        transport.add_send_lane_from_registry::<TestChannel>(registry);
+        transport.add_recv_lane_from_registry::<TestChannel>(registry);
         // TODO: are these tests useful? they need so many components from other plugins..
         let mut entity_mut = app.world_mut().spawn((
             Link::default(),

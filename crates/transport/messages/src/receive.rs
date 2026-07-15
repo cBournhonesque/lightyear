@@ -18,7 +18,6 @@ use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
 use lightyear_utils::collections::HashMap;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -591,7 +590,7 @@ impl MessagePlugin {
             ),
             With<Connected>,
         >,
-        // List of ChannelReceivers<M> present on that entity
+        // List of MessageReceiver<M> components present on that entity.
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
         channel_registry: Res<ChannelRegistry>,
@@ -646,14 +645,11 @@ impl MessagePlugin {
                         }
                     }
                 } else {
-                    transport
-                        .receivers
-                        .values_mut()
-                        .try_for_each(|receiver_metadata| {
-                            let channel_kind = receiver_metadata.channel_kind;
+                    transport.recv_lanes_mut().try_for_each(|receiver_lane| {
+                            let channel_kind = receiver_lane.channel_kind();
                             let channel_name = channel_registry.get_name_from_kind(&channel_kind);
                             while let Some((tick, bytes, message_id)) =
-                                receiver_metadata.receiver.read_message()
+                                receiver_lane.read_message()
                             {
                                 let target_timeline = channel_registry
                                     .settings(channel_kind)

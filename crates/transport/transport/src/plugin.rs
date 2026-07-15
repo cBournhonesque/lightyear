@@ -1,7 +1,6 @@
 use crate::channel::builder::Transport;
-use crate::channel::receivers::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelRegistry};
-use crate::channel::senders::{ChannelSend, SendFlushOutcome};
+use crate::channel::senders::SendFlushOutcome;
 use crate::error::TransportError;
 use crate::packet::compression::decompress_payload;
 use crate::packet::error::PacketError;
@@ -38,11 +37,11 @@ pub type TransportSet = TransportSystems;
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum TransportSystems {
     // PRE UPDATE
-    /// Receive messages from the Link and buffer them into the ChannelReceivers
+    /// Receive messages from the Link and buffer them into the receive lanes.
     Receive,
 
     // PostUpdate
-    /// Flush the messages buffered in the ChannelSenders to the Link
+    /// Flush the messages buffered in the send lanes to the Link.
     Send,
 }
 
@@ -95,17 +94,15 @@ impl TransportPlugin {
                 // enable split borrows
                 let transport = &mut *transport;
                 // update with the latest time
-                transport.senders.values_mut().for_each(|sender_metadata| {
-                    sender_metadata.sender.update(&time, &link.stats);
-                    sender_metadata.message_acks.clear();
-                    sender_metadata.message_nacks.clear();
-                    sender_metadata.messages_sent.clear();
+                transport.senders.values_mut().for_each(|sender_lane| {
+                    sender_lane.update(&time, &link.stats);
+                    sender_lane.clear_frame_events();
                 });
                 transport
                     .receivers
                     .values_mut()
-                    .for_each(|receiver_metadata| {
-                        receiver_metadata.receiver.update(time.elapsed());
+                    .for_each(|receiver_lane| {
+                        receiver_lane.update(time.elapsed());
                     });
                 // check which packets were lost
                 transport
@@ -146,7 +143,7 @@ impl TransportPlugin {
                             transport.packet_to_message_map.remove(&lost_packet)
                         {
                             for (channel_kind, message_ack) in message_map {
-                                let sender_metadata = transport
+                                let send_lane = transport
                                     .senders
                                     .get_mut(&channel_kind)
                                     .ok_or(PacketError::ChannelNotFound)?;
@@ -157,7 +154,7 @@ impl TransportPlugin {
                                     "message lost: {:?}",
                                     message_ack.message_id
                                 );
-                                sender_metadata.message_nacks.push(message_ack.message_id);
+                                send_lane.message_nacks.push(message_ack.message_id);
                                 if message_ack.fragment_id.is_some() {
                                     transport.fragment_acks.remove(&message_ack.message_id);
                                 }
@@ -261,7 +258,6 @@ impl TransportPlugin {
                                 .receivers
                                 .get_mut(&channel_id)
                                 .ok_or(PacketError::ChannelNotFound)?
-                                .receiver
                                 .buffer_recv(ReceiveMessage {
                                     data: fragment_data.into(),
                                     remote_sent_tick: tick,
@@ -311,7 +307,6 @@ impl TransportPlugin {
                                     .receivers
                                     .get_mut(&channel_id)
                                     .ok_or(PacketError::ChannelNotFound)?
-                                    .receiver
                                     .buffer_recv(ReceiveMessage {
                                         data: single_data.into(),
                                         remote_sent_tick: tick,
@@ -348,19 +343,19 @@ impl TransportPlugin {
                             transport.packet_to_message_map.remove(&acked_packet)
                         {
                             for (channel_kind, message_ack) in message_acks {
-                                let sender_metadata = transport
+                                let send_lane = transport
                                     .senders
                                     .get_mut(&channel_kind)
                                     .ok_or(PacketError::ChannelNotFound)?;
 
-                                sender_metadata.sender.receive_ack(&message_ack);
+                                send_lane.receive_ack(&message_ack);
 
                                 if message_ack.fragment_id.is_none() {
                                     trace!(
                                         "Acked message in packet: channel={:?},message_ack={:?}",
-                                        sender_metadata.name, message_ack
+                                        send_lane.name(), message_ack
                                     );
-                                    sender_metadata.message_acks.push(message_ack.message_id);
+                                    send_lane.message_acks.push(message_ack.message_id);
                                 } else if let Entry::Occupied(mut entry) = transport.fragment_acks.entry(message_ack.message_id) {
                                         let num_fragments = entry.get_mut();
                                         *num_fragments -= 1;
@@ -368,9 +363,9 @@ impl TransportPlugin {
                                             entry.remove();
                                             trace!(
                                                 "Acked all fragments in message: channel={:?},message_ack={:?}",
-                                                sender_metadata.name, message_ack
+                                                send_lane.name(), message_ack
                                             );
-                                            sender_metadata.message_acks.push(message_ack.message_id);
+                                            send_lane.message_acks.push(message_ack.message_id);
                                         }
                                     }
                             }
@@ -381,9 +376,7 @@ impl TransportPlugin {
             });
     }
 
-    /// Iterates through the `ChannelSenders` on the entity,
-    /// Build packets from the messages in the channel,
-    /// Upload the packets to the [`Link`]
+    /// Builds packets from the entity's send lanes and uploads them to the [`Link`].
     fn buffer_send(
         real_time: Res<Time<Real>>,
         timeline: Res<LocalTimeline>,
@@ -409,7 +402,7 @@ impl TransportPlugin {
             }
             (|| {
                 while let Ok((channel_kind, bytes, priority)) = transport.recv_channel.try_recv() {
-                    let sender_metadata = transport.senders.get(&channel_kind).ok_or(
+                    let send_lane = transport.senders.get(&channel_kind).ok_or(
                         TransportError::ChannelNotFound(channel_kind),
                     )?;
                     trace!(
@@ -419,7 +412,7 @@ impl TransportPlugin {
                         sample_point = "PostUpdate",
                         tick = ?tick,
                         tick_id = u64::from(tick.0),
-                        channel = %sender_metadata.name,
+                        channel = %send_lane.name(),
                         channel_kind = ?channel_kind,
                         bytes = bytes.len(),
                         priority = priority,
@@ -437,12 +430,8 @@ impl TransportPlugin {
             transport.priority_manager.clear();
             {
                 let candidates = transport.priority_manager.candidates_mut();
-                transport.senders.iter_mut().for_each(|(channel_kind, metadata)| {
-                    metadata.sender.collect_send_candidates(
-                        *channel_kind,
-                        metadata.channel_id,
-                        candidates,
-                    );
+                transport.senders.values_mut().for_each(|lane| {
+                    lane.collect_send_candidates(candidates);
                 });
             }
             transport.priority_manager.prioritize(&channel_registry);
@@ -528,13 +517,11 @@ impl TransportPlugin {
                 let mut packet_messages = core::mem::take(&mut packet.messages);
                 for metadata in packet_messages.drain(..) {
                     let commit = metadata.commit;
-                    let sender_metadata = transport
+                    let send_lane = transport
                         .senders
                         .get_mut(&commit.channel_kind)
                         .expect("staged candidate channel must remain registered during flush");
-                    sender_metadata
-                        .sender
-                        .commit_send(commit.key, real_time.elapsed());
+                    send_lane.commit_send(commit.key, real_time.elapsed());
 
                     #[cfg(feature = "metrics")]
                     {
@@ -549,8 +536,8 @@ impl TransportPlugin {
                     let Some(message_id) = metadata.message else {
                         continue;
                     };
-                    sender_metadata.messages_sent.push(message_id);
-                    if sender_metadata.mode.is_watching_acks() {
+                    send_lane.messages_sent.push(message_id);
+                    if send_lane.watches_acks() {
                         trace!(
                             "Registering message ack (ChannelId:{:?} {:?}) for packet {:?}",
                             metadata.channel, metadata, packet.packet_id
@@ -583,7 +570,7 @@ impl TransportPlugin {
             transport
                 .senders
                 .values_mut()
-                .for_each(|metadata| metadata.sender.finish_send(flush_outcome));
+                .for_each(|lane| lane.finish_send(flush_outcome));
             transport.priority_manager.clear();
             if total_bytes_sent > 0 {
                 trace!(
@@ -685,7 +672,7 @@ mod tests {
         channel_id: ChannelId,
     ) -> Entity {
         let mut transport = Transport::new(PriorityConfig::new(1).with_burst_size(1200));
-        transport.add_sender::<C>((&settings).into(), settings.mode, channel_id);
+        transport.add_send_lane::<C>(settings, channel_id);
         for value in [1, 2] {
             transport
                 .send_mut_erased(channel_kind, Bytes::from(vec![value; 1000]), 1.0)
@@ -700,9 +687,7 @@ mod tests {
         let channel_kind = ChannelKind::of::<C>();
         let mut candidates = Vec::new();
         let metadata = transport.senders.get_mut(&channel_kind).unwrap();
-        metadata
-            .sender
-            .collect_send_candidates(channel_kind, metadata.channel_id, &mut candidates);
+        metadata.collect_send_candidates(&mut candidates);
         candidates.len()
     }
 
@@ -755,8 +740,8 @@ mod tests {
         let (channel_kind, channel_id) = registry.add_channel::<SmallMtuChannel>(settings);
 
         let mut transport = Transport::default();
-        transport.add_sender::<SmallMtuChannel>((&settings).into(), settings.mode, channel_id);
-        transport.add_receiver::<SmallMtuChannel>((&settings).into(), channel_id);
+        transport.add_send_lane::<SmallMtuChannel>(settings, channel_id);
+        transport.add_recv_lane::<SmallMtuChannel>(settings, channel_id);
 
         let mut world = World::new();
         world.insert_resource(registry);
@@ -802,7 +787,6 @@ mod tests {
             .receivers
             .get_mut(&channel_id)
             .unwrap()
-            .receiver
             .read_message()
             .unwrap()
             .1;
