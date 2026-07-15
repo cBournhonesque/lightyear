@@ -108,7 +108,9 @@ fn player_movement(
 }
 
 /// System to receive messages on the client
-pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message1>>) {
+pub(crate) fn receive_message1(
+    mut receiver: Single<&mut MessageReceiver<Message1, InterpolationTimeline>>,
+) {
     for message in receiver.receive() {
         info!("Received message: {:?}", message);
     }

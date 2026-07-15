@@ -1,6 +1,6 @@
 use crate::Message;
-use crate::prelude::{MessageReceiver, MessageSender};
-use crate::receive_event::EventReceiver;
+use crate::prelude::{BufferedMessageTimeline, MessageReceiver, MessageSender};
+use crate::receive_event::TimelineEventReceiver;
 use crate::registry::MessageRegistration;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
@@ -25,6 +25,28 @@ impl<M: Message> MessageRegistration<'_, M> {
             }
         }
     }
+
+    pub(crate) fn add_client_direction_on_timeline<T: BufferedMessageTimeline>(
+        &mut self,
+        direction: NetworkDirection,
+    ) {
+        match direction {
+            NetworkDirection::ClientToServer => {
+                self.app
+                    .try_register_required_components::<Client, MessageSender<M>>()
+                    .ok();
+            }
+            NetworkDirection::ServerToClient => {
+                self.app
+                    .try_register_required_components::<Client, MessageReceiver<M, T>>()
+                    .ok();
+            }
+            NetworkDirection::Bidirectional => {
+                self.add_client_direction_on_timeline::<T>(NetworkDirection::ClientToServer);
+                self.add_client_direction_on_timeline::<T>(NetworkDirection::ServerToClient);
+            }
+        }
+    }
 }
 
 impl<M: Event> TriggerRegistration<'_, M> {
@@ -36,13 +58,33 @@ impl<M: Event> TriggerRegistration<'_, M> {
                     .ok();
             }
             NetworkDirection::ServerToClient => {
-                self.app
-                    .try_register_required_components::<Client, EventReceiver<M>>()
-                    .ok();
+                // Immediate events are triggered directly and need no receiver component.
             }
             NetworkDirection::Bidirectional => {
                 self.add_client_direction(NetworkDirection::ClientToServer);
                 self.add_client_direction(NetworkDirection::ServerToClient);
+            }
+        }
+    }
+
+    pub(crate) fn add_client_direction_on_timeline<T: BufferedMessageTimeline>(
+        &mut self,
+        direction: NetworkDirection,
+    ) {
+        match direction {
+            NetworkDirection::ClientToServer => {
+                self.app
+                    .try_register_required_components::<Client, EventSender<M>>()
+                    .ok();
+            }
+            NetworkDirection::ServerToClient => {
+                self.app
+                    .try_register_required_components::<Client, TimelineEventReceiver<M, T>>()
+                    .ok();
+            }
+            NetworkDirection::Bidirectional => {
+                self.add_client_direction_on_timeline::<T>(NetworkDirection::ClientToServer);
+                self.add_client_direction_on_timeline::<T>(NetworkDirection::ServerToClient);
             }
         }
     }

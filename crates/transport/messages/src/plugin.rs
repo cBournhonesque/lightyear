@@ -1,4 +1,5 @@
 use crate::MessageManager;
+use crate::receive::BufferedMessageTimeline;
 use crate::registry::MessageRegistry;
 use bevy_app::{App, Last, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::{Add, Added, Component, Entity, On, Resource, With};
@@ -62,7 +63,7 @@ impl Default for TimelineMessageConfig {
 /// Sparse marker for connections that have timeline-delayed payloads.
 #[derive(Component)]
 #[component(storage = "SparseSet")]
-pub(crate) struct PendingTimelinePayloads;
+pub(crate) struct HasPendingTimelinePayloads;
 
 /// Registers `T` as a timeline that can be targeted by typed messages/events.
 ///
@@ -71,7 +72,7 @@ pub(crate) struct PendingTimelinePayloads;
 /// Registration records type-erased metadata only: it never adds `T` to an
 /// entity. Each receiving connection that accepts a channel targeting `T`
 /// must already contain its own `T` component.
-pub fn register_message_timeline<T: NetworkTimeline>(app: &mut App) {
+pub fn register_message_timeline<T: NetworkTimeline + BufferedMessageTimeline>(app: &mut App) {
     if !app.world().contains_resource::<MessageRegistry>() {
         app.world_mut().init_resource::<MessageRegistry>();
     }
@@ -103,7 +104,7 @@ impl MessagePlugin {
     fn release_timeline(
         mut entities: Query<
             (Entity, &MessageManager, FilteredEntityMut),
-            (With<Connected>, With<PendingTimelinePayloads>),
+            (With<Connected>, With<HasPendingTimelinePayloads>),
         >,
         registry: Res<MessageRegistry>,
         commands: ParallelCommands,
@@ -117,28 +118,29 @@ impl MessagePlugin {
                 let tick = unsafe { (timeline_metadata.tick_fn)(timeline) };
 
                 for (kind, component_id) in &manager.receive_messages {
+                    if kind.timeline != Some(*timeline_kind) {
+                        continue;
+                    }
                     if let Some(receiver) = entity.get_mut_by_id(*component_id) {
                         let Some(metadata) = registry.receive_metadata.get(kind) else {
                             continue;
                         };
                         // SAFETY: the callback is registered for this receiver component id.
-                        unsafe { (metadata.release_timeline_fn)(receiver, *timeline_kind, tick) };
+                        unsafe { (metadata.release_timeline_fn)(receiver, tick) };
                     }
                 }
                 for (kind, component_id) in &manager.receive_triggers {
+                    if kind.timeline != Some(*timeline_kind) {
+                        continue;
+                    }
                     if let Some(receiver) = entity.get_mut_by_id(*component_id) {
                         let Some(metadata) = registry.receive_trigger.get(kind) else {
                             continue;
                         };
                         // SAFETY: the callback is registered for this event receiver component id.
-                        unsafe {
-                            (metadata.release_timeline_fn)(
-                                receiver,
-                                &commands,
-                                *timeline_kind,
-                                tick,
-                            )
-                        };
+                        if let Some(release) = metadata.release_timeline_fn {
+                            unsafe { release(receiver, &commands, tick) };
+                        }
                     }
                 }
             }
@@ -161,13 +163,15 @@ impl MessagePlugin {
                     return false;
                 };
                 // SAFETY: the callback is registered for this receiver component id.
-                unsafe { (metadata.has_pending_timeline_fn)(receiver) }
+                metadata
+                    .has_pending_timeline_fn
+                    .is_some_and(|has_pending| unsafe { has_pending(receiver) })
             });
             if !has_pending_messages && !has_pending_events {
                 commands.command_scope(|mut commands| {
                     commands
                         .entity(entity_id)
-                        .remove::<PendingTimelinePayloads>();
+                        .remove::<HasPendingTimelinePayloads>();
                 });
             }
         }
@@ -180,7 +184,7 @@ impl MessagePlugin {
     fn clear_pending_on_disconnect(
         mut entities: Query<
             (Entity, &MessageManager, FilteredEntityMut),
-            (Added<Disconnected>, With<PendingTimelinePayloads>),
+            (Added<Disconnected>, With<HasPendingTimelinePayloads>),
         >,
         registry: Res<MessageRegistry>,
         commands: ParallelCommands,
@@ -199,13 +203,15 @@ impl MessagePlugin {
                     && let Some(metadata) = registry.receive_trigger.get(kind)
                 {
                     // SAFETY: the callback is registered for this event receiver component id.
-                    unsafe { (metadata.clear_pending_timeline_fn)(receiver) };
+                    if let Some(clear) = metadata.clear_pending_timeline_fn {
+                        unsafe { clear(receiver) };
+                    }
                 }
             }
             commands.command_scope(|mut commands| {
                 commands
                     .entity(entity_id)
-                    .remove::<PendingTimelinePayloads>();
+                    .remove::<HasPendingTimelinePayloads>();
             });
         }
     }
@@ -243,7 +249,9 @@ impl Plugin for MessagePlugin {
                         b.mut_id(metadata.component_id);
                     });
                     registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                        if let Some(component_id) = metadata.component_id {
+                            b.mut_id(component_id);
+                        }
                     });
                     registry.timeline_metadata.values().for_each(|metadata| {
                         b.ref_id(metadata.component_id);
@@ -307,7 +315,9 @@ impl Plugin for MessagePlugin {
                         b.mut_id(metadata.component_id);
                     });
                     registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                        if let Some(component_id) = metadata.component_id {
+                            b.mut_id(component_id);
+                        }
                     });
                     registry
                         .send_trigger_metadata
@@ -336,7 +346,9 @@ impl Plugin for MessagePlugin {
                         b.mut_id(metadata.component_id);
                     });
                     registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                        if let Some(component_id) = metadata.component_id {
+                            b.mut_id(component_id);
+                        }
                     });
                     registry.timeline_metadata.values().for_each(|metadata| {
                         b.ref_id(metadata.component_id);
@@ -357,7 +369,9 @@ impl Plugin for MessagePlugin {
                         b.mut_id(metadata.component_id);
                     });
                     registry.receive_trigger.values().for_each(|metadata| {
-                        b.mut_id(metadata.component_id);
+                        if let Some(component_id) = metadata.component_id {
+                            b.mut_id(component_id);
+                        }
                     });
                 });
             }),
@@ -403,8 +417,8 @@ impl Plugin for MessagePlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::receive::{MessageReceiver, ReceivedMessage};
-    use crate::receive_event::{EventReceiver, RemoteEvent};
+    use crate::receive::{BufferedMessageTimeline, MessageReceiver};
+    use crate::receive_event::{RemoteEvent, TimelineEventReceiver};
     use crate::registry::AppMessageExt;
     use crate::send::MessageSender;
     use crate::send_trigger::EventSender;
@@ -413,6 +427,7 @@ mod tests {
     use bevy_ecs::event::Event;
     use bevy_ecs::prelude::{Component, Entity, ResMut, Resource};
     use lightyear_connection::client::Connected;
+    use lightyear_connection::direction::NetworkDirection;
     use lightyear_connection::host::HostClient;
     use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_core::plugin::CorePlugins;
@@ -473,6 +488,8 @@ mod tests {
         }
     }
 
+    impl BufferedMessageTimeline for TestTimeline {}
+
     #[derive(Resource, Default)]
     struct EventCount(usize);
 
@@ -484,7 +501,7 @@ mod tests {
     }
 
     fn observe_after_receive(
-        receivers: Query<&MessageReceiver<M>>,
+        receivers: Query<&MessageReceiver<M, TestTimeline>>,
         mut observed: ResMut<ObservedAfterReceive>,
     ) {
         observed.0 = receivers.iter().any(MessageReceiver::has_messages);
@@ -501,9 +518,11 @@ mod tests {
         );
         app.init_resource::<lightyear_connection::client::PeerMetadata>();
         register_message_timeline::<TestTimeline>(&mut app);
-        app.register_message::<M>();
+        app.register_message::<M>()
+            .add_direction_on_timeline::<TestTimeline>(NetworkDirection::Bidirectional);
         if register_event {
-            app.register_event::<E>();
+            app.register_event::<E>()
+                .add_direction_on_timeline::<TestTimeline>(NetworkDirection::Bidirectional);
             app.init_resource::<EventCount>();
             app.add_observer(count_event);
         }
@@ -591,8 +610,8 @@ mod tests {
                 .entity_mut(entity)
                 .get_mut::<MessageReceiver<M>>()
                 .unwrap()
-                .recv
-                .is_empty()
+                .num_messages()
+                == 0
         );
     }
 
@@ -619,15 +638,14 @@ mod tests {
             .entity_mut(entity)
             .get_mut::<MessageReceiver<M>>()
             .unwrap()
-            .recv
-            .push(ReceivedMessage {
-                data: M(2),
-                remote_tick: Tick::default(),
-                target_tick: None,
-                target_timeline: None,
-                channel_kind: ChannelKind::of::<TestChannel>(),
-                message_id: None,
-            });
+            .push_received(
+                M(2),
+                Tick::default(),
+                ChannelKind::of::<TestChannel>(),
+                None,
+                &TimelineMessageConfig::default(),
+            )
+            .unwrap();
         app.update();
 
         // check that the message has been dropped
@@ -636,8 +654,8 @@ mod tests {
                 .entity_mut(entity)
                 .get_mut::<MessageReceiver<M>>()
                 .unwrap()
-                .recv
-                .is_empty()
+                .num_messages()
+                == 0
         );
     }
 
@@ -661,7 +679,7 @@ mod tests {
             .spawn((
                 Link::default(),
                 transport,
-                MessageReceiver::<M>::default(),
+                MessageReceiver::<M, TestTimeline>::default(),
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(5).into()),
                 RemoteId(PeerId::Local(0)),
@@ -681,7 +699,7 @@ mod tests {
         let receiver = app
             .world()
             .entity(entity)
-            .get::<MessageReceiver<M>>()
+            .get::<MessageReceiver<M, TestTimeline>>()
             .unwrap();
         assert_eq!(receiver.num_messages(), 0);
         assert_eq!(receiver.num_pending_timeline_messages(), 1);
@@ -697,7 +715,7 @@ mod tests {
         let message = app
             .world_mut()
             .entity_mut(entity)
-            .get_mut::<MessageReceiver<M>>()
+            .get_mut::<MessageReceiver<M, TestTimeline>>()
             .unwrap()
             .receive()
             .next();
@@ -788,7 +806,7 @@ mod tests {
         let entity = app
             .world_mut()
             .spawn((
-                MessageReceiver::<M>::default(),
+                MessageReceiver::<M, TestTimeline>::default(),
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(5).into()),
                 HostClient { buffer: Vec::new() },
@@ -807,7 +825,7 @@ mod tests {
         let receiver = app
             .world()
             .entity(entity)
-            .get::<MessageReceiver<M>>()
+            .get::<MessageReceiver<M, TestTimeline>>()
             .unwrap();
         assert_eq!(receiver.num_pending_timeline_messages(), 1);
         assert_eq!(receiver.num_messages(), 0);
@@ -821,12 +839,62 @@ mod tests {
         let mut entity_mut = app.world_mut().entity_mut(entity);
         assert_eq!(
             entity_mut
-                .get_mut::<MessageReceiver<M>>()
+                .get_mut::<MessageReceiver<M, TestTimeline>>()
                 .unwrap()
                 .receive()
                 .next(),
             Some(M(10))
         );
+    }
+
+    #[test]
+    fn host_client_keeps_message_until_timeline_receiver_is_added() {
+        let mut app = message_test_app(false);
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(10);
+        let entity = app
+            .world_mut()
+            .spawn((
+                MessageReceiver::<M>::default(),
+                MessageSender::<M>::default(),
+                TestTimeline(Tick(5).into()),
+                HostClient { buffer: Vec::new() },
+                RemoteId(PeerId::Local(0)),
+                Connected,
+            ))
+            .id();
+        app.world_mut().flush();
+        app.world_mut()
+            .entity_mut(entity)
+            .get_mut::<MessageSender<M>>()
+            .unwrap()
+            .send::<TimelineChannel>(M(11));
+
+        // The local fast path must retain the queued value if the exact typed
+        // receiver is not on the connection yet.
+        app.update();
+        assert_eq!(
+            app.world()
+                .entity(entity)
+                .get::<MessageReceiver<M>>()
+                .unwrap()
+                .num_messages(),
+            0
+        );
+
+        app.world_mut()
+            .entity_mut(entity)
+            .insert(MessageReceiver::<M, TestTimeline>::default());
+        app.world_mut().flush();
+        app.update();
+
+        let receiver = app
+            .world()
+            .entity(entity)
+            .get::<MessageReceiver<M, TestTimeline>>()
+            .unwrap();
+        assert_eq!(receiver.num_pending_timeline_messages(), 1);
     }
 
     #[test]
@@ -842,7 +910,7 @@ mod tests {
         let entity = app
             .world_mut()
             .spawn((
-                MessageReceiver::<M>::default(),
+                MessageReceiver::<M, TestTimeline>::default(),
                 MessageSender::<M>::default(),
                 TestTimeline(Tick(5).into()),
                 HostClient { buffer: Vec::new() },
@@ -862,7 +930,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .entity(entity)
-                .get::<MessageReceiver<M>>()
+                .get::<MessageReceiver<M, TestTimeline>>()
                 .unwrap()
                 .num_pending_timeline_messages(),
             0
@@ -878,7 +946,7 @@ mod tests {
         let messages = app
             .world_mut()
             .entity_mut(entity)
-            .get_mut::<MessageReceiver<M>>()
+            .get_mut::<MessageReceiver<M, TestTimeline>>()
             .unwrap()
             .receive()
             .collect::<Vec<_>>();
@@ -900,7 +968,7 @@ mod tests {
             .spawn((
                 Link::default(),
                 transport,
-                EventReceiver::<E>::default(),
+                TimelineEventReceiver::<E, TestTimeline>::default(),
                 EventSender::<E>::default(),
                 TestTimeline(Tick(2).into()),
                 RemoteId(PeerId::Local(0)),
@@ -931,13 +999,12 @@ mod tests {
     #[test]
     fn each_connection_uses_its_own_timeline() {
         let mut app = message_test_app(false);
-        let kind = crate::registry::TimelineKind::of::<TestTimeline>();
         let first = app
             .world_mut()
             .spawn((
-                MessageReceiver::<M>::default(),
+                MessageReceiver::<M, TestTimeline>::default(),
                 TestTimeline(Tick(4).into()),
-                PendingTimelinePayloads,
+                HasPendingTimelinePayloads,
                 RemoteId(PeerId::Local(1)),
                 Connected,
             ))
@@ -945,9 +1012,9 @@ mod tests {
         let second = app
             .world_mut()
             .spawn((
-                MessageReceiver::<M>::default(),
+                MessageReceiver::<M, TestTimeline>::default(),
                 TestTimeline(Tick(9).into()),
-                PendingTimelinePayloads,
+                HasPendingTimelinePayloads,
                 RemoteId(PeerId::Local(2)),
                 Connected,
             ))
@@ -955,14 +1022,13 @@ mod tests {
         for (value, entity) in [first, second].into_iter().enumerate() {
             app.world_mut()
                 .entity_mut(entity)
-                .get_mut::<MessageReceiver<M>>()
+                .get_mut::<MessageReceiver<M, TestTimeline>>()
                 .unwrap()
                 .push_received(
                     M(value),
                     Tick(7),
                     ChannelKind::of::<TestChannel>(),
                     None,
-                    Some(kind),
                     &TimelineMessageConfig::default(),
                 )
                 .unwrap();
@@ -972,7 +1038,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .entity(first)
-                .get::<MessageReceiver<M>>()
+                .get::<MessageReceiver<M, TestTimeline>>()
                 .unwrap()
                 .num_messages(),
             0
@@ -980,7 +1046,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .entity(second)
-                .get::<MessageReceiver<M>>()
+                .get::<MessageReceiver<M, TestTimeline>>()
                 .unwrap()
                 .num_messages(),
             1
@@ -990,41 +1056,37 @@ mod tests {
     #[test]
     fn disconnect_clears_pending_messages_and_events() {
         let mut app = message_test_app(true);
-        let kind = crate::registry::TimelineKind::of::<TestTimeline>();
         let entity = app
             .world_mut()
             .spawn((
-                MessageReceiver::<M>::default(),
-                EventReceiver::<E>::default(),
+                MessageReceiver::<M, TestTimeline>::default(),
+                TimelineEventReceiver::<E, TestTimeline>::default(),
                 TestTimeline(Tick(1).into()),
-                PendingTimelinePayloads,
+                HasPendingTimelinePayloads,
                 RemoteId(PeerId::Local(1)),
                 Connected,
             ))
             .id();
         app.world_mut()
             .entity_mut(entity)
-            .get_mut::<MessageReceiver<M>>()
+            .get_mut::<MessageReceiver<M, TestTimeline>>()
             .unwrap()
             .push_received(
                 M(1),
                 Tick(20),
                 ChannelKind::of::<TestChannel>(),
                 None,
-                Some(kind),
                 &TimelineMessageConfig::default(),
             )
             .unwrap();
         app.world_mut()
             .entity_mut(entity)
-            .get_mut::<EventReceiver<E>>()
+            .get_mut::<TimelineEventReceiver<E, TestTimeline>>()
             .unwrap()
             .push_pending(
                 E(1),
                 PeerId::Local(1),
                 Tick(20),
-                Tick(20),
-                kind,
                 ChannelKind::of::<TestChannel>(),
                 None,
                 &TimelineMessageConfig::default(),
@@ -1038,7 +1100,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .entity(entity)
-                .get::<MessageReceiver<M>>()
+                .get::<MessageReceiver<M, TestTimeline>>()
                 .unwrap()
                 .num_pending_timeline_messages(),
             0
@@ -1046,7 +1108,7 @@ mod tests {
         assert_eq!(
             app.world()
                 .entity(entity)
-                .get::<EventReceiver<E>>()
+                .get::<TimelineEventReceiver<E, TestTimeline>>()
                 .unwrap()
                 .num_pending_timeline_events(),
             0

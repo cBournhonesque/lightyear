@@ -1,6 +1,7 @@
-use crate::plugin::{MessagePlugin, PendingTimelinePayloads, TimelineMessageConfig};
-use crate::prelude::MessageReceiver;
-use crate::registry::{MessageError, MessageKind, MessageRegistry, TimelineKind};
+use crate::plugin::{HasPendingTimelinePayloads, MessagePlugin, TimelineMessageConfig};
+use crate::registry::{
+    MessageError, MessageKind, MessageReceiverKind, MessageRegistry, TimelineKind,
+};
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -90,7 +91,7 @@ pub(crate) type SendMessageFn = unsafe fn(
 // SAFETY: the receiver must correspond to the correct `MessageReceiver<M>` type
 pub(crate) type SendLocalMessageFn = unsafe fn(
     sender: MutUntyped,
-    receiver: MutUntyped,
+    receivers: &mut FilteredEntityMut<'_, '_>,
     tick: Tick,
     registry: &MessageRegistry,
     channel_registry: &ChannelRegistry,
@@ -193,10 +194,11 @@ impl<M: Message> MessageSender<M> {
     ///
     /// # Safety
     /// - the `message_sender` must be of type [`MessageSender<M>`]
-    /// - the `message_receiver` must be of type [`MessageReceiver<M>`]
+    /// - `message_receivers` must provide mutable access to all registered
+    ///   [`MessageReceiver<M, T>`] components for this entity.
     pub(crate) unsafe fn send_local_message_typed(
         message_sender: MutUntyped,
-        message_receiver: MutUntyped,
+        message_receivers: &mut FilteredEntityMut<'_, '_>,
         tick: Tick,
         registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
@@ -205,8 +207,6 @@ impl<M: Message> MessageSender<M> {
     ) -> Result<usize, MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
         let mut sender = unsafe { message_sender.with_type::<Self>() };
-        // SAFETY:  the `message_receiver` must be of type `MessageReceiver<M>`
-        let mut receiver = unsafe { message_receiver.with_type::<MessageReceiver<M>>() };
         // enable split borrows
         let sender = &mut *sender;
         let queued = core::mem::take(&mut sender.send);
@@ -256,20 +256,52 @@ impl<M: Message> MessageSender<M> {
                         max_future_ticks: config.max_future_ticks,
                     });
                 }
-                if let Err(error) = receiver.ensure_pending_capacity(config) {
-                    sender.send.push(pending);
-                    sender.send.extend(queued);
-                    return Err(error);
-                }
             }
-            if let Err(error) = receiver.push_received(
-                pending.message,
-                tick,
-                pending.channel_kind,
-                None,
-                target_timeline,
-                config,
-            ) {
+
+            let receiver_kind = MessageReceiverKind::new(MessageKind::of::<M>(), target_timeline);
+            let Some(receiver_metadata) = registry.receive_metadata.get(&receiver_kind) else {
+                sender.send.push(pending);
+                sender.send.extend(queued);
+                return Err(target_timeline.map_or(
+                    MessageError::UnrecognizedMessage(MessageKind::of::<M>()),
+                    MessageError::MissingTimelineMessageReceiver,
+                ));
+            };
+            let Some(receiver) = message_receivers.get_mut_by_id(receiver_metadata.component_id)
+            else {
+                sender.send.push(pending);
+                sender.send.extend(queued);
+                return Err(MessageError::MissingComponent(
+                    receiver_metadata.component_id,
+                ));
+            };
+
+            let PendingSend {
+                message,
+                channel_kind,
+                channel_name,
+                priority,
+            } = pending;
+            let mut message = Some(message);
+            let result = unsafe {
+                (receiver_metadata.receive_local_message_fn)(
+                    receiver,
+                    &mut message,
+                    tick,
+                    channel_kind,
+                    None,
+                    config,
+                )
+            };
+            if let Err(error) = result {
+                sender.send.push(PendingSend {
+                    message: message
+                        .take()
+                        .expect("failed local receive must not consume the message"),
+                    channel_kind,
+                    channel_name,
+                    priority,
+                });
                 sender.send.extend(queued);
                 return Err(error);
             }
@@ -395,7 +427,8 @@ impl MessagePlugin {
     }
 
     /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
-    /// and add them directly to the [`MessageReceiver<M>`] components.
+    /// and add them directly to the typed
+    /// [`MessageReceiver<M, T>`](crate::receive::MessageReceiver) components.
     /// (the [`Transport`] is not used)
     pub fn send_local(
         timeline: Res<LocalTimeline>,
@@ -444,19 +477,7 @@ impl MessagePlugin {
                         let message_sender = entity_mut
                             .get_mut_by_id(*sender_id)
                             .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        // TODO: maybe use an IndexMap for faster lookup?
-                        let receiver_id = message_manager
-                            .receive_messages
-                            .iter()
-                            .find_map(
-                                |(kind, id)| if kind == message_kind { Some(id) } else { None },
-                            )
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-
                         let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
-                        let message_receiver = entity_mut
-                            .get_mut_by_id(*receiver_id)
-                            .ok_or(MessageError::MissingComponent(*receiver_id))?;
                         let send_metadata = registry
                             .send_metadata
                             .get(message_kind)
@@ -465,7 +486,7 @@ impl MessagePlugin {
                         unsafe {
                             let pending_count = (send_metadata.send_local_message_fn)(
                                 message_sender,
-                                message_receiver,
+                                &mut entity_mut,
                                 tick,
                                 &registry,
                                 &channel_registry,
@@ -474,7 +495,7 @@ impl MessagePlugin {
                             )?;
                             if pending_count != 0 {
                                 commands.command_scope(|mut commands| {
-                                    commands.entity(entity).insert(PendingTimelinePayloads);
+                                    commands.entity(entity).insert(HasPendingTimelinePayloads);
                                 });
                             }
                         }
@@ -494,55 +515,27 @@ impl MessagePlugin {
                         let message_sender = entity_mut
                             .get_mut_by_id(*sender_id)
                             .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        let receiver_id =
-                            message_manager
-                                .receive_triggers
-                                .iter()
-                                .find_map(
-                                    |(kind, id)| if kind == message_kind { Some(id) } else { None },
-                                );
                         let send_metadata = registry
                             .send_trigger_metadata
                             .get(message_kind)
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        if let Some(receiver_id) = receiver_id {
-                            let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
-                            let message_receiver = entity_mut
-                                .get_mut_by_id(*receiver_id)
-                                .ok_or(MessageError::MissingComponent(*receiver_id))?;
-                            // SAFETY: the sender and receiver component ids come from the message registry
-                            // for this event type.
-                            unsafe {
-                                let pending_count = (send_metadata.send_local_trigger_fn)(
-                                    message_sender,
-                                    Some(message_receiver),
-                                    &commands,
-                                    tick,
-                                    &registry,
-                                    &channel_registry,
-                                    &available_timelines,
-                                    &config,
-                                )?;
-                                if pending_count != 0 {
-                                    commands.command_scope(|mut commands| {
-                                        commands.entity(entity).insert(PendingTimelinePayloads);
-                                    });
-                                }
-                            }
-                        } else {
-                            // SAFETY: the sender component id comes from the message registry for this event type.
-                            unsafe {
-                                let pending_count = (send_metadata.send_local_trigger_fn)(
-                                    message_sender,
-                                    None,
-                                    &commands,
-                                    tick,
-                                    &registry,
-                                    &channel_registry,
-                                    &available_timelines,
-                                    &config,
-                                )?;
-                                debug_assert_eq!(pending_count, 0);
+                        let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
+                        // SAFETY: sender and receiver callbacks come from the registry for this event type.
+                        unsafe {
+                            let pending_count = (send_metadata.send_local_trigger_fn)(
+                                message_sender,
+                                &mut entity_mut,
+                                &commands,
+                                tick,
+                                &registry,
+                                &channel_registry,
+                                &available_timelines,
+                                &config,
+                            )?;
+                            if pending_count != 0 {
+                                commands.command_scope(|mut commands| {
+                                    commands.entity(entity).insert(HasPendingTimelinePayloads);
+                                });
                             }
                         }
                         Ok::<_, MessageError>(())

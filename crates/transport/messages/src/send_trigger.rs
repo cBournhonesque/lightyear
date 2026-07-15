@@ -1,13 +1,15 @@
 use crate::plugin::TimelineMessageConfig;
-use crate::receive_event::{EventReceiver, RemoteEvent};
-use crate::registry::{MessageError, MessageKind, MessageRegistry, TimelineKind};
+use crate::receive_event::RemoteEvent;
+use crate::registry::{
+    MessageError, MessageKind, MessageReceiverKind, MessageRegistry, TimelineKind,
+};
 use crate::send::Priority;
 use crate::{MessageManager, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::change_detection::MutUntyped;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
-use bevy_ecs::world::DeferredWorld;
+use bevy_ecs::world::{DeferredWorld, FilteredEntityMut};
 use bevy_utils::prelude::DebugName;
 use lightyear_core::id::PeerId;
 use lightyear_core::tick::Tick;
@@ -102,7 +104,7 @@ impl<M: Event> EventSender<M> {
     /// - the `trigger_sender` must be of type [`EventSender<M>`]
     pub(crate) unsafe fn send_local_trigger_typed(
         trigger_sender: MutUntyped,
-        trigger_receiver: Option<MutUntyped>,
+        trigger_receivers: &mut FilteredEntityMut<'_, '_>,
         commands: &ParallelCommands,
         tick: Tick,
         registry: &MessageRegistry,
@@ -112,9 +114,6 @@ impl<M: Event> EventSender<M> {
     ) -> Result<usize, MessageError> {
         // SAFETY:  the `trigger_sender` must be of type `EventSender<M>`
         let mut sender = unsafe { trigger_sender.with_type::<Self>() };
-        // SAFETY: if present, the receiver was looked up from the registry for this event type.
-        let mut receiver =
-            trigger_receiver.map(|receiver| unsafe { receiver.with_type::<EventReceiver<M>>() });
         // enable split borrows
         let queued = core::mem::take(&mut sender.send);
         let mut queued = queued.into_iter();
@@ -148,31 +147,58 @@ impl<M: Event> EventSender<M> {
                         max_future_ticks: config.max_future_ticks,
                     });
                 }
-                if let Some(receiver) = receiver.as_mut() {
-                    if let Err(error) = receiver.ensure_pending_capacity(config) {
-                        sender.send.push(pending);
-                        sender.send.extend(queued);
-                        return Err(error);
-                    }
-                    if let Err(error) = receiver.push_pending(
-                        pending.event,
-                        PeerId::Local(0),
-                        tick,
-                        tick,
-                        target_timeline,
-                        pending.channel_kind,
-                        None,
-                        config,
-                    ) {
-                        sender.send.extend(queued);
-                        return Err(error);
-                    }
-                    pending_count += 1;
-                } else {
+                let receiver_kind =
+                    MessageReceiverKind::new(MessageKind::of::<M>(), Some(target_timeline));
+                let Some(metadata) = registry.receive_trigger.get(&receiver_kind) else {
                     sender.send.push(pending);
                     sender.send.extend(queued);
                     return Err(MessageError::MissingTimelineEventReceiver(target_timeline));
+                };
+                let Some(component_id) = metadata.component_id else {
+                    sender.send.push(pending);
+                    sender.send.extend(queued);
+                    return Err(MessageError::MissingTimelineEventReceiver(target_timeline));
+                };
+                let Some(receiver) = trigger_receivers.get_mut_by_id(component_id) else {
+                    sender.send.push(pending);
+                    sender.send.extend(queued);
+                    return Err(MessageError::MissingComponent(component_id));
+                };
+                let Some(receive_local) = metadata.receive_local_trigger_fn else {
+                    sender.send.push(pending);
+                    sender.send.extend(queued);
+                    return Err(MessageError::MissingTimelineEventReceiver(target_timeline));
+                };
+
+                let PendingEvent {
+                    event,
+                    channel_kind,
+                    priority,
+                } = pending;
+                let mut event = Some(event);
+                let result = unsafe {
+                    receive_local(
+                        receiver,
+                        &mut event,
+                        PeerId::Local(0),
+                        tick,
+                        channel_kind,
+                        None,
+                        config,
+                    )
+                };
+                if let Err(error) = result {
+                    sender.send.push(PendingEvent {
+                        event: event
+                            .take()
+                            .expect("failed local event receive must not consume the event"),
+                        channel_kind,
+                        priority,
+                    });
+                    sender.send.extend(queued);
+                    return Err(error);
                 }
+                pending_count += 1;
             } else {
                 let remote_trigger = RemoteEvent {
                     trigger: pending.event,
@@ -216,7 +242,7 @@ pub(crate) type SendTriggerFn = unsafe fn(
 // SAFETY: the sender must correspond to the correct `TriggerSender<M>` type
 pub(crate) type SendLocalTriggerFn = unsafe fn(
     sender: MutUntyped,
-    receiver: Option<MutUntyped>,
+    receivers: &mut FilteredEntityMut<'_, '_>,
     commands: &ParallelCommands,
     tick: Tick,
     registry: &MessageRegistry,

@@ -114,7 +114,7 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.register_message::<Message1>()
-            .add_direction(NetworkDirection::ServerToClient);
+            .add_direction_on_timeline::<InterpolationTimeline>(NetworkDirection::ServerToClient);
 
         // inputs
         app.add_plugins(input::native::InputPlugin::<Inputs>::default());
