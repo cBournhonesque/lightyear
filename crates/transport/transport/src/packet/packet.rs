@@ -30,21 +30,18 @@ const FIXED_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
 /// Smallest link MTU which can carry one byte with the largest supported fragment identifiers.
 pub(crate) const MIN_PACKET_SIZE: usize = FIXED_FRAGMENT_METADATA_BYTES
     + HEADER_BYTES
-    + 1 // encoded fragment size
     + 1 // encoded fragment byte length
     + 1; // payload
 
 /// Returns the fixed fragment payload size to use for a link's stable minimum MTU.
 ///
-/// Each fragment carries this value on the wire, so receivers do not need to share a compile-time
-/// MTU with senders. Reserving the largest identifier encodings ensures every fragment produced at
-/// this size fits even for long-running sessions and very large logical messages.
+/// Both peers derive this from the link's stable minimum MTU. Reserving the largest identifier
+/// encodings ensures every fragment produced at this size fits even for long-running sessions and
+/// very large logical messages.
 pub(crate) const fn fragment_size_for_mtu(mtu: usize) -> Option<usize> {
     let mtu_varint_bytes = varint_len(mtu as u64);
-    let overhead = HEADER_BYTES
-        + FIXED_FRAGMENT_METADATA_BYTES
-        + mtu_varint_bytes // encoded fragment size
-        + mtu_varint_bytes; // encoded fragment byte length
+    // Fragment payloads use a varint length prefix.
+    let overhead = HEADER_BYTES + FIXED_FRAGMENT_METADATA_BYTES + mtu_varint_bytes;
     match mtu.checked_sub(overhead) {
         Some(fragment_size) if fragment_size > 0 => Some(fragment_size),
         _ => None,

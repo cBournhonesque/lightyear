@@ -269,7 +269,7 @@ impl ClientServerStepper {
                             server: self.server_entity,
                         },
                         // TODO: maybe don't add Link either?
-                        Link::new(None),
+                        Link::new(),
                         Linked,
                     ))
                     .id(),
@@ -321,7 +321,7 @@ impl ClientServerStepper {
                     ReplicationSender,
                     ReplicationReceiver,
                     // we will act like each client has a different port
-                    Link::new(None),
+                    Link::new(),
                     PeerAddr(SocketAddr::new(
                         core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
                         client_id as u16,

@@ -1,5 +1,5 @@
 //! This module contains the [`Channel`] trait
-use crate::channel::receivers::ChannelReceiverEnum;
+use crate::channel::receivers::{ChannelReceive, ChannelReceiverEnum};
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
@@ -82,8 +82,8 @@ pub struct Transport {
     pub(crate) packet_manager: PacketBuilder,
     /// Stable fragment payload size derived from the link's minimum MTU.
     fragment_size: usize,
-    /// Current link MTU used to configure packet quota bursts.
-    max_packet_size: usize,
+    /// Last current link MTU applied to packet quota bursts.
+    configured_mtu: usize,
     pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
@@ -120,7 +120,7 @@ impl Transport {
             bandwidth_limiter,
             packet_manager: PacketBuilder::default(),
             fragment_size: FRAGMENT_SIZE,
-            max_packet_size: DEFAULT_MTU,
+            configured_mtu: DEFAULT_MTU,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
             fragment_acks: Default::default(),
@@ -171,13 +171,16 @@ impl Transport {
             self.senders
                 .values_mut()
                 .for_each(|metadata| metadata.sender.set_fragment_size(fragment_size));
+            self.receivers
+                .values_mut()
+                .for_each(|metadata| metadata.receiver.set_fragment_size(fragment_size));
         }
 
-        let max_packet_size = link_mtu.mtu();
-        if self.max_packet_size != max_packet_size {
-            self.max_packet_size = max_packet_size;
+        let current_mtu = link_mtu.mtu();
+        if self.configured_mtu != current_mtu {
+            self.configured_mtu = current_mtu;
             self.bandwidth_limiter =
-                BandwidthLimiter::new(self.priority_manager.config.clone(), max_packet_size);
+                BandwidthLimiter::new(self.priority_manager.config.clone(), current_mtu);
         }
         Ok(())
     }
@@ -233,9 +236,10 @@ impl Transport {
 
     pub fn add_receiver<C: Channel>(
         &mut self,
-        receiver: ChannelReceiverEnum,
+        mut receiver: ChannelReceiverEnum,
         channel_id: ChannelId,
     ) {
+        receiver.set_fragment_size(self.fragment_size);
         self.receivers.insert(
             channel_id,
             ReceiverMetadata {
@@ -314,8 +318,10 @@ impl Transport {
     pub(crate) fn reset(&mut self, registry: &ChannelRegistry) {
         self.receivers.iter_mut().for_each(|(channel_id, r)| {
             let settings = registry.settings_from_net_id(*channel_id).unwrap();
+            let mut receiver: ChannelReceiverEnum = settings.into();
+            receiver.set_fragment_size(self.fragment_size);
             *r = ReceiverMetadata {
-                receiver: settings.into(),
+                receiver,
                 channel_kind: r.channel_kind,
             };
         });
@@ -335,7 +341,7 @@ impl Transport {
         });
         let priority_config = self.priority_manager.config.clone();
         self.priority_manager = PriorityManager::new(priority_config.clone());
-        self.bandwidth_limiter = BandwidthLimiter::new(priority_config, self.max_packet_size);
+        self.bandwidth_limiter = BandwidthLimiter::new(priority_config, self.configured_mtu);
         self.packet_manager = Default::default();
         self.packet_to_message_map = Default::default();
         self.fragment_acks.clear();

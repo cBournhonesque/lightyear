@@ -841,7 +841,6 @@ mod tests {
                             message_id,
                             fragment_id: FragmentIndex(fragment_index as u64),
                             num_fragments: FragmentIndex(2),
-                            fragment_size: 900,
                             compression: (fragment_index == 0).then_some(FragmentCompression::None),
                             bytes: Bytes::from(vec![fragment_index as u8; 900]),
                         }
@@ -963,7 +962,6 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
-                    fragment_size: *fragment_len,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from(vec![0; *fragment_len]),
                 };
@@ -983,7 +981,6 @@ mod tests {
                         message_id: MessageId(0),
                         fragment_id: FragmentIndex(0),
                         num_fragments: FragmentIndex(1),
-                        fragment_size: fragment_len,
                         compression: Some(FragmentCompression::None),
                         bytes: Bytes::from(vec![0; fragment_len]),
                     }

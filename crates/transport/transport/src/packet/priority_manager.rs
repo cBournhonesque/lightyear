@@ -230,7 +230,6 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
-                    fragment_size: 8,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from_static(b"fragment"),
                 }
@@ -328,7 +327,6 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
-                    fragment_size: 8,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from_static(b"fragment"),
                 }
@@ -391,7 +389,6 @@ mod tests {
                     message_id: MessageId(0),
                     fragment_id: FragmentIndex(0),
                     num_fragments: FragmentIndex(1),
-                    fragment_size: 8,
                     compression: Some(FragmentCompression::None),
                     bytes: Bytes::from_static(b"fragment"),
                 }
@@ -431,7 +428,6 @@ mod tests {
                         message_id: MessageId(message_id),
                         fragment_id: FragmentIndex(fragment_id),
                         num_fragments: FragmentIndex(2),
-                        fragment_size: 0,
                         compression: (fragment_id == 0).then_some(FragmentCompression::None),
                         bytes: Bytes::new(),
                     }

@@ -77,6 +77,9 @@ pub const DEFAULT_MTU: usize = 1200;
 /// The minimum is stable for the lifetime of a link and lets higher layers choose a fragment size
 /// which remains valid if path-MTU discovery later changes the current value. The current MTU may
 /// grow or shrink, but never below [`min_mtu`](Self::min_mtu).
+///
+/// Both peers must agree on the minimum MTU. The transport derives its fixed fragment payload size
+/// from this value instead of repeating that size in every fragment packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LinkMtu {
     min_mtu: usize,
@@ -189,22 +192,26 @@ pub type RecvLinkConditioner = LinkConditioner<RecvPayload>;
 
 impl Link {
     /// Creates a link with empty send/receive buffers.
-    pub fn new(recv_conditioner: Option<RecvLinkConditioner>) -> Self {
-        Self::new_with_mtu(recv_conditioner, LinkMtu::default())
+    pub fn new() -> Self {
+        Self::default()
     }
 
-    /// Creates a link with explicit minimum/current MTU characteristics.
-    pub fn new_with_mtu(recv_conditioner: Option<RecvLinkConditioner>, mtu: LinkMtu) -> Self {
-        Self {
-            recv: LinkReceiver {
-                buffer: VecDeque::new(),
-                conditioner: recv_conditioner,
-            },
-            send: LinkSender::default(),
-            state: Default::default(),
-            stats: LinkStats::default(),
-            mtu,
-        }
+    /// Configures the receive-side network conditioner.
+    ///
+    /// Accepts either a [`RecvLinkConditioner`] or an `Option<RecvLinkConditioner>`, which makes
+    /// it convenient to forward optional application configuration.
+    pub fn with_conditioner(
+        mut self,
+        recv_conditioner: impl Into<Option<RecvLinkConditioner>>,
+    ) -> Self {
+        self.recv.conditioner = recv_conditioner.into();
+        self
+    }
+
+    /// Configures the link's minimum and current MTU characteristics.
+    pub fn with_mtu(mut self, mtu: LinkMtu) -> Self {
+        self.mtu = mtu;
+        self
     }
 }
 
@@ -559,12 +566,24 @@ mod tests {
 
     #[test]
     fn explicit_link_mtu_does_not_change_link_owned_latency_stats() {
-        let mut link = Link::new_with_mtu(None, LinkMtu::new(512));
+        let mut link = Link::new().with_mtu(LinkMtu::new(512));
         link.stats.rtt = Duration::from_millis(20);
         link.stats.jitter = Duration::from_millis(3);
 
         assert_eq!(link.mtu.mtu(), 512);
         assert_eq!(link.stats.rtt, Duration::from_millis(20));
         assert_eq!(link.stats.jitter, Duration::from_millis(3));
+    }
+
+    #[test]
+    fn link_builder_configures_conditioner_and_mtu() {
+        let conditioner =
+            RecvLinkConditioner::new(crate::conditioner::LinkConditionerConfig::default());
+        let link = Link::new()
+            .with_conditioner(conditioner)
+            .with_mtu(LinkMtu::new(512));
+
+        assert!(link.recv.conditioner.is_some());
+        assert_eq!(link.mtu, LinkMtu::new(512));
     }
 }

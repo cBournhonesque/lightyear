@@ -40,7 +40,7 @@ fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
                 Client,
                 LocalAddr(CLIENT_ADDR),
                 PeerAddr(SERVER_ADDR),
-                Link::new(None),
+                Link::new(),
                 ReplicationReceiver,
                 NetcodeClient::new(auth, NetcodeConfig::default())?,
                 #[cfg(feature = "webtransport")]

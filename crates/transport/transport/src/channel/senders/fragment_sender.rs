@@ -91,7 +91,6 @@ impl FragmentSender {
                 message_id: fragment_message_id,
                 fragment_id: FragmentIndex(fragment_index as u64),
                 num_fragments: FragmentIndex(num_fragments as u64),
-                fragment_size: self.fragment_size,
                 compression: (fragment_index == 0).then_some(compression),
                 bytes: fragment_bytes.slice_ref(chunk),
             })
@@ -136,7 +135,6 @@ mod tests {
                 message_id,
                 fragment_id: FragmentIndex(0),
                 num_fragments: FragmentIndex(expected_num_fragments as u64),
-                fragment_size: FRAGMENT_SIZE,
                 compression: Some(FragmentCompression::None),
                 bytes: bytes.slice(0..FRAGMENT_SIZE),
             }
@@ -147,7 +145,6 @@ mod tests {
                 message_id,
                 fragment_id: FragmentIndex(1),
                 num_fragments: FragmentIndex(expected_num_fragments as u64),
-                fragment_size: FRAGMENT_SIZE,
                 compression: None,
                 bytes: bytes.slice(FRAGMENT_SIZE..2 * FRAGMENT_SIZE),
             }
@@ -159,7 +156,6 @@ mod tests {
                 // tick: None,
                 fragment_id: FragmentIndex(2),
                 num_fragments: FragmentIndex(expected_num_fragments as u64),
-                fragment_size: FRAGMENT_SIZE,
                 compression: None,
                 bytes: bytes.slice(2 * FRAGMENT_SIZE..),
             }

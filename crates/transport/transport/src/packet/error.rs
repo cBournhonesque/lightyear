@@ -22,6 +22,4 @@ pub enum PacketError {
     PacketTooLarge { actual: usize, mtu: usize },
     #[error("link MTU {actual} is too small for transport packets; minimum is {min}")]
     MtuTooSmall { actual: usize, min: usize },
-    #[error("fragment size {actual} exceeds this link's maximum {max}")]
-    FragmentExceedsLinkMtu { actual: usize, max: usize },
 }

@@ -196,11 +196,6 @@ pub(crate) struct FragmentData {
     pub message_id: MessageId,
     pub fragment_id: FragmentIndex,
     pub num_fragments: FragmentIndex,
-    /// Payload size of every non-final fragment in this logical message.
-    ///
-    /// This is carried by every fragment so reassembly remains correct when fragments arrive out
-    /// of order and when peers use a non-default link MTU.
-    pub fragment_size: usize,
     /// Compression mode for the reassembled message. Serialized only on fragment 0.
     pub compression: Option<FragmentCompression>,
     /// Bytes data associated with the message that is too big
@@ -246,7 +241,6 @@ impl ToBytes for FragmentData {
         self.message_id.bytes_len()
             + self.fragment_id.bytes_len()
             + self.num_fragments.bytes_len()
-            + varint_len(self.fragment_size as u64)
             + if self.is_initial_fragment() {
                 FragmentCompression::None.bytes_len()
             } else {
@@ -259,7 +253,6 @@ impl ToBytes for FragmentData {
         self.message_id.to_bytes(buffer)?;
         self.fragment_id.to_bytes(buffer)?;
         self.num_fragments.to_bytes(buffer)?;
-        buffer.write_varint(self.fragment_size as u64)?;
         if self.is_initial_fragment() {
             self.compression.unwrap_or_default().to_bytes(buffer)?;
         }
@@ -275,8 +268,6 @@ impl ToBytes for FragmentData {
         let message_id = MessageId::from_bytes(buffer)?;
         let fragment_id = FragmentIndex::from_bytes(buffer)?;
         let num_fragments = FragmentIndex::from_bytes(buffer)?;
-        let fragment_size =
-            usize::try_from(buffer.read_varint()?).map_err(|_| SerializationError::InvalidValue)?;
         let compression = if fragment_id.0 == 0 {
             Some(FragmentCompression::from_bytes(buffer)?)
         } else {
@@ -287,7 +278,6 @@ impl ToBytes for FragmentData {
             message_id,
             fragment_id,
             num_fragments,
-            fragment_size,
             compression,
             bytes,
         })
@@ -367,7 +357,6 @@ mod tests {
             message_id: MessageId(0),
             fragment_id: FragmentIndex(2),
             num_fragments: FragmentIndex(3),
-            fragment_size: 10,
             compression: None,
             bytes: bytes.clone(),
         };
@@ -384,7 +373,6 @@ mod tests {
             message_id: MessageId(0),
             fragment_id: FragmentIndex(0),
             num_fragments: FragmentIndex(3),
-            fragment_size: 10,
             compression: Some(FragmentCompression::Lz4),
             bytes,
         };
