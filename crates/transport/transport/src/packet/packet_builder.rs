@@ -18,7 +18,7 @@ use tracing::trace;
 
 pub type Payload = Vec<u8>;
 
-const MAX_MESSAGES_PER_CHANNEL_BATCH: usize = u8::MAX as usize;
+const MAX_MESSAGES_PER_CHANNEL_BATCH: u8 = u8::MAX;
 const MAX_RETAINED_MESSAGE_METADATA_CAPACITY: usize = 100;
 
 /// We use `Bytes` on the receive side because we want to be able to refer to sub-slices of the original
@@ -35,10 +35,20 @@ pub(crate) struct CandidateCursor {
     single_index: usize,
 }
 
+/// Builder-local state for the currently open batch of single messages.
+///
+/// A batch is encoded as a channel ID, a one-byte message count, and that many consecutive
+/// [`SingleData`](crate::packet::message::SingleData) values. Grouping messages this way avoids
+/// repeating the channel ID for every message. This state is not serialized as a struct: `count`
+/// mirrors the serialized count byte at `count_offset` so the builder can update it in place.
+/// Once `count` reaches [`u8::MAX`], another batch is started, even for the same channel.
 #[derive(Clone, Copy, Debug)]
 struct SingleBatchState {
+    /// Channel shared by every message in this batch.
     channel_id: ChannelId,
+    /// Offset of the serialized message-count byte in the packet payload.
     count_offset: usize,
+    /// Number of messages in this batch and the value stored at `count_offset`.
     count: u8,
 }
 
@@ -306,7 +316,7 @@ impl PacketBuilder {
         match batch {
             Some(state)
                 if state.channel_id == candidate.channel_id
-                    && state.count < MAX_MESSAGES_PER_CHANNEL_BATCH as u8 =>
+                    && state.count < MAX_MESSAGES_PER_CHANNEL_BATCH =>
             {
                 state.count += 1;
                 packet.payload[state.count_offset] = state.count;
