@@ -999,14 +999,18 @@ fn emulate_replicate_on_host_client_added(
     }
 }
 
-/// When a new client gets `ClientVisibility`, set correct visibility bits
-/// for all existing `PredictionTarget`/`InterpolationTarget` entities.
-/// Without this, late-joining clients would see all components (including
-/// Predicted/Interpolated markers that shouldn't be visible to them).
+/// When a new client gets `ClientVisibility`, set the correct visibility bits for all existing
+/// replication targets.
+///
+/// [`ClientVisibility::default`] treats entities and components as visible. Without this backfill,
+/// a late-joining client would receive pre-existing entities and prediction/interpolation markers
+/// even when their [`NetworkTarget`] excludes that client.
 #[cfg(feature = "server")]
 pub(crate) fn handle_new_client_visibility(
     trigger: On<Add, ClientVisibility>,
     remote_id_query: Query<&lightyear_core::id::RemoteId>,
+    replication_targets: Query<(Entity, &Replicate)>,
+    replicate_bit: Res<ReplicateBit>,
     #[cfg(feature = "prediction")] prediction_targets: Query<(Entity, &PredictionTarget)>,
     #[cfg(feature = "prediction")] predicted_bit: Res<PredictedBit>,
     #[cfg(feature = "interpolation")] interpolation_targets: Query<(Entity, &InterpolationTarget)>,
@@ -1026,17 +1030,19 @@ pub(crate) fn handle_new_client_visibility(
         return;
     };
 
+    for (entity, target) in replication_targets.iter() {
+        if let ReplicationMode::SingleServer(ref net_target) = target.mode
+            && !net_target.targets(&peer_id)
+        {
+            visibility.set(entity, **replicate_bit, false);
+        }
+    }
+
     #[cfg(feature = "prediction")]
     for (entity, target) in prediction_targets.iter() {
         if let ReplicationMode::SingleServer(ref net_target) = target.mode
             && !net_target.targets(&peer_id)
         {
-            trace!(
-                ?entity,
-                ?sender_entity,
-                ?peer_id,
-                "  hiding predicted bit for non-target client"
-            );
             visibility.set(entity, **predicted_bit, false);
         }
     }
@@ -1046,12 +1052,6 @@ pub(crate) fn handle_new_client_visibility(
         if let ReplicationMode::SingleServer(ref net_target) = target.mode
             && !net_target.targets(&peer_id)
         {
-            trace!(
-                ?entity,
-                ?sender_entity,
-                ?peer_id,
-                "  hiding interpolated bit for non-target client"
-            );
             visibility.set(entity, **interpolated_bit, false);
         }
     }
@@ -1060,11 +1060,6 @@ pub(crate) fn handle_new_client_visibility(
     // materialize this marker as Controlled.
     for (entity, controlled_by) in controlled_entities.iter() {
         if controlled_by.owner != sender_entity {
-            trace!(
-                ?entity,
-                ?sender_entity,
-                "  hiding controlled bit for non-owner client"
-            );
             visibility.set(entity, **controlled_bit, false);
         }
     }
