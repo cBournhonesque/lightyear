@@ -8,6 +8,7 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::event::{EntityEvent, Event};
 use bevy_ecs::prelude::{On, Resource};
 use bevy_ecs::query::With;
+use bevy_ecs::schedule::SystemSet;
 use bevy_ecs::system::{Query, ResMut};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
@@ -15,6 +16,13 @@ use core::ops::{Deref, DerefMut};
 use core::time::Duration;
 #[allow(unused_imports)]
 use tracing::trace;
+
+/// Shared ordering for systems that advance connection-local network timelines.
+#[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
+pub enum TimelineSystems {
+    /// Drives the internal state of network timelines forward in `PreUpdate`.
+    Advance,
+}
 
 /// A timeline defines an independent progression of time.
 ///

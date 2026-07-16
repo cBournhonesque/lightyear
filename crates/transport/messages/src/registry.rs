@@ -7,8 +7,7 @@ use crate::send::{MessageSender, SendLocalMessageFn, SendMessageFn};
 use crate::{Message, MessageNetId};
 use bevy_app::App;
 use bevy_ecs::{
-    change_detection::MutUntyped, component::ComponentId, entity::MapEntities, error::Result,
-    ptr::Ptr, resource::Resource,
+    component::ComponentId, entity::MapEntities, error::Result, ptr::Ptr, resource::Resource,
 };
 use bevy_reflect::{Reflect, TypePath};
 use bevy_utils::prelude::DebugName;
@@ -58,8 +57,8 @@ pub enum MessageError {
     TimelineNotRegistered(TimelineKind),
     #[error("the receiving connection does not contain delivery timeline {0:?}")]
     MissingTimeline(TimelineKind),
-    #[error("the receiving connection has no event receiver for delivery timeline {0:?}")]
-    MissingTimelineEventReceiver(TimelineKind),
+    #[error("the event is not registered for delivery timeline {0:?}")]
+    MissingTimelineEventRegistration(TimelineKind),
     #[error("the receiving connection has no message receiver for delivery timeline {0:?}")]
     MissingTimelineMessageReceiver(TimelineKind),
     #[error(
@@ -117,7 +116,7 @@ impl From<TypeId> for MessageKind {
 }
 
 /// Identifies the receiver component for a message and delivery timeline.
-/// `timeline == None` is the default immediate [`LocalTimeline`](lightyear_core::prelude::LocalTimeline)
+/// `timeline == None` is the default immediate [`LocalTimeline`]
 /// receiver.
 #[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Reflect)]
 pub(crate) struct MessageReceiverKind {
@@ -136,7 +135,8 @@ impl MessageReceiverKind {
 }
 
 use crate::receive_event::{
-    ClearPendingTimelineEventFn, ReceiveLocalTriggerFn, ReceiveTriggerFn, ReleaseTimelineEventFn,
+    ClearTimelineTriggerFn, ReceiveLocalTimelineTriggerFn, ReceiveLocalTriggerFn,
+    ReceiveTimelineTriggerFn, ReceiveTriggerFn, ReleaseTimelineTriggerFn,
 };
 use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
@@ -147,9 +147,13 @@ pub struct ReceiveMessageMetadata {
     pub(crate) receive_message_fn: ReceiveMessageFn,
     pub(crate) receive_local_message_fn: ReceiveLocalMessageFn,
     pub(crate) message_clear_fn: ClearMessageFn,
-    pub(crate) release_timeline_fn: ReleaseTimelineMessageFn,
-    pub(crate) clear_pending_timeline_fn: ClearPendingTimelineMessageFn,
-    pub(crate) has_pending_timeline_fn: unsafe fn(MutUntyped) -> bool,
+    pub(crate) timeline: Option<TimelineReceiverMetadata>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TimelineReceiverMetadata {
+    pub(crate) release_fn: ReleaseTimelineMessageFn,
+    pub(crate) clear_fn: ClearPendingTimelineMessageFn,
 }
 
 #[derive(Debug, Clone, TypePath)]
@@ -168,14 +172,25 @@ pub(crate) struct SendTriggerMetadata {
     pub(crate) send_local_trigger_fn: SendLocalTriggerFn,
 }
 
-#[derive(Debug, Clone, TypePath)]
-pub(crate) struct ReceiveTriggerMetadata {
-    pub(crate) component_id: Option<ComponentId>,
+#[derive(Debug, Clone, Copy, TypePath)]
+pub(crate) struct ImmediateTriggerMetadata {
     pub(crate) receive_trigger_fn: ReceiveTriggerFn,
-    pub(crate) receive_local_trigger_fn: Option<ReceiveLocalTriggerFn>,
-    pub(crate) release_timeline_fn: Option<ReleaseTimelineEventFn>,
-    pub(crate) clear_pending_timeline_fn: Option<ClearPendingTimelineEventFn>,
-    pub(crate) has_pending_timeline_fn: Option<unsafe fn(MutUntyped) -> bool>,
+    pub(crate) receive_local_trigger_fn: ReceiveLocalTriggerFn,
+}
+
+#[derive(Debug, Clone, Copy, TypePath)]
+pub(crate) struct TimelineTriggerMetadata {
+    pub(crate) component_id: ComponentId,
+    pub(crate) receive_trigger_fn: ReceiveTimelineTriggerFn,
+    pub(crate) receive_local_trigger_fn: ReceiveLocalTimelineTriggerFn,
+    pub(crate) release_fn: ReleaseTimelineTriggerFn,
+    pub(crate) clear_fn: ClearTimelineTriggerFn,
+}
+
+#[derive(Debug, Clone, Copy, TypePath)]
+pub(crate) enum ReceiveTriggerMetadata {
+    Immediate(ImmediateTriggerMetadata),
+    Timeline(TimelineTriggerMetadata),
 }
 
 #[derive(Debug, Clone)]
@@ -193,7 +208,10 @@ pub(crate) struct TimelineMetadata {
 /// You register messages by calling the [`add_message`](AppMessageExt::register_message) method directly on the App.
 ///
 /// You can provide a [`NetworkDirection`] to specify if the message should be sent from the client to the server, from the server to the client, or both.
-/// Messages can be sent and receives if your Link entity contains the [`MessageSender<M>`] and [`MessageReceiver<M>`] components. Adding a [`NetworkDirection`] simply registers the sender/receiver components as a required components, but you can also just add and remove them manually.
+/// Messages are sent through [`MessageSender<M>`] and read through
+/// [`MessageReceiver<M>`]. Adding a [`NetworkDirection`] installs the sender as
+/// a required component on the sending side. The receiving side gets its exact
+/// typed receiver lazily when the first payload arrives.
 ///
 ///
 /// ```rust
@@ -339,9 +357,10 @@ impl MessageRegistry {
                 receive_message_fn: MessageReceiver::<M, T>::receive_message_typed,
                 receive_local_message_fn: MessageReceiver::<M, T>::receive_local_message_typed,
                 message_clear_fn: MessageReceiver::<M, T>::clear_typed,
-                release_timeline_fn: MessageReceiver::<M, T>::release_timeline_typed,
-                clear_pending_timeline_fn: MessageReceiver::<M, T>::clear_pending_timelines_typed,
-                has_pending_timeline_fn: MessageReceiver::<M, T>::has_pending_timelines_typed,
+                timeline: T::timeline_kind().map(|_| TimelineReceiverMetadata {
+                    release_fn: MessageReceiver::<M, T>::release_timeline_typed,
+                    clear_fn: MessageReceiver::<M, T>::clear_pending_timelines_typed,
+                }),
             },
         );
     }
@@ -444,6 +463,9 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
         self
     }
 
+    /// Adds the sender component on each side that sends this message.
+    ///
+    /// Receiver components are inserted lazily when a payload arrives.
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);
@@ -454,7 +476,8 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
 
     /// Send and receive this message on channels delivered by timeline `T`.
     ///
-    /// The receiving connection gets a distinct [`MessageReceiver<M, T>`].
+    /// The receiving connection lazily gets a distinct [`MessageReceiver<M, T>`]
+    /// when its first payload arrives.
     /// The timeline itself must also be registered with
     /// [`register_message_timeline`](crate::plugin::register_message_timeline).
     pub fn add_direction_on_timeline<T>(&mut self, direction: NetworkDirection) -> &mut Self
@@ -471,9 +494,9 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
             .register_receiver::<M, T>(receiver_id);
 
         #[cfg(feature = "client")]
-        self.add_client_direction_on_timeline::<T>(direction);
+        self.add_client_direction(direction);
         #[cfg(feature = "server")]
-        self.add_server_direction_on_timeline::<T>(direction);
+        self.add_server_direction(direction);
         self
     }
 }
@@ -481,7 +504,9 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
 /// Add messages or triggers to the list of types that can be sent.
 pub trait AppMessageExt {
     /// Register a regular message type `M`.
-    /// This adds `MessageSender<M>` and `MessageReceiver<M>` components.
+    /// This registers the sender and default receiver component types. Calling
+    /// [`MessageRegistration::add_direction`] installs senders as required
+    /// components; receivers are inserted lazily on first receive.
     fn register_message<M: Message + Serialize + DeserializeOwned>(
         &mut self,
     ) -> MessageRegistration<'_, M>;

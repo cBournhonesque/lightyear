@@ -113,8 +113,6 @@ pub(crate) fn send_message(
     if input.is_some_and(|input| input.just_pressed(KeyCode::KeyM)) {
         let message = Message1(5);
         info!("Sending message: {:?}", message);
-        // Channel1 is configured to deliver when each client's interpolation
-        // view reaches the server tick stamped on the transport message.
         sender
             .send::<_, Channel1>(&message, server.into_inner(), &NetworkTarget::All)
             .unwrap_or_else(|e| {

@@ -1,6 +1,5 @@
 use crate::despawn::configure_delayed_interpolated_despawn;
 use crate::interpolate::{apply_interpolation, update_interpolation_history};
-use crate::message::configure_interpolated_messages;
 use crate::registry::{InterpolationRegistry, finalize_interpolation_registry};
 use crate::timeline::TimelinePlugin;
 use bevy_app::{App, Plugin, Update};
@@ -118,7 +117,6 @@ fn backfill_confirmed_histories_on_interpolated(
 impl Plugin for InterpolationPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(TimelinePlugin);
-        configure_interpolated_messages(app);
 
         // RESOURCES
         app.init_resource::<InterpolationRegistry>();

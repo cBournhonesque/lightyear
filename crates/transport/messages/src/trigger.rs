@@ -3,12 +3,13 @@ use bevy_ecs::{entity::MapEntities, event::Event};
 
 use crate::receive::BufferedMessageTimeline;
 use crate::receive_event::{
-    TimelineEventReceiver, clear_pending_event_typed, has_pending_event_typed, receive_event_typed,
-    receive_local_timeline_event_typed, receive_timeline_event_typed, release_event_typed,
+    PendingTimelineEvents, clear_timeline_events_typed, receive_event_typed,
+    receive_local_event_typed, receive_local_timeline_event_typed, receive_timeline_event_typed,
+    release_timeline_events_typed,
 };
 use crate::registry::{
-    MessageKind, MessageReceiverKind, MessageRegistry, ReceiveTriggerMetadata, SendTriggerMetadata,
-    TimelineKind,
+    ImmediateTriggerMetadata, MessageKind, MessageReceiverKind, MessageRegistry,
+    ReceiveTriggerMetadata, SendTriggerMetadata, TimelineKind, TimelineTriggerMetadata,
 };
 use crate::send_trigger::EventSender;
 use lightyear_connection::direction::NetworkDirection;
@@ -47,6 +48,7 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
         self
     }
 
+    /// Adds the event sender component on each side that sends this event.
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);
@@ -58,16 +60,16 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
     /// Send and receive this event on channels delivered by timeline `T`.
     ///
     /// Immediate events do not have receiver components. Timeline-delayed
-    /// events use an internal typed queue and are triggered when `T` reaches
-    /// the sender tick.
+    /// events lazily insert an internal typed queue and are triggered when `T`
+    /// reaches the sender tick.
     pub fn add_direction_on_timeline<T>(&mut self, direction: NetworkDirection) -> &mut Self
     where
         T: BufferedMessageTimeline,
     {
-        let receiver_id = self
+        let component_id = self
             .app
             .world_mut()
-            .register_component::<TimelineEventReceiver<M, T>>();
+            .register_component::<PendingTimelineEvents<M, T>>();
         let receiver_kind =
             MessageReceiverKind::new(MessageKind::of::<M>(), Some(TimelineKind::of::<T>()));
         self.app
@@ -76,20 +78,19 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
             .receive_trigger
             .insert(
                 receiver_kind,
-                ReceiveTriggerMetadata {
-                    component_id: Some(receiver_id),
+                ReceiveTriggerMetadata::Timeline(TimelineTriggerMetadata {
+                    component_id,
                     receive_trigger_fn: receive_timeline_event_typed::<M, T>,
-                    receive_local_trigger_fn: Some(receive_local_timeline_event_typed::<M, T>),
-                    release_timeline_fn: Some(release_event_typed::<M, T>),
-                    clear_pending_timeline_fn: Some(clear_pending_event_typed::<M, T>),
-                    has_pending_timeline_fn: Some(has_pending_event_typed::<M, T>),
-                },
+                    receive_local_trigger_fn: receive_local_timeline_event_typed::<M, T>,
+                    release_fn: release_timeline_events_typed::<M, T>,
+                    clear_fn: clear_timeline_events_typed::<M, T>,
+                }),
             );
 
         #[cfg(feature = "client")]
-        self.add_client_direction_on_timeline::<T>(direction);
+        self.add_client_direction(direction);
         #[cfg(feature = "server")]
-        self.add_server_direction_on_timeline::<T>(direction);
+        self.add_server_direction(direction);
         self
     }
 }
@@ -146,14 +147,10 @@ impl AppTriggerExt for App {
         );
         registry.receive_trigger.insert(
             MessageReceiverKind::new(MessageKind::of::<M>(), None),
-            ReceiveTriggerMetadata {
-                component_id: None,
+            ReceiveTriggerMetadata::Immediate(ImmediateTriggerMetadata {
                 receive_trigger_fn: receive_event_typed::<M>,
-                receive_local_trigger_fn: None,
-                release_timeline_fn: None,
-                clear_pending_timeline_fn: None,
-                has_pending_timeline_fn: None,
-            },
+                receive_local_trigger_fn: receive_local_event_typed::<M>,
+            }),
         );
         TriggerRegistration {
             app: self,

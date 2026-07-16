@@ -114,7 +114,7 @@ impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
         // messages
         app.register_message::<Message1>()
-            .add_direction_on_timeline::<InterpolationTimeline>(NetworkDirection::ServerToClient);
+            .add_direction(NetworkDirection::ServerToClient);
 
         // inputs
         app.add_plugins(input::native::InputPlugin::<Inputs>::default());
@@ -129,13 +129,10 @@ impl Plugin for ProtocolPlugin {
         app.component::<PlayerColor>().replicate();
 
         // channels
-        app.add_channel::<Channel1>(
-            ChannelSettings {
-                mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
-                ..default()
-            }
-            .with_timeline::<InterpolationTimeline>(),
-        )
+        app.add_channel::<Channel1>(ChannelSettings {
+            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            ..default()
+        })
         .add_direction(NetworkDirection::ServerToClient);
     }
 }

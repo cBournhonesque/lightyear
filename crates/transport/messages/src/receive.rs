@@ -1,6 +1,8 @@
 use crate::MessageManager;
-use crate::plugin::{HasPendingTimelinePayloads, MessagePlugin, TimelineMessageConfig};
-use crate::registry::{MessageError, MessageReceiverKind, MessageRegistry, TimelineKind};
+use crate::plugin::{MessagePlugin, TimelineMessageConfig};
+use crate::registry::{
+    MessageError, MessageReceiverKind, MessageRegistry, ReceiveTriggerMetadata, TimelineKind,
+};
 use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -61,6 +63,13 @@ pub struct RemoteOn<M: Message> {
 #[component(on_add = MessageReceiver::<M, T>::on_add_hook)]
 pub struct MessageReceiver<M: Message, T: IntoMessageReceiverTimeline = LocalTimeline> {
     pub(crate) buffer: T::Buffer<M>,
+    /// Makes the timeline policy `T` an explicit part of this storage type.
+    ///
+    /// No `T` value is stored directly: `T` otherwise appears only through the
+    /// associated-type projection `T::Buffer<M>`. `fn() -> T` makes this marker
+    /// covariant in `T` without modeling ownership of a `T` or propagating its
+    /// auto-trait and drop-check constraints. The receiver never consumes or
+    /// mutably exposes a `T`, so it needs neither contravariance nor invariance.
     marker: PhantomData<fn() -> T>,
 }
 
@@ -363,7 +372,9 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
 }
 
 pub(crate) type ReceiveMessageFn = unsafe fn(
-    receiver: MutUntyped,
+    receiver: Option<MutUntyped>,
+    commands: &ParallelCommands,
+    entity: Entity,
     reader: &mut Reader,
     channel_kind: ChannelKind,
     channel_name: &'static str,
@@ -375,7 +386,9 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
 ) -> Result<(), MessageError>;
 
 pub(crate) type ReceiveLocalMessageFn = unsafe fn(
-    receiver: MutUntyped,
+    receiver: Option<MutUntyped>,
+    commands: &ParallelCommands,
+    entity: Entity,
     message: &mut dyn Any,
     remote_tick: Tick,
     channel_kind: ChannelKind,
@@ -393,11 +406,53 @@ pub(crate) type ReleaseTimelineMessageFn = unsafe fn(receiver: MutUntyped, tick:
 pub(crate) type ClearPendingTimelineMessageFn = unsafe fn(receiver: MutUntyped);
 
 impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
+    fn queue_received(
+        commands: &ParallelCommands,
+        entity: Entity,
+        message: M,
+        remote_tick: Tick,
+        channel_kind: ChannelKind,
+        message_id: Option<MessageId>,
+        config: TimelineMessageConfig,
+    ) {
+        commands.command_scope(|mut commands| {
+            commands.queue(move |world: &mut World| {
+                let Ok(mut entity_mut) = world.get_entity_mut(entity) else {
+                    return;
+                };
+                if !entity_mut.contains::<Self>() {
+                    entity_mut.insert(Self::default());
+                }
+                let mut receiver = entity_mut
+                    .get_mut::<Self>()
+                    .expect("message receiver was just inserted");
+                if let Err(error) =
+                    receiver.push_received(message, remote_tick, channel_kind, message_id, &config)
+                {
+                    error!(
+                        "Error buffering message {:?} on lazily inserted receiver: {error:?}",
+                        DebugName::type_name::<M>()
+                    );
+                }
+            });
+        });
+    }
+
+    fn ensure_new_receiver_capacity(config: &TimelineMessageConfig) -> Result<(), MessageError> {
+        if T::timeline_kind().is_some() && config.max_pending_per_receiver == 0 {
+            return Err(MessageError::PendingTimelineOverflow { limit: 0 });
+        }
+        Ok(())
+    }
+
     /// Receive a single message of type `M` from the channel
     ///
-    /// SAFETY: the `receiver` must be of type [`MessageReceiver<M>`], and the `message_bytes` must be a valid serialized message of type `M`
+    /// SAFETY: when present, `receiver` must be of type [`MessageReceiver<M>`],
+    /// and the message bytes must be a valid serialized message of type `M`.
     pub(crate) unsafe fn receive_message_typed(
-        receiver: MutUntyped,
+        receiver: Option<MutUntyped>,
+        commands: &ParallelCommands,
+        entity: Entity,
         reader: &mut Reader,
         channel_kind: ChannelKind,
         channel_name: &'static str,
@@ -407,11 +462,26 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         entity_map: &mut ReceiveEntityMap,
         config: &TimelineMessageConfig,
     ) -> Result<(), MessageError> {
-        // SAFETY: we know the type of the receiver is MessageReceiver<M>
-        let mut receiver = unsafe { receiver.with_type::<Self>() };
-        // we deserialize the message and send a MessageEvent
+        let insert_receiver = receiver.is_none();
+        if insert_receiver {
+            Self::ensure_new_receiver_capacity(config)?;
+        }
         let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
-        receiver.push_received(message, remote_tick, channel_kind, message_id, config)?;
+        if let Some(receiver) = receiver {
+            // SAFETY: the callback and component id are registered for Self.
+            let mut receiver = unsafe { receiver.with_type::<Self>() };
+            receiver.push_received(message, remote_tick, channel_kind, message_id, config)?;
+        } else {
+            Self::queue_received(
+                commands,
+                entity,
+                message,
+                remote_tick,
+                channel_kind,
+                message_id,
+                *config,
+            );
+        }
         trace!(
             "Received message {:?} on channel {channel_kind:?}",
             DebugName::type_name::<M>()
@@ -426,33 +496,56 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
             remote_tick = remote_tick.0,
             target_timeline = ?T::timeline_kind(),
             message_id = ?message_id,
+            insert_receiver,
             "deserialized message into receiver"
         );
         Ok(())
     }
 
     pub(crate) unsafe fn receive_local_message_typed(
-        receiver: MutUntyped,
+        receiver: Option<MutUntyped>,
+        commands: &ParallelCommands,
+        entity: Entity,
         message: &mut dyn Any,
         remote_tick: Tick,
         channel_kind: ChannelKind,
         message_id: Option<MessageId>,
         config: &TimelineMessageConfig,
     ) -> Result<(), MessageError> {
-        let mut receiver = unsafe { receiver.with_type::<Self>() };
-        if T::timeline_kind().is_some()
-            && receiver.num_pending_timeline_messages() >= config.max_pending_per_receiver
-        {
-            return Err(MessageError::PendingTimelineOverflow {
-                limit: config.max_pending_per_receiver,
-            });
+        if let Some(receiver) = receiver.as_ref() {
+            if T::timeline_kind().is_some() {
+                // SAFETY: the callback and component id are registered for Self.
+                let receiver = unsafe { receiver.as_ref().deref::<Self>() };
+                if receiver.num_pending_timeline_messages() >= config.max_pending_per_receiver {
+                    return Err(MessageError::PendingTimelineOverflow {
+                        limit: config.max_pending_per_receiver,
+                    });
+                }
+            }
+        } else {
+            Self::ensure_new_receiver_capacity(config)?;
         }
         let message = message
             .downcast_mut::<Option<M>>()
             .ok_or(MessageError::IncorrectType)?
             .take()
             .ok_or(MessageError::IncorrectType)?;
-        receiver.push_received(message, remote_tick, channel_kind, message_id, config)
+        if let Some(receiver) = receiver {
+            // SAFETY: the callback and component id are registered for Self.
+            let mut receiver = unsafe { receiver.with_type::<Self>() };
+            receiver.push_received(message, remote_tick, channel_kind, message_id, config)
+        } else {
+            Self::queue_received(
+                commands,
+                entity,
+                message,
+                remote_tick,
+                channel_kind,
+                message_id,
+                *config,
+            );
+            Ok(())
+        }
     }
 
     pub(crate) unsafe fn clear_typed(receiver: MutUntyped) {
@@ -471,12 +564,6 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         // SAFETY: we know the type of the receiver is MessageReceiver<M>
         let mut receiver = unsafe { receiver.with_type::<Self>() };
         receiver.clear_pending_timelines();
-    }
-
-    pub(crate) unsafe fn has_pending_timelines_typed(receiver: MutUntyped) -> bool {
-        // SAFETY: we know the type of the receiver is MessageReceiver<M>
-        let receiver = unsafe { receiver.with_type::<Self>() };
-        receiver.num_pending_timeline_messages() != 0
     }
 }
 
@@ -549,16 +636,16 @@ impl MessagePlugin {
             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
         let receiver_kind = MessageReceiverKind::new(*message_kind, target_timeline);
 
-        let result = if let Some(recv_metadata) = registry.receive_metadata.get(&receiver_kind) {
+        if let Some(recv_metadata) = registry.receive_metadata.get(&receiver_kind) {
             let component_id = recv_metadata.component_id;
             let mut entity_mut = receiver_query.get_mut(entity).unwrap();
-            let receiver = entity_mut
-                .get_mut_by_id(component_id)
-                .ok_or(MessageError::MissingComponent(component_id))?;
-            // SAFETY: we know the receiver corresponds to the correct `MessageReceiver<M>` type
+            let receiver = entity_mut.get_mut_by_id(component_id);
+            // SAFETY: when present, the receiver corresponds to the callback's concrete type.
             unsafe {
                 (recv_metadata.receive_message_fn)(
                     receiver,
+                    commands,
+                    entity,
                     &mut reader,
                     channel_kind,
                     channel_name,
@@ -570,33 +657,45 @@ impl MessagePlugin {
                 )
             }
         } else if let Some(trigger_metadata) = registry.receive_trigger.get(&receiver_kind) {
-            let mut entity_mut = receiver_query.get_mut(entity).ok();
-            let receiver = trigger_metadata.component_id.and_then(|component_id| {
-                entity_mut
-                    .as_mut()
-                    .and_then(|entity_mut| entity_mut.get_mut_by_id(component_id))
-            });
-            if let Some(timeline) = target_timeline
-                && receiver.is_none()
-            {
-                return Err(MessageError::MissingTimelineEventReceiver(timeline));
-            }
-            // SAFETY: We assume the trigger handler function is correctly implemented
-            // for the RemoteOn<M> type associated with this message_kind.
-            unsafe {
-                (trigger_metadata.receive_trigger_fn)(
-                    commands,
-                    receiver,
-                    &mut reader,
-                    channel_kind,
-                    channel_name,
-                    tick,
-                    message_id,
-                    serialize_fns,
-                    &mut message_manager.entity_mapper.remote_to_local,
-                    remote_peer_id,
-                    config,
-                )
+            match trigger_metadata {
+                ReceiveTriggerMetadata::Immediate(metadata) => {
+                    // SAFETY: the callback is registered for this event type.
+                    unsafe {
+                        (metadata.receive_trigger_fn)(
+                            commands,
+                            &mut reader,
+                            channel_kind,
+                            channel_name,
+                            tick,
+                            message_id,
+                            serialize_fns,
+                            &mut message_manager.entity_mapper.remote_to_local,
+                            remote_peer_id,
+                            config,
+                        )
+                    }
+                }
+                ReceiveTriggerMetadata::Timeline(metadata) => {
+                    let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+                    let receiver = entity_mut.get_mut_by_id(metadata.component_id);
+                    // SAFETY: when present, the receiver corresponds to the callback's queue type.
+                    unsafe {
+                        (metadata.receive_trigger_fn)(
+                            receiver,
+                            commands,
+                            entity,
+                            &mut reader,
+                            channel_kind,
+                            channel_name,
+                            tick,
+                            message_id,
+                            serialize_fns,
+                            &mut message_manager.entity_mapper.remote_to_local,
+                            remote_peer_id,
+                            config,
+                        )
+                    }
+                }
             }
         } else if let Some(timeline) = target_timeline {
             let has_message_receiver = registry
@@ -606,17 +705,11 @@ impl MessagePlugin {
             if has_message_receiver {
                 Err(MessageError::MissingTimelineMessageReceiver(timeline))
             } else {
-                Err(MessageError::MissingTimelineEventReceiver(timeline))
+                Err(MessageError::MissingTimelineEventRegistration(timeline))
             }
         } else {
             Err(MessageError::UnrecognizedMessageId(message_net_id))
-        };
-        if result.is_ok() && target_timeline.is_some() {
-            commands.command_scope(|mut commands| {
-                commands.entity(entity).insert(HasPendingTimelinePayloads);
-            });
         }
-        result
     }
 
     /// Receive bytes from each channel of the Transport

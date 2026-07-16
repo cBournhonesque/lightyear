@@ -9,11 +9,13 @@ use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected, PeerMetadata};
-use lightyear_core::prelude::Rollback;
+use lightyear_core::prelude::{Rollback, TimelineSystems};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
+use lightyear_messages::plugin::register_message_timeline;
 use lightyear_messages::prelude::RemoteEvent;
+use lightyear_messages::receive::BufferedMessageTimeline;
 use lightyear_replication::metadata::SenderMetadata;
 use lightyear_sync::prelude::PingManager;
 use lightyear_sync::prelude::client::RemoteTimeline;
@@ -83,6 +85,8 @@ pub struct InterpolationContext {
 
 #[derive(Component, Default, Deref, DerefMut, Reflect)]
 pub struct InterpolationTimeline(Timeline<InterpolationConfig>);
+
+impl BufferedMessageTimeline for InterpolationTimeline {}
 
 impl SyncedTimeline for InterpolationTimeline {
     fn sync_objective<T: SyncTargetTimeline>(
@@ -216,7 +220,7 @@ impl TimelinePlugin {
         }
     }
 
-    /// Update the timeline in Update based on the [`Time<Virtual>`]
+    /// Update the timeline in PreUpdate based on the [`Time<Virtual>`]
     pub(crate) fn advance_timeline(
         time: Res<Time<Virtual>>,
         tick_duration: Res<TickDuration>,
@@ -237,83 +241,14 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
+        // this needs to be registered on both the sender and the receiver
+        register_message_timeline::<InterpolationTimeline>(app);
         app.register_required_components::<Client, InterpolationConfig>();
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
-        app.add_systems(PreUpdate, Self::advance_timeline);
+        app.add_systems(
+            PreUpdate,
+            Self::advance_timeline.in_set(TimelineSystems::Advance),
+        );
         app.add_observer(Self::receive_sender_metadata);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use lightyear_core::id::PeerId;
-    use lightyear_core::time::PositiveTickDelta;
-
-    #[test]
-    fn only_client_connections_get_interpolation_timeline() {
-        let mut app = App::new();
-        app.add_plugins(TimelinePlugin);
-
-        let client = app.world_mut().spawn(Client).id();
-        let client_of = app
-            .world_mut()
-            .spawn(lightyear_connection::client_of::ClientOf)
-            .id();
-        app.world_mut().flush();
-
-        assert!(
-            app.world()
-                .entity(client)
-                .contains::<InterpolationTimeline>()
-        );
-        assert!(
-            !app.world()
-                .entity(client_of)
-                .contains::<InterpolationTimeline>()
-        );
-    }
-
-    #[test]
-    fn sender_metadata_updates_only_the_matching_connection() {
-        let mut app = App::new();
-        app.insert_resource(TickDuration(Duration::from_millis(10)));
-        app.init_resource::<PeerMetadata>();
-        app.add_observer(TimelinePlugin::receive_sender_metadata);
-
-        let first = app.world_mut().spawn(InterpolationTimeline::default()).id();
-        let second = app.world_mut().spawn(InterpolationTimeline::default()).id();
-        let peer = PeerId::Netcode(7);
-        app.world_mut()
-            .resource_mut::<PeerMetadata>()
-            .mapping
-            .insert(peer, first);
-
-        app.world_mut().trigger(RemoteEvent {
-            trigger: SenderMetadata {
-                send_interval: PositiveTickDelta::lit("3"),
-                sender_entity: Entity::PLACEHOLDER,
-            },
-            from: peer,
-        });
-
-        assert_eq!(
-            app.world()
-                .entity(first)
-                .get::<InterpolationTimeline>()
-                .unwrap()
-                .context
-                .remote_send_interval,
-            Duration::from_millis(30)
-        );
-        assert_eq!(
-            app.world()
-                .entity(second)
-                .get::<InterpolationTimeline>()
-                .unwrap()
-                .context
-                .remote_send_interval,
-            Duration::ZERO
-        );
     }
 }

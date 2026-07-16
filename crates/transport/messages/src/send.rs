@@ -1,4 +1,4 @@
-use crate::plugin::{HasPendingTimelinePayloads, MessagePlugin, TimelineMessageConfig};
+use crate::plugin::{MessagePlugin, TimelineMessageConfig};
 use crate::registry::{
     MessageError, MessageKind, MessageReceiverKind, MessageRegistry, TimelineKind,
 };
@@ -50,16 +50,9 @@ pub type Priority = f32;
 #[component(on_add = MessageSender::<M>::on_add_hook)]
 #[require(MessageManager)]
 pub struct MessageSender<M: Message> {
-    send: Vec<PendingSend<M>>,
+    send: Vec<(M, ChannelKind, &'static str, Priority)>,
     #[reflect(ignore)]
     writer: Writer,
-}
-
-struct PendingSend<M> {
-    message: M,
-    channel_kind: ChannelKind,
-    channel_name: &'static str,
-    priority: Priority,
 }
 
 // enable sending with target?
@@ -92,12 +85,12 @@ pub(crate) type SendMessageFn = unsafe fn(
 pub(crate) type SendLocalMessageFn = unsafe fn(
     sender: MutUntyped,
     receivers: &mut FilteredEntityMut<'_, '_>,
+    commands: &ParallelCommands,
     tick: Tick,
     registry: &MessageRegistry,
     channel_registry: &ChannelRegistry,
-    available_timelines: &[(TimelineKind, Tick)],
     config: &TimelineMessageConfig,
-) -> Result<usize, MessageError>;
+) -> Result<(), MessageError>;
 
 impl<M: Message> MessageSender<M> {
     /// Buffers a message to be sent over the channel
@@ -107,12 +100,12 @@ impl<M: Message> MessageSender<M> {
         //     channel => core::any::type_name::<C>(),
         //     message => core::any::type_name::<M>()
         // );
-        self.send.push(PendingSend {
+        self.send.push((
             message,
-            channel_kind: ChannelKind::of::<C>(),
-            channel_name: core::any::type_name::<C>(),
+            ChannelKind::of::<C>(),
+            core::any::type_name::<C>(),
             priority,
-        });
+        ));
     }
 
     /// Buffers a message to be sent over the channel
@@ -135,88 +128,78 @@ impl<M: Message> MessageSender<M> {
         let mut sender = unsafe { message_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
-        let pending = core::mem::take(&mut sender.send);
-        let mut pending = pending.into_iter();
-        while let Some(item) = pending.next() {
-            // we write the message NetId, and then serialize the message
-            let serialize_result = net_id.to_bytes(&mut sender.writer).and_then(|_| {
+        sender
+            .send
+            .drain(..)
+            .try_for_each(|(message, channel_kind, channel_name, priority)| {
+                // we write the message NetId, and then serialize the message
+                net_id.to_bytes(&mut sender.writer)?;
                 // SAFETY: the message has been checked to be of type `M`.
                 unsafe {
                     serialize_metadata.serialize::<SendEntityMap, M, M>(
-                        &item.message,
+                        &message,
                         &mut sender.writer,
                         entity_map,
-                    )
+                    )?
+                };
+                let bytes = sender.writer.split();
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("message/send", "message" => core::any::type_name::<M>())
+                        .increment(1);
+                    metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>())
+                        .increment(bytes.len() as f64);
                 }
-            });
-            if let Err(error) = serialize_result {
-                sender.writer.split();
-                sender.send.push(item);
-                sender.send.extend(pending);
-                return Err(error.into());
-            }
-            let bytes = sender.writer.split();
-            #[cfg(feature = "metrics")]
-            {
-                metrics::counter!("message/send", "message" => core::any::type_name::<M>())
-                    .increment(1);
-                metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>())
-                    .increment(bytes.len() as f64);
-            }
-            trace!(
-                "Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {:?}",
-                DebugName::type_name::<M>(),
-                MessageKind::of::<M>(),
-                item.channel_kind
-            );
-            trace!(
-                target: "lightyear_debug::message",
-                kind = "message_send",
-                schedule = "PostUpdate",
-                sample_point = "PostUpdate",
-                message_name = core::any::type_name::<M>(),
-                message_net_id = net_id,
-                channel = item.channel_name,
-                bytes = bytes.len(),
-                priority = item.priority,
-                "serialized message for transport"
-            );
-            if let Err(error) = transport.send_erased(item.channel_kind, bytes, item.priority) {
-                sender.send.push(item);
-                sender.send.extend(pending);
-                return Err(error.into());
-            }
-        }
-        Ok(())
+                trace!(
+                    "Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {:?}",
+                    DebugName::type_name::<M>(),
+                    MessageKind::of::<M>(),
+                    channel_kind
+                );
+                trace!(
+                    target: "lightyear_debug::message",
+                    kind = "message_send",
+                    schedule = "PostUpdate",
+                    sample_point = "PostUpdate",
+                    message_name = core::any::type_name::<M>(),
+                    message_net_id = net_id,
+                    channel = channel_name,
+                    bytes = bytes.len(),
+                    priority,
+                    "serialized message for transport"
+                );
+                transport.send_erased(channel_kind, bytes, priority)?;
+                Ok(())
+            })
     }
 
-    /// Take all messages from the [`MessageSender<M>`], and add them to [`MessageReceiver<M>`]
+    /// Take all messages from the [`MessageSender<M>`], and add them to
+    /// [`MessageReceiver<M>`](crate::receive::MessageReceiver).
     ///
     /// # Safety
     /// - the `message_sender` must be of type [`MessageSender<M>`]
     /// - `message_receivers` must provide mutable access to all registered
-    ///   [`MessageReceiver<M, T>`] components for this entity.
+    ///   [`MessageReceiver<M, T>`](crate::receive::MessageReceiver) components for this entity.
     pub(crate) unsafe fn send_local_message_typed(
         message_sender: MutUntyped,
         message_receivers: &mut FilteredEntityMut<'_, '_>,
+        commands: &ParallelCommands,
         tick: Tick,
         registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
-        available_timelines: &[(TimelineKind, Tick)],
         config: &TimelineMessageConfig,
-    ) -> Result<usize, MessageError> {
+    ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
         let mut sender = unsafe { message_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
         let queued = core::mem::take(&mut sender.send);
         let mut queued = queued.into_iter();
-        let mut pending_count = 0;
         while let Some(pending) = queued.next() {
             trace!(
                 "Send local message of type {:?} on channel {:?}",
                 DebugName::type_name::<M>(),
-                pending.channel_kind
+                pending.1
             );
             trace!(
                 target: "lightyear_debug::message",
@@ -224,35 +207,36 @@ impl<M: Message> MessageSender<M> {
                 schedule = "Last",
                 sample_point = "Last",
                 message_name = core::any::type_name::<M>(),
-                channel = pending.channel_name,
+                channel = pending.2,
                 remote_tick = tick.0,
                 "queued local message"
             );
             let target_timeline = channel_registry
-                .settings(pending.channel_kind)
+                .settings(pending.1)
                 .and_then(|settings| settings.delivery_timeline())
                 .map(TimelineKind::from);
             if let Some(timeline) = target_timeline {
-                if !registry.timeline_metadata.contains_key(&timeline) {
+                let Some(timeline_metadata) = registry.timeline_metadata.get(&timeline) else {
                     sender.send.push(pending);
                     sender.send.extend(queued);
                     return Err(MessageError::TimelineNotRegistered(timeline));
-                }
-                let Some((_, current_tick)) = available_timelines
-                    .iter()
-                    .find(|(kind, _)| *kind == timeline)
+                };
+                let Some(timeline_ptr) =
+                    message_receivers.get_by_id(timeline_metadata.component_id)
                 else {
                     sender.send.push(pending);
                     sender.send.extend(queued);
                     return Err(MessageError::MissingTimeline(timeline));
                 };
-                let delta = tick - *current_tick;
+                // SAFETY: the callback is registered with this timeline component id.
+                let current_tick = unsafe { (timeline_metadata.tick_fn)(timeline_ptr) };
+                let delta = tick - current_tick;
                 if delta > 0 && delta as u32 > config.max_future_ticks {
                     sender.send.push(pending);
                     sender.send.extend(queued);
                     return Err(MessageError::TimelineTooFarAhead {
                         target: tick,
-                        current: *current_tick,
+                        current: current_tick,
                         max_future_ticks: config.max_future_ticks,
                     });
                 }
@@ -267,25 +251,15 @@ impl<M: Message> MessageSender<M> {
                     MessageError::MissingTimelineMessageReceiver,
                 ));
             };
-            let Some(receiver) = message_receivers.get_mut_by_id(receiver_metadata.component_id)
-            else {
-                sender.send.push(pending);
-                sender.send.extend(queued);
-                return Err(MessageError::MissingComponent(
-                    receiver_metadata.component_id,
-                ));
-            };
-
-            let PendingSend {
-                message,
-                channel_kind,
-                channel_name,
-                priority,
-            } = pending;
+            let (message, channel_kind, channel_name, priority) = pending;
             let mut message = Some(message);
+            let receiver_entity = message_receivers.id();
+            let receiver = message_receivers.get_mut_by_id(receiver_metadata.component_id);
             let result = unsafe {
                 (receiver_metadata.receive_local_message_fn)(
                     receiver,
+                    commands,
+                    receiver_entity,
                     &mut message,
                     tick,
                     channel_kind,
@@ -294,20 +268,19 @@ impl<M: Message> MessageSender<M> {
                 )
             };
             if let Err(error) = result {
-                sender.send.push(PendingSend {
-                    message: message
+                sender.send.push((
+                    message
                         .take()
                         .expect("failed local receive must not consume the message"),
                     channel_kind,
                     channel_name,
                     priority,
-                });
+                ));
                 sender.send.extend(queued);
                 return Err(error);
             }
-            pending_count += usize::from(target_timeline.is_some());
         }
-        Ok(pending_count)
+        Ok(())
     }
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
@@ -459,16 +432,6 @@ impl MessagePlugin {
                 // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
                 // enable split borrows
                 let message_manager = &mut *message_manager;
-                let available_timelines = registry
-                    .timeline_metadata
-                    .iter()
-                    .filter_map(|(kind, metadata)| {
-                        let entity = message_components_query.get(entity).ok()?;
-                        let timeline = entity.get_by_id(metadata.component_id)?;
-                        // SAFETY: the callback is registered with this timeline component id.
-                        Some((*kind, unsafe { (metadata.tick_fn)(timeline) }))
-                    })
-                    .collect::<Vec<_>>();
                 message_manager
                     .send_messages
                     .iter()
@@ -484,20 +447,15 @@ impl MessagePlugin {
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
-                            let pending_count = (send_metadata.send_local_message_fn)(
+                            (send_metadata.send_local_message_fn)(
                                 message_sender,
                                 &mut entity_mut,
+                                &commands,
                                 tick,
                                 &registry,
                                 &channel_registry,
-                                &available_timelines,
                                 &config,
                             )?;
-                            if pending_count != 0 {
-                                commands.command_scope(|mut commands| {
-                                    commands.entity(entity).insert(HasPendingTimelinePayloads);
-                                });
-                            }
                         }
                         Ok::<_, MessageError>(())
                     })
@@ -506,7 +464,6 @@ impl MessagePlugin {
 
                 // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
                 // enable split borrows
-                let message_manager = &mut *message_manager;
                 message_manager
                     .send_triggers
                     .iter()
@@ -522,21 +479,15 @@ impl MessagePlugin {
                         let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
                         // SAFETY: sender and receiver callbacks come from the registry for this event type.
                         unsafe {
-                            let pending_count = (send_metadata.send_local_trigger_fn)(
+                            (send_metadata.send_local_trigger_fn)(
                                 message_sender,
                                 &mut entity_mut,
                                 &commands,
                                 tick,
                                 &registry,
                                 &channel_registry,
-                                &available_timelines,
                                 &config,
                             )?;
-                            if pending_count != 0 {
-                                commands.command_scope(|mut commands| {
-                                    commands.entity(entity).insert(HasPendingTimelinePayloads);
-                                });
-                            }
                         }
                         Ok::<_, MessageError>(())
                     })

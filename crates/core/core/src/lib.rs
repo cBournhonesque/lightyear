@@ -59,6 +59,6 @@ pub mod prelude {
     pub use crate::tick::Tick;
     pub use crate::timeline::{
         LocalTimeline, NetworkTimeline, NetworkTimelinePlugin, Rollback, SyncEvent, Timeline,
-        is_in_rollback,
+        TimelineSystems, is_in_rollback,
     };
 }

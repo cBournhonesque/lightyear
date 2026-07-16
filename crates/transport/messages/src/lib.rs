@@ -88,8 +88,9 @@ pub type MessageNetId = NetId;
 /// This component is added to entities that need to send or receive messages.
 /// It keeps track of the [`MessageSender<M>`](send::MessageSender) and [`MessageReceiver<M>`](receive::MessageReceiver) components
 /// attached to the entity, allowing the messaging system to interact with them.
-/// It stores routing metadata only; message payload buffers live on the typed
-/// receiver components.
+/// Message payload buffers and delayed-event buffers live on typed receiver
+/// components. Delayed-event receiver components remain private because users
+/// consume events through Bevy observers instead of reading their buffers.
 /// It also holds a [`RemoteEntityMap`] for mapping entities between client and server.
 #[derive(Component, Default, Reflect)]
 #[require(Transport)]
@@ -100,7 +101,5 @@ pub struct MessageManager {
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
     /// List of typed receiver component ids present on this entity.
     pub(crate) receive_messages: Vec<(MessageReceiverKind, ComponentId)>,
-    /// List of internal timeline-event buffer component ids present on this entity.
-    pub(crate) receive_triggers: Vec<(MessageReceiverKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }
