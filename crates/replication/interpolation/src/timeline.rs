@@ -13,9 +13,7 @@ use lightyear_core::prelude::{Rollback, TimelineSystems};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
-use lightyear_messages::plugin::register_message_timeline;
 use lightyear_messages::prelude::RemoteEvent;
-use lightyear_messages::receive::BufferedMessageTimeline;
 use lightyear_replication::metadata::SenderMetadata;
 use lightyear_sync::prelude::PingManager;
 use lightyear_sync::prelude::client::RemoteTimeline;
@@ -85,8 +83,6 @@ pub struct InterpolationContext {
 
 #[derive(Component, Default, Deref, DerefMut, Reflect)]
 pub struct InterpolationTimeline(Timeline<InterpolationConfig>);
-
-impl BufferedMessageTimeline for InterpolationTimeline {}
 
 impl SyncedTimeline for InterpolationTimeline {
     fn sync_objective<T: SyncTargetTimeline>(
@@ -241,8 +237,6 @@ impl TimelinePlugin {
 
 impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
-        // this needs to be registered on both the sender and the receiver
-        register_message_timeline::<InterpolationTimeline>(app);
         app.register_required_components::<Client, InterpolationConfig>();
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
         app.add_systems(

@@ -11,14 +11,13 @@
 //!
 //! ## Timeline-targeted delivery
 //!
-//! A timeline plugin can call [`register_message_timeline`](plugin::register_message_timeline)
-//! during protocol setup. A dedicated channel configured with
-//! [`ChannelSettings::with_timeline`](lightyear_transport::channel::builder::ChannelSettings::with_timeline)
-//! routes messages into a dedicated [`MessageReceiver<M, T>`](receive::MessageReceiver),
-//! which owns the pending buffer until `T` on the same connection entity reaches
+//! A channel configured with
+//! [`ChannelSettings::on_timeline`](lightyear_transport::channel::builder::ChannelSettings::on_timeline)
+//! registers its timeline and keeps received messages pending inside the normal
+//! [`MessageReceiver<M>`](receive::MessageReceiver) until that timeline reaches
 //! the sender tick. Timeline-delayed events use an internal typed buffer and are
-//! triggered when ready; immediate events need no receiver component. Timeline
-//! selection is channel metadata, so it adds no bytes to individual messages.
+//! triggered when ready. Timeline selection is channel metadata, so it adds no
+//! bytes to individual messages.
 //!
 //! Timeline registration is part of the protocol and must match on both peers.
 //! If the receiving connection does not contain the requested timeline, the
@@ -33,7 +32,7 @@ extern crate std;
 use bevy_ecs::component::{Component, ComponentId};
 use bevy_reflect::Reflect;
 
-use crate::registry::{MessageKind, MessageReceiverKind};
+use crate::registry::MessageKind;
 use alloc::vec::Vec;
 use lightyear_core::network::NetId;
 use lightyear_serde::entity_map::RemoteEntityMap;
@@ -52,16 +51,17 @@ mod send_trigger;
 pub mod server;
 mod trigger;
 pub mod prelude {
-    pub use crate::plugin::{MessageSystems, TimelineMessageConfig, register_message_timeline};
-    pub use crate::receive::{
-        BufferedMessageTimeline, IntoMessageReceiverTimeline, MessageReceiver,
+    pub use crate::plugin::{
+        MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessageSystems,
     };
+    pub use crate::receive::MessageReceiver;
     pub use crate::receive_event::RemoteEvent;
-    pub use crate::registry::{AppMessageExt, MessageRegistry, TimelineKind};
+    pub use crate::registry::{AppMessageExt, MessageRegistry};
     pub use crate::send::MessageSender;
     pub use crate::send_trigger::EventSender;
     pub use crate::trigger::AppTriggerExt;
     pub use crate::{Message, MessageManager};
+    pub use lightyear_core::timeline::TimelineKind;
 
     #[cfg(feature = "server")]
     pub use crate::server::ServerMultiMessageSender;
@@ -88,9 +88,6 @@ pub type MessageNetId = NetId;
 /// This component is added to entities that need to send or receive messages.
 /// It keeps track of the [`MessageSender<M>`](send::MessageSender) and [`MessageReceiver<M>`](receive::MessageReceiver) components
 /// attached to the entity, allowing the messaging system to interact with them.
-/// Message payload buffers and delayed-event buffers live on typed receiver
-/// components. Delayed-event receiver components remain private because users
-/// consume events through Bevy observers instead of reading their buffers.
 /// It also holds a [`RemoteEntityMap`] for mapping entities between client and server.
 #[derive(Component, Default, Reflect)]
 #[require(Transport)]
@@ -100,6 +97,6 @@ pub struct MessageManager {
     /// List of component ids of the [`TriggerSender<M>`](send_trigger::EventSender) present on this entity
     pub(crate) send_triggers: Vec<(MessageKind, ComponentId)>,
     /// List of typed receiver component ids present on this entity.
-    pub(crate) receive_messages: Vec<(MessageReceiverKind, ComponentId)>,
+    pub(crate) receive_messages: Vec<(MessageKind, ComponentId)>,
     pub entity_mapper: RemoteEntityMap,
 }

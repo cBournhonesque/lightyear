@@ -1,7 +1,5 @@
-use crate::plugin::{MessagePlugin, TimelineMessageConfig};
-use crate::registry::{
-    MessageError, MessageKind, MessageReceiverKind, MessageRegistry, TimelineKind,
-};
+use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
+use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::sync::Arc;
 use alloc::vec::Vec;
@@ -18,7 +16,7 @@ use bevy_reflect::Reflect;
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::{LocalTimeline, Tick};
+use lightyear_core::prelude::{LocalTimeline, Tick, TimelineRegistry};
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::SendEntityMap;
 use lightyear_serde::registry::ErasedSerializeFns;
@@ -89,7 +87,7 @@ pub(crate) type SendLocalMessageFn = unsafe fn(
     tick: Tick,
     registry: &MessageRegistry,
     channel_registry: &ChannelRegistry,
-    config: &TimelineMessageConfig,
+    timeline_registry: &TimelineRegistry,
 ) -> Result<(), MessageError>;
 
 impl<M: Message> MessageSender<M> {
@@ -178,8 +176,8 @@ impl<M: Message> MessageSender<M> {
     ///
     /// # Safety
     /// - the `message_sender` must be of type [`MessageSender<M>`]
-    /// - `message_receivers` must provide mutable access to all registered
-    ///   [`MessageReceiver<M, T>`](crate::receive::MessageReceiver) components for this entity.
+    /// - `message_receivers` must provide mutable access to the registered
+    ///   [`MessageReceiver<M>`](crate::receive::MessageReceiver) component.
     pub(crate) unsafe fn send_local_message_typed(
         message_sender: MutUntyped,
         message_receivers: &mut FilteredEntityMut<'_, '_>,
@@ -187,100 +185,74 @@ impl<M: Message> MessageSender<M> {
         tick: Tick,
         registry: &MessageRegistry,
         channel_registry: &ChannelRegistry,
-        config: &TimelineMessageConfig,
+        timeline_registry: &TimelineRegistry,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
         let mut sender = unsafe { message_sender.with_type::<Self>() };
         // enable split borrows
         let sender = &mut *sender;
-        let queued = core::mem::take(&mut sender.send);
-        let mut queued = queued.into_iter();
-        while let Some(pending) = queued.next() {
-            trace!(
-                "Send local message of type {:?} on channel {:?}",
-                DebugName::type_name::<M>(),
-                pending.1
-            );
-            trace!(
-                target: "lightyear_debug::message",
-                kind = "message_send_local",
-                schedule = "Last",
-                sample_point = "Last",
-                message_name = core::any::type_name::<M>(),
-                channel = pending.2,
-                remote_tick = tick.0,
-                "queued local message"
-            );
-            let target_timeline = channel_registry
-                .settings(pending.1)
-                .and_then(|settings| settings.delivery_timeline())
-                .map(TimelineKind::from);
-            if let Some(timeline) = target_timeline {
-                let Some(timeline_metadata) = registry.timeline_metadata.get(&timeline) else {
-                    sender.send.push(pending);
-                    sender.send.extend(queued);
-                    return Err(MessageError::TimelineNotRegistered(timeline));
-                };
-                let Some(timeline_ptr) =
-                    message_receivers.get_by_id(timeline_metadata.component_id)
-                else {
-                    sender.send.push(pending);
-                    sender.send.extend(queued);
-                    return Err(MessageError::MissingTimeline(timeline));
-                };
-                // SAFETY: the callback is registered with this timeline component id.
-                let current_tick = unsafe { (timeline_metadata.tick_fn)(timeline_ptr) };
-                let delta = tick - current_tick;
-                if delta > 0 && delta as u32 > config.max_future_ticks {
-                    sender.send.push(pending);
-                    sender.send.extend(queued);
-                    return Err(MessageError::TimelineTooFarAhead {
-                        target: tick,
-                        current: current_tick,
-                        max_future_ticks: config.max_future_ticks,
-                    });
+        sender
+            .send
+            .drain(..)
+            .try_for_each(|(message, channel_kind, channel_name, _priority)| {
+                trace!(
+                    "Send local message of type {:?} on channel {:?}",
+                    DebugName::type_name::<M>(),
+                    channel_kind
+                );
+                trace!(
+                    target: "lightyear_debug::message",
+                    kind = "message_send_local",
+                    schedule = "Last",
+                    sample_point = "Last",
+                    message_name = core::any::type_name::<M>(),
+                    channel = channel_name,
+                    remote_tick = tick.0,
+                    "queued local message"
+                );
+                let target_timeline = channel_registry
+                    .settings(channel_kind)
+                    .and_then(|settings| settings.timeline);
+                if let Some(timeline) = target_timeline {
+                    let timeline_metadata = timeline_registry
+                        .get(&timeline)
+                        .ok_or(MessageError::TimelineNotRegistered(timeline))?;
+                    let timeline_ptr = message_receivers
+                        .get_by_id(timeline_metadata.component_id())
+                        .ok_or(MessageError::MissingTimeline(timeline))?;
+                    // SAFETY: the metadata is registered with this timeline component id.
+                    let current_tick = unsafe { timeline_metadata.tick(timeline_ptr) };
+                    let delta = tick - current_tick;
+                    if delta > 0 && delta as u32 > MAX_TIMELINE_LAG_TICKS {
+                        return Err(MessageError::TimelineTooFarBehind {
+                            target: tick,
+                            current: current_tick,
+                            max_lag_ticks: MAX_TIMELINE_LAG_TICKS,
+                        });
+                    }
                 }
-            }
 
-            let receiver_kind = MessageReceiverKind::new(MessageKind::of::<M>(), target_timeline);
-            let Some(receiver_metadata) = registry.receive_metadata.get(&receiver_kind) else {
-                sender.send.push(pending);
-                sender.send.extend(queued);
-                return Err(target_timeline.map_or(
-                    MessageError::UnrecognizedMessage(MessageKind::of::<M>()),
-                    MessageError::MissingTimelineMessageReceiver,
-                ));
-            };
-            let (message, channel_kind, channel_name, priority) = pending;
-            let mut message = Some(message);
-            let receiver_entity = message_receivers.id();
-            let receiver = message_receivers.get_mut_by_id(receiver_metadata.component_id);
-            let result = unsafe {
-                (receiver_metadata.receive_local_message_fn)(
-                    receiver,
-                    commands,
-                    receiver_entity,
-                    &mut message,
-                    tick,
-                    channel_kind,
-                    None,
-                    config,
-                )
-            };
-            if let Err(error) = result {
-                sender.send.push((
-                    message
-                        .take()
-                        .expect("failed local receive must not consume the message"),
-                    channel_kind,
-                    channel_name,
-                    priority,
-                ));
-                sender.send.extend(queued);
-                return Err(error);
-            }
-        }
-        Ok(())
+                let receiver_metadata = registry
+                    .receive_metadata
+                    .get(&MessageKind::of::<M>())
+                    .ok_or(MessageError::UnrecognizedMessage(MessageKind::of::<M>()))?;
+                let mut message = Some(message);
+                let receiver_entity = message_receivers.id();
+                let receiver = message_receivers.get_mut_by_id(receiver_metadata.component_id);
+                // SAFETY: the callback is registered for `M`, and `message` is an `Option<M>`.
+                unsafe {
+                    (receiver_metadata.receive_local_message_fn)(
+                        receiver,
+                        commands,
+                        receiver_entity,
+                        &mut message,
+                        tick,
+                        channel_kind,
+                        None,
+                        target_timeline,
+                    )
+                }
+            })
     }
 
     pub fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
@@ -401,7 +373,7 @@ impl MessagePlugin {
 
     /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
     /// and add them directly to the typed
-    /// [`MessageReceiver<M, T>`](crate::receive::MessageReceiver) components.
+    /// [`MessageReceiver<M>`](crate::receive::MessageReceiver) components.
     /// (the [`Transport`] is not used)
     pub fn send_local(
         timeline: Res<LocalTimeline>,
@@ -414,7 +386,7 @@ impl MessagePlugin {
         commands: ParallelCommands,
         registry: Res<MessageRegistry>,
         channel_registry: Res<ChannelRegistry>,
-        config: Res<TimelineMessageConfig>,
+        timeline_registry: Res<TimelineRegistry>,
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessageSender<M>/MessageReceiver<M> components
         // on different entities
@@ -454,7 +426,7 @@ impl MessagePlugin {
                                 tick,
                                 &registry,
                                 &channel_registry,
-                                &config,
+                                &timeline_registry,
                             )?;
                         }
                         Ok::<_, MessageError>(())
@@ -486,7 +458,7 @@ impl MessagePlugin {
                                 tick,
                                 &registry,
                                 &channel_registry,
-                                &config,
+                                &timeline_registry,
                             )?;
                         }
                         Ok::<_, MessageError>(())

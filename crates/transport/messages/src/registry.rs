@@ -1,14 +1,13 @@
 use crate::receive::{
-    BufferedMessageTimeline, ClearMessageFn, ClearPendingTimelineMessageFn,
-    IntoMessageReceiverTimeline, MessageReceiver, ReceiveLocalMessageFn, ReceiveMessageFn,
+    ClearMessageFn, MessageReceiver, ReceiveLocalMessageFn, ReceiveMessageFn,
     ReleaseTimelineMessageFn,
 };
+use crate::receive_event::{ReceiveLocalTriggerFn, ReceiveTriggerFn, ReleaseTimelineTriggerFn};
 use crate::send::{MessageSender, SendLocalMessageFn, SendMessageFn};
+use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 use crate::{Message, MessageNetId};
 use bevy_app::App;
-use bevy_ecs::{
-    component::ComponentId, entity::MapEntities, error::Result, ptr::Ptr, resource::Resource,
-};
+use bevy_ecs::{component::ComponentId, entity::MapEntities, error::Result, resource::Resource};
 use bevy_reflect::{Reflect, TypePath};
 use bevy_utils::prelude::DebugName;
 use core::any::TypeId;
@@ -16,7 +15,7 @@ use core::cell::UnsafeCell;
 use core::hash::Hash;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick};
+use lightyear_core::prelude::{Tick, TimelineKind};
 use lightyear_serde::entity_map::{ReceiveEntityMap, RemoteEntityMap, SendEntityMap};
 use lightyear_serde::reader::Reader;
 use lightyear_serde::registry::{
@@ -57,17 +56,13 @@ pub enum MessageError {
     TimelineNotRegistered(TimelineKind),
     #[error("the receiving connection does not contain delivery timeline {0:?}")]
     MissingTimeline(TimelineKind),
-    #[error("the event is not registered for delivery timeline {0:?}")]
-    MissingTimelineEventRegistration(TimelineKind),
-    #[error("the receiving connection has no message receiver for delivery timeline {0:?}")]
-    MissingTimelineMessageReceiver(TimelineKind),
     #[error(
-        "timeline payload targets tick {target:?}, which is more than {max_future_ticks} ticks ahead of {current:?}"
+        "delivery timeline at tick {current:?} is more than {max_lag_ticks} ticks behind payload target {target:?}"
     )]
-    TimelineTooFarAhead {
+    TimelineTooFarBehind {
         target: Tick,
         current: Tick,
-        max_future_ticks: u32,
+        max_lag_ticks: u32,
     },
     #[error("timeline receiver reached its pending payload limit of {limit}")]
     PendingTimelineOverflow { limit: usize },
@@ -88,57 +83,11 @@ impl MessageKind {
 
 impl TypeKind for MessageKind {}
 
-/// Runtime identifier for a [`NetworkTimeline`] registered for message delivery.
-///
-/// Timeline identifiers are part of the protocol and must be registered in the
-/// same order on both peers.
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Reflect)]
-pub struct TimelineKind(TypeId);
-
-impl TimelineKind {
-    /// Returns the runtime identifier for timeline `T`.
-    #[inline]
-    pub fn of<T: NetworkTimeline>() -> Self {
-        Self(TypeId::of::<T>())
-    }
-}
-
-impl From<TypeId> for TimelineKind {
-    fn from(type_id: TypeId) -> Self {
-        Self(type_id)
-    }
-}
-
 impl From<TypeId> for MessageKind {
     fn from(type_id: TypeId) -> Self {
         Self(type_id)
     }
 }
-
-/// Identifies the receiver component for a message and delivery timeline.
-/// `timeline == None` is the default immediate [`LocalTimeline`]
-/// receiver.
-#[derive(Debug, Eq, Hash, Copy, Clone, PartialEq, Reflect)]
-pub(crate) struct MessageReceiverKind {
-    pub(crate) message: MessageKind,
-    pub(crate) timeline: Option<TimelineKind>,
-}
-
-impl MessageReceiverKind {
-    pub(crate) fn new(message: MessageKind, timeline: Option<TimelineKind>) -> Self {
-        Self { message, timeline }
-    }
-
-    pub(crate) fn of<M: Message, T: IntoMessageReceiverTimeline>() -> Self {
-        Self::new(MessageKind::of::<M>(), T::timeline_kind())
-    }
-}
-
-use crate::receive_event::{
-    ClearTimelineTriggerFn, ReceiveLocalTimelineTriggerFn, ReceiveLocalTriggerFn,
-    ReceiveTimelineTriggerFn, ReceiveTriggerFn, ReleaseTimelineTriggerFn,
-};
-use crate::send_trigger::{SendLocalTriggerFn, SendTriggerFn};
 
 #[derive(Debug, Clone)]
 pub struct ReceiveMessageMetadata {
@@ -147,13 +96,7 @@ pub struct ReceiveMessageMetadata {
     pub(crate) receive_message_fn: ReceiveMessageFn,
     pub(crate) receive_local_message_fn: ReceiveLocalMessageFn,
     pub(crate) message_clear_fn: ClearMessageFn,
-    pub(crate) timeline: Option<TimelineReceiverMetadata>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct TimelineReceiverMetadata {
-    pub(crate) release_fn: ReleaseTimelineMessageFn,
-    pub(crate) clear_fn: ClearPendingTimelineMessageFn,
+    pub(crate) release_timeline_fn: ReleaseTimelineMessageFn,
 }
 
 #[derive(Debug, Clone, TypePath)]
@@ -173,30 +116,11 @@ pub(crate) struct SendTriggerMetadata {
 }
 
 #[derive(Debug, Clone, Copy, TypePath)]
-pub(crate) struct ImmediateTriggerMetadata {
+pub(crate) struct ReceiveTriggerMetadata {
+    pub(crate) component_id: ComponentId,
     pub(crate) receive_trigger_fn: ReceiveTriggerFn,
     pub(crate) receive_local_trigger_fn: ReceiveLocalTriggerFn,
-}
-
-#[derive(Debug, Clone, Copy, TypePath)]
-pub(crate) struct TimelineTriggerMetadata {
-    pub(crate) component_id: ComponentId,
-    pub(crate) receive_trigger_fn: ReceiveTimelineTriggerFn,
-    pub(crate) receive_local_trigger_fn: ReceiveLocalTimelineTriggerFn,
     pub(crate) release_fn: ReleaseTimelineTriggerFn,
-    pub(crate) clear_fn: ClearTimelineTriggerFn,
-}
-
-#[derive(Debug, Clone, Copy, TypePath)]
-pub(crate) enum ReceiveTriggerMetadata {
-    Immediate(ImmediateTriggerMetadata),
-    Timeline(TimelineTriggerMetadata),
-}
-
-#[derive(Debug, Clone)]
-pub(crate) struct TimelineMetadata {
-    pub(crate) component_id: ComponentId,
-    pub(crate) tick_fn: unsafe fn(Ptr<'_>) -> Tick,
 }
 
 /// A [`Resource`] that will keep track of all the [`Message`]s that can be sent over the network.
@@ -263,11 +187,10 @@ pub(crate) struct TimelineMetadata {
 pub struct MessageRegistry {
     pub(crate) send_metadata: HashMap<MessageKind, SendMessageMetadata>,
     pub(crate) send_trigger_metadata: HashMap<MessageKind, SendTriggerMetadata>,
-    pub(crate) receive_metadata: HashMap<MessageReceiverKind, ReceiveMessageMetadata>,
-    pub(crate) receive_trigger: HashMap<MessageReceiverKind, ReceiveTriggerMetadata>,
+    pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
+    pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
     pub serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
     pub kind_map: TypeMapper<MessageKind>,
-    pub(crate) timeline_metadata: HashMap<TimelineKind, TimelineMetadata>,
     hasher: RegistryHasher,
 }
 
@@ -298,25 +221,6 @@ fn mapped_context_deserialize<M: MapEntities>(
 }
 
 impl MessageRegistry {
-    pub(crate) fn register_timeline<T: NetworkTimeline>(&mut self, component_id: ComponentId) {
-        let kind = TimelineKind::of::<T>();
-        if self.timeline_metadata.contains_key(&kind) {
-            return;
-        }
-        self.hasher.hash::<T>();
-        self.timeline_metadata.insert(
-            kind,
-            TimelineMetadata {
-                component_id,
-                tick_fn: |ptr| {
-                    // SAFETY: this function is stored with the component id for T.
-                    let timeline = unsafe { ptr.deref::<T>() };
-                    timeline.tick()
-                },
-            },
-        );
-    }
-
     pub(crate) fn register_message<M: Message, I: 'static>(
         &mut self,
         serialize: ContextSerializeFns<SendEntityMap, M, I>,
@@ -345,22 +249,15 @@ impl MessageRegistry {
         );
     }
 
-    pub(crate) fn register_receiver<M, T>(&mut self, component_id: ComponentId)
-    where
-        M: Message,
-        T: IntoMessageReceiverTimeline,
-    {
+    pub(crate) fn register_receiver<M: Message>(&mut self, component_id: ComponentId) {
         self.receive_metadata.insert(
-            MessageReceiverKind::of::<M, T>(),
+            MessageKind::of::<M>(),
             ReceiveMessageMetadata {
                 component_id,
-                receive_message_fn: MessageReceiver::<M, T>::receive_message_typed,
-                receive_local_message_fn: MessageReceiver::<M, T>::receive_local_message_typed,
-                message_clear_fn: MessageReceiver::<M, T>::clear_typed,
-                timeline: T::timeline_kind().map(|_| TimelineReceiverMetadata {
-                    release_fn: MessageReceiver::<M, T>::release_timeline_typed,
-                    clear_fn: MessageReceiver::<M, T>::clear_pending_timelines_typed,
-                }),
+                receive_message_fn: MessageReceiver::<M>::receive_message_typed,
+                receive_local_message_fn: MessageReceiver::<M>::receive_local_message_typed,
+                message_clear_fn: MessageReceiver::<M>::clear_typed,
+                release_timeline_fn: MessageReceiver::<M>::release_timeline_typed,
             },
         );
     }
@@ -473,32 +370,6 @@ impl<'a, M: Message> MessageRegistration<'a, M> {
         self.add_server_direction(direction);
         self
     }
-
-    /// Send and receive this message on channels delivered by timeline `T`.
-    ///
-    /// The receiving connection lazily gets a distinct [`MessageReceiver<M, T>`]
-    /// when its first payload arrives.
-    /// The timeline itself must also be registered with
-    /// [`register_message_timeline`](crate::plugin::register_message_timeline).
-    pub fn add_direction_on_timeline<T>(&mut self, direction: NetworkDirection) -> &mut Self
-    where
-        T: BufferedMessageTimeline,
-    {
-        let receiver_id = self
-            .app
-            .world_mut()
-            .register_component::<MessageReceiver<M, T>>();
-        self.app
-            .world_mut()
-            .resource_mut::<MessageRegistry>()
-            .register_receiver::<M, T>(receiver_id);
-
-        #[cfg(feature = "client")]
-        self.add_client_direction(direction);
-        #[cfg(feature = "server")]
-        self.add_server_direction(direction);
-        self
-    }
 }
 
 /// Add messages or triggers to the list of types that can be sent.
@@ -560,7 +431,7 @@ impl AppMessageExt for App {
         );
         // Register sender/receiver metadata for M, ensuring trigger_fn is None
         registry.register_sender::<M>(sender_id);
-        registry.register_receiver::<M, LocalTimeline>(receiver_id);
+        registry.register_receiver::<M>(receiver_id);
 
         MessageRegistration {
             app: self,

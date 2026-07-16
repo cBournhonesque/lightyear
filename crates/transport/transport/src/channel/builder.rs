@@ -16,9 +16,9 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
-use core::any::TypeId;
+use core::marker::PhantomData;
 use core::time::Duration;
-use lightyear_core::prelude::NetworkTimeline;
+use lightyear_core::prelude::{IntoMessageTimeline, TimelineKind};
 #[cfg(test)]
 use lightyear_link::DEFAULT_MTU;
 use lightyear_link::Link;
@@ -36,36 +36,6 @@ use alloc::{vec, vec::Vec};
 use bevy_utils::prelude::DebugName;
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
-
-/// Type-erased identity of a timeline selected for channel delivery.
-///
-/// The type name is retained so that this setting can participate in the
-/// cross-peer protocol hash; the type id is used for local runtime lookup.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DeliveryTimeline {
-    type_id: TypeId,
-    type_name: &'static str,
-}
-
-impl DeliveryTimeline {
-    /// Creates delivery metadata for timeline `T`.
-    pub fn of<T: NetworkTimeline>() -> Self {
-        Self {
-            type_id: TypeId::of::<T>(),
-            type_name: core::any::type_name::<T>(),
-        }
-    }
-
-    /// Returns the local runtime type id of the timeline.
-    pub fn type_id(self) -> TypeId {
-        self.type_id
-    }
-
-    /// Returns the stable Rust type name used by protocol validation.
-    pub fn type_name(self) -> &'static str {
-        self.type_name
-    }
-}
 
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -90,12 +60,12 @@ pub struct ChannelSettings {
     /// message has already been admitted, its remaining fragments are also retained to avoid
     /// guaranteeing an incomplete local send.
     pub retry_unsent_messages: bool,
-    /// Optional receiver timeline that controls when typed messages and events
-    /// sent on this channel become visible.
+    /// Timeline that controls when received messages and events become visible.
     ///
-    /// Configure this through [`with_timeline`](Self::with_timeline). The
-    /// timeline type is channel metadata and is not written into each message.
-    pub delivery_timeline: Option<DeliveryTimeline>,
+    /// `None` delivers immediately on the local timeline. Prefer configuring
+    /// this through [`on_timeline`](Self::on_timeline), which also registers
+    /// and hashes the timeline type when the channel is added.
+    pub timeline: Option<TimelineKind>,
 }
 
 impl Default for ChannelSettings {
@@ -105,36 +75,60 @@ impl Default for ChannelSettings {
             send_frequency: Duration::default(),
             priority: 1.0,
             retry_unsent_messages: true,
-            delivery_timeline: None,
+            timeline: None,
         }
     }
 }
 
 impl ChannelSettings {
-    /// Delays typed messages and events received on this channel until `T` on
-    /// the receiving connection reaches the sender tick stamped by transport.
+    /// Delays messages and events on this channel until timeline `T` reaches
+    /// the sender tick carried by transport.
     ///
-    /// Use a dedicated channel for each delivery timeline. The corresponding
-    /// timeline plugin must register `T` on both peers, and the receiving
-    /// connection entity must contain `T`; otherwise the payload is rejected.
-    pub fn with_timeline<T: NetworkTimeline>(mut self) -> Self {
-        self.delivery_timeline = Some(DeliveryTimeline::of::<T>());
-        self
+    /// Adding the channel registers `T` automatically and includes it in the
+    /// protocol hash. The receiving connection entity must contain `T` for
+    /// payloads on this channel to be accepted.
+    pub fn on_timeline<T: IntoMessageTimeline>(self) -> TimelineChannelSettings<T> {
+        TimelineChannelSettings {
+            settings: self,
+            marker: PhantomData,
+        }
     }
+}
 
-    /// Returns the configured delivery timeline type, if this channel delays
-    /// typed message/event visibility.
-    pub fn delivery_timeline(&self) -> Option<TypeId> {
-        self.delivery_timeline.map(DeliveryTimeline::type_id)
-    }
+/// Typed channel-registration input for delayed delivery on timeline `T`.
+///
+/// The marker is erased after `T` is registered and hashed; only its
+/// [`TimelineKind`] is retained in the non-generic [`ChannelSettings`].
+#[doc(hidden)]
+pub struct TimelineChannelSettings<T> {
+    pub(crate) settings: ChannelSettings,
+    /// Retains `T` in this zero-sized registration input without implying that
+    /// it owns a `T`. Using `T` as a function return makes the marker covariant
+    /// over `T`; the type is only needed for inference and registration.
+    marker: PhantomData<fn() -> T>,
 }
 
 #[cfg(test)]
 mod protocol_tests {
     use super::*;
     use crate::channel::registry::ChannelRegistry;
+    use lightyear_core::prelude::IntoMessageTimeline;
+    use lightyear_core::timeline::TimelineRegistry;
 
     struct TestChannel;
+    struct TestTimeline;
+
+    impl IntoMessageTimeline for TestTimeline {
+        fn timeline_kind() -> Option<lightyear_core::timeline::TimelineKind> {
+            Some(lightyear_core::timeline::TimelineKind::from(
+                core::any::TypeId::of::<Self>(),
+            ))
+        }
+
+        fn register(app: &mut bevy_app::App) {
+            app.init_resource::<TimelineRegistry>();
+        }
+    }
 
     #[test]
     fn delivery_timeline_changes_channel_protocol_hash() {
@@ -142,14 +136,15 @@ mod protocol_tests {
         immediate.add_channel::<TestChannel>(ChannelSettings::default());
 
         let mut delayed = ChannelRegistry::default();
-        delayed.add_channel::<TestChannel>(ChannelSettings {
-            delivery_timeline: Some(DeliveryTimeline {
-                type_id: TypeId::of::<u32>(),
-                type_name: core::any::type_name::<u32>(),
-            }),
-            ..Default::default()
-        });
+        delayed.add_channel_with_timeline::<TestChannel, TestTimeline>(ChannelSettings::default());
 
+        assert_eq!(
+            delayed
+                .settings(ChannelKind::of::<TestChannel>())
+                .unwrap()
+                .timeline,
+            TestTimeline::timeline_kind()
+        );
         assert_ne!(immediate.finish(), delayed.finish());
     }
 }

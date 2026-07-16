@@ -1,8 +1,6 @@
 use crate::MessageManager;
-use crate::plugin::{MessagePlugin, TimelineMessageConfig};
-use crate::registry::{
-    MessageError, MessageReceiverKind, MessageRegistry, ReceiveTriggerMetadata, TimelineKind,
-};
+use crate::plugin::{MAX_PENDING_TIMELINE_PAYLOADS, MAX_TIMELINE_LAG_TICKS, MessagePlugin};
+use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageNetId};
 use alloc::vec::Vec;
 use bevy_ecs::{
@@ -14,7 +12,7 @@ use bevy_ecs::{
     system::{ParallelCommands, Query, Res},
     world::{DeferredWorld, FilteredEntityMut, World},
 };
-use lightyear_core::prelude::{LocalTimeline, NetworkTimeline};
+use lightyear_core::prelude::{TimelineKind, TimelineRegistry};
 use lightyear_core::tick::Tick;
 use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
@@ -22,6 +20,7 @@ use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
+use lightyear_utils::collections::HashMap;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 
 use alloc::sync::Arc;
@@ -37,7 +36,6 @@ use lightyear_transport::prelude::ChannelRegistry;
 use tracing::{error, trace};
 
 use core::any::Any;
-use core::marker::PhantomData;
 
 /// Bevy Trigger emitted when a remote trigger is received and processed.
 ///
@@ -53,24 +51,16 @@ pub struct RemoteOn<M: Message> {
 /// Messages received from the network are stored in this receiver's ready
 /// buffer. Call [`receive`](Self::receive) to drain and process them.
 ///
-/// The messages will be cleared every frame in the `Last` schedule. `T`
-/// selects when messages become visible. The default [`LocalTimeline`] receiver
-/// exposes messages immediately during the normal receive phase, while a
-/// buffered network timeline keeps messages pending until its tick reaches the
-/// sender tick.
+/// The messages will be cleared every frame in the `Last` schedule.
+/// Messages received on an immediate channel are ready during the normal
+/// receive phase. Messages received on a timeline channel remain pending in
+/// this same component until that channel's timeline reaches the sender tick.
 #[derive(Component)]
 #[require(MessageManager)]
-#[component(on_add = MessageReceiver::<M, T>::on_add_hook)]
-pub struct MessageReceiver<M: Message, T: IntoMessageReceiverTimeline = LocalTimeline> {
-    pub(crate) buffer: T::Buffer<M>,
-    /// Makes the timeline policy `T` an explicit part of this storage type.
-    ///
-    /// No `T` value is stored directly: `T` otherwise appears only through the
-    /// associated-type projection `T::Buffer<M>`. `fn() -> T` makes this marker
-    /// covariant in `T` without modeling ownership of a `T` or propagating its
-    /// auto-trait and drop-check constraints. The receiver never consumes or
-    /// mutably exposes a `T`, so it needs neither contravariance nor invariance.
-    marker: PhantomData<fn() -> T>,
+#[component(on_add = MessageReceiver::<M>::on_add_hook)]
+pub struct MessageReceiver<M: Message> {
+    ready: Vec<ReceivedMessage<M>>,
+    pending: HashMap<TimelineKind, TimelineMessageBuffer<M>>,
 }
 
 #[derive(Debug)]
@@ -97,90 +87,7 @@ pub struct MessageMetadata {
     pub message_id: Option<MessageId>,
 }
 
-/// Buffer implementation selected by [`IntoMessageReceiverTimeline`].
-///
-/// This is public so custom timeline crates can implement the timeline policy,
-/// but it is not intended to be used directly by applications.
-#[doc(hidden)]
-pub trait MessageReceiverBuffer<M: Message>: Default + Send + Sync + 'static {
-    fn ready(&self) -> &Vec<ReceivedMessage<M>>;
-    fn ready_mut(&mut self) -> &mut Vec<ReceivedMessage<M>>;
-    fn push(
-        &mut self,
-        message: ReceivedMessage<M>,
-        config: &TimelineMessageConfig,
-    ) -> Result<(), MessageError>;
-    fn release_until(&mut self, tick: Tick);
-    fn clear_pending(&mut self);
-    fn num_pending(&self) -> usize;
-}
-
-/// Type-level policy used by [`MessageReceiver`] to select its storage layout.
-pub trait IntoMessageReceiverTimeline: Send + Sync + 'static {
-    type Buffer<M: Message>: MessageReceiverBuffer<M>;
-
-    /// Runtime timeline identity used to route channel payloads to this
-    /// receiver. `None` is the normal immediate receive phase.
-    fn timeline_kind() -> Option<TimelineKind>;
-}
-
-/// Marker implemented by network timelines that can buffer typed messages.
-///
-/// Implementing this trait automatically provides an
-/// [`IntoMessageReceiverTimeline`] implementation backed by a timeline queue.
-pub trait BufferedMessageTimeline: NetworkTimeline {}
-
-/// Storage for the default immediate receiver.
-#[doc(hidden)]
-pub struct ImmediateMessageBuffer<M: Message> {
-    ready: Vec<ReceivedMessage<M>>,
-}
-
-impl<M: Message> Default for ImmediateMessageBuffer<M> {
-    fn default() -> Self {
-        Self { ready: Vec::new() }
-    }
-}
-
-impl<M: Message> MessageReceiverBuffer<M> for ImmediateMessageBuffer<M> {
-    fn ready(&self) -> &Vec<ReceivedMessage<M>> {
-        &self.ready
-    }
-
-    fn ready_mut(&mut self) -> &mut Vec<ReceivedMessage<M>> {
-        &mut self.ready
-    }
-
-    fn push(
-        &mut self,
-        message: ReceivedMessage<M>,
-        _config: &TimelineMessageConfig,
-    ) -> Result<(), MessageError> {
-        self.ready.push(message);
-        Ok(())
-    }
-
-    fn release_until(&mut self, _tick: Tick) {}
-
-    fn clear_pending(&mut self) {}
-
-    fn num_pending(&self) -> usize {
-        0
-    }
-}
-
-impl IntoMessageReceiverTimeline for LocalTimeline {
-    type Buffer<M: Message> = ImmediateMessageBuffer<M>;
-
-    fn timeline_kind() -> Option<TimelineKind> {
-        None
-    }
-}
-
-/// Storage for receivers released by a buffered network timeline.
-#[doc(hidden)]
-pub struct TimelineMessageBuffer<M: Message> {
-    ready: Vec<ReceivedMessage<M>>,
+struct TimelineMessageBuffer<M: Message> {
     pending: ReadyBuffer<(Tick, u64), ReceivedMessage<M>>,
     next_sequence: u64,
 }
@@ -188,30 +95,17 @@ pub struct TimelineMessageBuffer<M: Message> {
 impl<M: Message> Default for TimelineMessageBuffer<M> {
     fn default() -> Self {
         Self {
-            ready: Vec::new(),
             pending: ReadyBuffer::default(),
             next_sequence: 0,
         }
     }
 }
 
-impl<M: Message> MessageReceiverBuffer<M> for TimelineMessageBuffer<M> {
-    fn ready(&self) -> &Vec<ReceivedMessage<M>> {
-        &self.ready
-    }
-
-    fn ready_mut(&mut self) -> &mut Vec<ReceivedMessage<M>> {
-        &mut self.ready
-    }
-
-    fn push(
-        &mut self,
-        message: ReceivedMessage<M>,
-        config: &TimelineMessageConfig,
-    ) -> Result<(), MessageError> {
-        if self.pending.len() >= config.max_pending_per_receiver {
+impl<M: Message> TimelineMessageBuffer<M> {
+    fn push(&mut self, message: ReceivedMessage<M>) -> Result<(), MessageError> {
+        if self.pending.len() >= MAX_PENDING_TIMELINE_PAYLOADS {
             return Err(MessageError::PendingTimelineOverflow {
-                limit: config.max_pending_per_receiver,
+                limit: MAX_PENDING_TIMELINE_PAYLOADS,
             });
         }
         let key = (message.remote_tick, self.next_sequence);
@@ -220,18 +114,11 @@ impl<M: Message> MessageReceiverBuffer<M> for TimelineMessageBuffer<M> {
         Ok(())
     }
 
-    fn release_until(&mut self, tick: Tick) {
-        self.ready.extend(
-            self.pending
-                .drain_until(&(tick, u64::MAX))
-                .into_iter()
-                .map(|(_, message)| message),
-        );
-    }
-
-    fn clear_pending(&mut self) {
-        self.pending.clear();
-        self.next_sequence = 0;
+    fn release_until(&mut self, tick: Tick) -> impl Iterator<Item = ReceivedMessage<M>> + '_ {
+        self.pending
+            .drain_until(&(tick, u64::MAX))
+            .into_iter()
+            .map(|(_, message)| message)
     }
 
     fn num_pending(&self) -> usize {
@@ -239,31 +126,23 @@ impl<M: Message> MessageReceiverBuffer<M> for TimelineMessageBuffer<M> {
     }
 }
 
-impl<T: BufferedMessageTimeline> IntoMessageReceiverTimeline for T {
-    type Buffer<M: Message> = TimelineMessageBuffer<M>;
-
-    fn timeline_kind() -> Option<TimelineKind> {
-        Some(TimelineKind::of::<T>())
-    }
-}
-
-impl<M: Message, T: IntoMessageReceiverTimeline> Default for MessageReceiver<M, T> {
+impl<M: Message> Default for MessageReceiver<M> {
     fn default() -> Self {
         Self {
-            buffer: T::Buffer::default(),
-            marker: PhantomData,
+            ready: Vec::new(),
+            pending: HashMap::default(),
         }
     }
 }
 
 // TODO: do we care about the channel that the message was sent from? user-specified message usually don't
-impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
+impl<M: Message> MessageReceiver<M> {
     fn ready(&self) -> &Vec<ReceivedMessage<M>> {
-        self.buffer.ready()
+        &self.ready
     }
 
     fn ready_mut(&mut self) -> &mut Vec<ReceivedMessage<M>> {
-        self.buffer.ready_mut()
+        &mut self.ready
     }
 
     pub fn has_messages(&self) -> bool {
@@ -321,19 +200,19 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         self.ready().len()
     }
 
-    /// Returns the number of messages waiting for this receiver's delivery timeline.
+    /// Returns the total number of messages waiting across delivery timelines.
     pub fn num_pending_timeline_messages(&self) -> usize {
-        self.buffer.num_pending()
+        self.pending
+            .values()
+            .map(TimelineMessageBuffer::num_pending)
+            .sum()
     }
 
-    /// Releases messages whose sender tick has become visible.
-    pub(crate) fn release_timeline_until(&mut self, tick: Tick) {
-        self.buffer.release_until(tick);
-    }
-
-    /// Drops all messages waiting for a timeline, such as when a connection ends.
-    pub(crate) fn clear_pending_timelines(&mut self) {
-        self.buffer.clear_pending();
+    /// Releases messages for `timeline` whose sender tick has become visible.
+    pub(crate) fn release_timeline_until(&mut self, timeline: TimelineKind, tick: Tick) {
+        if let Some(pending) = self.pending.get_mut(&timeline) {
+            self.ready.extend(pending.release_until(tick));
+        }
     }
 
     pub(crate) fn push_received(
@@ -342,7 +221,7 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         remote_tick: Tick,
         channel_kind: ChannelKind,
         message_id: Option<MessageId>,
-        config: &TimelineMessageConfig,
+        target_timeline: Option<TimelineKind>,
     ) -> Result<(), MessageError> {
         let received_message = ReceivedMessage {
             data,
@@ -350,22 +229,43 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
             channel_kind,
             message_id,
         };
-        self.buffer.push(received_message, config)
+        if let Some(timeline) = target_timeline {
+            self.pending
+                .entry(timeline)
+                .or_default()
+                .push(received_message)
+        } else {
+            self.ready.push(received_message);
+            Ok(())
+        }
+    }
+
+    fn ensure_capacity(&self, target_timeline: Option<TimelineKind>) -> Result<(), MessageError> {
+        if let Some(timeline) = target_timeline
+            && self
+                .pending
+                .get(&timeline)
+                .is_some_and(|pending| pending.num_pending() >= MAX_PENDING_TIMELINE_PAYLOADS)
+        {
+            return Err(MessageError::PendingTimelineOverflow {
+                limit: MAX_PENDING_TIMELINE_PAYLOADS,
+            });
+        }
+        Ok(())
     }
 
     fn on_add_hook(mut world: DeferredWorld, context: HookContext) {
         world.commands().queue(move |world: &mut World| {
             let mut entity_mut = world.entity_mut(context.entity);
             let mut message_manager = entity_mut.get_mut::<MessageManager>().unwrap();
-            let receiver_kind = MessageReceiverKind::of::<M, T>();
             let receiver_present = message_manager
                 .receive_messages
                 .iter()
-                .any(|(kind, _)| *kind == receiver_kind);
+                .any(|(kind, _)| *kind == MessageKind::of::<M>());
             if !receiver_present {
                 message_manager
                     .receive_messages
-                    .push((receiver_kind, context.component_id));
+                    .push((MessageKind::of::<M>(), context.component_id));
             }
         })
     }
@@ -380,9 +280,9 @@ pub(crate) type ReceiveMessageFn = unsafe fn(
     channel_name: &'static str,
     remote_tick: Tick,
     message_id: Option<MessageId>,
+    target_timeline: Option<TimelineKind>,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut ReceiveEntityMap,
-    config: &TimelineMessageConfig,
 ) -> Result<(), MessageError>;
 
 pub(crate) type ReceiveLocalMessageFn = unsafe fn(
@@ -393,19 +293,17 @@ pub(crate) type ReceiveLocalMessageFn = unsafe fn(
     remote_tick: Tick,
     channel_kind: ChannelKind,
     message_id: Option<MessageId>,
-    config: &TimelineMessageConfig,
+    target_timeline: Option<TimelineKind>,
 ) -> Result<(), MessageError>;
 
 /// Clear all messages in the [`MessageReceiver<M>`] buffer
 pub(crate) type ClearMessageFn = unsafe fn(receiver: MutUntyped);
 
 /// Release interpolation-timed messages in the [`MessageReceiver<M>`] buffer.
-pub(crate) type ReleaseTimelineMessageFn = unsafe fn(receiver: MutUntyped, tick: Tick);
+pub(crate) type ReleaseTimelineMessageFn =
+    unsafe fn(receiver: MutUntyped, timeline: TimelineKind, tick: Tick);
 
-/// Drop messages waiting for a delivery timeline.
-pub(crate) type ClearPendingTimelineMessageFn = unsafe fn(receiver: MutUntyped);
-
-impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
+impl<M: Message> MessageReceiver<M> {
     fn queue_received(
         commands: &ParallelCommands,
         entity: Entity,
@@ -413,7 +311,7 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         remote_tick: Tick,
         channel_kind: ChannelKind,
         message_id: Option<MessageId>,
-        config: TimelineMessageConfig,
+        target_timeline: Option<TimelineKind>,
     ) {
         commands.command_scope(|mut commands| {
             commands.queue(move |world: &mut World| {
@@ -426,9 +324,13 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
                 let mut receiver = entity_mut
                     .get_mut::<Self>()
                     .expect("message receiver was just inserted");
-                if let Err(error) =
-                    receiver.push_received(message, remote_tick, channel_kind, message_id, &config)
-                {
+                if let Err(error) = receiver.push_received(
+                    message,
+                    remote_tick,
+                    channel_kind,
+                    message_id,
+                    target_timeline,
+                ) {
                     error!(
                         "Error buffering message {:?} on lazily inserted receiver: {error:?}",
                         DebugName::type_name::<M>()
@@ -436,13 +338,6 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
                 }
             });
         });
-    }
-
-    fn ensure_new_receiver_capacity(config: &TimelineMessageConfig) -> Result<(), MessageError> {
-        if T::timeline_kind().is_some() && config.max_pending_per_receiver == 0 {
-            return Err(MessageError::PendingTimelineOverflow { limit: 0 });
-        }
-        Ok(())
     }
 
     /// Receive a single message of type `M` from the channel
@@ -458,19 +353,22 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         channel_name: &'static str,
         remote_tick: Tick,
         message_id: Option<MessageId>,
+        target_timeline: Option<TimelineKind>,
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &mut ReceiveEntityMap,
-        config: &TimelineMessageConfig,
     ) -> Result<(), MessageError> {
         let insert_receiver = receiver.is_none();
-        if insert_receiver {
-            Self::ensure_new_receiver_capacity(config)?;
-        }
         let message = unsafe { serialize_metadata.deserialize::<_, M, M>(reader, entity_map)? };
         if let Some(receiver) = receiver {
             // SAFETY: the callback and component id are registered for Self.
             let mut receiver = unsafe { receiver.with_type::<Self>() };
-            receiver.push_received(message, remote_tick, channel_kind, message_id, config)?;
+            receiver.push_received(
+                message,
+                remote_tick,
+                channel_kind,
+                message_id,
+                target_timeline,
+            )?;
         } else {
             Self::queue_received(
                 commands,
@@ -479,7 +377,7 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
                 remote_tick,
                 channel_kind,
                 message_id,
-                *config,
+                target_timeline,
             );
         }
         trace!(
@@ -494,7 +392,7 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
             message_name = core::any::type_name::<M>(),
             channel = channel_name,
             remote_tick = remote_tick.0,
-            target_timeline = ?T::timeline_kind(),
+            target_timeline = ?target_timeline,
             message_id = ?message_id,
             insert_receiver,
             "deserialized message into receiver"
@@ -510,20 +408,12 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         remote_tick: Tick,
         channel_kind: ChannelKind,
         message_id: Option<MessageId>,
-        config: &TimelineMessageConfig,
+        target_timeline: Option<TimelineKind>,
     ) -> Result<(), MessageError> {
         if let Some(receiver) = receiver.as_ref() {
-            if T::timeline_kind().is_some() {
-                // SAFETY: the callback and component id are registered for Self.
-                let receiver = unsafe { receiver.as_ref().deref::<Self>() };
-                if receiver.num_pending_timeline_messages() >= config.max_pending_per_receiver {
-                    return Err(MessageError::PendingTimelineOverflow {
-                        limit: config.max_pending_per_receiver,
-                    });
-                }
-            }
-        } else {
-            Self::ensure_new_receiver_capacity(config)?;
+            // SAFETY: the callback and component id are registered for Self.
+            let receiver = unsafe { receiver.as_ref().deref::<Self>() };
+            receiver.ensure_capacity(target_timeline)?;
         }
         let message = message
             .downcast_mut::<Option<M>>()
@@ -533,7 +423,13 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         if let Some(receiver) = receiver {
             // SAFETY: the callback and component id are registered for Self.
             let mut receiver = unsafe { receiver.with_type::<Self>() };
-            receiver.push_received(message, remote_tick, channel_kind, message_id, config)
+            receiver.push_received(
+                message,
+                remote_tick,
+                channel_kind,
+                message_id,
+                target_timeline,
+            )
         } else {
             Self::queue_received(
                 commands,
@@ -542,7 +438,7 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
                 remote_tick,
                 channel_kind,
                 message_id,
-                *config,
+                target_timeline,
             );
             Ok(())
         }
@@ -554,16 +450,14 @@ impl<M: Message, T: IntoMessageReceiverTimeline> MessageReceiver<M, T> {
         receiver.ready_mut().clear();
     }
 
-    pub(crate) unsafe fn release_timeline_typed(receiver: MutUntyped, tick: Tick) {
+    pub(crate) unsafe fn release_timeline_typed(
+        receiver: MutUntyped,
+        timeline: TimelineKind,
+        tick: Tick,
+    ) {
         // SAFETY: we know the type of the receiver is MessageReceiver<M>
         let mut receiver = unsafe { receiver.with_type::<Self>() };
-        receiver.release_timeline_until(tick);
-    }
-
-    pub(crate) unsafe fn clear_pending_timelines_typed(receiver: MutUntyped) {
-        // SAFETY: we know the type of the receiver is MessageReceiver<M>
-        let mut receiver = unsafe { receiver.with_type::<Self>() };
-        receiver.clear_pending_timelines();
+        receiver.release_timeline_until(timeline, tick);
     }
 }
 
@@ -571,6 +465,7 @@ impl MessagePlugin {
     fn receive_message_bytes(
         bytes: Bytes,
         registry: &MessageRegistry,
+        timeline_registry: &TimelineRegistry,
         receiver_query: &mut Query<FilteredEntityMut>,
         entity: Entity,
         channel_kind: ChannelKind,
@@ -581,7 +476,6 @@ impl MessagePlugin {
         message_manager: &mut MessageManager,
         commands: &ParallelCommands,
         remote_peer_id: PeerId,
-        config: &TimelineMessageConfig,
     ) -> Result<(), MessageError> {
         trace!(
             "Received message (id:{message_id:?}) from peer {:?} on channel {channel_kind:?}. {entity:?}",
@@ -591,22 +485,21 @@ impl MessagePlugin {
         // we receive the message NetId, and then deserialize the message
         let message_net_id = MessageNetId::from_bytes(&mut reader)?;
         if let Some(timeline) = target_timeline {
-            let metadata = registry
-                .timeline_metadata
+            let metadata = timeline_registry
                 .get(&timeline)
                 .ok_or(MessageError::TimelineNotRegistered(timeline))?;
             let entity_mut = receiver_query.get_mut(entity).unwrap();
-            let Some(timeline_ptr) = entity_mut.get_by_id(metadata.component_id) else {
+            let Some(timeline_ptr) = entity_mut.get_by_id(metadata.component_id()) else {
                 return Err(MessageError::MissingTimeline(timeline));
             };
-            // SAFETY: the callback is registered together with this timeline component id.
-            let current_tick = unsafe { (metadata.tick_fn)(timeline_ptr) };
+            // SAFETY: the metadata is registered together with this timeline component id.
+            let current_tick = unsafe { metadata.tick(timeline_ptr) };
             let delta = tick - current_tick;
-            if delta > 0 && delta as u32 > config.max_future_ticks {
-                return Err(MessageError::TimelineTooFarAhead {
+            if delta > 0 && delta as u32 > MAX_TIMELINE_LAG_TICKS {
+                return Err(MessageError::TimelineTooFarBehind {
                     target: tick,
                     current: current_tick,
-                    max_future_ticks: config.max_future_ticks,
+                    max_lag_ticks: MAX_TIMELINE_LAG_TICKS,
                 });
             }
         }
@@ -634,9 +527,7 @@ impl MessagePlugin {
             .serialize_fns_map
             .get(message_kind)
             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-        let receiver_kind = MessageReceiverKind::new(*message_kind, target_timeline);
-
-        if let Some(recv_metadata) = registry.receive_metadata.get(&receiver_kind) {
+        if let Some(recv_metadata) = registry.receive_metadata.get(message_kind) {
             let component_id = recv_metadata.component_id;
             let mut entity_mut = receiver_query.get_mut(entity).unwrap();
             let receiver = entity_mut.get_mut_by_id(component_id);
@@ -651,61 +542,30 @@ impl MessagePlugin {
                     channel_name,
                     tick,
                     message_id,
+                    target_timeline,
                     serialize_fns,
                     &mut message_manager.entity_mapper.remote_to_local,
-                    config,
                 )
             }
-        } else if let Some(trigger_metadata) = registry.receive_trigger.get(&receiver_kind) {
-            match trigger_metadata {
-                ReceiveTriggerMetadata::Immediate(metadata) => {
-                    // SAFETY: the callback is registered for this event type.
-                    unsafe {
-                        (metadata.receive_trigger_fn)(
-                            commands,
-                            &mut reader,
-                            channel_kind,
-                            channel_name,
-                            tick,
-                            message_id,
-                            serialize_fns,
-                            &mut message_manager.entity_mapper.remote_to_local,
-                            remote_peer_id,
-                            config,
-                        )
-                    }
-                }
-                ReceiveTriggerMetadata::Timeline(metadata) => {
-                    let mut entity_mut = receiver_query.get_mut(entity).unwrap();
-                    let receiver = entity_mut.get_mut_by_id(metadata.component_id);
-                    // SAFETY: when present, the receiver corresponds to the callback's queue type.
-                    unsafe {
-                        (metadata.receive_trigger_fn)(
-                            receiver,
-                            commands,
-                            entity,
-                            &mut reader,
-                            channel_kind,
-                            channel_name,
-                            tick,
-                            message_id,
-                            serialize_fns,
-                            &mut message_manager.entity_mapper.remote_to_local,
-                            remote_peer_id,
-                            config,
-                        )
-                    }
-                }
-            }
-        } else if let Some(timeline) = target_timeline {
-            let has_message_receiver = registry
-                .receive_metadata
-                .keys()
-                .any(|kind| kind.message == *message_kind);
-            if has_message_receiver {
-                Err(MessageError::MissingTimelineMessageReceiver(timeline))
-            } else {
-                Err(MessageError::MissingTimelineEventRegistration(timeline))
+        } else if let Some(metadata) = registry.receive_trigger.get(message_kind) {
+            let mut entity_mut = receiver_query.get_mut(entity).unwrap();
+            let receiver = entity_mut.get_mut_by_id(metadata.component_id);
+            // SAFETY: when present, the receiver corresponds to this event's pending component.
+            unsafe {
+                (metadata.receive_trigger_fn)(
+                    receiver,
+                    commands,
+                    entity,
+                    &mut reader,
+                    channel_kind,
+                    channel_name,
+                    tick,
+                    message_id,
+                    target_timeline,
+                    serialize_fns,
+                    &mut message_manager.entity_mapper.remote_to_local,
+                    remote_peer_id,
+                )
             }
         } else {
             Err(MessageError::UnrecognizedMessageId(message_net_id))
@@ -735,8 +595,8 @@ impl MessagePlugin {
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
         channel_registry: Res<ChannelRegistry>,
+        timeline_registry: Res<TimelineRegistry>,
         commands: ParallelCommands,
-        config: Res<TimelineMessageConfig>,
     ) {
         // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
         // on potentially different entities in parallel (though the current loop isn't parallel)
@@ -763,12 +623,12 @@ impl MessagePlugin {
                         trace!("Received local message bytes from server on host-client {entity:?} on channel {channel_kind:?}");
                         let target_timeline = channel_registry
                             .settings(channel_kind)
-                            .and_then(|settings| settings.delivery_timeline())
-                            .map(TimelineKind::from);
+                            .and_then(|settings| settings.timeline);
                         // we fake the message_id for host-client messages
                         if let Err(error) = Self::receive_message_bytes(
                             bytes,
                             &registry,
+                            &timeline_registry,
                             &mut receiver_query,
                             entity,
                             channel_kind,
@@ -779,7 +639,6 @@ impl MessagePlugin {
                             &mut message_manager,
                             &commands,
                             remote_peer_id.0,
-                            &config,
                         ) {
                             host_client.buffer.extend(buffered);
                             error!("Error receiving messages: {error:?}");
@@ -798,11 +657,11 @@ impl MessagePlugin {
                             {
                                 let target_timeline = channel_registry
                                     .settings(channel_kind)
-                                    .and_then(|settings| settings.delivery_timeline())
-                                    .map(TimelineKind::from);
+                                    .and_then(|settings| settings.timeline);
                                 Self::receive_message_bytes(
                                     bytes,
                                     &registry,
+                                    &timeline_registry,
                                     &mut receiver_query,
                                     entity,
                                     channel_kind,
@@ -813,7 +672,6 @@ impl MessagePlugin {
                                     &mut message_manager,
                                     &commands,
                                     remote_peer_id.0,
-                                    &config,
                                 )?;
                             }
                             Ok::<_, MessageError>(())
@@ -864,22 +722,6 @@ mod tests {
     struct TestTimeline;
     struct OtherTimeline;
 
-    impl IntoMessageReceiverTimeline for TestTimeline {
-        type Buffer<M: Message> = TimelineMessageBuffer<M>;
-
-        fn timeline_kind() -> Option<TimelineKind> {
-            Some(TimelineKind::from(TypeId::of::<Self>()))
-        }
-    }
-
-    impl IntoMessageReceiverTimeline for OtherTimeline {
-        type Buffer<M: Message> = TimelineMessageBuffer<M>;
-
-        fn timeline_kind() -> Option<TimelineKind> {
-            Some(TimelineKind::from(TypeId::of::<Self>()))
-        }
-    }
-
     #[test]
     fn local_timeline_messages_are_immediately_ready() {
         let mut receiver = MessageReceiver::<TestMessage>::default();
@@ -889,7 +731,7 @@ mod tests {
                 Tick(10),
                 ChannelKind::of::<TestChannel>(),
                 None,
-                &TimelineMessageConfig::default(),
+                None,
             )
             .unwrap();
 
@@ -901,22 +743,23 @@ mod tests {
 
     #[test]
     fn releases_messages_when_interpolation_tick_reaches_target() {
-        let mut receiver = MessageReceiver::<TestMessage, TestTimeline>::default();
+        let mut receiver = MessageReceiver::<TestMessage>::default();
+        let timeline = TimelineKind::from(TypeId::of::<TestTimeline>());
         receiver
             .push_received(
                 TestMessage("future"),
                 Tick(10),
                 ChannelKind::of::<TestChannel>(),
                 None,
-                &TimelineMessageConfig::default(),
+                Some(timeline),
             )
             .unwrap();
 
-        receiver.release_timeline_until(Tick(9));
+        receiver.release_timeline_until(timeline, Tick(9));
         assert_eq!(receiver.num_messages(), 0);
         assert_eq!(receiver.num_pending_timeline_messages(), 1);
 
-        receiver.release_timeline_until(Tick(10));
+        receiver.release_timeline_until(timeline, Tick(10));
         let released = receiver.receive_with_tick().collect::<Vec<_>>();
         assert_eq!(released.len(), 1);
         assert_eq!(released[0].data, TestMessage("future"));
@@ -925,7 +768,8 @@ mod tests {
 
     #[test]
     fn releases_same_tick_messages_in_receive_order() {
-        let mut receiver = MessageReceiver::<TestMessage, TestTimeline>::default();
+        let mut receiver = MessageReceiver::<TestMessage>::default();
+        let timeline = TimelineKind::from(TypeId::of::<TestTimeline>());
         for message in ["first", "second", "third"] {
             receiver
                 .push_received(
@@ -933,12 +777,12 @@ mod tests {
                     Tick(5),
                     ChannelKind::of::<TestChannel>(),
                     None,
-                    &TimelineMessageConfig::default(),
+                    Some(timeline),
                 )
                 .unwrap();
         }
 
-        receiver.release_timeline_until(Tick(7));
+        receiver.release_timeline_until(timeline, Tick(7));
         let released = receiver.receive().collect::<Vec<_>>();
         assert_eq!(
             released,
@@ -951,90 +795,77 @@ mod tests {
     }
 
     #[test]
-    fn each_timeline_type_owns_its_pending_buffer() {
-        let mut first = MessageReceiver::<TestMessage, TestTimeline>::default();
-        let mut other = MessageReceiver::<TestMessage, OtherTimeline>::default();
-        first
+    fn each_timeline_has_its_own_pending_buffer() {
+        let mut receiver = MessageReceiver::<TestMessage>::default();
+        let first = TimelineKind::from(TypeId::of::<TestTimeline>());
+        let other = TimelineKind::from(TypeId::of::<OtherTimeline>());
+        receiver
             .push_received(
                 TestMessage("first"),
                 Tick(3),
                 ChannelKind::of::<TestChannel>(),
                 None,
-                &TimelineMessageConfig::default(),
+                Some(first),
             )
             .unwrap();
-        other
+        receiver
             .push_received(
                 TestMessage("other"),
                 Tick(3),
                 ChannelKind::of::<TestChannel>(),
                 None,
-                &TimelineMessageConfig::default(),
+                Some(other),
             )
             .unwrap();
 
-        first.release_timeline_until(Tick(3));
+        receiver.release_timeline_until(first, Tick(3));
         assert_eq!(
-            first.receive().collect::<Vec<_>>(),
+            receiver.receive().collect::<Vec<_>>(),
             vec![TestMessage("first")]
         );
-        assert_eq!(other.num_pending_timeline_messages(), 1);
+        assert_eq!(receiver.num_pending_timeline_messages(), 1);
 
-        other.release_timeline_until(Tick(3));
+        receiver.release_timeline_until(other, Tick(3));
         assert_eq!(
-            other.receive().collect::<Vec<_>>(),
+            receiver.receive().collect::<Vec<_>>(),
             vec![TestMessage("other")]
         );
     }
 
     #[test]
-    fn clearing_pending_timelines_drops_messages_and_resets_sequence() {
-        let mut receiver = MessageReceiver::<TestMessage, TestTimeline>::default();
-        receiver
-            .push_received(
-                TestMessage("stale"),
-                Tick(20),
-                ChannelKind::of::<TestChannel>(),
-                None,
-                &TimelineMessageConfig::default(),
-            )
-            .unwrap();
-        receiver.clear_pending_timelines();
-
-        assert_eq!(receiver.num_pending_timeline_messages(), 0);
-        assert_eq!(receiver.buffer.next_sequence, 0);
-    }
-
-    #[test]
     fn pending_timeline_messages_are_bounded_per_receiver() {
-        let mut receiver = MessageReceiver::<TestMessage, TestTimeline>::default();
-        let config = TimelineMessageConfig {
-            max_pending_per_receiver: 1,
-            ..Default::default()
-        };
-        receiver
-            .push_received(
-                TestMessage("first"),
-                Tick(10),
-                ChannelKind::of::<TestChannel>(),
-                None,
-                &config,
-            )
-            .unwrap();
+        let mut receiver = MessageReceiver::<TestMessage>::default();
+        let timeline = TimelineKind::from(TypeId::of::<TestTimeline>());
+        for _ in 0..MAX_PENDING_TIMELINE_PAYLOADS {
+            receiver
+                .push_received(
+                    TestMessage("pending"),
+                    Tick(10),
+                    ChannelKind::of::<TestChannel>(),
+                    None,
+                    Some(timeline),
+                )
+                .unwrap();
+        }
         let error = receiver
             .push_received(
                 TestMessage("overflow"),
                 Tick(11),
                 ChannelKind::of::<TestChannel>(),
                 None,
-                &config,
+                Some(timeline),
             )
             .unwrap_err();
 
         assert!(matches!(
             error,
-            MessageError::PendingTimelineOverflow { limit: 1 }
+            MessageError::PendingTimelineOverflow {
+                limit: MAX_PENDING_TIMELINE_PAYLOADS
+            }
         ));
-        assert_eq!(receiver.num_pending_timeline_messages(), 1);
+        assert_eq!(
+            receiver.num_pending_timeline_messages(),
+            MAX_PENDING_TIMELINE_PAYLOADS
+        );
     }
 }

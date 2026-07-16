@@ -1,16 +1,11 @@
 use bevy_app::App;
 use bevy_ecs::{entity::MapEntities, event::Event};
 
-use crate::receive::BufferedMessageTimeline;
 use crate::receive_event::{
-    PendingTimelineEvents, clear_timeline_events_typed, receive_event_typed,
-    receive_local_event_typed, receive_local_timeline_event_typed, receive_timeline_event_typed,
+    PendingTimelineEvents, receive_event_typed, receive_local_event_typed,
     release_timeline_events_typed,
 };
-use crate::registry::{
-    ImmediateTriggerMetadata, MessageKind, MessageReceiverKind, MessageRegistry,
-    ReceiveTriggerMetadata, SendTriggerMetadata, TimelineKind, TimelineTriggerMetadata,
-};
+use crate::registry::{MessageKind, MessageRegistry, ReceiveTriggerMetadata, SendTriggerMetadata};
 use crate::send_trigger::EventSender;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
@@ -56,43 +51,6 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
         self.add_server_direction(direction);
         self
     }
-
-    /// Send and receive this event on channels delivered by timeline `T`.
-    ///
-    /// Immediate events do not have receiver components. Timeline-delayed
-    /// events lazily insert an internal typed queue and are triggered when `T`
-    /// reaches the sender tick.
-    pub fn add_direction_on_timeline<T>(&mut self, direction: NetworkDirection) -> &mut Self
-    where
-        T: BufferedMessageTimeline,
-    {
-        let component_id = self
-            .app
-            .world_mut()
-            .register_component::<PendingTimelineEvents<M, T>>();
-        let receiver_kind =
-            MessageReceiverKind::new(MessageKind::of::<M>(), Some(TimelineKind::of::<T>()));
-        self.app
-            .world_mut()
-            .resource_mut::<MessageRegistry>()
-            .receive_trigger
-            .insert(
-                receiver_kind,
-                ReceiveTriggerMetadata::Timeline(TimelineTriggerMetadata {
-                    component_id,
-                    receive_trigger_fn: receive_timeline_event_typed::<M, T>,
-                    receive_local_trigger_fn: receive_local_timeline_event_typed::<M, T>,
-                    release_fn: release_timeline_events_typed::<M, T>,
-                    clear_fn: clear_timeline_events_typed::<M, T>,
-                }),
-            );
-
-        #[cfg(feature = "client")]
-        self.add_client_direction(direction);
-        #[cfg(feature = "server")]
-        self.add_server_direction(direction);
-        self
-    }
 }
 
 pub trait AppTriggerExt {
@@ -129,6 +87,9 @@ impl AppTriggerExt for App {
             self.world_mut().init_resource::<MessageRegistry>();
         }
         let sender_id = self.world_mut().register_component::<EventSender<M>>();
+        let receiver_id = self
+            .world_mut()
+            .register_component::<PendingTimelineEvents<M>>();
 
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         // Register M for serialization/deserialization
@@ -146,11 +107,13 @@ impl AppTriggerExt for App {
             },
         );
         registry.receive_trigger.insert(
-            MessageReceiverKind::new(MessageKind::of::<M>(), None),
-            ReceiveTriggerMetadata::Immediate(ImmediateTriggerMetadata {
+            MessageKind::of::<M>(),
+            ReceiveTriggerMetadata {
+                component_id: receiver_id,
                 receive_trigger_fn: receive_event_typed::<M>,
                 receive_local_trigger_fn: receive_local_event_typed::<M>,
-            }),
+                release_fn: release_timeline_events_typed::<M>,
+            },
         );
         TriggerRegistration {
             app: self,
