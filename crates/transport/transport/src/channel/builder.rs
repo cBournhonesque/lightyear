@@ -17,7 +17,9 @@ use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::time::Duration;
-use lightyear_link::{DEFAULT_MTU, Link, LinkMtu};
+#[cfg(test)]
+use lightyear_link::DEFAULT_MTU;
+use lightyear_link::Link;
 #[allow(unused_imports)]
 use tracing::trace;
 
@@ -84,8 +86,6 @@ pub struct Transport {
     pub(crate) packet_manager: PacketBuilder,
     /// Stable fragment payload size derived from the link's minimum MTU.
     fragment_size: usize,
-    /// Last current link MTU applied to packet quota bursts.
-    configured_mtu: usize,
     pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
@@ -114,7 +114,7 @@ pub struct Transport {
 impl Transport {
     pub fn new(priority_config: PriorityConfig) -> Self {
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
-        let bandwidth_limiter = BandwidthLimiter::new(priority_config.clone(), DEFAULT_MTU);
+        let bandwidth_limiter = BandwidthLimiter::new(priority_config.clone());
         Self {
             receivers: Default::default(),
             senders: Default::default(),
@@ -122,7 +122,6 @@ impl Transport {
             bandwidth_limiter,
             packet_manager: PacketBuilder::default(),
             fragment_size: FRAGMENT_SIZE,
-            configured_mtu: DEFAULT_MTU,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
             fragment_acks: Default::default(),
@@ -151,19 +150,19 @@ impl Default for Transport {
 
 impl Transport {
     fn on_add(mut world: DeferredWorld, context: HookContext) {
-        let Some(link_mtu) = world.get::<Link>(context.entity).map(|link| link.mtu) else {
+        let Some(min_mtu) = world.get::<Link>(context.entity).map(|link| link.min_mtu()) else {
             return;
         };
         let Some(mut transport) = world.get_mut::<Transport>(context.entity) else {
             return;
         };
-        if let Err(error) = transport.configure_link_mtu(link_mtu) {
+        if let Err(error) = transport.initialize_fragment_size(min_mtu) {
             tracing::error!(?error, "invalid link MTU for transport");
         }
     }
 
-    pub(crate) fn configure_link_mtu(&mut self, link_mtu: LinkMtu) -> Result<(), PacketError> {
-        let min_mtu = link_mtu.min_mtu();
+    /// Derives the stable fragment size when this transport is attached to its link.
+    fn initialize_fragment_size(&mut self, min_mtu: usize) -> Result<(), PacketError> {
         let fragment_size = fragment_size_for_min_mtu(min_mtu).ok_or(PacketError::MtuTooSmall {
             actual: min_mtu,
             min: MIN_FRAGMENT_PACKET_SIZE,
@@ -176,13 +175,6 @@ impl Transport {
             self.receivers
                 .values_mut()
                 .for_each(|metadata| metadata.receiver.set_fragment_size(fragment_size));
-        }
-
-        let current_mtu = link_mtu.mtu();
-        if self.configured_mtu != current_mtu {
-            self.configured_mtu = current_mtu;
-            self.bandwidth_limiter =
-                BandwidthLimiter::new(self.priority_manager.config.clone(), current_mtu);
         }
         Ok(())
     }
@@ -343,7 +335,7 @@ impl Transport {
         });
         let priority_config = self.priority_manager.config.clone();
         self.priority_manager = PriorityManager::new(priority_config.clone());
-        self.bandwidth_limiter = BandwidthLimiter::new(priority_config, self.configured_mtu);
+        self.bandwidth_limiter = BandwidthLimiter::new(priority_config);
         self.packet_manager = Default::default();
         self.packet_to_message_map = Default::default();
         self.fragment_acks.clear();
@@ -444,6 +436,39 @@ impl ReliableSettings {
     pub(crate) fn resend_delay(&self, rtt: Duration) -> Duration {
         let delay = rtt.mul_f32(self.rtt_resend_factor);
         core::cmp::max(delay, self.rtt_resend_min_delay)
+    }
+}
+
+#[cfg(test)]
+mod mtu_tests {
+    use super::*;
+    use bevy_ecs::world::World;
+    use lightyear_link::LinkMtu;
+
+    #[test]
+    fn fragment_size_is_initialized_once_from_link_minimum_mtu() {
+        let mut world = World::new();
+        let entity = world
+            .spawn((
+                Link::default().with_mtu(LinkMtu::new(256)),
+                Transport::default(),
+            ))
+            .id();
+        let expected_fragment_size = fragment_size_for_min_mtu(256).unwrap();
+
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            expected_fragment_size
+        );
+
+        world.get_mut::<Link>(entity).unwrap().set_mtu(512).unwrap();
+
+        assert_eq!(world.get::<Link>(entity).unwrap().min_mtu(), 256);
+        assert_eq!(world.get::<Link>(entity).unwrap().mtu(), 512);
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            expected_fragment_size
+        );
     }
 }
 

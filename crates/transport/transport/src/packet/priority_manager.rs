@@ -3,7 +3,6 @@ use crate::packet::message::{MessageData, SendCandidate};
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
-use lightyear_link::DEFAULT_MTU;
 use lightyear_serde::ToBytes;
 use nonzero_ext::*;
 #[cfg(feature = "trace")]
@@ -31,21 +30,24 @@ impl Default for PriorityConfig {
 }
 
 impl PriorityConfig {
-    /// Enable a sustained byte rate while allowing at least one maximum-sized packet per burst.
+    /// Enables a sustained byte rate with an equally sized burst capacity.
     ///
-    /// Governor cannot admit an item larger than its burst capacity. Keeping the burst at least
-    /// one transport MTU prevents low byte rates from making every valid packet permanently
-    /// inadmissible; it does not change the configured sustained refill rate.
+    /// The bandwidth quota is independent of link MTU. Use
+    /// [`with_burst_size`](Self::with_burst_size) when the burst should differ from the sustained
+    /// byte rate, or provide a custom [`Quota`] through [`Self::bandwidth_quota`].
     pub fn new(bytes_per_second_quota: u32) -> Self {
         let cap = bytes_per_second_quota.try_into().unwrap();
-        let burst = bytes_per_second_quota
-            .max(DEFAULT_MTU as u32)
-            .try_into()
-            .unwrap();
         Self {
-            bandwidth_quota: Quota::per_second(cap).allow_burst(burst),
+            bandwidth_quota: Quota::per_second(cap).allow_burst(cap),
             enabled: true,
         }
+    }
+
+    /// Sets the maximum bandwidth burst independently of the sustained byte rate and link MTU.
+    pub fn with_burst_size(mut self, burst_size: u32) -> Self {
+        let burst_size = burst_size.try_into().unwrap();
+        self.bandwidth_quota = self.bandwidth_quota.allow_burst(burst_size);
+        self
     }
 }
 
@@ -151,17 +153,10 @@ impl PriorityManager {
 }
 
 impl BandwidthLimiter {
-    pub(crate) fn new(config: PriorityConfig, max_packet_size: usize) -> Self {
-        let max_packet_size = u32::try_from(max_packet_size).unwrap_or(u32::MAX);
-        let min_burst = NonZeroU32::new(max_packet_size.max(1)).unwrap();
-        let quota = if config.bandwidth_quota.burst_size() < min_burst {
-            config.bandwidth_quota.allow_burst(min_burst)
-        } else {
-            config.bandwidth_quota
-        };
+    pub(crate) fn new(config: PriorityConfig) -> Self {
         Self {
             enabled: config.enabled,
-            limiter: DefaultDirectRateLimiter::direct(quota),
+            limiter: DefaultDirectRateLimiter::direct(config.bandwidth_quota),
         }
     }
 
@@ -452,8 +447,10 @@ mod tests {
     }
 
     #[test]
-    fn bandwidth_burst_can_always_admit_one_mtu_packet() {
-        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1), DEFAULT_MTU);
-        assert!(limiter.consume_packet_quota(DEFAULT_MTU));
+    fn bandwidth_burst_is_independent_of_mtu() {
+        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1).with_burst_size(300));
+
+        assert!(limiter.consume_packet_quota(300));
+        assert!(!limiter.consume_packet_quota(301));
     }
 }

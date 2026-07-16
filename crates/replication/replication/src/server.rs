@@ -83,7 +83,7 @@ fn on_client_connected(
     mut commands: Commands,
 ) {
     for (entity, remote_id, link) in remotes.iter() {
-        let min_mtu = link.mtu.min_mtu();
+        let min_mtu = link.min_mtu();
         let Some(max_size) = fragment_size_for_min_mtu(min_mtu) else {
             error!(?entity, min_mtu, "link MTU cannot carry fragment packets");
             continue;

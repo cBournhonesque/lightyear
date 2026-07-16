@@ -396,11 +396,7 @@ impl TransportPlugin {
         query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
-            if let Err(error) = transport.configure_link_mtu(link.mtu) {
-                error!(?error, "cannot send transport packets for link MTU");
-                return;
-            }
-            let mtu = link.mtu.mtu();
+            let mtu = link.mtu();
 
             // buffer all new messages in the Sender
             if let Some(mut host_client) = host_client {
@@ -683,7 +679,7 @@ mod tests {
         channel_kind: ChannelKind,
         channel_id: ChannelId,
     ) -> Entity {
-        let mut transport = Transport::new(PriorityConfig::new(1));
+        let mut transport = Transport::new(PriorityConfig::new(1).with_burst_size(1200));
         transport.add_sender::<C>((&settings).into(), settings.mode, channel_id);
         for value in [1, 2] {
             transport
