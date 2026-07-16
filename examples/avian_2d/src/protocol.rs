@@ -1,4 +1,3 @@
-use crate::shared::color_from_id;
 use avian2d::prelude::*;
 use bevy::prelude::*;
 use leafwing_input_manager::prelude::*;
@@ -9,6 +8,10 @@ use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
 pub const PLAYER_SIZE: f32 = 40.0;
+pub const CHILD_CUBE_SIZE: f32 = 16.0;
+pub const CHILD_CUBE_GAP: f32 = 0.0;
+pub const CHILD_CUBE_OFFSET: Vec2 =
+    Vec2::new((PLAYER_SIZE + CHILD_CUBE_SIZE) / 2.0 + CHILD_CUBE_GAP, 0.0);
 
 #[derive(Bundle)]
 pub(crate) struct PhysicsBundle {
@@ -27,24 +30,15 @@ impl PhysicsBundle {
             restitution: Restitution::new(0.5),
         }
     }
-}
 
-/// The replicated blueprint for one entity in the player's compound collider hierarchy.
-///
-/// The actual Avian components are installed locally. This keeps colliders out of the
-/// network protocol while still replicating the hierarchy and its stable logical identity.
-#[derive(Component, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Reflect)]
-pub struct PlayerPart {
-    pub(crate) owner: PeerId,
-    pub(crate) kind: PlayerPartKind,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Reflect)]
-pub enum PlayerPartKind {
-    Hull,
-    Pivot,
-    Nose,
-    Sensor,
+    pub(crate) fn player() -> Self {
+        Self {
+            collider: Collider::rectangle(PLAYER_SIZE, PLAYER_SIZE),
+            collider_density: ColliderDensity(0.2),
+            rigid_body: RigidBody::Dynamic,
+            restitution: Restitution::new(0.3),
+        }
+    }
 }
 
 // Components
@@ -85,21 +79,22 @@ impl Plugin for ProtocolPlugin {
 
         app.component::<PlayerId>().replicate();
 
-        app.component::<PlayerPart>().replicate_once();
-
         app.component::<ColorComponent>().replicate();
 
         app.component::<BallMarker>().replicate();
 
         app.component::<Position>()
-            .replicate()
+            // Replicate only authoritative rigid-body poses. A child collider
+            // without its own RigidBody gets its world pose from the root and
+            // its fixed local Transform, so neither pose component should be replicated.
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(position_should_rollback)
             .add_linear_interpolation()
             .add_correction();
 
         app.component::<Rotation>()
-            .replicate()
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
             .add_linear_interpolation()

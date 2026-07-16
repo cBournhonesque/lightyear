@@ -311,13 +311,13 @@ impl Plugin for ProtocolPlugin {
         match self.avian_mode {
             AvianReplicationMode::Position { .. } => {
                 app.component::<Position>()
-                    .replicate()
+                    .replicate_filtered::<With<RigidBody>>()
                     .predict()
                     .add_linear_interpolation()
                     .add_correction();
 
                 app.component::<Rotation>()
-                    .replicate()
+                    .replicate_filtered::<With<RigidBody>>()
                     .predict()
                     .add_linear_interpolation()
                     .add_correction();

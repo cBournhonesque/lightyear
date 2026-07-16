@@ -93,6 +93,26 @@ When `sync_to_transform` is `true`, Lightyear synchronizes the restored canonica
 
 This authority rule applies to rigid-body poses. A child collider without its own `RigidBody` still
 uses its local `Transform`/`ColliderTransform` to describe its offset from the parent body.
+Its `Position` and `Rotation` are derived world state and should not be replicated independently.
+Replicate physics poses only for entities with their own rigid body:
+
+```rust,ignore
+app.component::<Position>()
+    .replicate_filtered::<With<RigidBody>>()
+    .predict()
+    .add_linear_interpolation()
+    .add_correction();
+
+app.component::<Rotation>()
+    .replicate_filtered::<With<RigidBody>>()
+    .predict()
+    .add_linear_interpolation()
+    .add_correction();
+```
+
+This excludes child colliders that do not have a `RigidBody`. Their pose is computed from the
+rigid-body root and their fixed local `Transform`, so sending their derived `Position` and
+`Rotation` would duplicate state and could apply samples from a different visual timeline.
 
 To smooth a predicted entity between fixed ticks from the moment it spawns, add the type-erased marker:
 

@@ -6,35 +6,32 @@ use leafwing_input_manager::prelude::*;
 use lightyear::connection::host::HostClient;
 use lightyear::prelude::client::*;
 use lightyear::prelude::*;
+use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{
-    color_from_id, materialize_player_part, shared_movement_behaviour, PlayerBodyBundle,
-    SharedPlugin,
-};
+use crate::shared::{shared_movement_behaviour, PlayerChildCollider, SharedPlugin};
 
 pub struct ExampleClientPlugin;
 
 impl Plugin for ExampleClientPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(AutomationClientPlugin);
+        // Keep the visual pipeline available in headless clients so prediction,
+        // frame interpolation, and correction can be tested without a window.
+        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
+            app.add_plugins(FrameInterpolationPlugin);
+        }
         // Rollback-capable action systems must run in FixedUpdate.
         app.add_systems(FixedUpdate, player_movement);
         app.add_observer(add_ball_physics);
         app.add_observer(handle_interpolated_spawn);
         app.add_observer(handle_predicted_spawn);
-        app.add_observer(materialize_player_part_transform);
+        app.add_observer(add_frame_interpolation_components);
         app.add_observer(handle_controlled_spawn);
 
-        app.add_systems(
-            PostUpdate,
-            (
-                crate::debug::print_overstep,
-                materialize_predicted_player_parts.after(TransformSystems::Propagate),
-            ),
-        );
+        app.add_systems(PostUpdate, crate::debug::print_overstep);
     }
 }
 
@@ -59,9 +56,8 @@ fn add_ball_physics(
     }
 }
 
-// Apply local input only to predicted entities owned by this client.
-//
-// If this example predicted remote entities, ownership would need to be checked before movement.
+// Apply predicted inputs only to player rigid-body roots. Child colliders do not
+// have PlayerId, LinearVelocity, or ActionState, so input cannot move them independently.
 fn player_movement(
     // In host-server mode, the players are already moved by the server system so we don't want
     // to move them twice.
@@ -69,23 +65,31 @@ fn player_movement(
     mut velocity_query: Query<
         (
             Entity,
-            &PlayerId,
             &Position,
             &mut LinearVelocity,
             &ActionState<PlayerActions>,
         ),
-        With<Predicted>,
+        (With<Predicted>, With<PlayerId>),
     >,
 ) {
     let tick = timeline.tick();
-    for (entity, player_id, position, velocity, action_state) in velocity_query.iter_mut() {
+    for (entity, position, velocity, action_state) in velocity_query.iter_mut() {
         if !action_state.get_pressed().is_empty() {
             trace!(?entity, ?tick, ?position, actions = ?action_state.get_pressed(), "applying movement to predicted player");
-            // note that we also apply the input to the other predicted clients! even though
-            //  their inputs are only replicated with a delay!
-            // TODO: add input decay?
             shared_movement_behaviour(velocity, action_state);
         }
+    }
+}
+
+/// Predicted physics is updated at fixed ticks; interpolate its Position and Rotation
+/// for rendering between those ticks and for post-rollback visual correction.
+fn add_frame_interpolation_components(
+    trigger: On<Add, (Position, RigidBody, Predicted)>,
+    query: Query<Entity, (With<Predicted>, With<RigidBody>)>,
+    mut commands: Commands,
+) {
+    if query.contains(trigger.entity) {
+        commands.entity(trigger.entity).insert(FrameInterpolate);
     }
 }
 
@@ -103,37 +107,7 @@ pub(crate) fn handle_predicted_spawn(
         color.0 = Color::from(hsva);
         commands
             .entity(trigger.entity)
-            .insert(PlayerBodyBundle::dynamic());
-    }
-}
-
-fn materialize_player_part_transform(
-    trigger: On<Add, PlayerPart>,
-    parts: Query<&PlayerPart>,
-    mut commands: Commands,
-) {
-    if let Ok(part) = parts.get(trigger.entity) {
-        materialize_player_part(&mut commands, trigger.entity, *part, false, None);
-    }
-}
-
-#[derive(Component)]
-struct PlayerPartPhysicsReady;
-
-fn materialize_predicted_player_parts(
-    parts: Query<(Entity, &PlayerPart), (With<Predicted>, Without<PlayerPartPhysicsReady>)>,
-    roots: Query<(Entity, &PlayerId), (With<Predicted>, With<RigidBody>)>,
-    mut commands: Commands,
-) {
-    for (entity, part) in &parts {
-        let Some(root) = roots
-            .iter()
-            .find_map(|(entity, player)| (player.0 == part.owner).then_some(entity))
-        else {
-            continue;
-        };
-        materialize_player_part(&mut commands, entity, *part, true, Some(root));
-        commands.entity(entity).insert(PlayerPartPhysicsReady);
+            .insert(PhysicsBundle::player());
     }
 }
 
@@ -164,5 +138,35 @@ pub(crate) fn handle_interpolated_spawn(
             ..Hsva::from(color.0)
         };
         color.0 = Color::from(hsva);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn frame_interpolation_covers_the_predicted_ball_but_not_non_rigid_children() {
+        let mut app = App::new();
+        app.add_observer(add_frame_interpolation_components);
+
+        let ball = app
+            .world_mut()
+            .spawn((Position::default(), RigidBody::Dynamic, Predicted))
+            .id();
+        let child = app
+            .world_mut()
+            .spawn((Position::default(), Predicted, PlayerChildCollider))
+            .id();
+        app.update();
+
+        assert!(
+            app.world().get::<FrameInterpolate>(ball).is_some(),
+            "a predicted ball is a physics root even though it has no PlayerId"
+        );
+        assert!(
+            app.world().get::<FrameInterpolate>(child).is_none(),
+            "a non-rigid child has no fixed-tick pose of its own to frame-interpolate"
+        );
     }
 }

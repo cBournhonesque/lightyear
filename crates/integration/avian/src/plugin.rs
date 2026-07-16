@@ -120,7 +120,7 @@ use tracing::trace;
 
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::prelude::{AppInterpolationExt, InterpolationFns};
+use lightyear_interpolation::prelude::{AppInterpolationExt, Interpolated, InterpolationFns};
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
     PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, RollbackSystems,
@@ -204,6 +204,7 @@ struct RollbackColliderProxy {
 impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PhysicsTransformConfig>();
+        Self::install_position_to_transform_markers(app);
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
                 Self::add_position_rotation_hermite_rule(app);
@@ -385,6 +386,67 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    /// Opt non-rigid interpolated entities into Avian's Position-to-Transform sync.
+    ///
+    /// Avian's [`position_to_transform`] normally only synchronizes entities with a
+    /// [`RigidBody`]. Lightyear's render-only [`Interpolated`] entities intentionally do not have
+    /// a rigid body, but their sampled [`Position`] and [`Rotation`] still need to be written to
+    /// [`Transform`] for rendering. [`ApplyPosToTransform`] opts those entities into Avian's
+    /// system.
+    ///
+    /// A non-rigid [`ColliderOf`] is different: its `Position` and `Rotation` are derived world
+    /// state computed from the rigid-body root and its [`ColliderTransform`], while its
+    /// `Transform` stores the fixed local offset from that root. Applying the derived world pose
+    /// to the local transform would apply the hierarchy twice and move the collider away from the
+    /// body. Transform synchronization must therefore start at the rigid-body root, and compound
+    /// child colliders must not receive [`ApplyPosToTransform`]. The removal observer handles
+    /// either component insertion order. Avian can also give the root collider a self-referential
+    /// [`ColliderOf`], but that root is still synchronized by the system's [`RigidBody`] branch and
+    /// does not need the opt-in marker.
+    fn install_position_to_transform_markers(app: &mut App) {
+        app.add_observer(Self::add_apply_pos_to_transform);
+        app.add_observer(Self::remove_apply_pos_to_transform_from_child_collider);
+    }
+
+    fn add_apply_pos_to_transform(
+        trigger: On<Add, (Position, Rotation, Interpolated)>,
+        query: Query<
+            (),
+            (
+                With<Position>,
+                With<Rotation>,
+                With<Interpolated>,
+                Without<ApplyPosToTransform>,
+                Without<RigidBody>,
+                Without<ColliderOf>,
+            ),
+        >,
+        mut commands: Commands,
+    ) {
+        if query.contains(trigger.entity) {
+            commands.entity(trigger.entity).insert(ApplyPosToTransform);
+        }
+    }
+
+    fn remove_apply_pos_to_transform_from_child_collider(
+        trigger: On<Insert, (ColliderOf, ApplyPosToTransform)>,
+        query: Query<
+            (),
+            (
+                With<ColliderOf>,
+                With<ApplyPosToTransform>,
+                Without<RigidBody>,
+            ),
+        >,
+        mut commands: Commands,
+    ) {
+        if query.contains(trigger.entity) {
+            commands
+                .entity(trigger.entity)
+                .remove::<ApplyPosToTransform>();
+        }
+    }
+
     /// Register the canonical Avian pose and velocity bundle once for every
     /// Position-mode application. The bundle's default priority is its four
     /// members, so it wins over ordinary single-component rules whenever the
@@ -703,22 +765,6 @@ impl LightyearAvianPlugin {
     }
 
     fn sync_position_to_transform(app: &mut App, schedule: impl ScheduleLabel) {
-        if app
-            .world()
-            .resource::<PhysicsTransformConfig>()
-            .position_to_transform
-        {
-            // Make sure that PositionToTransform sync also runs for Interpolated entities
-            app.try_register_required_components::<Position, ApplyPosToTransform>()
-                .ok();
-            app.try_register_required_components::<Rotation, ApplyPosToTransform>()
-                .ok();
-
-            // NOTE: we do NOT register Transform as required for Position/Rotation because
-            //  they might not be added at the same time (e.g. on Interpolated entities).
-            //  The `add_transform` system below handles adding Transform when both are present.
-            //  For physics entities, Transform is registered as required for Collider above.
-        }
         let schedule = schedule.intern();
 
         app.configure_sets(
