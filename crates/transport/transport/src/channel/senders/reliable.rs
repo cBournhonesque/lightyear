@@ -6,7 +6,7 @@ use crate::channel::builder::ReliableSettings;
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::fragment_sender::FragmentSender;
 use crate::channel::senders::{ChannelSend, SendFlushOutcome, is_ready_to_send};
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::message::{
     FragmentData, MessageAck, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
 };
@@ -110,12 +110,16 @@ impl ChannelSend for ReliableSender {
         message: Bytes,
         priority: f32,
         compression: CompressionConfig,
+        compression_scratch: &mut CompressionScratch,
     ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         let unacked_message = if message.len() > self.fragment_sender.fragment_size {
-            let fragments =
-                self.fragment_sender
-                    .build_fragments_for_message(message_id, message, compression);
+            let fragments = self.fragment_sender.build_fragments_for_message(
+                message_id,
+                message,
+                compression,
+                compression_scratch,
+            );
             UnackedMessage::Fragmented(
                 fragments
                     .into_iter()
@@ -320,7 +324,12 @@ mod tests {
         // Buffer a new message
         let message1 = Bytes::from("hello");
         sender
-            .buffer_send(message1.clone(), 1.0, CompressionConfig::DISABLED)
+            .buffer_send(
+                message1.clone(),
+                1.0,
+                CompressionConfig::DISABLED,
+                &mut CompressionScratch::default(),
+            )
             .unwrap();
         assert_eq!(sender.unacked_messages.len(), 1);
         assert_eq!(sender.next_send_message_id, MessageId(1));

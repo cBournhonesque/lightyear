@@ -3,7 +3,7 @@ use crate::channel::senders::reliable::ReliableSender;
 use crate::channel::senders::sequenced_unreliable::SequencedUnreliableSender;
 use crate::channel::senders::unordered_unreliable::UnorderedUnreliableSender;
 use crate::channel::senders::unordered_unreliable_with_acks::UnorderedUnreliableWithAcksSender;
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::message::{
     MessageAck, MessageData, MessageId, SendCandidate, SendMessage, SendMessageKey,
 };
@@ -52,6 +52,7 @@ pub(crate) trait ChannelSend {
         message: Bytes,
         priority: f32,
         compression: CompressionConfig,
+        compression_scratch: &mut CompressionScratch,
     ) -> Option<MessageId>;
 
     /// Append cheap snapshots of the messages which are currently eligible for packet staging.
@@ -214,6 +215,7 @@ mod tests {
                 Bytes::from_static(b"stale"),
                 1.0,
                 CompressionConfig::DISABLED,
+                &mut CompressionScratch::default(),
             );
 
             let mut candidates = Vec::new();
@@ -239,6 +241,7 @@ mod tests {
             Bytes::from_static(b"reliable"),
             1.0,
             CompressionConfig::DISABLED,
+            &mut CompressionScratch::default(),
         );
 
         let mut candidates = Vec::new();

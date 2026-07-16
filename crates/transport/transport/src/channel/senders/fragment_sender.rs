@@ -1,5 +1,5 @@
 use crate::packet::compression::{
-    CompressionConfig, PayloadCompressionCandidate, try_build_compressed_payload,
+    CompressionConfig, CompressionScratch, PayloadCompressionCandidate, compress_fragment,
 };
 use crate::packet::message::{FragmentCompression, FragmentData, FragmentIndex, MessageId};
 use crate::packet::packet::FRAGMENT_SIZE;
@@ -43,10 +43,11 @@ impl FragmentSender {
     }
 
     pub(crate) fn build_fragments_for_message(
-        &self,
+        &mut self,
         fragment_message_id: MessageId,
         message: Bytes,
         compression: CompressionConfig,
+        compression_scratch: &mut CompressionScratch,
     ) -> Vec<FragmentData> {
         if message.len() <= self.fragment_size {
             unreachable!(
@@ -59,7 +60,7 @@ impl FragmentSender {
             payload,
             original_len,
             compressed_len,
-        }) = try_build_compressed_payload(message.as_ref(), compression)
+        }) = compress_fragment(message.as_ref(), compression, compression_scratch)
             && let Some(fragment_compression) = fragment_compression(compression)
         {
             trace!(

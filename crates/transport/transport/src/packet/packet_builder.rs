@@ -1,8 +1,8 @@
 //! Module to take a buffer of messages to send and build packets
 use crate::channel::registry::ChannelId;
 use crate::packet::compression::{
-    CompressionCandidate, CompressionConfig, CompressionOutcome,
-    try_build_compressed_packet_payload, try_compress_packet,
+    CompressionConfig, CompressionOutcome, CompressionScratch, compress_packet,
+    evaluate_packet_compression,
 };
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
@@ -58,6 +58,7 @@ struct SingleBatchState {
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
     buffer_pool: BufferPool,
+    compression_output: Vec<u8>,
 }
 
 /// Reusable packet-builder buffers.
@@ -144,6 +145,7 @@ impl PacketBuilder {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
             buffer_pool: BufferPool::new(DEFAULT_MTU),
+            compression_output: Vec::new(),
         }
     }
 
@@ -167,6 +169,7 @@ impl PacketBuilder {
         cursor: &mut CandidateCursor,
         compression: CompressionConfig,
         mtu: usize,
+        compression_scratch: &mut CompressionScratch,
     ) -> Result<Option<Packet>, PacketError> {
         self.buffer_pool.set_payload_capacity(mtu);
         // Final fragments can consume singles which appear later in their priority group. Skip
@@ -225,6 +228,8 @@ impl PacketBuilder {
                             &mut batch,
                             CompressionConfig::DISABLED,
                             mtu,
+                            compression_scratch,
+                            &mut self.compression_output,
                         )? {
                             break;
                         }
@@ -253,6 +258,8 @@ impl PacketBuilder {
                         &mut batch,
                         compression,
                         mtu,
+                        compression_scratch,
+                        &mut self.compression_output,
                     )? {
                         break;
                     }
@@ -270,10 +277,11 @@ impl PacketBuilder {
                         mtu,
                     });
                 }
-                Ok(Some(Self::finish_compression_aware_packet(
+                Ok(Some(self.finish_compression_aware_packet(
                     packet,
                     compression,
                     mtu,
+                    compression_scratch,
                 )?))
             }
         }
@@ -304,6 +312,8 @@ impl PacketBuilder {
         batch: &mut Option<SingleBatchState>,
         compression: CompressionConfig,
         mtu: usize,
+        compression_scratch: &mut CompressionScratch,
+        compression_output: &mut Vec<u8>,
     ) -> Result<bool, PacketError> {
         let MessageData::Single(message) = &candidate.message.data else {
             return Ok(false);
@@ -351,8 +361,14 @@ impl PacketBuilder {
             true
         } else if compression.is_enabled() {
             matches!(
-                try_build_compressed_packet_payload(&packet.payload, compression, mtu)?,
-                CompressionCandidate::Compressed { .. }
+                evaluate_packet_compression(
+                    &packet.payload,
+                    compression,
+                    mtu,
+                    compression_scratch,
+                    compression_output,
+                )?,
+                CompressionOutcome::Compressed { .. }
             )
         } else {
             false
@@ -372,12 +388,20 @@ impl PacketBuilder {
     }
 
     fn finish_compression_aware_packet(
+        &mut self,
         mut packet: Packet,
         compression: CompressionConfig,
         mtu: usize,
+        compression_scratch: &mut CompressionScratch,
     ) -> Result<Packet, PacketError> {
         let uncompressed_len = packet.payload.len();
-        let outcome = try_compress_packet(&mut packet, compression, mtu)?;
+        let outcome = compress_packet(
+            &mut packet,
+            compression,
+            mtu,
+            compression_scratch,
+            &mut self.compression_output,
+        )?;
         match outcome {
             CompressionOutcome::Compressed {
                 original_len,
@@ -587,9 +611,15 @@ mod tests {
     ) -> Result<Vec<Packet>, PacketError> {
         let mut cursor = CandidateCursor::default();
         let mut packets = Vec::new();
-        while let Some(packet) =
-            builder.build_next_packet(Tick(0), candidates, &mut cursor, compression, DEFAULT_MTU)?
-        {
+        let mut compression_scratch = CompressionScratch::default();
+        while let Some(packet) = builder.build_next_packet(
+            Tick(0),
+            candidates,
+            &mut cursor,
+            compression,
+            DEFAULT_MTU,
+            &mut compression_scratch,
+        )? {
             builder
                 .header_manager
                 .commit_send_packet(packet.packet_id, Duration::default());
@@ -864,12 +894,14 @@ mod tests {
         let mut builder = PacketBuilder::new(1.5);
         let mut cursor = CandidateCursor::default();
         let mut packets = Vec::new();
+        let mut compression_scratch = CompressionScratch::default();
         while let Some(packet) = builder.build_next_packet(
             Tick(0),
             &candidates,
             &mut cursor,
             CompressionConfig::DISABLED,
             DEFAULT_MTU,
+            &mut compression_scratch,
         )? {
             builder
                 .header_manager
@@ -914,6 +946,7 @@ mod tests {
 
         let mut builder = PacketBuilder::new(1.5);
         let mut cursor = CandidateCursor::default();
+        let mut compression_scratch = CompressionScratch::default();
         let packet = builder
             .build_next_packet(
                 Tick(0),
@@ -921,6 +954,7 @@ mod tests {
                 &mut cursor,
                 CompressionConfig::DISABLED,
                 DEFAULT_MTU,
+                &mut compression_scratch,
             )?
             .unwrap();
         assert_eq!(packet.messages.len(), 300);
@@ -938,6 +972,7 @@ mod tests {
                     &mut cursor,
                     CompressionConfig::DISABLED,
                     DEFAULT_MTU,
+                    &mut compression_scratch,
                 )?
                 .is_none()
         );
@@ -997,6 +1032,7 @@ mod tests {
 
         let mut builder = PacketBuilder::new(1.5);
         let mut cursor = CandidateCursor::default();
+        let mut compression_scratch = CompressionScratch::default();
         let fragment_packet = builder
             .build_next_packet(
                 Tick(0),
@@ -1004,6 +1040,7 @@ mod tests {
                 &mut cursor,
                 CompressionConfig::DISABLED,
                 mtu,
+                &mut compression_scratch,
             )?
             .unwrap();
         assert!(fragment_packet.payload.len() <= mtu);
@@ -1019,6 +1056,7 @@ mod tests {
                 &mut cursor,
                 CompressionConfig::DISABLED,
                 mtu,
+                &mut compression_scratch,
             )?
             .unwrap();
         assert!(single_packet.payload.len() <= mtu);

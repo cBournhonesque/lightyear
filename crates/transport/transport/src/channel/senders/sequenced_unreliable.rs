@@ -4,7 +4,7 @@ use crate::channel::senders::{
     ChannelSend, PendingSendMessage, SendFlushOutcome, commit_unreliable_candidate,
     is_ready_to_send,
 };
-use crate::packet::compression::CompressionConfig;
+use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::message::{
     MessageAck, MessageData, MessageId, SendCandidate, SendMessage, SendMessageKey, SingleData,
 };
@@ -69,13 +69,16 @@ impl ChannelSend for SequencedUnreliableSender {
         message: Bytes,
         priority: f32,
         compression: CompressionConfig,
+        compression_scratch: &mut CompressionScratch,
     ) -> Option<MessageId> {
         let message_id = self.next_send_message_id;
         if message.len() > self.fragment_sender.fragment_size {
-            for fragment in
-                self.fragment_sender
-                    .build_fragments_for_message(message_id, message, compression)
-            {
+            for fragment in self.fragment_sender.build_fragments_for_message(
+                message_id,
+                message,
+                compression,
+                compression_scratch,
+            ) {
                 self.fragmented_messages_to_send
                     .push_back(PendingSendMessage::new(SendMessage {
                         data: MessageData::Fragment(fragment),
@@ -171,7 +174,12 @@ mod tests {
         assert!(sender.timer.as_ref().is_some_and(|t| !t.is_finished()));
 
         sender
-            .buffer_send(Bytes::from("hello"), 1.0, CompressionConfig::DISABLED)
+            .buffer_send(
+                Bytes::from("hello"),
+                1.0,
+                CompressionConfig::DISABLED,
+                &mut CompressionScratch::default(),
+            )
             .unwrap();
 
         // we do not send because we didn't reach the timer

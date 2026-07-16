@@ -407,27 +407,31 @@ impl TransportPlugin {
                 }).inspect_err(|e| error!("error buffering host-client message: {e:?}")).ok();
                 return
             }
-            transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
-                let sender_metadata = transport.senders.get_mut(&channel_kind).ok_or(TransportError::ChannelNotFound(channel_kind))?;
-                trace!(
-                    target: "lightyear_debug::transport",
-                    kind = "channel_send_buffer",
-                    schedule = "PostUpdate",
-                    sample_point = "PostUpdate",
-                    tick = ?tick,
-                    tick_id = u64::from(tick.0),
-                    channel = %sender_metadata.name,
-                    channel_kind = ?channel_kind,
-                    bytes = bytes.len(),
-                    priority = priority,
-                    "buffered channel message for transport send"
-                );
-                // TODO: do we need the message_id?
-                sender_metadata
-                    .sender
-                    .buffer_send(bytes, priority, transport.compression);
+            (|| {
+                while let Ok((channel_kind, bytes, priority)) = transport.recv_channel.try_recv() {
+                    let sender_metadata = transport.senders.get(&channel_kind).ok_or(
+                        TransportError::ChannelNotFound(channel_kind),
+                    )?;
+                    trace!(
+                        target: "lightyear_debug::transport",
+                        kind = "channel_send_buffer",
+                        schedule = "PostUpdate",
+                        sample_point = "PostUpdate",
+                        tick = ?tick,
+                        tick_id = u64::from(tick.0),
+                        channel = %sender_metadata.name,
+                        channel_kind = ?channel_kind,
+                        bytes = bytes.len(),
+                        priority = priority,
+                        "buffered channel message for transport send"
+                    );
+                    // TODO: do we need the message_id?
+                    transport.send_mut_erased(channel_kind, bytes, priority)?;
+                }
                 Ok::<(), TransportError>(())
-            }).inspect_err(|e| error!("error sending message: {e:?}")).ok();
+            })()
+            .inspect_err(|e| error!("error sending message: {e:?}"))
+            .ok();
 
             // Collect cheap snapshots while each channel retains ownership of its pending queues.
             transport.priority_manager.clear();
@@ -453,6 +457,7 @@ impl TransportPlugin {
                     &mut candidate_cursor,
                     transport.compression,
                     mtu,
+                    &mut transport.compression_scratch,
                 );
                 let mut packet = match staged {
                     Ok(Some(packet)) => packet,
