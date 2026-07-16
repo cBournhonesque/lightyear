@@ -1,17 +1,24 @@
 //! This module contains the [`Channel`] trait
-use crate::channel::receivers::ChannelReceiverEnum;
+use crate::channel::receivers::{ChannelReceive, ChannelReceiverEnum};
 use crate::channel::registry::{ChannelId, ChannelKind};
 use crate::channel::senders::ChannelSend;
 use crate::channel::senders::ChannelSenderEnum;
 use crate::packet::compression::CompressionConfig;
+use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
-use crate::packet::packet::PacketId;
+use crate::packet::packet::{
+    FRAGMENT_SIZE, MIN_FRAGMENT_PACKET_SIZE, PacketId, fragment_size_for_min_mtu,
+};
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::{BandwidthLimiter, PriorityManager};
 use bevy_ecs::component::Component;
+use bevy_ecs::lifecycle::HookContext;
+use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
 use core::time::Duration;
+#[cfg(test)]
+use lightyear_link::DEFAULT_MTU;
 use lightyear_link::Link;
 #[allow(unused_imports)]
 use tracing::trace;
@@ -66,6 +73,7 @@ impl Default for ChannelSettings {
 
 /// Holds information about all the channels present on the entity.
 #[derive(Component)]
+#[component(on_add = Transport::on_add)]
 #[require(Link)]
 pub struct Transport {
     pub receivers: HashMap<ChannelId, ReceiverMetadata>,
@@ -76,6 +84,8 @@ pub struct Transport {
     pub(crate) bandwidth_limiter: BandwidthLimiter,
     /// PacketBuilder shared between all channels of this transport
     pub(crate) packet_manager: PacketBuilder,
+    /// Stable fragment payload size derived from the link's minimum MTU.
+    fragment_size: usize,
     pub compression: CompressionConfig,
 
     // TODO: do a HashMap<MessageId, PacketId> instead?
@@ -111,6 +121,7 @@ impl Transport {
             priority_manager: PriorityManager::new(priority_config),
             bandwidth_limiter,
             packet_manager: PacketBuilder::default(),
+            fragment_size: FRAGMENT_SIZE,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
             fragment_acks: Default::default(),
@@ -138,6 +149,36 @@ impl Default for Transport {
 }
 
 impl Transport {
+    fn on_add(mut world: DeferredWorld, context: HookContext) {
+        let Some(min_mtu) = world.get::<Link>(context.entity).map(|link| link.min_mtu()) else {
+            return;
+        };
+        let Some(mut transport) = world.get_mut::<Transport>(context.entity) else {
+            return;
+        };
+        if let Err(error) = transport.initialize_fragment_size(min_mtu) {
+            tracing::error!(?error, "invalid link MTU for transport");
+        }
+    }
+
+    /// Derives the stable fragment size when this transport is attached to its link.
+    fn initialize_fragment_size(&mut self, min_mtu: usize) -> Result<(), PacketError> {
+        let fragment_size = fragment_size_for_min_mtu(min_mtu).ok_or(PacketError::MtuTooSmall {
+            actual: min_mtu,
+            min: MIN_FRAGMENT_PACKET_SIZE,
+        })?;
+        if self.fragment_size != fragment_size {
+            self.fragment_size = fragment_size;
+            self.senders
+                .values_mut()
+                .for_each(|metadata| metadata.sender.set_fragment_size(fragment_size));
+            self.receivers
+                .values_mut()
+                .for_each(|metadata| metadata.receiver.set_fragment_size(fragment_size));
+        }
+        Ok(())
+    }
+
     pub fn has_sender<C: Channel>(&self) -> bool {
         self.senders.contains_key(&ChannelKind::of::<C>())
     }
@@ -150,10 +191,11 @@ impl Transport {
 
     pub fn add_sender<C: Channel>(
         &mut self,
-        sender: ChannelSenderEnum,
+        mut sender: ChannelSenderEnum,
         mode: ChannelMode,
         channel_id: ChannelId,
     ) {
+        sender.set_fragment_size(self.fragment_size);
         self.senders.insert(
             ChannelKind::of::<C>(),
             SenderMetadata {
@@ -188,9 +230,10 @@ impl Transport {
 
     pub fn add_receiver<C: Channel>(
         &mut self,
-        receiver: ChannelReceiverEnum,
+        mut receiver: ChannelReceiverEnum,
         channel_id: ChannelId,
     ) {
+        receiver.set_fragment_size(self.fragment_size);
         self.receivers.insert(
             channel_id,
             ReceiverMetadata {
@@ -269,15 +312,19 @@ impl Transport {
     pub(crate) fn reset(&mut self, registry: &ChannelRegistry) {
         self.receivers.iter_mut().for_each(|(channel_id, r)| {
             let settings = registry.settings_from_net_id(*channel_id).unwrap();
+            let mut receiver: ChannelReceiverEnum = settings.into();
+            receiver.set_fragment_size(self.fragment_size);
             *r = ReceiverMetadata {
-                receiver: settings.into(),
+                receiver,
                 channel_kind: r.channel_kind,
             };
         });
         self.senders.iter_mut().for_each(|(channel_kind, s)| {
             let settings = registry.settings(*channel_kind).unwrap();
+            let mut sender: ChannelSenderEnum = settings.into();
+            sender.set_fragment_size(self.fragment_size);
             *s = SenderMetadata {
-                sender: settings.into(),
+                sender,
                 message_acks: vec![],
                 message_nacks: vec![],
                 messages_sent: vec![],
@@ -392,6 +439,39 @@ impl ReliableSettings {
     }
 }
 
+#[cfg(test)]
+mod mtu_tests {
+    use super::*;
+    use bevy_ecs::world::World;
+    use lightyear_link::LinkMtu;
+
+    #[test]
+    fn fragment_size_is_initialized_once_from_link_minimum_mtu() {
+        let mut world = World::new();
+        let entity = world
+            .spawn((
+                Link::default().with_mtu(LinkMtu::new(256)),
+                Transport::default(),
+            ))
+            .id();
+        let expected_fragment_size = fragment_size_for_min_mtu(256).unwrap();
+
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            expected_fragment_size
+        );
+
+        world.get_mut::<Link>(entity).unwrap().set_mtu(512).unwrap();
+
+        assert_eq!(world.get::<Link>(entity).unwrap().min_mtu(), 256);
+        assert_eq!(world.get::<Link>(entity).unwrap().mtu(), 512);
+        assert_eq!(
+            world.get::<Transport>(entity).unwrap().fragment_size,
+            expected_fragment_size
+        );
+    }
+}
+
 #[cfg(all(test, feature = "compression_lz4"))]
 mod tests {
     use super::*;
@@ -476,6 +556,7 @@ mod tests {
             &candidates,
             &mut cursor,
             compression,
+            DEFAULT_MTU,
         )? {
             sender_transport
                 .packet_manager
@@ -539,6 +620,7 @@ mod tests {
                 transport.priority_manager.candidates(),
                 &mut cursor,
                 compression,
+                DEFAULT_MTU,
             )?
             .unwrap();
 
@@ -548,7 +630,7 @@ mod tests {
         assert!(
             transport
                 .bandwidth_limiter
-                .consume_packet_quota(packet.payload.len() as u32)
+                .consume_packet_quota(packet.payload.len())
         );
         Ok(())
     }

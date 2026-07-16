@@ -10,14 +10,15 @@ use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::server::{Started, Stopped};
 use lightyear_core::id::RemoteId;
-use lightyear_link::prelude::Server;
+use lightyear_link::prelude::{Link, Server};
 use lightyear_transport::channel::receivers::ChannelReceive;
+use lightyear_transport::packet::fragment_size_for_min_mtu;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
 use crate::channels::RepliconChannelMap;
 use lightyear_messages::plugin::MessageSystems;
-use tracing::trace;
+use tracing::{error, trace};
 
 /// Adds the replicon server-side backend bridge for lightyear.
 ///
@@ -74,16 +75,21 @@ impl Plugin for RepliconServerPlugin {
 /// They only need `ClientVisibility` for lightyear's same-app visibility hooks.
 fn on_client_connected(
     _trigger: On<Add, Connected>,
-    remotes: Query<(Entity, &RemoteId), (Added<Connected>, With<ClientOf>, Without<HostClient>)>,
+    remotes: Query<
+        (Entity, &RemoteId, &Link),
+        (Added<Connected>, With<ClientOf>, Without<HostClient>),
+    >,
     hosts: Query<Entity, (Added<Connected>, With<HostClient>)>,
     mut commands: Commands,
 ) {
-    for (entity, remote_id) in remotes.iter() {
+    for (entity, remote_id, link) in remotes.iter() {
+        let min_mtu = link.min_mtu();
+        let Some(max_size) = fragment_size_for_min_mtu(min_mtu) else {
+            error!(?entity, min_mtu, "link MTU cannot carry fragment packets");
+            continue;
+        };
         commands.entity(entity).insert((
-            ConnectedClient {
-                max_size:
-                    lightyear_transport::packet::packet_builder::MAX_UNFRAGMENTED_PAYLOAD_SIZE,
-            },
+            ConnectedClient { max_size },
             NetworkId::new(remote_id.to_bits()),
         ));
     }
@@ -155,15 +161,43 @@ fn send_server_packets(
 
 #[cfg(test)]
 mod tests {
-    use super::sync_server_state;
+    use super::{on_client_connected, sync_server_state};
     use bevy_app::{App, Update};
     use bevy_replicon::prelude::ServerState;
+    use bevy_replicon::shared::backend::connected_client::{ConnectedClient, NetworkIdMap};
     use bevy_state::app::{AppExtStates, StatesPlugin};
     use bevy_state::state::State;
-    use lightyear_connection::client::PeerMetadata;
+    use lightyear_connection::client::{Connected, PeerMetadata};
+    use lightyear_connection::client_of::ClientOf;
     use lightyear_connection::server::Stopped;
-    use lightyear_link::prelude::Server;
+    use lightyear_core::id::{PeerId, RemoteId};
+    use lightyear_link::prelude::{Link, LinkMtu, Server};
+    use lightyear_transport::packet::fragment_size_for_min_mtu;
     use test_log::test;
+
+    #[test]
+    fn connected_client_max_size_uses_link_minimum_mtu() {
+        let mut app = App::new();
+        app.add_observer(on_client_connected);
+        app.init_resource::<NetworkIdMap>();
+
+        let min_mtu = 256;
+        let entity = app
+            .world_mut()
+            .spawn((
+                RemoteId(PeerId::Netcode(1)),
+                ClientOf,
+                Link::default().with_mtu(LinkMtu::new(min_mtu)),
+                Connected,
+            ))
+            .id();
+        app.update();
+
+        assert_eq!(
+            app.world().get::<ConnectedClient>(entity).unwrap().max_size,
+            fragment_size_for_min_mtu(min_mtu).unwrap()
+        );
+    }
 
     #[test]
     fn non_server_stopped_marker_does_not_stop_local_sender() {

@@ -42,6 +42,10 @@ impl SequencedUnreliableReceiver {
 }
 
 impl ChannelReceive for SequencedUnreliableReceiver {
+    fn set_fragment_size(&mut self, fragment_size: usize) {
+        self.fragment_receiver.set_fragment_size(fragment_size);
+    }
+
     fn update(&mut self, now: Duration) {
         self.current_time = now;
         self.fragment_receiver

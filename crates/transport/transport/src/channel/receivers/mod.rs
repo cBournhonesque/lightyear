@@ -35,6 +35,9 @@ pub(crate) mod unordered_unreliable;
 /// A trait for receiving messages over a channel
 #[enum_dispatch]
 pub trait ChannelReceive {
+    /// Configures the fixed fragment payload size derived from the link's stable minimum MTU.
+    fn set_fragment_size(&mut self, fragment_size: usize);
+
     /// Bookkeeping on the channel
     fn update(&mut self, now: Duration);
 

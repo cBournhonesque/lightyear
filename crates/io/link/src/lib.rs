@@ -25,11 +25,13 @@ extern crate alloc;
 extern crate std;
 
 mod conditioner;
+mod mtu;
 pub mod server;
 
 use alloc::{collections::vec_deque::Drain, string::String};
 
 pub use crate::conditioner::LinkConditioner;
+pub use crate::mtu::{DEFAULT_MTU, LinkMtu, MtuTooSmall};
 use alloc::collections::VecDeque;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::lifecycle::HookContext;
@@ -43,8 +45,8 @@ pub mod prelude {
     pub use crate::conditioner::{LinkConditionerConfig, LinkConditionerState};
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
-        Link, LinkStart, LinkStats, LinkSystems, Linked, Linking, RecvLinkConditioner, Unlink,
-        Unlinked,
+        DEFAULT_MTU, Link, LinkMtu, LinkStart, LinkStats, LinkSystems, Linked, Linking,
+        MtuTooSmall, RecvLinkConditioner, Unlink, Unlinked,
     };
 
     pub mod server {
@@ -101,6 +103,8 @@ pub struct Link {
     pub state: LinkState,
     /// Transport-observed statistics for this link.
     pub stats: LinkStats,
+    /// Minimum and current maximum payload sizes exposed by the concrete link.
+    mtu: LinkMtu,
 }
 
 /// Packet conditioner used for inbound [`RecvPayload`] values.
@@ -110,17 +114,40 @@ pub struct Link {
 pub type RecvLinkConditioner = LinkConditioner<RecvPayload>;
 
 impl Link {
-    /// Creates a link with empty send/receive buffers.
-    pub fn new(recv_conditioner: Option<RecvLinkConditioner>) -> Self {
-        Self {
-            recv: LinkReceiver {
-                buffer: VecDeque::new(),
-                conditioner: recv_conditioner,
-            },
-            send: LinkSender::default(),
-            state: Default::default(),
-            stats: LinkStats::default(),
-        }
+    /// Configures the receive-side network conditioner.
+    ///
+    /// Accepts either a [`RecvLinkConditioner`] or an `Option<RecvLinkConditioner>`, which makes
+    /// it convenient to forward optional application configuration.
+    pub fn with_conditioner(
+        mut self,
+        recv_conditioner: impl Into<Option<RecvLinkConditioner>>,
+    ) -> Self {
+        self.recv.conditioner = recv_conditioner.into();
+        self
+    }
+
+    /// Configures the link's minimum and current MTU characteristics.
+    ///
+    /// This is intended for constructing a link. Once constructed, only the current MTU can be
+    /// changed through [`set_mtu`](Self::set_mtu); the minimum MTU remains stable.
+    pub fn with_mtu(mut self, mtu: LinkMtu) -> Self {
+        self.mtu = mtu;
+        self
+    }
+
+    /// Returns the link's current maximum payload size.
+    pub const fn mtu(&self) -> usize {
+        self.mtu.mtu()
+    }
+
+    /// Returns the stable minimum MTU configured when this link was constructed.
+    pub const fn min_mtu(&self) -> usize {
+        self.mtu.min_mtu()
+    }
+
+    /// Updates the current MTU without changing the link's stable minimum MTU.
+    pub const fn set_mtu(&mut self, mtu: usize) -> Result<(), MtuTooSmall> {
+        self.mtu.set_mtu(mtu)
     }
 }
 
@@ -452,5 +479,48 @@ impl Plugin for LinkPlugin {
         app.configure_sets(PostUpdate, LinkSystems::Send);
 
         app.add_observer(Self::unlink);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explicit_link_mtu_does_not_change_link_owned_latency_stats() {
+        let mut link = Link::default().with_mtu(LinkMtu::new(512));
+        link.stats.rtt = Duration::from_millis(20);
+        link.stats.jitter = Duration::from_millis(3);
+
+        assert_eq!(link.mtu(), 512);
+        assert_eq!(link.min_mtu(), 512);
+        assert_eq!(link.stats.rtt, Duration::from_millis(20));
+        assert_eq!(link.stats.jitter, Duration::from_millis(3));
+    }
+
+    #[test]
+    fn link_builder_configures_conditioner_and_mtu() {
+        let conditioner =
+            RecvLinkConditioner::new(crate::conditioner::LinkConditionerConfig::default());
+        let link = Link::default()
+            .with_conditioner(conditioner)
+            .with_mtu(LinkMtu::new(512));
+
+        assert!(link.recv.conditioner.is_some());
+        assert_eq!(link.mtu(), 512);
+        assert_eq!(link.min_mtu(), 512);
+    }
+
+    #[test]
+    fn current_mtu_can_change_but_minimum_mtu_cannot() {
+        let mut link = Link::default().with_mtu(LinkMtu::new(512));
+
+        link.set_mtu(900).unwrap();
+        assert_eq!(link.mtu(), 900);
+        assert_eq!(link.min_mtu(), 512);
+
+        assert_eq!(link.set_mtu(511), Err(MtuTooSmall { mtu: 511, min: 512 }));
+        assert_eq!(link.mtu(), 900);
+        assert_eq!(link.min_mtu(), 512);
     }
 }

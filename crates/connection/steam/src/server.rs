@@ -127,7 +127,7 @@ impl SteamServerPlugin {
     //                     LinkOf {
     //                         server: server_link.0,
     //                     },
-    //                     Link::new(None),
+    //                     Link::default(),
     //                     ClientOf,
     //                     Linked,
     //                     Connecting,
@@ -182,7 +182,7 @@ impl SteamServerPlugin {
                     LinkOf {
                         server: server_link.0,
                     },
-                    Link::new(None),
+                    Link::default(),
                     ClientOf,
                     Connected,
                     RemoteId(PeerId::Steam(steam_conn.steam_id().raw())),

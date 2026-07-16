@@ -1,6 +1,5 @@
 use crate::channel::registry::ChannelRegistry;
 use crate::packet::message::{MessageData, SendCandidate};
-use crate::packet::packet::MAX_PACKET_SIZE;
 use alloc::vec::Vec;
 use core::num::NonZeroU32;
 use governor::{DefaultDirectRateLimiter, Quota};
@@ -31,21 +30,24 @@ impl Default for PriorityConfig {
 }
 
 impl PriorityConfig {
-    /// Enable a sustained byte rate while allowing at least one maximum-sized packet per burst.
+    /// Enables a sustained byte rate with an equally sized burst capacity.
     ///
-    /// Governor cannot admit an item larger than its burst capacity. Keeping the burst at least
-    /// one transport MTU prevents low byte rates from making every valid packet permanently
-    /// inadmissible; it does not change the configured sustained refill rate.
+    /// The bandwidth quota is independent of link MTU. Use
+    /// [`with_burst_size`](Self::with_burst_size) when the burst should differ from the sustained
+    /// byte rate, or provide a custom [`Quota`] through [`Self::bandwidth_quota`].
     pub fn new(bytes_per_second_quota: u32) -> Self {
         let cap = bytes_per_second_quota.try_into().unwrap();
-        let burst = bytes_per_second_quota
-            .max(MAX_PACKET_SIZE as u32)
-            .try_into()
-            .unwrap();
         Self {
-            bandwidth_quota: Quota::per_second(cap).allow_burst(burst),
+            bandwidth_quota: Quota::per_second(cap).allow_burst(cap),
             enabled: true,
         }
+    }
+
+    /// Sets the maximum bandwidth burst independently of the sustained byte rate and link MTU.
+    pub fn with_burst_size(mut self, burst_size: u32) -> Self {
+        let burst_size = burst_size.try_into().unwrap();
+        self.bandwidth_quota = self.bandwidth_quota.allow_burst(burst_size);
+        self
     }
 }
 
@@ -162,11 +164,15 @@ impl BandwidthLimiter {
     ///
     /// Returns false when this packet cannot currently fit. The caller should stop sending for
     /// this tick, because subsequent packets are not higher priority than this one.
-    pub(crate) fn consume_packet_quota(&mut self, packet_bytes: u32) -> bool {
+    pub(crate) fn consume_packet_quota(&mut self, packet_bytes: usize) -> bool {
         if !self.enabled {
             return true;
         }
 
+        let Ok(packet_bytes) = u32::try_from(packet_bytes) else {
+            error!("packet size exceeds bandwidth limiter range");
+            return false;
+        };
         let nonzero_packet_bytes = NonZeroU32::try_from(packet_bytes).unwrap();
         let Ok(result) = self.limiter.check_n(nonzero_packet_bytes) else {
             error!("the bandwidth quota cannot fit a packet of size {packet_bytes}");
@@ -441,8 +447,10 @@ mod tests {
     }
 
     #[test]
-    fn bandwidth_burst_can_always_admit_one_mtu_packet() {
-        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1));
-        assert!(limiter.consume_packet_quota(MAX_PACKET_SIZE as u32));
+    fn bandwidth_burst_is_independent_of_mtu() {
+        let mut limiter = BandwidthLimiter::new(PriorityConfig::new(1).with_burst_size(300));
+
+        assert!(limiter.consume_packet_quota(300));
+        assert!(!limiter.consume_packet_quota(301));
     }
 }

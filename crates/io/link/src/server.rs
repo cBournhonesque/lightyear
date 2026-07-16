@@ -86,41 +86,6 @@ impl Server {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::{Link, Linked};
-
-    #[derive(Resource, Default)]
-    struct UnlinkedChildren(Vec<Entity>);
-
-    fn record_unlink(trigger: On<Unlink>, mut unlinked: ResMut<UnlinkedChildren>) {
-        unlinked.0.push(trigger.entity);
-    }
-
-    #[test]
-    fn server_unlinked_triggers_unlink_for_child_links() {
-        let mut app = App::new();
-        app.add_plugins(ServerLinkPlugin);
-        app.init_resource::<UnlinkedChildren>();
-        app.add_observer(record_unlink);
-
-        let server = app.world_mut().spawn((Server::default(), Linked)).id();
-        let child = app
-            .world_mut()
-            .spawn((LinkOf { server }, Link::new(None), Linked))
-            .id();
-
-        app.world_mut().entity_mut(server).insert(Unlinked {
-            reason: alloc::string::String::from("server stopped"),
-        });
-        app.update();
-
-        let unlinked = &app.world().resource::<UnlinkedChildren>().0;
-        assert_eq!(unlinked, &[child]);
-    }
-}
-
 /// Relationship source component for a link that belongs to a [`Server`].
 ///
 /// Insert this on a per-client link entity and set [`server`](Self::server) to the server endpoint
@@ -282,7 +247,37 @@ impl Plugin for ServerLinkPlugin {
 mod tests {
     use super::*;
     use crate::conditioner::LinkConditionerConfig;
+    use crate::{Link, Linked};
     use core::time::Duration;
+
+    #[derive(Resource, Default)]
+    struct UnlinkedChildren(Vec<Entity>);
+
+    fn record_unlink(trigger: On<Unlink>, mut unlinked: ResMut<UnlinkedChildren>) {
+        unlinked.0.push(trigger.entity);
+    }
+
+    #[test]
+    fn server_unlinked_triggers_unlink_for_child_links() {
+        let mut app = App::new();
+        app.add_plugins(ServerLinkPlugin);
+        app.init_resource::<UnlinkedChildren>();
+        app.add_observer(record_unlink);
+
+        let server = app.world_mut().spawn((Server::default(), Linked)).id();
+        let child = app
+            .world_mut()
+            .spawn((LinkOf { server }, Link::default(), Linked))
+            .id();
+
+        app.world_mut().entity_mut(server).insert(Unlinked {
+            reason: alloc::string::String::from("server stopped"),
+        });
+        app.update();
+
+        let unlinked = &app.world().resource::<UnlinkedChildren>().0;
+        assert_eq!(unlinked, &[child]);
+    }
 
     #[test]
     fn link_of_inherits_server_conditioner() {

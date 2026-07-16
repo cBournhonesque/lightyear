@@ -396,6 +396,7 @@ impl TransportPlugin {
         query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
+            let mtu = link.mtu();
 
             // buffer all new messages in the Sender
             if let Some(mut host_client) = host_client {
@@ -451,6 +452,7 @@ impl TransportPlugin {
                     transport.priority_manager.candidates(),
                     &mut candidate_cursor,
                     transport.compression,
+                    mtu,
                 );
                 let mut packet = match staged {
                     Ok(Some(packet)) => packet,
@@ -468,7 +470,7 @@ impl TransportPlugin {
                 let packet_compression = packet.compression;
                 if !transport
                     .bandwidth_limiter
-                    .consume_packet_quota(packet_len as u32)
+                    .consume_packet_quota(packet_len)
                 {
                     // Staging has no channel or packet-header side effects. Reliable messages are
                     // retained; each unreliable channel applies its retry-unsent policy when this
@@ -669,6 +671,7 @@ mod tests {
 
     struct RetryChannel;
     struct DiscardChannel;
+    struct SmallMtuChannel;
 
     fn spawn_transport<C: crate::channel::Channel>(
         world: &mut World,
@@ -676,7 +679,7 @@ mod tests {
         channel_kind: ChannelKind,
         channel_id: ChannelId,
     ) -> Entity {
-        let mut transport = Transport::new(PriorityConfig::new(1));
+        let mut transport = Transport::new(PriorityConfig::new(1).with_burst_size(1200));
         transport.add_sender::<C>((&settings).into(), settings.mode, channel_id);
         for value in [1, 2] {
             transport
@@ -738,5 +741,66 @@ mod tests {
             pending_candidates::<DiscardChannel>(&mut world, discard_entity),
             0
         );
+    }
+
+    #[test]
+    fn packet_builder_uses_link_mtu_for_fragmentation_and_packet_size() {
+        let settings = ChannelSettings::default();
+        let mut registry = ChannelRegistry::default();
+        let (channel_kind, channel_id) = registry.add_channel::<SmallMtuChannel>(settings);
+
+        let mut transport = Transport::default();
+        transport.add_sender::<SmallMtuChannel>((&settings).into(), settings.mode, channel_id);
+        transport.add_receiver::<SmallMtuChannel>((&settings).into(), channel_id);
+
+        let mut world = World::new();
+        world.insert_resource(registry);
+        world.init_resource::<Time<Real>>();
+        world.init_resource::<LocalTimeline>();
+        let entity = world
+            .spawn((
+                Link::default().with_mtu(lightyear_link::LinkMtu::new(256)),
+                Linked,
+                transport,
+            ))
+            .id();
+        let expected = Bytes::from(vec![5; 700]);
+        world
+            .get::<Transport>(entity)
+            .unwrap()
+            .send_erased(channel_kind, expected.clone(), 1.0)
+            .unwrap();
+
+        world.run_system_once(TransportPlugin::buffer_send).unwrap();
+
+        let packets = world
+            .get_mut::<Link>(entity)
+            .unwrap()
+            .send
+            .drain()
+            .collect::<Vec<_>>();
+        assert!(packets.len() > 1);
+        assert!(packets.iter().all(|packet| packet.len() <= 256));
+
+        {
+            let mut link = world.get_mut::<Link>(entity).unwrap();
+            packets
+                .into_iter()
+                .for_each(|packet| link.recv.push_raw(packet));
+        }
+        world
+            .run_system_once(TransportPlugin::buffer_receive)
+            .unwrap();
+
+        let mut transport = world.get_mut::<Transport>(entity).unwrap();
+        let received = transport
+            .receivers
+            .get_mut(&channel_id)
+            .unwrap()
+            .receiver
+            .read_message()
+            .unwrap()
+            .1;
+        assert_eq!(received, expected);
     }
 }

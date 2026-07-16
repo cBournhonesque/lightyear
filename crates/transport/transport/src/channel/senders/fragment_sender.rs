@@ -16,9 +16,13 @@ pub(crate) struct FragmentSender {
 impl FragmentSender {
     pub fn new() -> Self {
         Self {
-            // TODO: make this overridable?
             fragment_size: FRAGMENT_SIZE,
         }
+    }
+
+    pub(crate) fn set_fragment_size(&mut self, fragment_size: usize) {
+        debug_assert!(fragment_size > 0);
+        self.fragment_size = fragment_size;
     }
     pub fn build_fragments(
         &self,

@@ -38,6 +38,10 @@ impl OrderedReliableReceiver {
 }
 
 impl ChannelReceive for OrderedReliableReceiver {
+    fn set_fragment_size(&mut self, fragment_size: usize) {
+        self.fragment_receiver.set_fragment_size(fragment_size);
+    }
+
     fn update(&mut self, _: Duration) {}
 
     /// Queues a received message in an internal buffer

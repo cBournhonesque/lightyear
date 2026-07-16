@@ -199,6 +199,7 @@ impl PacketLoopFixture {
             &batch.candidates,
             &mut cursor,
             CompressionConfig::DISABLED,
+            lightyear_link::DEFAULT_MTU,
         )? {
             stats.packets += 1;
             let packet_id = packet.packet_id;

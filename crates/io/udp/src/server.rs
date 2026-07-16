@@ -232,7 +232,7 @@ impl ServerUdpPlugin {
                                 }
                                 Entry::Vacant(vacant) => {
                                     // we are spawning a new entity but the initial packets will be dropped
-                                    let mut link = Link::new(None);
+                                    let mut link = Link::default();
                                     link.recv.push(payload, Instant::now());
                                     commands.command_scope(|mut c| {
                                         let entity = c

@@ -456,7 +456,7 @@ mod bot {
             BotClient,
             ReplicationSender,
             ReplicationReceiver,
-            Link::new(Some(RecvLinkConditioner::new(conditioner.clone()))),
+            Link::default().with_conditioner(RecvLinkConditioner::new(conditioner.clone())),
             NetcodeClient::new(
                 auth,
                 lightyear::netcode::client_plugin::NetcodeConfig::default(),
@@ -471,7 +471,7 @@ mod bot {
         let server = server.into_inner();
         commands.spawn((
             LinkOf { server },
-            Link::new(Some(RecvLinkConditioner::new(conditioner))),
+            Link::default().with_conditioner(RecvLinkConditioner::new(conditioner)),
             Linked,
             ClientOf,
             BotClient,

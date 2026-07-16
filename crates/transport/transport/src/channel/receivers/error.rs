@@ -14,6 +14,8 @@ pub enum ChannelReceiveError {
     },
     #[error("fragment count changed while reassembling message: expected {expected}, got {actual}")]
     FragmentCountMismatch { expected: usize, actual: usize },
+    #[error("fragmented message size overflows the local address space")]
+    FragmentedMessageSizeOverflow,
     #[error(
         "fragment compression changed while reassembling message: expected {expected}, got {actual}"
     )]

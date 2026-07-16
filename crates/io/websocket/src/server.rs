@@ -94,7 +94,7 @@ impl WebSocketServerPlugin {
                     LinkOf {
                         server: server_link.0,
                     },
-                    Link::new(None),
+                    Link::default(),
                     PeerAddr(peer_addr.0),
                 ))
                 .id();

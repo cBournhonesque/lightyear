@@ -27,13 +27,13 @@
 //! ```ignore
 //! // Server-side mirror entity (one per connecting crossbeam client):
 //! let mirror = commands
-//!     .spawn((LinkOf { server }, Link::new(None), io))
+//!     .spawn((LinkOf { server }, Link::default(), io))
 //!     .id();
 //! commands.trigger(LinkStart { entity: mirror });
 //!
 //! // Client-side connection entity:
 //! let client = commands
-//!     .spawn((Client, RawClient, Link::new(None), io))
+//!     .spawn((Client, RawClient, Link::default(), io))
 //!     .id();
 //! commands.trigger(Connect { entity: client });  // Connect → LinkStart internally
 //! ```
@@ -68,7 +68,7 @@ const LOCALHOST: SocketAddr = SocketAddr::new(core::net::IpAddr::V4(Ipv4Addr::LO
 /// Use [`new_pair`](Self::new_pair) for the normal bidirectional setup: one returned component goes
 /// on the client-side entity and the other on the server-side mirror entity.
 #[derive(Component, Clone)]
-#[require(Link::new(None))]
+#[require(Link::default())]
 #[require(LocalAddr(LOCALHOST))]
 #[require(PeerAddr(LOCALHOST))]
 pub struct CrossbeamIo {
@@ -246,7 +246,7 @@ mod tests {
         // the test independent of any connection plugin).
         let sender_entity = app
             .world_mut()
-            .spawn((Link::new(None), Linked, client_io))
+            .spawn((Link::default(), Linked, client_io))
             .id();
 
         // Drop only the peer receiver before sending. Keep `peer_sender`
@@ -295,7 +295,7 @@ mod tests {
 
         let client_entity = app
             .world_mut()
-            .spawn((Link::new(None), Linked, client_io))
+            .spawn((Link::default(), Linked, client_io))
             .id();
 
         drop(server_io);
@@ -358,11 +358,11 @@ mod tests {
 
         let client_entity = app
             .world_mut()
-            .spawn((Link::new(None), Linked, client_io))
+            .spawn((Link::default(), Linked, client_io))
             .id();
         let server_entity = app
             .world_mut()
-            .spawn((Link::new(None), Linked, server_io))
+            .spawn((Link::default(), Linked, server_io))
             .id();
 
         let mut client_link = app
@@ -411,7 +411,7 @@ mod tests {
 
         let client_entity = app
             .world_mut()
-            .spawn((Link::new(None), Linked, client_io))
+            .spawn((Link::default(), Linked, client_io))
             .id();
 
         // Capacity 1: "first" fills the channel, "second" hits Full and must
@@ -477,7 +477,7 @@ mod tests {
                 LinkOf {
                     server: server_entity,
                 },
-                Link::new(None),
+                Link::default(),
                 server_io,
             ))
             .id();

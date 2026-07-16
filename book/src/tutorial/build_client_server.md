@@ -64,7 +64,7 @@ let client = commands
         Client,
         LocalAddr(CLIENT_ADDR),
         PeerAddr(SERVER_ADDR),
-        Link::new(None),
+        Link::default(),
         ReplicationReceiver::default(),
         NetcodeClient::new(auth, NetcodeConfig::default())?,
         UdpIo::default(),

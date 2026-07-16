@@ -20,4 +20,6 @@ pub enum PacketError {
     DecompressedPayloadTooLarge { actual: usize, limit: usize },
     #[error("packet size {actual} exceeds MTU {mtu}")]
     PacketTooLarge { actual: usize, mtu: usize },
+    #[error("link MTU {actual} is too small for fragment packets; minimum is {min}")]
+    MtuTooSmall { actual: usize, min: usize },
 }
