@@ -7,7 +7,7 @@ use crate::packet::compression::{
 use crate::packet::error::PacketError;
 use crate::packet::header::PacketHeaderManager;
 use crate::packet::message::{MessageData, SendCandidate};
-use crate::packet::packet::{FRAGMENT_SIZE, HEADER_BYTES, MessageMetadata, Packet, SendCommit};
+use crate::packet::packet::{HEADER_BYTES, MessageMetadata, Packet, SendCommit};
 use crate::packet::packet_type::PacketType;
 use alloc::vec::Vec;
 use bytes::Bytes;
@@ -15,12 +15,6 @@ use lightyear_core::tick::Tick;
 use lightyear_link::DEFAULT_MTU;
 use lightyear_serde::{SerializationError, ToBytes};
 use tracing::trace;
-
-/// Default packet size retained for source compatibility.
-///
-/// Packet assembly uses the owning [`lightyear_link::Link`]'s current MTU at runtime.
-pub const MAX_PACKET_SIZE: usize = DEFAULT_MTU;
-pub const MAX_UNFRAGMENTED_PAYLOAD_SIZE: usize = FRAGMENT_SIZE;
 
 pub type Payload = Vec<u8>;
 
@@ -139,7 +133,7 @@ impl PacketBuilder {
     pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
-            buffer_pool: BufferPool::new(MAX_PACKET_SIZE),
+            buffer_pool: BufferPool::new(DEFAULT_MTU),
         }
     }
 
@@ -507,8 +501,7 @@ mod tests {
         FragmentCompression, FragmentData, FragmentIndex, MessageId, SendMessage, SendMessageKey,
         SingleData,
     };
-    #[cfg(feature = "compression_lz4")]
-    use crate::packet::packet::HEADER_BYTES;
+    use crate::packet::packet::FRAGMENT_SIZE;
     use bytes::Bytes;
 
     use super::*;
@@ -584,13 +577,9 @@ mod tests {
     ) -> Result<Vec<Packet>, PacketError> {
         let mut cursor = CandidateCursor::default();
         let mut packets = Vec::new();
-        while let Some(packet) = builder.build_next_packet(
-            Tick(0),
-            candidates,
-            &mut cursor,
-            compression,
-            MAX_PACKET_SIZE,
-        )? {
+        while let Some(packet) =
+            builder.build_next_packet(Tick(0), candidates, &mut cursor, compression, DEFAULT_MTU)?
+        {
             builder
                 .header_manager
                 .commit_send_packet(packet.packet_id, Duration::default());
@@ -627,7 +616,7 @@ mod tests {
 
     #[test]
     fn buffer_pool_reuses_message_metadata_up_to_retained_capacity() {
-        let mut pool = BufferPool::new(MAX_PACKET_SIZE);
+        let mut pool = BufferPool::new(DEFAULT_MTU);
 
         pool.recycle_message_metadata(Vec::with_capacity(MAX_RETAINED_MESSAGE_METADATA_CAPACITY));
         assert_eq!(
@@ -638,7 +627,7 @@ mod tests {
 
     #[test]
     fn buffer_pool_drops_oversized_message_metadata() {
-        let mut pool = BufferPool::new(MAX_PACKET_SIZE);
+        let mut pool = BufferPool::new(DEFAULT_MTU);
 
         pool.recycle_message_metadata(Vec::with_capacity(
             MAX_RETAINED_MESSAGE_METADATA_CAPACITY + 1,
@@ -714,7 +703,7 @@ mod tests {
         assert!(
             packets
                 .iter()
-                .all(|packet| packet.payload.len() <= MAX_PACKET_SIZE)
+                .all(|packet| packet.payload.len() <= DEFAULT_MTU)
         );
         let message_count = packets
             .into_iter()
@@ -747,7 +736,7 @@ mod tests {
         assert!(
             packets
                 .iter()
-                .all(|packet| packet.payload.len() <= MAX_PACKET_SIZE)
+                .all(|packet| packet.payload.len() <= DEFAULT_MTU)
         );
         Ok(())
     }
@@ -772,7 +761,7 @@ mod tests {
             build_staged_packets(&mut PacketBuilder::new(1.5), &candidates, compression)?;
         assert_eq!(packets.len(), 1);
         let packet = packets.pop().unwrap();
-        assert!(packet.payload.len() <= MAX_PACKET_SIZE);
+        assert!(packet.payload.len() <= DEFAULT_MTU);
         assert_eq!(
             PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?,
             PacketType::DataCompressed
@@ -806,7 +795,7 @@ mod tests {
         let packets = build_staged_packets(&mut PacketBuilder::new(1.5), &candidates, compression)?;
         let mut message_count = 0;
         for packet in packets {
-            assert!(packet.payload.len() <= MAX_PACKET_SIZE);
+            assert!(packet.payload.len() <= DEFAULT_MTU);
             let packet_type =
                 PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
             let packet = if packet_type.is_compressed() {
@@ -870,7 +859,7 @@ mod tests {
             &candidates,
             &mut cursor,
             CompressionConfig::DISABLED,
-            MAX_PACKET_SIZE,
+            DEFAULT_MTU,
         )? {
             builder
                 .header_manager
@@ -921,7 +910,7 @@ mod tests {
                 &candidates,
                 &mut cursor,
                 CompressionConfig::DISABLED,
-                MAX_PACKET_SIZE,
+                DEFAULT_MTU,
             )?
             .unwrap();
         assert_eq!(packet.messages.len(), 300);
@@ -938,7 +927,7 @@ mod tests {
                     &candidates,
                     &mut cursor,
                     CompressionConfig::DISABLED,
-                    MAX_PACKET_SIZE,
+                    DEFAULT_MTU,
                 )?
                 .is_none()
         );

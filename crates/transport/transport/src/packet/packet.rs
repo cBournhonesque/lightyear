@@ -41,7 +41,7 @@ pub(crate) const MIN_FRAGMENT_PACKET_SIZE: usize = FIXED_FRAGMENT_PACKET_BYTES
 /// Both peers derive this from the link's stable minimum MTU. Reserving the largest identifier
 /// encodings ensures every fragment produced at this size fits even for long-running sessions and
 /// very large logical messages.
-pub(crate) const fn fragment_size_for_min_mtu(min_mtu: usize) -> Option<usize> {
+pub const fn fragment_size_for_min_mtu(min_mtu: usize) -> Option<usize> {
     let available = match min_mtu.checked_sub(FIXED_FRAGMENT_PACKET_BYTES) {
         Some(available) => available,
         None => return None,
