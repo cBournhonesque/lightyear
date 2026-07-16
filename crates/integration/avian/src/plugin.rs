@@ -120,7 +120,7 @@ use tracing::trace;
 
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::prelude::{AppInterpolationExt, InterpolationFns};
+use lightyear_interpolation::prelude::{AppInterpolationExt, Interpolated, InterpolationFns};
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
     PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, RollbackSystems,
@@ -204,6 +204,7 @@ struct RollbackColliderProxy {
 impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PhysicsTransformConfig>();
+        Self::install_position_to_transform_markers(app);
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
                 Self::add_position_rotation_hermite_rule(app);
@@ -385,6 +386,67 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    /// Opt non-rigid interpolated entities into Avian's Position-to-Transform sync.
+    ///
+    /// Avian's [`position_to_transform`] normally only synchronizes entities with a
+    /// [`RigidBody`]. Lightyear's render-only [`Interpolated`] entities intentionally do not have
+    /// a rigid body, but their sampled [`Position`] and [`Rotation`] still need to be written to
+    /// [`Transform`] for rendering. [`ApplyPosToTransform`] opts those entities into Avian's
+    /// system.
+    ///
+    /// A non-rigid [`ColliderOf`] is different: its `Position` and `Rotation` are derived world
+    /// state computed from the rigid-body root and its [`ColliderTransform`], while its
+    /// `Transform` stores the fixed local offset from that root. Applying the derived world pose
+    /// to the local transform would apply the hierarchy twice and move the collider away from the
+    /// body. Transform synchronization must therefore start at the rigid-body root, and compound
+    /// child colliders must not receive [`ApplyPosToTransform`]. The removal observer handles
+    /// either component insertion order. Avian can also give the root collider a self-referential
+    /// [`ColliderOf`], but that root is still synchronized by the system's [`RigidBody`] branch and
+    /// does not need the opt-in marker.
+    fn install_position_to_transform_markers(app: &mut App) {
+        app.add_observer(Self::add_apply_pos_to_transform);
+        app.add_observer(Self::remove_apply_pos_to_transform_from_child_collider);
+    }
+
+    fn add_apply_pos_to_transform(
+        trigger: On<Add, (Position, Rotation, Interpolated)>,
+        query: Query<
+            (),
+            (
+                With<Position>,
+                With<Rotation>,
+                With<Interpolated>,
+                Without<ApplyPosToTransform>,
+                Without<RigidBody>,
+                Without<ColliderOf>,
+            ),
+        >,
+        mut commands: Commands,
+    ) {
+        if query.contains(trigger.entity) {
+            commands.entity(trigger.entity).insert(ApplyPosToTransform);
+        }
+    }
+
+    fn remove_apply_pos_to_transform_from_child_collider(
+        trigger: On<Insert, (ColliderOf, ApplyPosToTransform)>,
+        query: Query<
+            (),
+            (
+                With<ColliderOf>,
+                With<ApplyPosToTransform>,
+                Without<RigidBody>,
+            ),
+        >,
+        mut commands: Commands,
+    ) {
+        if query.contains(trigger.entity) {
+            commands
+                .entity(trigger.entity)
+                .remove::<ApplyPosToTransform>();
+        }
+    }
+
     /// Register the canonical Avian pose and velocity bundle once for every
     /// Position-mode application. The bundle's default priority is its four
     /// members, so it wins over ordinary single-component rules whenever the
@@ -703,22 +765,6 @@ impl LightyearAvianPlugin {
     }
 
     fn sync_position_to_transform(app: &mut App, schedule: impl ScheduleLabel) {
-        if app
-            .world()
-            .resource::<PhysicsTransformConfig>()
-            .position_to_transform
-        {
-            // Make sure that PositionToTransform sync also runs for Interpolated entities
-            app.try_register_required_components::<Position, ApplyPosToTransform>()
-                .ok();
-            app.try_register_required_components::<Rotation, ApplyPosToTransform>()
-                .ok();
-
-            // NOTE: we do NOT register Transform as required for Position/Rotation because
-            //  they might not be added at the same time (e.g. on Interpolated entities).
-            //  The `add_transform` system below handles adding Transform when both are present.
-            //  For physics entities, Transform is registered as required for Collider above.
-        }
         let schedule = schedule.intern();
 
         app.configure_sets(
@@ -1225,6 +1271,24 @@ mod tests {
     }
 
     fn add_dynamic_proxy(app: &mut App, collider: Entity, body: Entity, aabb: ColliderAabb) {
+        add_dynamic_proxy_with(
+            app,
+            collider,
+            body,
+            aabb,
+            CollisionLayers::default(),
+            ColliderTreeProxyFlags::empty(),
+        );
+    }
+
+    fn add_dynamic_proxy_with(
+        app: &mut App,
+        collider: Entity,
+        body: Entity,
+        aabb: ColliderAabb,
+        layers: CollisionLayers,
+        flags: ColliderTreeProxyFlags,
+    ) {
         let proxy_id = app
             .world_mut()
             .resource_mut::<ColliderTrees>()
@@ -1234,8 +1298,8 @@ mod tests {
                 ColliderTreeProxy {
                     collider,
                     body: Some(body),
-                    layers: CollisionLayers::default(),
-                    flags: ColliderTreeProxyFlags::empty(),
+                    layers,
+                    flags,
                 },
             );
         let proxy_key = ColliderTreeProxyKey::new(proxy_id, ColliderTreeType::Dynamic);
@@ -1289,6 +1353,235 @@ mod tests {
             app.world()
                 .resource::<ContactGraph>()
                 .contains(collider1, collider2)
+        );
+    }
+
+    fn overlapping_aabb(center: Vector) -> ColliderAabb {
+        ColliderAabb::new(center, Vector::splat(1.0))
+    }
+
+    fn repair_fixture() -> (App, Entity, Entity, Entity, Entity) {
+        let mut app = App::new();
+        app.init_resource::<ColliderTrees>();
+        app.init_resource::<ContactGraph>();
+        let body1 = app.world_mut().spawn_empty().id();
+        let body2 = app.world_mut().spawn_empty().id();
+        let collider1 = app.world_mut().spawn_empty().id();
+        let collider2 = app.world_mut().spawn_empty().id();
+        (app, body1, body2, collider1, collider2)
+    }
+
+    #[test]
+    fn repair_respects_collision_layers() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy_with(
+            &mut app,
+            collider1,
+            body1,
+            overlapping_aabb(Vector::ZERO),
+            CollisionLayers::from_bits(0b0001, 0b0001),
+            ColliderTreeProxyFlags::empty(),
+        );
+        add_dynamic_proxy_with(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+            CollisionLayers::from_bits(0b0010, 0b0010),
+            ColliderTreeProxyFlags::empty(),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn repair_restores_sensor_pair_without_constraints() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy_with(
+            &mut app,
+            collider1,
+            body1,
+            overlapping_aabb(Vector::ZERO),
+            CollisionLayers::default(),
+            ColliderTreeProxyFlags::SENSOR,
+        );
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        let graph = app.world().resource::<ContactGraph>();
+        let (_, pair) = graph
+            .get(collider1, collider2)
+            .expect("sensor pair not repaired");
+        assert!(!pair.generates_constraints());
+    }
+
+    #[test]
+    fn repair_skips_custom_filter_pairs() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy_with(
+            &mut app,
+            collider1,
+            body1,
+            overlapping_aabb(Vector::ZERO),
+            CollisionLayers::default(),
+            ColliderTreeProxyFlags::CUSTOM_FILTER,
+        );
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn repair_skips_colliders_on_same_compound_body() {
+        let (mut app, body, _, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy(&mut app, collider1, body, overlapping_aabb(Vector::ZERO));
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn repair_excludes_disabled_colliders() {
+        let (mut app, body1, body2, collider1, collider2) = repair_fixture();
+        add_dynamic_proxy(&mut app, collider1, body1, overlapping_aabb(Vector::ZERO));
+        add_dynamic_proxy(
+            &mut app,
+            collider2,
+            body2,
+            overlapping_aabb(Vector::new(1.5, 0.0)),
+        );
+        app.world_mut()
+            .entity_mut(collider2)
+            .insert(ColliderDisabled);
+
+        app.world_mut()
+            .run_system_once(repair_contact_graph_system)
+            .unwrap();
+
+        assert!(
+            !app.world()
+                .resource::<ContactGraph>()
+                .contains(collider1, collider2)
+        );
+    }
+
+    #[test]
+    fn child_position_tracks_local_transform_and_reparenting() {
+        let mut app = App::new();
+        let body1_position = Position(Vector::new(10.0, 0.0));
+        let body1_rotation = Rotation::radians(core::f32::consts::FRAC_PI_2);
+        let body1 = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                body1_position,
+                body1_rotation,
+                GlobalTransform::IDENTITY,
+            ))
+            .id();
+        let body2_position = Position(Vector::new(-5.0, 3.0));
+        let body2_rotation = Rotation::radians(-0.5);
+        let body2 = app
+            .world_mut()
+            .spawn((
+                RigidBody::Dynamic,
+                body2_position,
+                body2_rotation,
+                GlobalTransform::IDENTITY,
+            ))
+            .id();
+        let local1 = ColliderTransform {
+            translation: Vector::new(2.0, 0.0),
+            rotation: Rotation::radians(0.25),
+            scale: Vector::ONE,
+        };
+        let child = app
+            .world_mut()
+            .spawn((
+                ChildOf(body1),
+                GlobalTransform::IDENTITY,
+                Position::default(),
+                Rotation::default(),
+                ColliderOf { body: body1 },
+            ))
+            .id();
+        app.world_mut().entity_mut(child).insert(local1);
+
+        app.world_mut()
+            .run_system_once(LightyearAvianPlugin::update_child_collider_position)
+            .unwrap();
+
+        assert_eq!(
+            *app.world().get::<Position>(child).unwrap(),
+            Position(body1_position.0 + body1_rotation * local1.translation)
+        );
+        assert_eq!(
+            *app.world().get::<Rotation>(child).unwrap(),
+            body1_rotation * local1.rotation
+        );
+
+        let local2 = ColliderTransform {
+            translation: Vector::new(-1.0, 4.0),
+            rotation: Rotation::radians(-0.3),
+            scale: Vector::ONE,
+        };
+        app.world_mut()
+            .entity_mut(child)
+            .insert((ChildOf(body2), ColliderOf { body: body2 }));
+        app.world_mut().entity_mut(child).insert(local2);
+        app.world_mut()
+            .run_system_once(LightyearAvianPlugin::update_child_collider_position)
+            .unwrap();
+
+        assert_eq!(
+            *app.world().get::<Position>(child).unwrap(),
+            Position(body2_position.0 + body2_rotation * local2.translation)
+        );
+        assert_eq!(
+            *app.world().get::<Rotation>(child).unwrap(),
+            body2_rotation * local2.rotation
         );
     }
 }

@@ -1,11 +1,9 @@
 use crate::protocol::*;
-use crate::shared::Wall;
+use crate::shared::{PlayerChildCollider, Wall};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::prelude::*;
-use lightyear::prediction::Predicted;
 use lightyear::prelude::{InterpolationSystems, RollbackSystems};
-use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 #[derive(Clone)]
 pub struct ExampleRendererPlugin;
@@ -18,30 +16,11 @@ impl Plugin for ExampleRendererPlugin {
             PostUpdate,
             draw_elements
                 .after(InterpolationSystems::Interpolate)
-                .after(RollbackSystems::VisualCorrection),
+                .after(RollbackSystems::VisualCorrection)
+                // Child colliders are rendered from GlobalTransform, so drawing before
+                // propagation would show their previous-frame pose next to the current root.
+                .after(TransformSystems::Propagate),
         );
-
-        // add visual interpolation for Position and Rotation
-        // (normally we would interpolate on Transform but here this is fine
-        // since rendering is done via Gizmos that only depend on Position/Rotation)
-        if !app.is_plugin_added::<FrameInterpolationPlugin>() {
-            app.add_plugins(FrameInterpolationPlugin);
-        }
-        app.add_observer(add_frame_interpolation_components);
-    }
-}
-
-/// Predicted entities get updated in FixedUpdate, so we want to smooth/interpolate
-/// their components in PostUpdate
-fn add_frame_interpolation_components(
-    // We use Position because it's added by avian later, and when it's added
-    // we know that Predicted is already present on the entity
-    trigger: On<Add, Position>,
-    query: Query<Entity, With<Predicted>>,
-    mut commands: Commands,
-) {
-    if query.contains(trigger.entity) {
-        commands.entity(trigger.entity).insert(FrameInterpolate);
     }
 }
 
@@ -53,6 +32,7 @@ fn init(mut commands: Commands) {
 pub(crate) fn draw_elements(
     mut gizmos: Gizmos,
     players: Query<(&Position, &Rotation, &ColorComponent), With<PlayerId>>,
+    player_children: Query<(&GlobalTransform, &ChildOf), With<PlayerChildCollider>>,
     balls: Query<(&Position, &ColorComponent), With<BallMarker>>,
     walls: Query<(&Wall, &ColorComponent), (Without<BallMarker>, Without<PlayerId>)>,
 ) {
@@ -68,6 +48,19 @@ pub(crate) fn draw_elements(
             },
             Vec2::ONE * PLAYER_SIZE,
             color.0,
+        );
+    }
+    for (global, child_of) in &player_children {
+        let Ok((_, _, color)) = players.get(child_of.parent()) else {
+            continue;
+        };
+        let transform = global.compute_transform();
+        let position = transform.translation.truncate();
+        let rotation = Rot2::radians(2.0 * transform.rotation.z.atan2(transform.rotation.w));
+        gizmos.rect_2d(
+            Isometry2d::new(position, rotation),
+            Vec2::splat(CHILD_CUBE_SIZE),
+            color.0.with_alpha(0.7),
         );
     }
     for (position, color) in &balls {

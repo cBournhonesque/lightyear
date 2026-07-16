@@ -7,13 +7,24 @@ This example showcases several things:
   to an `Entity`, and the `ActionState` for that `Entity` will be replicated automatically
 - an example of how to integrate physics replication with `avian2d`. The physics sets have to be run in `FixedUpdate`
   schedule
-- an example of how to run prediction for entities that are controlled by other players. (this is similar to what
-  RocketLeague does).
-  There is going to be a frequent number of mispredictions because the client is predicting other players without
-  knowing their inputs.
-  The client will just consider that other players are doing the same thing as the last time it received their inputs.
-  You can use the parameter `--predict` on the server to enable this behaviour (if not, other players will be
-  interpolated).
+- an example of predicting all dynamically interacting players on every client. Remote inputs are rebroadcast for
+  prediction, while each client's keyboard still controls only its own player.
+- compound collider transform propagation: each player rigid body has a smaller child cube collider immediately beside
+  and touching the main cube, with no rigid body of its own. Its local transform remains at a fixed offset while its
+  world position and rotation follow the player. The child is deterministic template data: an `On<Add, PlayerId>`
+  observer constructs it locally on the server and every client. Both colliders are one physical player
+  body: contacts on the smaller cube apply forces to the main rigid-body root, and player input is applied only to that
+  root.
+
+The child entity and its components are not replicated. `DisableReplicateHierarchy` on the player root prevents its
+locally spawned child from automatically inheriting `ReplicateLike`; adding a separate `Replicate` component is unnecessary.
+The root's predicted/interpolated pose plus the child's fixed local `Transform` are the authoritative state. Bevy transform
+propagation produces `GlobalTransform`, and the Avian integration derives the collider's world-space physics pose from
+that hierarchy, so no additional application-level `Transform`/`Position` sync system is needed. Replicating a second
+world pose for the child would create a redundant timeline that can disagree with
+the root during rollback, correction, or interpolation. A child with its own `RigidBody` would be different: it would
+have independent physics state and should replicate/predict its own pose.
+
 - The prediction behaviour can be adjusted by two parameters:
     - `input_delay`: the number of frames it will take for an input to be executed. If the input delay is greater than
       the RTT,

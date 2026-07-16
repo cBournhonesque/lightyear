@@ -34,6 +34,7 @@ pub const WALL_HALF_EXTENT: f32 = 80.0;
 pub const MOVE_ACCEL: f32 = 12.0;
 pub const MAX_VELOCITY: f32 = 120.0;
 const BALL_PRESPAWN_HASH: u64 = 0xD37E_12B4_0000_0002;
+const BALL_PART_PRESPAWN_HASH: u64 = 0xD37E_12B4_1000_0000;
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct DetPlayerId(pub PeerId);
@@ -55,6 +56,14 @@ impl DetPlayerActivationTick {
 
 #[derive(Component, Debug)]
 pub struct DetBallMarker;
+
+#[derive(Component, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DetBallPart {
+    Core,
+    Pivot,
+    Lobe,
+    Sensor,
+}
 
 #[derive(Component, Debug)]
 pub struct DetWallMarker;
@@ -96,18 +105,42 @@ impl DetPhysicsBundle {
     }
 }
 
+#[derive(Bundle)]
+struct DetBallBodyBundle {
+    rigid_body: RigidBody,
+}
+
+impl DetBallBodyBundle {
+    fn dynamic() -> Self {
+        Self {
+            rigid_body: RigidBody::Dynamic,
+        }
+    }
+}
+
 /// Shared between server and clients — registers everything needed for
 /// deterministic replication: physics, BEI inputs, catch-up,
 /// frame-interpolation on Position/Rotation (required to preserve
 /// post-rollback state under
 /// `AvianReplicationMode::Position { sync_to_transform: false }`).
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct DetProtocolPlugin {
     pub enable_islands: bool,
+    pub compound_ball: bool,
+}
+
+impl Default for DetProtocolPlugin {
+    fn default() -> Self {
+        Self {
+            enable_islands: false,
+            compound_ball: false,
+        }
+    }
 }
 
 impl Plugin for DetProtocolPlugin {
     fn build(&self, app: &mut App) {
+        app.insert_resource(CompoundBallFixture(self.compound_ball));
         app.add_plugins(bei::InputPlugin::<Player>::new(InputConfig::<Player> {
             rebroadcast_inputs: true,
             ..default()
@@ -188,6 +221,9 @@ impl Plugin for DetProtocolPlugin {
     }
 }
 
+#[derive(Resource)]
+struct CompoundBallFixture(bool);
+
 fn register_avian_catchup_resources(app: &mut App, enable_islands: bool) {
     app.register_catchup::<ContactGraph, BEIStateSequence<Player>>();
     app.register_catchup::<ConstraintGraph, BEIStateSequence<Player>>();
@@ -237,6 +273,7 @@ fn update_player_activation_ticks(
 fn init_shared(
     mut commands: Commands,
     mode: Res<CatchUpMode>,
+    compound_ball: Res<CompoundBallFixture>,
     server: Option<Single<(), With<Server>>>,
     client: Option<Single<(), With<Client>>>,
 ) {
@@ -246,7 +283,6 @@ fn init_shared(
 
     let mut ball = commands.spawn((
         Position::default(),
-        DetPhysicsBundle::ball(),
         DetBallMarker,
         DeterministicPredicted {
             skip_despawn: true,
@@ -254,6 +290,11 @@ fn init_shared(
         },
         Name::from("Ball"),
     ));
+    if compound_ball.0 {
+        ball.insert((DetBallBodyBundle::dynamic(), Rotation::radians(0.2)));
+    } else {
+        ball.insert(DetPhysicsBundle::ball());
+    }
     if is_state_based {
         ball.insert(PreSpawned::new(BALL_PRESPAWN_HASH));
         if is_server {
@@ -261,6 +302,10 @@ fn init_shared(
         } else if is_client {
             ball.insert(CatchUpGated);
         }
+    }
+    let ball = ball.id();
+    if compound_ball.0 {
+        spawn_ball_parts(&mut commands, ball, is_state_based, is_server, is_client);
     }
 
     let w = WALL_HALF_EXTENT;
@@ -279,6 +324,101 @@ fn init_shared(
             Name::from("Wall"),
         ));
     }
+}
+
+fn spawn_ball_parts(
+    commands: &mut Commands,
+    root: Entity,
+    state_based: bool,
+    is_server: bool,
+    is_client: bool,
+) {
+    fn finish_part(
+        entity: &mut EntityCommands,
+        part: DetBallPart,
+        state_based: bool,
+        is_server: bool,
+        is_client: bool,
+    ) {
+        entity.insert(part);
+        entity.insert(DeterministicPredicted {
+            skip_despawn: true,
+            ..default()
+        });
+        if state_based {
+            entity.insert(PreSpawned::new(BALL_PART_PRESPAWN_HASH + part as u64));
+            if is_server {
+                entity.insert((Replicate::to_clients(NetworkTarget::All), CatchUpGated));
+            } else if is_client {
+                entity.insert(CatchUpGated);
+            }
+        }
+    }
+
+    let mut core = commands.spawn((
+        ChildOf(root),
+        Transform::from_xyz(-1.5, -1.0, 0.0).with_rotation(Quat::from_rotation_z(-0.17)),
+        Collider::circle(6.0),
+        ColliderDensity(0.05),
+        Restitution::new(0.8),
+        CollisionLayers::default(),
+        Name::from("BallCoreCollider"),
+    ));
+    finish_part(
+        &mut core,
+        DetBallPart::Core,
+        state_based,
+        is_server,
+        is_client,
+    );
+
+    let mut pivot = commands.spawn((
+        ChildOf(root),
+        Transform::from_xyz(2.0, 1.0, 0.0).with_rotation(Quat::from_rotation_z(0.31)),
+        Name::from("BallColliderPivot"),
+    ));
+    finish_part(
+        &mut pivot,
+        DetBallPart::Pivot,
+        state_based,
+        is_server,
+        is_client,
+    );
+    let pivot = pivot.id();
+
+    let mut lobe = commands.spawn((
+        ChildOf(pivot),
+        Transform::from_xyz(3.0, 0.5, 0.0).with_rotation(Quat::from_rotation_z(0.23)),
+        Collider::circle(4.0),
+        ColliderDensity(0.04),
+        Restitution::new(0.9),
+        CollisionLayers::from_bits(0b0010, LayerMask::ALL.0),
+        Name::from("BallLobeCollider"),
+    ));
+    finish_part(
+        &mut lobe,
+        DetBallPart::Lobe,
+        state_based,
+        is_server,
+        is_client,
+    );
+
+    let mut sensor = commands.spawn((
+        ChildOf(root),
+        Transform::from_xyz(0.5, 1.5, 0.0),
+        Collider::circle(10.0),
+        Sensor,
+        CollisionEventsEnabled,
+        CollisionLayers::from_bits(0b0100, LayerMask::ALL.0),
+        Name::from("BallSensorCollider"),
+    ));
+    finish_part(
+        &mut sensor,
+        DetBallPart::Sensor,
+        state_based,
+        is_server,
+        is_client,
+    );
 }
 
 /// Convert a `Fire<DetMovement>` trigger's Vec2 value into a velocity

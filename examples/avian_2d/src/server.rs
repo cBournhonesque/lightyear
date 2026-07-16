@@ -1,7 +1,7 @@
 use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
-use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin, WallBundle};
+use crate::shared::{color_from_id, shared_movement_behaviour, SharedPlugin};
 use avian2d::prelude::*;
 use bevy::color::palettes::css;
 use bevy::platform::collections::HashMap;
@@ -41,40 +41,20 @@ fn setup(mut commands: Commands) {
         BallMarker,
         Name::from("Ball"),
     ));
-
-    // Spawn walls (moved from shared init)
-    const WALL_SIZE: f32 = 350.0; // Define WALL_SIZE locally
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(-WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, WALL_SIZE),
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
-    commands.spawn(WallBundle::new(
-        Vec2::new(WALL_SIZE, -WALL_SIZE),
-        Vec2::new(-WALL_SIZE, -WALL_SIZE),
-        Color::WHITE,
-    ));
 }
 
 /// Applies player input to replicated physics bodies.
 pub(crate) fn movement(
     timeline: Res<LocalTimeline>,
-    mut action_query: Query<(
-        Entity,
-        &Position,
-        &mut LinearVelocity,
-        &ActionState<PlayerActions>,
-    )>,
+    mut action_query: Query<
+        (
+            Entity,
+            &Position,
+            &mut LinearVelocity,
+            &ActionState<PlayerActions>,
+        ),
+        With<PlayerId>,
+    >,
 ) {
     let tick = timeline.tick();
     for (entity, position, velocity, action) in action_query.iter_mut() {
@@ -101,13 +81,21 @@ pub(crate) fn replicate_players(
 
     let color = color_from_id(client_id);
     let y = (client_id.to_bits() as f32 * 50.0) % 500.0 - 250.0;
+    let position = Vec2::new(-50.0, y);
+    let rotation = Rotation::radians(0.15);
     info!("Spawn player for client {client_id:?}");
     commands.spawn((
         PlayerId(client_id),
-        Position::from(Vec2::new(-50.0, y)),
+        Position::from(position),
+        rotation,
+        AngularVelocity(0.35),
         ColorComponent(color),
         Replicate::to_clients(NetworkTarget::All),
-        // Predict to all players
+        // The Player template is reconstructed independently on every peer,
+        // so its locally spawned child should not inherit ReplicateLike.
+        DisableReplicateHierarchy,
+        // Every client predicts every dynamically interacting player so
+        // player-player and player-ball contacts exist in every physics world.
         PredictionTarget::to_clients(NetworkTarget::All),
         ControlledBy {
             owner: entity,
