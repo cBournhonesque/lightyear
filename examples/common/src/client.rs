@@ -50,7 +50,7 @@ impl ExampleClient {
             let client_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), settings.client_port);
             entity_mut.insert((
                 Client,
-                Link::new().with_conditioner(settings.conditioner.clone()),
+                Link::default().with_conditioner(settings.conditioner.clone()),
                 LocalAddr(client_addr),
                 PeerAddr(settings.server_addr),
                 PredictionManager::default(),

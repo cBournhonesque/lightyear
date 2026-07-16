@@ -14,7 +14,7 @@ wrapping_id!(PacketId);
 
 /// Number of bytes written by [`PacketHeader::to_bytes`].
 ///
-/// Keep this in sync with `PacketHeader` because [`fragment_size_for_mtu`] depends on it.
+/// Keep this in sync with `PacketHeader` because [`fragment_size_for_min_mtu`] depends on it.
 pub(crate) const HEADER_BYTES: usize = PacketHeader::BYTES;
 
 const MAX_FRAGMENT_CHANNEL_ID_BYTES: usize = varint_len(u16::MAX as u64);
@@ -26,10 +26,13 @@ const FIXED_FRAGMENT_METADATA_BYTES: usize = MAX_FRAGMENT_CHANNEL_ID_BYTES
     + MAX_FRAGMENT_ID_BYTES
     + MAX_FRAGMENT_COUNT_BYTES
     + INITIAL_FRAGMENT_COMPRESSION_BYTES;
+const FIXED_FRAGMENT_PACKET_BYTES: usize = HEADER_BYTES + FIXED_FRAGMENT_METADATA_BYTES;
 
-/// Smallest link MTU which can carry one byte with the largest supported fragment identifiers.
-pub(crate) const MIN_PACKET_SIZE: usize = FIXED_FRAGMENT_METADATA_BYTES
-    + HEADER_BYTES
+/// Smallest link MTU which can carry a fragment packet with one byte of payload.
+///
+/// This is specific to fragment packets and reserves the largest supported channel, message, and
+/// fragment identifier encodings.
+pub(crate) const MIN_FRAGMENT_PACKET_SIZE: usize = FIXED_FRAGMENT_PACKET_BYTES
     + 1 // encoded fragment byte length
     + 1; // payload
 
@@ -38,20 +41,29 @@ pub(crate) const MIN_PACKET_SIZE: usize = FIXED_FRAGMENT_METADATA_BYTES
 /// Both peers derive this from the link's stable minimum MTU. Reserving the largest identifier
 /// encodings ensures every fragment produced at this size fits even for long-running sessions and
 /// very large logical messages.
-pub(crate) const fn fragment_size_for_mtu(mtu: usize) -> Option<usize> {
-    let mtu_varint_bytes = varint_len(mtu as u64);
-    // Fragment payloads use a varint length prefix.
-    let overhead = HEADER_BYTES + FIXED_FRAGMENT_METADATA_BYTES + mtu_varint_bytes;
-    match mtu.checked_sub(overhead) {
-        Some(fragment_size) if fragment_size > 0 => Some(fragment_size),
-        _ => None,
+pub(crate) const fn fragment_size_for_min_mtu(min_mtu: usize) -> Option<usize> {
+    let available = match min_mtu.checked_sub(FIXED_FRAGMENT_PACKET_BYTES) {
+        Some(available) => available,
+        None => return None,
+    };
+
+    // `Bytes` encodes its payload length as a varint. Start at all remaining space and find the
+    // largest payload whose own length prefix plus bytes fit in that space.
+    let mut fragment_size = available;
+    while fragment_size > 0 {
+        let length_prefix_bytes = varint_len(fragment_size as u64);
+        if fragment_size <= available.saturating_sub(length_prefix_bytes) {
+            return Some(fragment_size);
+        }
+        fragment_size -= 1;
     }
+    None
 }
 
 /// The default maximum number of payload bytes in a transport fragment.
 ///
-/// Links with a non-default minimum MTU use [`fragment_size_for_mtu`] instead.
-pub(crate) const FRAGMENT_SIZE: usize = match fragment_size_for_mtu(DEFAULT_MTU) {
+/// Links with a non-default minimum MTU use [`fragment_size_for_min_mtu`] instead.
+pub(crate) const FRAGMENT_SIZE: usize = match fragment_size_for_min_mtu(DEFAULT_MTU) {
     Some(fragment_size) => fragment_size,
     None => panic!("default link MTU cannot hold transport fragment metadata"),
 };
@@ -178,5 +190,25 @@ mod tests {
 
         assert_eq!(writer.len(), HEADER_BYTES);
         assert_eq!(header.bytes_len(), HEADER_BYTES);
+    }
+
+    #[test]
+    fn fragment_size_uses_its_own_encoded_length_and_is_maximal() {
+        assert_eq!(
+            fragment_size_for_min_mtu(MIN_FRAGMENT_PACKET_SIZE - 1),
+            None
+        );
+        assert_eq!(fragment_size_for_min_mtu(MIN_FRAGMENT_PACKET_SIZE), Some(1));
+
+        let fragment_size = fragment_size_for_min_mtu(DEFAULT_MTU).unwrap();
+        let packet_size =
+            FIXED_FRAGMENT_PACKET_BYTES + varint_len(fragment_size as u64) + fragment_size;
+        assert!(packet_size <= DEFAULT_MTU);
+
+        let next_fragment_size = fragment_size + 1;
+        let next_packet_size = FIXED_FRAGMENT_PACKET_BYTES
+            + varint_len(next_fragment_size as u64)
+            + next_fragment_size;
+        assert!(next_packet_size > DEFAULT_MTU);
     }
 }

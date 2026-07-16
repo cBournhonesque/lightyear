@@ -166,7 +166,7 @@ impl DetStepper {
                 }),
                 ReplicationSender,
                 ReplicationReceiver,
-                Link::new(),
+                Link::default(),
                 PeerAddr(SocketAddr::new(
                     core::net::IpAddr::V4(Ipv4Addr::LOCALHOST),
                     client_id as u16,

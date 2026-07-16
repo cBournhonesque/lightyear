@@ -6,7 +6,9 @@ use crate::channel::senders::ChannelSenderEnum;
 use crate::packet::compression::CompressionConfig;
 use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
-use crate::packet::packet::{FRAGMENT_SIZE, MIN_PACKET_SIZE, PacketId, fragment_size_for_mtu};
+use crate::packet::packet::{
+    FRAGMENT_SIZE, MIN_FRAGMENT_PACKET_SIZE, PacketId, fragment_size_for_min_mtu,
+};
 use crate::packet::packet_builder::{PacketBuilder, RecvPayload};
 use crate::packet::priority_manager::{BandwidthLimiter, PriorityManager};
 use bevy_ecs::component::Component;
@@ -162,9 +164,9 @@ impl Transport {
 
     pub(crate) fn configure_link_mtu(&mut self, link_mtu: LinkMtu) -> Result<(), PacketError> {
         let min_mtu = link_mtu.min_mtu();
-        let fragment_size = fragment_size_for_mtu(min_mtu).ok_or(PacketError::MtuTooSmall {
+        let fragment_size = fragment_size_for_min_mtu(min_mtu).ok_or(PacketError::MtuTooSmall {
             actual: min_mtu,
-            min: MIN_PACKET_SIZE,
+            min: MIN_FRAGMENT_PACKET_SIZE,
         })?;
         if self.fragment_size != fragment_size {
             self.fragment_size = fragment_size;

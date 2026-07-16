@@ -763,7 +763,7 @@ mod tests {
         world.init_resource::<LocalTimeline>();
         let entity = world
             .spawn((
-                Link::new().with_mtu(lightyear_link::LinkMtu::new(256)),
+                Link::default().with_mtu(lightyear_link::LinkMtu::new(256)),
                 Linked,
                 transport,
             ))

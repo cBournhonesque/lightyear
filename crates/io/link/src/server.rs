@@ -267,7 +267,7 @@ mod tests {
         let server = app.world_mut().spawn((Server::default(), Linked)).id();
         let child = app
             .world_mut()
-            .spawn((LinkOf { server }, Link::new(), Linked))
+            .spawn((LinkOf { server }, Link::default(), Linked))
             .id();
 
         app.world_mut().entity_mut(server).insert(Unlinked {
