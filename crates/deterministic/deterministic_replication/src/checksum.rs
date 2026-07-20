@@ -327,13 +327,15 @@ fn compute_history_checksum(world: &mut ChecksumWorld<'_, '_, true>, tick: Tick)
                         );
 
                     let mut hasher = seahash::SeaHasher::default();
-                    pop_until_tick_and_hash_fn.unwrap()(
+                    if pop_until_tick_and_hash_fn.unwrap()(
                         history_ptr,
                         tick,
                         &mut hasher,
                         hash_fn.inner,
-                    );
-                    checksum ^= hasher.finish();
+                    ) {
+                        // XOR the hashes together to get an order-independent checksum
+                        checksum ^= hasher.finish();
+                    }
                 });
         });
     });
