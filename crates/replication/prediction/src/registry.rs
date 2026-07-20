@@ -87,7 +87,9 @@ type CheckRollbackFn = unsafe fn(
 /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
 /// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
 /// value returned by the history buffer lookup.
-pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn());
+/// Returns `true` if an entry was found at that tick and hashed, `false` if the history
+/// had no entry at that tick (in which case nothing was hashed).
+pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn()) -> bool;
 
 impl PredictionMetadata {
     fn new<C: SyncComponent>(
@@ -500,6 +502,9 @@ impl PredictionRegistry {
 
     /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] at `tick`.
     ///
+    /// Returns `true` if an entry was found at `tick` and hashed, `false` if the history
+    /// had no entry at that tick (in which case nothing was hashed).
+    ///
     /// Safety
     ///
     /// - The PtrMut must point to a valid [`PredictionHistory<C>`] component.
@@ -509,7 +514,7 @@ impl PredictionRegistry {
         tick: Tick,
         hasher: &mut seahash::SeaHasher,
         f: fn(),
-    ) {
+    ) -> bool {
         // SAFETY: the caller must ensure that the function has the correct type
         let f = unsafe { core::mem::transmute::<fn(), fn(&C, &mut seahash::SeaHasher)>(f) };
         // SAFETY: the caller must ensure that the pointer is valid and points to a PredictionHistory<C>
@@ -522,6 +527,9 @@ impl PredictionRegistry {
                 v
             );
             f(v, hasher);
+            true
+        } else {
+            false
         }
     }
 }
