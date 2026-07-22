@@ -195,7 +195,6 @@ impl Plugin for AuthorityPlugin {
     fn build(&self, app: &mut App) {
         app.add_channel::<AuthorityChannel>(ChannelSettings {
             mode: ChannelMode::SequencedReliable(ReliableSettings::default()),
-            send_frequency: Default::default(),
             priority: 10.0,
             ..Default::default()
         })

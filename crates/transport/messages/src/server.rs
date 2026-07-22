@@ -1,6 +1,6 @@
 use crate::Message;
 use crate::multi::MultiMessageSender;
-use crate::prelude::{MessageReceiver, MessageSender};
+use crate::prelude::MessageSender;
 use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
@@ -92,13 +92,11 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
 impl<M: Message> MessageRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
-            NetworkDirection::ClientToServer => {
-                self.app
-                    .register_required_components::<ClientOf, MessageReceiver<M>>();
-            }
+            NetworkDirection::ClientToServer => {}
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<ClientOf, MessageSender<M>>();
+                    .try_register_required_components::<ClientOf, MessageSender<M>>()
+                    .ok();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);
@@ -112,11 +110,12 @@ impl<M: Event> TriggerRegistration<'_, M> {
     pub(crate) fn add_server_direction(&mut self, direction: NetworkDirection) {
         match direction {
             NetworkDirection::ClientToServer => {
-                // empty because we only have a Sender component, not a Receiver component
+                // Immediate events are triggered directly and need no receiver component.
             }
             NetworkDirection::ServerToClient => {
                 self.app
-                    .register_required_components::<ClientOf, EventSender<M>>();
+                    .try_register_required_components::<ClientOf, EventSender<M>>()
+                    .ok();
             }
             NetworkDirection::Bidirectional => {
                 self.add_server_direction(NetworkDirection::ClientToServer);

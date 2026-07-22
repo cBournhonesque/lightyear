@@ -123,6 +123,8 @@ impl core::fmt::Debug for CompressionScratch {
 }
 
 impl CompressionScratch {
+    // The compression backend may resize this reusable allocation before writing into it.
+    #[allow(clippy::ptr_arg)]
     fn compress_into<'output>(
         &mut self,
         payload: &[u8],

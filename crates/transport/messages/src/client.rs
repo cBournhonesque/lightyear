@@ -1,5 +1,5 @@
 use crate::Message;
-use crate::prelude::{MessageReceiver, MessageSender};
+use crate::prelude::MessageSender;
 use crate::registry::MessageRegistration;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
@@ -12,12 +12,10 @@ impl<M: Message> MessageRegistration<'_, M> {
         match direction {
             NetworkDirection::ClientToServer => {
                 self.app
-                    .register_required_components::<Client, MessageSender<M>>();
+                    .try_register_required_components::<Client, MessageSender<M>>()
+                    .ok();
             }
-            NetworkDirection::ServerToClient => {
-                self.app
-                    .register_required_components::<Client, MessageReceiver<M>>();
-            }
+            NetworkDirection::ServerToClient => {}
             NetworkDirection::Bidirectional => {
                 self.add_client_direction(NetworkDirection::ClientToServer);
                 self.add_client_direction(NetworkDirection::ServerToClient);
@@ -34,7 +32,9 @@ impl<M: Event> TriggerRegistration<'_, M> {
                     .try_register_required_components::<Client, EventSender<M>>()
                     .ok();
             }
-            NetworkDirection::ServerToClient => {}
+            NetworkDirection::ServerToClient => {
+                // Immediate events are triggered directly and need no receiver component.
+            }
             NetworkDirection::Bidirectional => {
                 self.add_client_direction(NetworkDirection::ClientToServer);
                 self.add_client_direction(NetworkDirection::ServerToClient);

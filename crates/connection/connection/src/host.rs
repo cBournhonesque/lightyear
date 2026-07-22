@@ -21,6 +21,7 @@ use bevy_reflect::Reflect;
 use bytes::Bytes;
 #[cfg(feature = "server")]
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
+use lightyear_core::tick::Tick;
 #[cfg(feature = "server")]
 use lightyear_link::prelude::{LinkOf, Server};
 #[cfg(feature = "server")]
@@ -31,8 +32,8 @@ use tracing::info;
 #[derive(Component, Debug)]
 pub struct HostClient {
     // TODO: put the buffer in a separate component?
-    // buffer that will hold the (bytes, channel_kind) for messages serialized by the ServerMultiSender
-    pub buffer: Vec<(Bytes, core::any::TypeId)>,
+    // buffer that will hold the (bytes, channel_kind, tick) for messages serialized by the ServerMultiSender
+    pub buffer: Vec<(Bytes, core::any::TypeId, Tick)>,
 }
 
 /// Marker component inserted on a server that has a [`HostClient`]

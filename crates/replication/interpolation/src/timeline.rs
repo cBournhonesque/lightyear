@@ -8,8 +8,8 @@ use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_time::{Time, Virtual};
 use core::time::Duration;
-use lightyear_connection::client::{Client, Connected};
-use lightyear_core::prelude::Rollback;
+use lightyear_connection::client::{Client, Connected, PeerMetadata};
+use lightyear_core::prelude::{Rollback, TimelineSystems};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
@@ -203,17 +203,20 @@ impl TimelinePlugin {
     fn receive_sender_metadata(
         trigger: On<RemoteEvent<SenderMetadata>>,
         tick_duration: Res<TickDuration>,
+        peer_metadata: Res<PeerMetadata>,
         mut query: Query<&mut InterpolationTimeline>,
     ) {
         let delta = TickDelta::from(trigger.trigger.send_interval);
         let duration = delta.to_duration(tick_duration.0);
-        query.iter_mut().for_each(|mut interpolation_timeline| {
+        if let Some(entity) = peer_metadata.mapping.get(&trigger.from)
+            && let Ok(mut interpolation_timeline) = query.get_mut(*entity)
+        {
             debug!("Updating remote send interval to {:?}", duration);
             interpolation_timeline.context.remote_send_interval = duration;
-        })
+        }
     }
 
-    /// Update the timeline in Update based on the [`Time<Virtual>`]
+    /// Update the timeline in PreUpdate based on the [`Time<Virtual>`]
     pub(crate) fn advance_timeline(
         time: Res<Time<Virtual>>,
         tick_duration: Res<TickDuration>,
@@ -236,7 +239,10 @@ impl Plugin for TimelinePlugin {
     fn build(&self, app: &mut App) {
         app.register_required_components::<Client, InterpolationConfig>();
         app.add_plugins(SyncedTimelinePlugin::<InterpolationTimeline, RemoteTimeline>::default());
-        app.add_systems(PreUpdate, Self::advance_timeline);
+        app.add_systems(
+            PreUpdate,
+            Self::advance_timeline.in_set(TimelineSystems::Advance),
+        );
         app.add_observer(Self::receive_sender_metadata);
     }
 }
