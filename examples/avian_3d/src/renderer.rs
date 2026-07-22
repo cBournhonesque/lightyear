@@ -1,8 +1,9 @@
 use crate::{
     protocol::{BlockMarker, CharacterMarker, ColorComponent, FloorMarker, ProjectileMarker},
     shared::{
-        ProjectilePhysicsBundle, BLOCK_HEIGHT, BLOCK_WIDTH, CHARACTER_CAPSULE_HEIGHT,
-        CHARACTER_CAPSULE_RADIUS, FLOOR_HEIGHT, FLOOR_WIDTH, PROJECTILE_RADIUS,
+        CharacterChildCollider, ProjectilePhysicsBundle, BLOCK_HEIGHT, BLOCK_WIDTH,
+        CHARACTER_CAPSULE_HEIGHT, CHARACTER_CAPSULE_RADIUS, CHARACTER_CHILD_SIZE, FLOOR_HEIGHT,
+        FLOOR_WIDTH, PROJECTILE_RADIUS,
     },
 };
 use avian3d::{math::AsF32, prelude::*};
@@ -21,6 +22,7 @@ impl Plugin for ExampleRendererPlugin {
             Update,
             (
                 add_character_cosmetics,
+                add_character_child_cosmetics,
                 add_floor_cosmetics,
                 add_block_cosmetics,
             ),
@@ -106,6 +108,31 @@ fn add_character_cosmetics(
                 CHARACTER_CAPSULE_HEIGHT,
             ))),
             MeshMaterial3d(materials.add(color.0)),
+        ));
+    }
+}
+
+/// Render the touching child cube for authoritative and predicted character roots.
+fn add_character_child_cosmetics(
+    mut commands: Commands,
+    child_query: Query<(Entity, &ChildOf), (With<CharacterChildCollider>, Without<Mesh3d>)>,
+    visible_roots: Query<
+        (),
+        (
+            With<CharacterMarker>,
+            Or<(With<Predicted>, With<Replicate>)>,
+        ),
+    >,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<StandardMaterial>>,
+) {
+    for (entity, child_of) in &child_query {
+        if !visible_roots.contains(child_of.parent()) {
+            continue;
+        }
+        commands.entity(entity).insert((
+            Mesh3d(meshes.add(Cuboid::from_length(CHARACTER_CHILD_SIZE))),
+            MeshMaterial3d(materials.add(Color::srgb(0.2, 1.0, 0.4))),
         ));
     }
 }

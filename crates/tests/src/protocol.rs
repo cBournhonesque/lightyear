@@ -308,27 +308,12 @@ impl Plugin for ProtocolPlugin {
             app.add_plugins(FrameInterpolationPlugin);
         }
 
-        match self.avian_mode {
-            AvianReplicationMode::Position { .. } => {
-                app.component::<Position>()
-                    .replicate_filtered::<With<RigidBody>>()
-                    .predict()
-                    .add_linear_interpolation()
-                    .add_correction();
-
-                app.component::<Rotation>()
-                    .replicate_filtered::<With<RigidBody>>()
-                    .predict()
-                    .add_linear_interpolation()
-                    .add_correction();
-            }
-            AvianReplicationMode::Transform => {
-                app.component::<Transform>()
-                    .replicate()
-                    .predict()
-                    .add_interpolation_with(TransformLinearInterpolation::lerp)
-                    .add_linear_correction::<Isometry2d>();
-            }
+        if self.avian_mode == AvianReplicationMode::Transform {
+            app.component::<Transform>()
+                .replicate()
+                .predict()
+                .add_interpolation_with(TransformLinearInterpolation::lerp)
+                .add_linear_correction::<Isometry2d>();
         }
     }
 }

@@ -353,25 +353,6 @@ impl Plugin for ProtocolPlugin {
         app.component::<PlayerId>().replicate();
         app.component::<PlayerMarker>().replicate();
 
-        app.component::<Position>()
-            .replicate()
-            .predict()
-            .with_rollback_condition(position_should_rollback)
-            .add_linear_interpolation()
-            .add_correction();
-
-        app.component::<Rotation>()
-            .replicate()
-            .predict()
-            .with_rollback_condition(rotation_should_rollback)
-            .add_linear_interpolation()
-            .add_correction();
-
-        app.component::<LinearVelocity>()
-            .replicate()
-            .predict()
-            .with_rollback_condition(linear_velocity_should_rollback);
-
         app.component::<ColorComponent>().replicate();
 
         app.component::<Score>().replicate();
@@ -421,16 +402,4 @@ impl Plugin for ProtocolPlugin {
         // Make sure that we rollback the DespawnAfter timer in deterministic replication mode
         app.local_rollback::<DespawnAfter>();
     }
-}
-
-fn position_should_rollback(this: &Position, that: &Position) -> bool {
-    (this.0 - that.0).length() >= 0.01
-}
-
-fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
-    this.angle_between(*that) >= 0.01
-}
-
-fn linear_velocity_should_rollback(this: &LinearVelocity, that: &LinearVelocity) -> bool {
-    (this.0 - that.0).length() >= 0.01
 }

@@ -184,6 +184,7 @@ impl Plugin for SharedComponentRegistrationPlugin {
     fn build(&self, app: &mut bevy_app::prelude::App) {
         use bevy_ecs::prelude::ChildOf;
         use bevy_replicon::prelude::{AppMarkerExt, AppRuleExt, RuleFns};
+        app.init_resource::<registry::ComponentRegistry>();
         // The order of app.replicate() calls must be identical on client and server.
         // These marker components are sent from server to client as part of entity replication.
         #[cfg(feature = "prediction")]

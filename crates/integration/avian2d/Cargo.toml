@@ -36,6 +36,7 @@ lightyear_replication = { workspace = true, features = ["avian2d"] }
 
 avian2d.workspace = true
 bevy_transform_interpolation.workspace = true
+serde.workspace = true
 
 tracing.workspace = true
 
@@ -50,6 +51,9 @@ bevy_utils.workspace = true
 
 # utils
 seahash = { workspace = true, optional = true }
+
+[dev-dependencies]
+bevy_state.workspace = true
 
 [lints]
 workspace = true

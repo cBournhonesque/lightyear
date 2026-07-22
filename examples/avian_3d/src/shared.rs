@@ -19,9 +19,49 @@ pub const BLOCK_HEIGHT: f32 = 1.0;
 
 pub const CHARACTER_CAPSULE_RADIUS: f32 = 0.5;
 pub const CHARACTER_CAPSULE_HEIGHT: f32 = 0.5;
+pub const CHARACTER_CHILD_SIZE: f32 = 0.5;
+pub const CHARACTER_CHILD_OFFSET: Vec3 = Vec3::new(
+    CHARACTER_CAPSULE_RADIUS + CHARACTER_CHILD_SIZE / 2.0,
+    0.0,
+    0.0,
+);
 
 pub const PROJECTILE_RADIUS: f32 = 0.25;
 const PROJECTILE_DENSITY: f32 = 2.0;
+
+/// Local-only marker for the fixed-offset cube collider in the `CharacterMarker` template.
+#[derive(Component)]
+pub(crate) struct CharacterChildCollider;
+
+impl CharacterChildCollider {
+    pub(crate) fn local_transform() -> Transform {
+        Transform::from_translation(CHARACTER_CHILD_OFFSET)
+    }
+
+    pub(crate) fn collider() -> Collider {
+        Collider::cuboid(
+            CHARACTER_CHILD_SIZE,
+            CHARACTER_CHILD_SIZE,
+            CHARACTER_CHILD_SIZE,
+        )
+    }
+}
+
+/// Reconstruct the character's touching child cube independently on every peer.
+fn spawn_character_child_collider(trigger: On<Add, CharacterMarker>, mut commands: Commands) {
+    let character = trigger.entity;
+    commands.spawn((
+        ChildOf(character),
+        CharacterChildCollider,
+        CharacterChildCollider::local_transform(),
+        CharacterChildCollider::collider(),
+        ColliderOf { body: character },
+        ColliderDensity(0.1),
+        Restitution::new(0.3),
+        CollisionLayers::default(),
+        Name::new("CharacterOffsetCubeCollider"),
+    ));
+}
 
 #[derive(Bundle)]
 pub(crate) struct CharacterPhysicsBundle {
@@ -105,6 +145,7 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
+        app.add_observer(spawn_character_child_collider);
 
         // Physics
         app.add_plugins(lightyear::avian3d::plugin::LightyearAvianPlugin {

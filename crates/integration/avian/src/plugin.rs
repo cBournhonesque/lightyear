@@ -69,9 +69,15 @@ to canonical physics state.
 Position mode automatically registers velocity-aware Hermite interpolation for the
 `(Position, Rotation, LinearVelocity, AngularVelocity)` bundle. Delayed interpolation, frame
 interpolation, and visual correction select it whenever all four components are present. The
-per-component rules remain useful for archetypes that do not contain the complete bundle. This
-does not implicitly replicate those components; the application protocol still chooses which
-components are sent over the network.
+per-component rules remain useful for archetypes that do not contain the complete bundle.
+
+By default, Position mode also registers `Position`, `Rotation`, `LinearVelocity`, and
+`AngularVelocity` for filtered rigid-body replication and prediction. Position and Rotation get
+linear interpolation, correction, and a small default rollback tolerance. Set
+[`LightyearAvianPlugin::register_physics_components`] to `false` when the application owns these
+registrations, for example to use
+`app.component::<C>().replicate().predict().with_rollback_condition(...)` or deterministic
+input-only replication.
 !*/
 use alloc::vec::Vec;
 #[cfg(all(feature = "2d", not(feature = "3d")))]
@@ -120,12 +126,16 @@ use tracing::trace;
 
 use lightyear_core::timeline::is_in_rollback;
 use lightyear_frame_interpolation::FrameInterpolationSystems;
-use lightyear_interpolation::prelude::{AppInterpolationExt, Interpolated, InterpolationFns};
+use lightyear_interpolation::prelude::{
+    AppInterpolationExt, Interpolated, InterpolationFns, InterpolationRegistrationExt,
+};
 use lightyear_prediction::plugin::PredictionSystems;
 use lightyear_prediction::prelude::{
     PredictionAppRegistrationExt, PredictionBuilderExt, PredictionManager, RollbackSystems,
 };
-use lightyear_replication::prelude::{AppComponentExt, TransformLinearInterpolation};
+use lightyear_replication::prelude::{
+    AppComponentExt, ComponentRegistry, TransformLinearInterpolation,
+};
 
 /// Indicate which components you are replicating over the network
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -168,7 +178,7 @@ impl Default for AvianReplicationMode {
 /// Plugin that integrates Avian with Lightyear for networked physics replication.
 ///
 /// NOTE: this plugin is NOT added automatically by ClientPlugins/ServerPlugins, you have to add it manually!
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct LightyearAvianPlugin {
     /// The replication mode to use for the Avian plugin.
     pub replication_mode: AvianReplicationMode,
@@ -176,12 +186,33 @@ pub struct LightyearAvianPlugin {
     ///
     /// Enable this if you are an advanced user and want to handle all synchronization manually.
     pub update_syncs_manually: bool,
+    /// Register the standard Position-mode Avian components for networking.
+    ///
+    /// The default registration replicates `Position`, `Rotation`, `LinearVelocity`, and
+    /// `AngularVelocity` only on entities with [`RigidBody`], predicts all four components, and
+    /// enables interpolation and correction for the pose components. Disable this when the
+    /// application uses custom replication rules, such as replicate-once deterministic state.
+    ///
+    /// Add the Lightyear networking plugins or another component protocol before this plugin so
+    /// the replication registry exists when these defaults are installed.
+    pub register_physics_components: bool,
     /// If True, the plugin will rollback resources that are not replicated, such as Collisions.
     /// Enable this if you are using deterministic replication (i.e. are not replicating state).
     ///
     /// If Avian's `IslandPlugin` is enabled, island rollback state is registered automatically
     /// during `finish()`. If `IslandSleepingPlugin` is also enabled, sleeping state is rolled back too.
     pub rollback_resources: bool,
+}
+
+impl Default for LightyearAvianPlugin {
+    fn default() -> Self {
+        Self {
+            replication_mode: AvianReplicationMode::default(),
+            update_syncs_manually: false,
+            register_physics_components: true,
+            rollback_resources: false,
+        }
+    }
 }
 
 #[derive(Resource, Clone, Debug, Default)]
@@ -201,12 +232,164 @@ struct RollbackColliderProxy {
     flags: ColliderTreeProxyFlags,
 }
 
+// Keep the default networking protocol independent from Avian's broad `serialize` feature. That
+// feature also serializes collision internals that Lightyear does not replicate here.
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct PositionWire([Scalar; 2]);
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct PositionWire([Scalar; 3]);
+
+impl From<Position> for PositionWire {
+    fn from(value: Position) -> Self {
+        Self(value.0.to_array())
+    }
+}
+
+impl From<PositionWire> for Position {
+    fn from(value: PositionWire) -> Self {
+        Self(Vector::from_array(value.0))
+    }
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct RotationWire([Scalar; 2]);
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct RotationWire([Scalar; 4]);
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+impl From<Rotation> for RotationWire {
+    fn from(value: Rotation) -> Self {
+        Self([value.cos, value.sin])
+    }
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+impl From<RotationWire> for Rotation {
+    fn from(value: RotationWire) -> Self {
+        Self {
+            cos: value.0[0],
+            sin: value.0[1],
+        }
+    }
+}
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+impl From<Rotation> for RotationWire {
+    fn from(value: Rotation) -> Self {
+        Self(value.0.to_array())
+    }
+}
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+impl From<RotationWire> for Rotation {
+    fn from(value: RotationWire) -> Self {
+        Self(Quaternion::from_array(value.0))
+    }
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct LinearVelocityWire([Scalar; 2]);
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct LinearVelocityWire([Scalar; 3]);
+
+impl From<LinearVelocity> for LinearVelocityWire {
+    fn from(value: LinearVelocity) -> Self {
+        Self(value.0.to_array())
+    }
+}
+
+impl From<LinearVelocityWire> for LinearVelocity {
+    fn from(value: LinearVelocityWire) -> Self {
+        Self(Vector::from_array(value.0))
+    }
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct AngularVelocityWire(Scalar);
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
+struct AngularVelocityWire([Scalar; 3]);
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+impl From<AngularVelocity> for AngularVelocityWire {
+    fn from(value: AngularVelocity) -> Self {
+        Self(value.0)
+    }
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+impl From<AngularVelocityWire> for AngularVelocity {
+    fn from(value: AngularVelocityWire) -> Self {
+        Self(value.0)
+    }
+}
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+impl From<AngularVelocity> for AngularVelocityWire {
+    fn from(value: AngularVelocity) -> Self {
+        Self(value.0.to_array())
+    }
+}
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+impl From<AngularVelocityWire> for AngularVelocity {
+    fn from(value: AngularVelocityWire) -> Self {
+        Self(Vector::from_array(value.0))
+    }
+}
+
+const DEFAULT_ROLLBACK_TOLERANCE: f32 = 0.01;
+
+fn position_should_rollback(confirmed: &Position, predicted: &Position) -> bool {
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+fn rotation_should_rollback(confirmed: &Rotation, predicted: &Rotation) -> bool {
+    confirmed.angle_between(*predicted) >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+fn linear_velocity_should_rollback(confirmed: &LinearVelocity, predicted: &LinearVelocity) -> bool {
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+#[cfg(all(feature = "2d", not(feature = "3d")))]
+fn angular_velocity_should_rollback(
+    confirmed: &AngularVelocity,
+    predicted: &AngularVelocity,
+) -> bool {
+    (confirmed.0 - predicted.0).abs() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
+#[cfg(all(feature = "3d", not(feature = "2d")))]
+fn angular_velocity_should_rollback(
+    confirmed: &AngularVelocity,
+    predicted: &AngularVelocity,
+) -> bool {
+    (confirmed.0 - predicted.0).length() >= Scalar::from(DEFAULT_ROLLBACK_TOLERANCE)
+}
+
 impl Plugin for LightyearAvianPlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<PhysicsTransformConfig>();
         Self::install_position_to_transform_markers(app);
         match self.replication_mode {
             AvianReplicationMode::Position { sync_to_transform } => {
+                if self.register_physics_components
+                    && app.world().contains_resource::<ComponentRegistry>()
+                {
+                    Self::register_position_mode_components(app);
+                }
                 Self::add_position_rotation_hermite_rule(app);
                 if !self.update_syncs_manually {
                     let mut config = app.world_mut().resource_mut::<PhysicsTransformConfig>();
@@ -386,6 +569,33 @@ impl Plugin for LightyearAvianPlugin {
 }
 
 impl LightyearAvianPlugin {
+    /// Register the standard network protocol for Avian's canonical Position-mode state.
+    fn register_position_mode_components(app: &mut App) {
+        app.component::<Position>()
+            .replicate_filtered_as::<PositionWire, With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(position_should_rollback)
+            .add_linear_interpolation()
+            .add_correction();
+
+        app.component::<Rotation>()
+            .replicate_filtered_as::<RotationWire, With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(rotation_should_rollback)
+            .add_linear_interpolation()
+            .add_correction();
+
+        app.component::<LinearVelocity>()
+            .replicate_filtered_as::<LinearVelocityWire, With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(linear_velocity_should_rollback);
+
+        app.component::<AngularVelocity>()
+            .replicate_filtered_as::<AngularVelocityWire, With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(angular_velocity_should_rollback);
+    }
+
     /// Opt non-rigid interpolated entities into Avian's Position-to-Transform sync.
     ///
     /// Avian's [`position_to_transform`] normally only synchronizes entities with a
@@ -394,15 +604,18 @@ impl LightyearAvianPlugin {
     /// [`Transform`] for rendering. [`ApplyPosToTransform`] opts those entities into Avian's
     /// system.
     ///
-    /// A non-rigid [`ColliderOf`] is different: its `Position` and `Rotation` are derived world
-    /// state computed from the rigid-body root and its [`ColliderTransform`], while its
+    /// A non-rigid child [`ColliderOf`] is different: its `Position` and `Rotation` are derived
+    /// world state computed from the body root and its [`ColliderTransform`], while its
     /// `Transform` stores the fixed local offset from that root. Applying the derived world pose
     /// to the local transform would apply the hierarchy twice and move the collider away from the
-    /// body. Transform synchronization must therefore start at the rigid-body root, and compound
-    /// child colliders must not receive [`ApplyPosToTransform`]. The removal observer handles
-    /// either component insertion order. Avian can also give the root collider a self-referential
-    /// [`ColliderOf`], but that root is still synchronized by the system's [`RigidBody`] branch and
-    /// does not need the opt-in marker.
+    /// body. Transform synchronization must therefore start at the body root, and compound child
+    /// colliders must not receive [`ApplyPosToTransform`].
+    ///
+    /// Avian can also give a collider root a self-referential [`ColliderOf`]. Such an entity is not
+    /// a child collider: if it is [`Interpolated`] and has no [`RigidBody`], it still needs
+    /// [`ApplyPosToTransform`] so its sampled pose reaches [`Transform`]. The observers therefore
+    /// distinguish roots (`ColliderOf::body == entity`) from actual child colliders. The removal
+    /// observer handles either component insertion order.
     fn install_position_to_transform_markers(app: &mut App) {
         app.add_observer(Self::add_apply_pos_to_transform);
         app.add_observer(Self::remove_apply_pos_to_transform_from_child_collider);
@@ -411,19 +624,20 @@ impl LightyearAvianPlugin {
     fn add_apply_pos_to_transform(
         trigger: On<Add, (Position, Rotation, Interpolated)>,
         query: Query<
-            (),
+            Option<&ColliderOf>,
             (
                 With<Position>,
                 With<Rotation>,
                 With<Interpolated>,
                 Without<ApplyPosToTransform>,
                 Without<RigidBody>,
-                Without<ColliderOf>,
             ),
         >,
         mut commands: Commands,
     ) {
-        if query.contains(trigger.entity) {
+        if query.get(trigger.entity).is_ok_and(|collider_of| {
+            collider_of.is_none_or(|collider_of| collider_of.body == trigger.entity)
+        }) {
             commands.entity(trigger.entity).insert(ApplyPosToTransform);
         }
     }
@@ -431,7 +645,7 @@ impl LightyearAvianPlugin {
     fn remove_apply_pos_to_transform_from_child_collider(
         trigger: On<Insert, (ColliderOf, ApplyPosToTransform)>,
         query: Query<
-            (),
+            &ColliderOf,
             (
                 With<ColliderOf>,
                 With<ApplyPosToTransform>,
@@ -440,7 +654,10 @@ impl LightyearAvianPlugin {
         >,
         mut commands: Commands,
     ) {
-        if query.contains(trigger.entity) {
+        if query
+            .get(trigger.entity)
+            .is_ok_and(|collider_of| collider_of.body != trigger.entity)
+        {
             commands
                 .entity(trigger.entity)
                 .remove::<ApplyPosToTransform>();
@@ -1015,8 +1232,12 @@ impl LightyearAvianPlugin {
 #[cfg(test)]
 mod mode_tests {
     use super::*;
+    use bevy_state::app::StatesPlugin;
+    use bevy_transform::TransformPlugin;
     use lightyear_core::prelude::ConfirmedHistory;
     use lightyear_interpolation::registry::InterpolationRegistry;
+    use lightyear_prediction::prelude::PredictionRegistry;
+    use lightyear_replication::LightyearRepliconBackend;
 
     #[test]
     fn position_mode_defaults_to_sync_to_transform_disabled() {
@@ -1025,6 +1246,146 @@ mod mode_tests {
             AvianReplicationMode::Position {
                 sync_to_transform: false
             }
+        );
+    }
+
+    #[test]
+    fn interpolated_collider_root_keeps_position_to_transform_marker() {
+        let mut app = App::new();
+        app.add_plugins(LightyearAvianPlugin {
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+
+        let root = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(root).is_some());
+
+        // Avian uses a self-referential ColliderOf for a collider on the body root. This must not
+        // make the root look like a compound child collider.
+        app.world_mut()
+            .entity_mut(root)
+            .insert(ColliderOf { body: root });
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(root).is_some());
+
+        // The same insertion order on a real child must remove the marker so its fixed local
+        // Transform is preserved.
+        let child = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(child).is_some());
+        app.world_mut()
+            .entity_mut(child)
+            .insert(ColliderOf { body: root });
+        app.world_mut().flush();
+        assert!(app.world().get::<ApplyPosToTransform>(child).is_none());
+    }
+
+    #[test]
+    fn interpolated_pose_propagates_to_fixed_offset_child_collider() {
+        let mut app = App::new();
+        app.add_plugins(TransformPlugin);
+        app.add_plugins(LightyearAvianPlugin {
+            register_physics_components: false,
+            ..Default::default()
+        });
+
+        let root = app
+            .world_mut()
+            .spawn((
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                Transform::default(),
+                GlobalTransform::default(),
+            ))
+            .id();
+        let child_local = Transform::from_xyz(0.75, 0.25, 0.0);
+        let child = app
+            .world_mut()
+            .spawn((
+                ChildOf(root),
+                ColliderOf { body: root },
+                Position::default(),
+                Rotation::default(),
+                Interpolated,
+                child_local,
+                GlobalTransform::default(),
+            ))
+            .id();
+
+        app.update();
+
+        // Delayed interpolation writes its sampled pose into Position/Rotation. Exercise the
+        // downstream Avian sync and Bevy hierarchy propagation with an existing child collider.
+        let sampled_position =
+            Position(Vector::X * Scalar::from(3.0_f32) + Vector::Y * Scalar::from(2.0_f32));
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        let sampled_rotation = Rotation::radians(Scalar::from(0.4_f32));
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        let sampled_rotation = Rotation(Quaternion::from_rotation_z(Scalar::from(0.4_f32)));
+
+        *app.world_mut().get_mut::<Position>(root).unwrap() = sampled_position;
+        *app.world_mut().get_mut::<Rotation>(root).unwrap() = sampled_rotation;
+        app.update();
+
+        assert!(app.world().get::<ApplyPosToTransform>(root).is_some());
+        assert!(app.world().get::<ApplyPosToTransform>(child).is_none());
+        assert_eq!(*app.world().get::<Transform>(child).unwrap(), child_local);
+
+        let root_transform = app.world().get::<Transform>(root).unwrap();
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        let expected_root_translation = sampled_position.0.f32().extend(0.0);
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        let expected_root_translation = sampled_position.0.f32();
+        let expected_root_rotation = Quaternion::from(sampled_rotation).f32();
+        assert!(
+            root_transform
+                .translation
+                .distance(expected_root_translation)
+                < 1e-5
+        );
+        assert!(
+            root_transform
+                .rotation
+                .angle_between(expected_root_rotation)
+                < 1e-5
+        );
+
+        let child_global = app
+            .world()
+            .get::<GlobalTransform>(child)
+            .unwrap()
+            .compute_transform();
+        let expected_child_translation = root_transform.transform_point(child_local.translation);
+        assert!(
+            child_global
+                .translation
+                .distance(expected_child_translation)
+                < 1e-5
+        );
+        assert!(
+            (child_global.rotation * bevy_math::Vec3::X)
+                .distance(root_transform.rotation * bevy_math::Vec3::X)
+                < 1e-5
         );
     }
 
@@ -1051,6 +1412,113 @@ mod mode_tests {
                 .is_some(),
             "the automatic rule must own delayed-interpolation history"
         );
+    }
+
+    #[test]
+    fn position_mode_registers_the_default_physics_protocol() {
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin);
+        app.add_plugins(LightyearRepliconBackend);
+        app.init_resource::<PredictionRegistry>();
+        app.add_plugins(LightyearAvianPlugin {
+            replication_mode: AvianReplicationMode::Position {
+                sync_to_transform: false,
+            },
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+
+        let components = app.world().resource::<ComponentRegistry>();
+        assert!(components.is_registered::<Position>());
+        assert!(components.is_registered::<Rotation>());
+        assert!(components.is_registered::<LinearVelocity>());
+        assert!(components.is_registered::<AngularVelocity>());
+
+        let prediction = app.world().resource::<PredictionRegistry>();
+        assert!(!prediction.should_rollback(&Position::default(), &Position::default()));
+        assert!(prediction.should_rollback(
+            &Position::default(),
+            &Position(Vector::X * Scalar::from(0.02_f32))
+        ));
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation::radians(Scalar::from(0.005_f32))
+            ));
+            assert!(prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation::radians(Scalar::from(0.02_f32))
+            ));
+        }
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation(Quaternion::from_rotation_x(Scalar::from(0.005_f32)))
+            ));
+            assert!(prediction.should_rollback(
+                &Rotation::default(),
+                &Rotation(Quaternion::from_rotation_x(Scalar::from(0.02_f32)))
+            ));
+        }
+        assert!(!prediction.should_rollback(
+            &LinearVelocity::default(),
+            &LinearVelocity(Vector::X * Scalar::from(0.005_f32))
+        ));
+        assert!(prediction.should_rollback(
+            &LinearVelocity::default(),
+            &LinearVelocity(Vector::X * Scalar::from(0.02_f32))
+        ));
+        #[cfg(all(feature = "2d", not(feature = "3d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Scalar::from(0.005_f32))
+            ));
+            assert!(prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Scalar::from(0.02_f32))
+            ));
+        }
+        #[cfg(all(feature = "3d", not(feature = "2d")))]
+        {
+            assert!(!prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Vector::X * Scalar::from(0.005_f32))
+            ));
+            assert!(prediction.should_rollback(
+                &AngularVelocity::default(),
+                &AngularVelocity(Vector::X * Scalar::from(0.02_f32))
+            ));
+        }
+    }
+
+    #[test]
+    fn custom_physics_protocol_uses_normal_rollback_builder() {
+        fn never_rollback(_confirmed: &Position, _predicted: &Position) -> bool {
+            false
+        }
+
+        let mut app = App::new();
+        app.add_plugins(StatesPlugin);
+        app.add_plugins(LightyearRepliconBackend);
+        app.init_resource::<PredictionRegistry>();
+        app.add_plugins(LightyearAvianPlugin {
+            register_physics_components: false,
+            update_syncs_manually: true,
+            ..Default::default()
+        });
+        app.component::<Position>()
+            .replicate_filtered_as::<PositionWire, With<RigidBody>>()
+            .predict()
+            .with_rollback_condition(never_rollback);
+
+        let prediction = app.world().resource::<PredictionRegistry>();
+        assert!(!prediction.should_rollback(
+            &Position::default(),
+            &Position(Vector::X * Scalar::from(100.0_f32))
+        ));
     }
 }
 

@@ -44,11 +44,8 @@ fn handle_character_actions(
 ) {
     let tick = timeline.tick();
     for (entity, computed_mass, action_state, forces) in &mut query {
-        // lightyear handles correctly both inputs from the local player or the remote player, during rollback
-        // or out of rollback.
-        // The ActionState is always updated to contain the correct action for the current tick.
-        //
-        // For remote players, we use the most recent input received
+        // Lightyear restores the correct local or rebroadcast ActionState for every predicted
+        // character, both during ordinary prediction and rollback replay.
         apply_character_action(
             entity,
             computed_mass,
@@ -60,8 +57,7 @@ fn handle_character_actions(
     }
 }
 
-/// Add physics to characters that are newly predicted. If the client controls
-/// the character then add an input component.
+/// Add physics to characters when their predicted entities are created.
 fn handle_new_character(
     mut commands: Commands,
     mut character_query: Query<
