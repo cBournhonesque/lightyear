@@ -20,8 +20,9 @@ fn test_setup_client_server() {
     assert!(stepper.client(0).contains::<Transport>());
     assert!(stepper.client(0).contains::<MessageManager>());
     assert!(stepper.client(0).contains::<MessageSender<StringMessage>>());
+    // Message receivers are created lazily when the first payload arrives.
     assert!(
-        stepper
+        !stepper
             .client(0)
             .contains::<MessageReceiver<StringMessage>>()
     );
@@ -43,7 +44,7 @@ fn test_setup_client_server() {
             .contains::<MessageSender<StringMessage>>()
     );
     assert!(
-        stepper
+        !stepper
             .client_of(0)
             .contains::<MessageReceiver<StringMessage>>()
     );

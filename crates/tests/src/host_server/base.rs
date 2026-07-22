@@ -41,8 +41,9 @@ fn test_setup_host_server() {
             .host_client()
             .contains::<MessageSender<StringMessage>>()
     );
+    // Message receivers are created lazily when the first payload arrives.
     assert!(
-        stepper
+        !stepper
             .host_client()
             .contains::<MessageReceiver<StringMessage>>()
     );
