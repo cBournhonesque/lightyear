@@ -402,7 +402,7 @@ impl TransportPlugin {
             if let Some(mut host_client) = host_client {
                 // for a host-client, we write the bytes directly to the HostClient buffer
                 transport.recv_channel.try_iter().try_for_each(|(channel_kind, bytes, priority)| {
-                    host_client.buffer.push((bytes, channel_kind.0));
+                    host_client.buffer.push((bytes, channel_kind.0, tick));
                     Ok::<(), TransportError>(())
                 }).inspect_err(|e| error!("error buffering host-client message: {e:?}")).ok();
                 return

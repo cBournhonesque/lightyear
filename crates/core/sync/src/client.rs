@@ -7,8 +7,9 @@ use crate::timeline::input::InputTimelineConfig;
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy_app::prelude::*;
+use bevy_ecs::prelude::IntoScheduleConfigs;
 use lightyear_connection::client::Client;
-use lightyear_core::prelude::NetworkTimelinePlugin;
+use lightyear_core::prelude::{NetworkTimelinePlugin, TimelineSystems};
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?
@@ -60,7 +61,10 @@ impl Plugin for ClientPlugin {
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
         app.add_observer(RemoteTimeline::handle_connect);
         app.add_observer(remote::update_remote_timeline);
-        app.add_systems(PreUpdate, remote::advance_remote_timeline);
+        app.add_systems(
+            PreUpdate,
+            remote::advance_remote_timeline.in_set(TimelineSystems::Advance),
+        );
         app.add_systems(Last, remote::reset_received_packet_remote_timeline);
     }
 }

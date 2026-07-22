@@ -1,8 +1,11 @@
 use bevy_app::App;
 use bevy_ecs::{entity::MapEntities, event::Event};
 
-use crate::receive_event::receive_event_typed;
-use crate::registry::{MessageKind, MessageRegistry, SendTriggerMetadata};
+use crate::receive_event::{
+    PendingTimelineEvents, receive_event_typed, receive_local_event_typed,
+    release_timeline_events_typed,
+};
+use crate::registry::{MessageKind, MessageRegistry, ReceiveTriggerMetadata, SendTriggerMetadata};
 use crate::send_trigger::EventSender;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_serde::entity_map::{ReceiveEntityMap, SendEntityMap};
@@ -40,6 +43,7 @@ impl<'a, M: Event> TriggerRegistration<'a, M> {
         self
     }
 
+    /// Adds the event sender component on each side that sends this event.
     pub fn add_direction(&mut self, direction: NetworkDirection) -> &mut Self {
         #[cfg(feature = "client")]
         self.add_client_direction(direction);
@@ -83,6 +87,9 @@ impl AppTriggerExt for App {
             self.world_mut().init_resource::<MessageRegistry>();
         }
         let sender_id = self.world_mut().register_component::<EventSender<M>>();
+        let receiver_id = self
+            .world_mut()
+            .register_component::<PendingTimelineEvents<M>>();
 
         let mut registry = self.world_mut().resource_mut::<MessageRegistry>();
         // Register M for serialization/deserialization
@@ -99,9 +106,15 @@ impl AppTriggerExt for App {
                 send_local_trigger_fn: EventSender::<M>::send_local_trigger_typed,
             },
         );
-        registry
-            .receive_trigger
-            .insert(MessageKind::of::<M>(), receive_event_typed::<M>);
+        registry.receive_trigger.insert(
+            MessageKind::of::<M>(),
+            ReceiveTriggerMetadata {
+                component_id: receiver_id,
+                receive_trigger_fn: receive_event_typed::<M>,
+                receive_local_trigger_fn: receive_local_event_typed::<M>,
+                release_fn: release_timeline_events_typed::<M>,
+            },
+        );
         TriggerRegistration {
             app: self,
             _marker: Default::default(),

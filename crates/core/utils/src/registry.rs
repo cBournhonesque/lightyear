@@ -92,6 +92,7 @@ impl RegistryHasher {
         }
         DebugName::type_name::<T>().hash(&mut self.hasher);
     }
+
     pub fn finish(&mut self) -> RegistryHash {
         match self.hash {
             None => {

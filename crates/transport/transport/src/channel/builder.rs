@@ -16,7 +16,9 @@ use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::world::DeferredWorld;
 use bevy_platform::collections::HashMap;
 use bytes::Bytes;
+use core::marker::PhantomData;
 use core::time::Duration;
+use lightyear_core::prelude::{IntoMessageTimeline, TimelineKind};
 #[cfg(test)]
 use lightyear_link::DEFAULT_MTU;
 use lightyear_link::Link;
@@ -58,6 +60,12 @@ pub struct ChannelSettings {
     /// message has already been admitted, its remaining fragments are also retained to avoid
     /// guaranteeing an incomplete local send.
     pub retry_unsent_messages: bool,
+    /// Timeline that controls when received messages and events become visible.
+    ///
+    /// `None` delivers immediately on the local timeline. Prefer configuring
+    /// this through [`on_timeline`](Self::on_timeline), which also registers
+    /// and hashes the timeline type when the channel is added.
+    pub timeline: Option<TimelineKind>,
 }
 
 impl Default for ChannelSettings {
@@ -67,7 +75,77 @@ impl Default for ChannelSettings {
             send_frequency: Duration::default(),
             priority: 1.0,
             retry_unsent_messages: true,
+            timeline: None,
         }
+    }
+}
+
+impl ChannelSettings {
+    /// Delays messages and events on this channel until timeline `T` reaches
+    /// the sender tick carried by transport.
+    ///
+    /// Adding the channel registers `T` automatically and includes it in the
+    /// protocol hash. The receiving connection entity must contain `T` for
+    /// payloads on this channel to be accepted.
+    pub fn on_timeline<T: IntoMessageTimeline>(self) -> TimelineChannelSettings<T> {
+        TimelineChannelSettings {
+            settings: self,
+            marker: PhantomData,
+        }
+    }
+}
+
+/// Typed channel-registration input for delayed delivery on timeline `T`.
+///
+/// The marker is erased after `T` is registered and hashed; only its
+/// [`TimelineKind`] is retained in the non-generic [`ChannelSettings`].
+#[doc(hidden)]
+pub struct TimelineChannelSettings<T> {
+    pub(crate) settings: ChannelSettings,
+    /// Retains `T` in this zero-sized registration input without implying that
+    /// it owns a `T`. Using `T` as a function return makes the marker covariant
+    /// over `T`; the type is only needed for inference and registration.
+    marker: PhantomData<fn() -> T>,
+}
+
+#[cfg(test)]
+mod protocol_tests {
+    use super::*;
+    use crate::channel::registry::ChannelRegistry;
+    use lightyear_core::prelude::IntoMessageTimeline;
+    use lightyear_core::timeline::TimelineRegistry;
+
+    struct TestChannel;
+    struct TestTimeline;
+
+    impl IntoMessageTimeline for TestTimeline {
+        fn timeline_kind() -> Option<lightyear_core::timeline::TimelineKind> {
+            Some(lightyear_core::timeline::TimelineKind::from(
+                core::any::TypeId::of::<Self>(),
+            ))
+        }
+
+        fn register(app: &mut bevy_app::App) {
+            app.init_resource::<TimelineRegistry>();
+        }
+    }
+
+    #[test]
+    fn delivery_timeline_changes_channel_protocol_hash() {
+        let mut immediate = ChannelRegistry::default();
+        immediate.add_channel::<TestChannel>(ChannelSettings::default());
+
+        let mut delayed = ChannelRegistry::default();
+        delayed.add_channel_with_timeline::<TestChannel, TestTimeline>(ChannelSettings::default());
+
+        assert_eq!(
+            delayed
+                .settings(ChannelKind::of::<TestChannel>())
+                .unwrap()
+                .timeline,
+            TestTimeline::timeline_kind()
+        );
+        assert_ne!(immediate.finish(), delayed.finish());
     }
 }
 
