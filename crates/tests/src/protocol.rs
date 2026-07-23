@@ -15,7 +15,7 @@ use lightyear::frame_interpolation::FrameInterpolationPlugin;
 use lightyear::prelude::input::*;
 use lightyear::prelude::*;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_replication::delta::Diffable as DeltaDiffable;
+use lightyear_replication::diffable::Diffable as LightyearDiffable;
 use serde::{Deserialize, Serialize};
 
 // Messages
@@ -127,7 +127,7 @@ impl Ease for CompCorr {
     }
 }
 
-impl DeltaDiffable for CompCorr {
+impl LightyearDiffable for CompCorr {
     fn base_value() -> Self {
         Self(0.0)
     }
@@ -143,22 +143,6 @@ impl DeltaDiffable for CompCorr {
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompNotNetworked(pub f32);
-
-#[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
-pub struct CompDelta(pub usize);
-impl DeltaDiffable<usize> for CompDelta {
-    fn base_value() -> Self {
-        Self(0)
-    }
-
-    fn diff(&self, other: &Self) -> usize {
-        other.0 - self.0
-    }
-
-    fn apply_diff(&mut self, delta: &usize) {
-        self.0 += *delta;
-    }
-}
 
 #[derive(Component, Serialize, Deserialize, Clone, Debug, PartialEq, Reflect)]
 pub struct CompRepliconDiff(pub u32);
@@ -262,12 +246,10 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation();
         app.component::<CompMap>().replicate().predict();
         app.local_rollback::<CompNotNetworked>();
-        app.component::<CompDelta>().replicate();
         app.component::<CompRepliconDiff>()
             .replicate_diff()
             .predict_diff()
             .add_custom_interpolation_diff();
-        // .add_delta_compression();
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {

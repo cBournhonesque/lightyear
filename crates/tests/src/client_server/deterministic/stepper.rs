@@ -19,7 +19,6 @@ use core::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use core::time::Duration;
 use lightyear::prelude::{client::*, server::*, *};
 use lightyear_netcode::client_plugin::NetcodeConfig;
-use lightyear_replication::delta::DeltaManager;
 use lightyear_replication::receive::ReplicationReceiver;
 
 pub const DET_SERVER_PORT: u16 = 56891;
@@ -63,9 +62,8 @@ impl DetStepper {
 
         let server_entity = server_app
             .world_mut()
-            .spawn((
-                DeltaManager::default(),
-                NetcodeServer::new(lightyear_netcode::server_plugin::NetcodeConfig::default()),
+            .spawn(NetcodeServer::new(
+                lightyear_netcode::server_plugin::NetcodeConfig::default(),
             ))
             .id();
 

@@ -20,7 +20,6 @@ lightyear_utils.workspace = true
 lightyear_core = { workspace = true }
 lightyear_connection = { workspace = true }
 lightyear_replication = { workspace = true, features = [
-  "delta",
   "prediction",
   "interpolation",
 ] }

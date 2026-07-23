@@ -108,6 +108,7 @@ pub mod client;
 pub mod control;
 pub mod deferred_entity;
 pub mod diff_history;
+pub mod diffable;
 pub mod hierarchy;
 pub mod metadata;
 pub mod prespawn;
@@ -117,10 +118,6 @@ pub mod send;
 
 pub mod visibility;
 
-#[cfg(feature = "delta")]
-pub mod delta;
-
-#[cfg(feature = "delta")]
 mod impls;
 
 pub mod prelude {
@@ -149,8 +146,7 @@ pub mod prelude {
     pub use crate::visibility::immediate::{NetworkVisibilityPlugin, VisibilityExt};
     pub use crate::visibility::room::{RoomAllocator, RoomId, RoomPlugin, Rooms};
 
-    #[cfg(feature = "delta")]
-    pub use crate::delta::{DeltaManager, Diffable};
+    pub use crate::diffable::Diffable;
 
     #[cfg(feature = "interpolation")]
     pub use crate::send::InterpolationTarget;
