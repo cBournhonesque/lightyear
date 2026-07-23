@@ -371,23 +371,6 @@ impl<C> ComponentRegistration<'_, C> {
             .replicate_with_priority_filtered::<_, F>(priority, rule_fns);
         self
     }
-
-    /// Deprecated compatibility shim for the removed delta-compression registration path.
-    ///
-    /// Replicon-backed component replication does not currently use Lightyear's
-    /// old delta-compression metadata, so this preserves the old builder chain
-    /// without changing the Replicon rule registered by earlier builder calls.
-    #[cfg(feature = "delta")]
-    #[deprecated(
-        note = "Lightyear delta compression is not implemented on the Replicon backend; use `replicate_diff()` for Replicon diff replication"
-    )]
-    pub fn add_delta_compression<Delta>(self) -> Self
-    where
-        C: crate::delta::Diffable<Delta>,
-        Delta: Serialize + DeserializeOwned,
-    {
-        self
-    }
 }
 
 #[derive(Debug, Default, Clone)]

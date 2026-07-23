@@ -31,8 +31,8 @@ use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_frame_interpolation::FrameInterpolationPlugin;
 use lightyear_replication::checkpoint::resolve_message_tick;
-use lightyear_replication::delta::Diffable;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
+use lightyear_replication::diffable::Diffable;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_replication::registry::replication::{
     AppComponentExt, ComponentRegistration, ComponentRegistrator,

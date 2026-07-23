@@ -92,7 +92,7 @@ use lightyear_interpolation::rules::frame_interpolate::{
 };
 use lightyear_interpolation::rules::{InterpolationRuleId, RuleKind};
 use lightyear_replication::deferred_entity::DeferredEntityCommands;
-use lightyear_replication::delta::Diffable;
+use lightyear_replication::diffable::Diffable;
 use lightyear_replication::registry::{ComponentKind, LerpFn};
 use tracing::trace;
 
@@ -884,7 +884,7 @@ mod tests {
         rules::{InterpolationFns, InterpolationSampleContext},
     };
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
-    use lightyear_replication::delta::Diffable as LightyearDiffable;
+    use lightyear_replication::diffable::Diffable as LightyearDiffable;
     use lightyear_replication::prelude::*;
 
     use super::*;

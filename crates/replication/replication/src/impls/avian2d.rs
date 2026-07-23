@@ -1,4 +1,4 @@
-use crate::delta::Diffable;
+use crate::diffable::Diffable;
 use avian2d::prelude::{Position, Rotation};
 
 impl Diffable<Position> for Position {

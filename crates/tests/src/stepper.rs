@@ -17,7 +17,6 @@ use lightyear_core::test::TestHelper;
 use lightyear_netcode::client_plugin::NetcodeConfig;
 use lightyear_raw_connection::client::RawClient;
 use lightyear_raw_connection::server::RawServer;
-use lightyear_replication::delta::DeltaManager;
 use lightyear_replication::receive::ReplicationReceiver;
 
 pub const SERVER_PORT: u16 = 56789;
@@ -178,7 +177,7 @@ impl ClientServerStepper {
         server_app.add_plugins((server::ServerPlugins { tick_duration }, RoomPlugin));
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin { avian_mode });
-        let mut server = server_app.world_mut().spawn((DeltaManager::default(),));
+        let mut server = server_app.world_mut().spawn_empty();
 
         match server_type {
             ServerType::Raw => {

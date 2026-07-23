@@ -142,5 +142,5 @@ Action entities (spawned by `bevy_enhanced_input`) need to be replicated via the
 
 ### Future Work
 
-- **Delta compression**: The old delta compression system was removed. If needed, investigate replicon's built-in delta support or re-implement on top of replicon's `RuleFns`.
+- **Delta compression**: The old `DeltaManager`, component history, and `add_delta_compression` API were removed. Network diffs now use Replicon's `Diffable` trait with `replicate_diff()`. Lightyear's separate `Diffable` trait remains available from `lightyear_replication::diffable` for prediction correction.
 - **Multi-threaded test stability**: Tests crash with SIGABRT when run multi-threaded due to bevy's shared `ComputeTaskPool`. Currently requires `--test-threads=1`.

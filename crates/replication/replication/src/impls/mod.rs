@@ -1,4 +1,4 @@
-use crate::delta::Diffable;
+use crate::diffable::Diffable;
 use bevy_math::{Isometry2d, Isometry3d, Quat, Rot2, Vec3};
 use bevy_transform::prelude::Transform;
 
