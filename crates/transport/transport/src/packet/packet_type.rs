@@ -24,6 +24,11 @@ pub enum PacketType {
     /// Compression for the fragment payload itself is tracked separately in the
     /// fragment metadata serialized on the first fragment.
     DataFragmentCompressed = 3,
+    /// A header-only packet carrying packet acknowledgements.
+    ///
+    /// ACK-only packets are not themselves acknowledgement-eliciting, which prevents idle peers
+    /// from exchanging an endless stream of acknowledgements.
+    AckOnly = 4,
 }
 
 impl From<PacketType> for u8 {
@@ -41,6 +46,7 @@ impl TryFrom<u8> for PacketType {
             1 => Ok(PacketType::DataFragment),
             2 => Ok(PacketType::DataCompressed),
             3 => Ok(PacketType::DataFragmentCompressed),
+            4 => Ok(PacketType::AckOnly),
             _ => Err(lightyear_serde::SerializationError::InvalidPacketType),
         }
     }
@@ -58,7 +64,9 @@ impl PacketType {
         match self {
             PacketType::Data => Some(PacketType::DataCompressed),
             PacketType::DataFragment => Some(PacketType::DataFragmentCompressed),
-            PacketType::DataCompressed | PacketType::DataFragmentCompressed => None,
+            PacketType::DataCompressed
+            | PacketType::DataFragmentCompressed
+            | PacketType::AckOnly => None,
         }
     }
 
@@ -68,7 +76,12 @@ impl PacketType {
             PacketType::DataFragment | PacketType::DataFragmentCompressed => {
                 PacketType::DataFragment
             }
+            PacketType::AckOnly => PacketType::AckOnly,
         }
+    }
+
+    pub(crate) fn is_ack_eliciting(self) -> bool {
+        self != PacketType::AckOnly
     }
 }
 
@@ -83,6 +96,7 @@ mod tests {
             PacketType::DataFragment,
             PacketType::DataCompressed,
             PacketType::DataFragmentCompressed,
+            PacketType::AckOnly,
         ] {
             let raw: u8 = packet_type.into();
             assert_eq!(PacketType::try_from(raw).unwrap(), packet_type);
@@ -107,5 +121,10 @@ mod tests {
             PacketType::DataFragmentCompressed.uncompressed_variant(),
             PacketType::DataFragment
         );
+        assert_eq!(
+            PacketType::AckOnly.uncompressed_variant(),
+            PacketType::AckOnly
+        );
+        assert_eq!(PacketType::AckOnly.compressed_variant(), None);
     }
 }

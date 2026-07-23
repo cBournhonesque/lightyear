@@ -12,7 +12,7 @@ pub(crate) fn add_sender_channel<C: Channel>(
     registry: Res<ChannelRegistry>,
 ) {
     if let Ok(mut transport) = query.get_mut(trigger.entity) {
-        transport.add_send_lane_from_registry::<C>(&registry)
+        transport.add_channel_send_from_registry::<C>(&registry)
     }
 }
 
@@ -22,7 +22,7 @@ pub(crate) fn add_receiver_channel<C: Channel>(
     registry: Res<ChannelRegistry>,
 ) {
     if let Ok(mut transport) = query.get_mut(trigger.entity) {
-        transport.add_recv_lane_from_registry::<C>(&registry)
+        transport.add_channel_receive_from_registry::<C>(&registry)
     }
 }
 

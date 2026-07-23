@@ -148,7 +148,7 @@ fn receive_client_packets(
 ) {
     for mut transport in transports.iter_mut() {
         for (idx, &(_, channel_id)) in channel_map.server_channels.iter().enumerate() {
-            if let Some(receiver) = transport.recv_lane_mut(channel_id) {
+            if let Some(receiver) = transport.channel_receive_mut(channel_id) {
                 while let Some((_, message, _)) = receiver.read_message() {
                     client_messages.insert_received(idx, message);
                 }

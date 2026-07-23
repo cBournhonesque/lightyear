@@ -8,7 +8,8 @@ pub(crate) mod packet {
 
     #[derive(Default, Copy, Clone, Debug, PartialEq)]
     struct PacketStats {
-        num_sent_packets: u32,
+        /// Packets whose delivery can be classified from a later ACK or timeout.
+        num_sent_ack_eliciting_packets: u32,
         num_sent_packets_acked: u32,
         num_sent_packets_lost: u32,
         num_received_packets: u32,
@@ -16,7 +17,7 @@ pub(crate) mod packet {
 
     impl AddAssign for PacketStats {
         fn add_assign(&mut self, other: Self) {
-            self.num_sent_packets += other.num_sent_packets;
+            self.num_sent_ack_eliciting_packets += other.num_sent_ack_eliciting_packets;
             self.num_sent_packets_acked += other.num_sent_packets_acked;
             self.num_sent_packets_lost += other.num_sent_packets_lost;
             self.num_received_packets += other.num_received_packets;
@@ -25,7 +26,7 @@ pub(crate) mod packet {
 
     impl SubAssign for PacketStats {
         fn sub_assign(&mut self, other: Self) {
-            self.num_sent_packets -= other.num_sent_packets;
+            self.num_sent_ack_eliciting_packets -= other.num_sent_ack_eliciting_packets;
             self.num_sent_packets_acked -= other.num_sent_packets_acked;
             self.num_sent_packets_lost -= other.num_sent_packets_lost;
             self.num_received_packets -= other.num_received_packets;
@@ -84,19 +85,36 @@ pub(crate) mod packet {
         }
 
         fn compute_stats(&mut self) {
-            if self.rolling_stats.num_sent_packets > 0 {
+            if self.rolling_stats.num_sent_ack_eliciting_packets > 0 {
                 self.final_stats.packet_loss = self.rolling_stats.num_sent_packets_lost as f32
-                    / self.rolling_stats.num_sent_packets as f32;
+                    / self.rolling_stats.num_sent_ack_eliciting_packets as f32;
             }
         }
 
         // TODO: we could just emit raw stats, and then compute packet loss over an interval using prometheus/grafana
-        /// Notify that a packet was sent
-        pub(crate) fn sent_packet(&mut self) {
+        /// Records a packet whose delivery will later be classified as acknowledged or lost.
+        pub(crate) fn sent_ack_eliciting_packet(&mut self) {
             #[cfg(feature = "metrics")]
-            metrics::counter!("packets/send").increment(1);
+            {
+                metrics::counter!("packets/send_ack_eliciting").increment(1);
+                metrics::counter!("packets/send").increment(1);
+            }
 
-            self.current_stats.num_sent_packets += 1;
+            self.current_stats.num_sent_ack_eliciting_packets += 1;
+        }
+
+        /// Records an ACK-only packet without adding it to the packet-loss denominator.
+        ///
+        /// ACK-only packets deliberately do not trigger an acknowledgement response. They may be
+        /// acknowledged incidentally by later data, but silence cannot classify them as lost.
+        /// Counting them in the denominator would therefore make measured packet loss artificially
+        /// low.
+        pub(crate) fn sent_ack_only_packet(&mut self) {
+            #[cfg(feature = "metrics")]
+            {
+                metrics::counter!("packets/send_ack_only").increment(1);
+                metrics::counter!("packets/send").increment(1);
+            }
         }
 
         /// Notify that a packet we sent got lost (we did not receive an ack for it)
@@ -133,8 +151,8 @@ pub(crate) mod packet {
             let mut packet_stats_manager = PacketStatsManager::new(Duration::from_secs(2));
 
             // add some packet data
-            packet_stats_manager.sent_packet();
-            packet_stats_manager.sent_packet();
+            packet_stats_manager.sent_ack_eliciting_packet();
+            packet_stats_manager.sent_ack_eliciting_packet();
             packet_stats_manager.sent_packet_lost();
             packet_stats_manager.sent_packet_acked();
 
@@ -149,12 +167,12 @@ pub(crate) mod packet {
             assert_eq!(packet_stats_manager.final_stats.packet_loss, 1.0 / 2.0);
 
             // add some more packet data at a later time
-            packet_stats_manager.sent_packet();
+            packet_stats_manager.sent_ack_eliciting_packet();
             packet_stats_manager.sent_packet_lost();
             assert_eq!(
                 packet_stats_manager.current_stats,
                 PacketStats {
-                    num_sent_packets: 1,
+                    num_sent_ack_eliciting_packets: 1,
                     num_sent_packets_acked: 0,
                     num_sent_packets_lost: 1,
                     num_received_packets: 0,
@@ -167,20 +185,44 @@ pub(crate) mod packet {
             assert_eq!(packet_stats_manager.final_stats.packet_loss, 2.0 / 3.0);
 
             // add some more packet data at a later time, the older stats should get removed
-            packet_stats_manager.sent_packet();
+            packet_stats_manager.sent_ack_eliciting_packet();
             packet_stats_manager.update(Duration::from_secs(5));
             assert_eq!(packet_stats_manager.current_stats, PacketStats::default());
             assert_eq!(packet_stats_manager.stats_buffer.len(), 2);
             assert_eq!(
                 packet_stats_manager.rolling_stats,
                 PacketStats {
-                    num_sent_packets: 2,
+                    num_sent_ack_eliciting_packets: 2,
                     num_sent_packets_acked: 0,
                     num_sent_packets_lost: 1,
                     num_received_packets: 0,
                 }
             );
             packet_stats_manager.compute_stats();
+            assert_eq!(packet_stats_manager.final_stats.packet_loss, 1.0 / 2.0);
+        }
+
+        #[test]
+        fn ack_only_packets_do_not_dilute_packet_loss() {
+            let mut packet_stats_manager = PacketStatsManager::new(Duration::from_secs(2));
+            packet_stats_manager.sent_ack_eliciting_packet();
+            packet_stats_manager.sent_ack_eliciting_packet();
+            packet_stats_manager.sent_packet_lost();
+
+            for _ in 0..100 {
+                packet_stats_manager.sent_ack_only_packet();
+            }
+
+            assert_eq!(
+                packet_stats_manager.current_stats,
+                PacketStats {
+                    num_sent_ack_eliciting_packets: 2,
+                    num_sent_packets_acked: 0,
+                    num_sent_packets_lost: 1,
+                    num_received_packets: 0,
+                }
+            );
+            packet_stats_manager.update(Duration::from_secs(1));
             assert_eq!(packet_stats_manager.final_stats.packet_loss, 1.0 / 2.0);
         }
     }

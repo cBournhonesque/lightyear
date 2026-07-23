@@ -1,7 +1,7 @@
 //! This module contains the [`Channel`] trait
-use crate::channel::receivers::RecvLane;
+use crate::channel::receive::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelKind};
-use crate::channel::senders::SendLane;
+use crate::channel::send::ChannelSend;
 use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
@@ -153,8 +153,8 @@ mod protocol_tests {
 #[component(on_add = Transport::on_add)]
 #[require(Link)]
 pub struct Transport {
-    pub(crate) receivers: HashMap<ChannelId, RecvLane>,
-    pub(crate) senders: HashMap<ChannelKind, SendLane>,
+    pub(crate) receivers: HashMap<ChannelId, ChannelReceive>,
+    pub(crate) senders: HashMap<ChannelKind, ChannelSend>,
     /// PriorityManager shared between all channels of this transport
     pub priority_manager: PriorityManager,
     /// Bandwidth admission is separate from priority ordering and uses final packet bytes.
@@ -176,17 +176,13 @@ pub struct Transport {
     ///
     /// Every packet is either acked or nacked, so this shouldn't grow indefinitely
     pub(crate) packet_to_message_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
-    /// For fragmented messages, we only ack if we acked the packets of all fragments.
-    /// This counter keeps track of the number of packet acks remaining before we can ack the message.
-    pub(crate) fragment_acks: HashMap<MessageId, u64>,
-
     /// mpsc channel sender/receiver to allow users to write bytes to the same channel in parallel
     pub send_channel: Sender<(ChannelKind, Bytes, f32)>,
     pub recv_channel: Receiver<(ChannelKind, Bytes, f32)>,
     /// Buffer to store payloads that have been processed by the transport, and will be processed
     /// by the Link or the Connection
     pub send: Vec<SendPayload>,
-    /// Buffer to store payloads that will be processed by the transport and stored in receive lanes.
+    /// Buffer to store payloads that will be processed by the transport and stored in receive channels.
     pub recv: Vec<RecvPayload>,
 }
 
@@ -204,7 +200,6 @@ impl Transport {
             fragment_size: FRAGMENT_SIZE,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
-            fragment_acks: Default::default(),
             send_channel,
             recv_channel,
             send: vec![],
@@ -251,75 +246,81 @@ impl Transport {
             self.fragment_size = fragment_size;
             self.senders
                 .values_mut()
-                .for_each(|lane| lane.set_fragment_size(fragment_size));
+                .for_each(|channel| channel.set_fragment_size(fragment_size));
             self.receivers
                 .values_mut()
-                .for_each(|lane| lane.set_fragment_size(fragment_size));
+                .for_each(|channel| channel.set_fragment_size(fragment_size));
         }
         Ok(())
     }
 
-    pub fn has_sender<C: Channel>(&self) -> bool {
+    /// Returns whether this transport has a sending side for channel `C`.
+    pub fn has_channel_send<C: Channel>(&self) -> bool {
         self.senders.contains_key(&ChannelKind::of::<C>())
     }
 
-    pub fn has_receiver<C: Channel>(&self) -> bool {
+    /// Returns whether this transport has a receiving side for channel `C`.
+    pub fn has_channel_receive<C: Channel>(&self) -> bool {
         self.receivers
             .values()
-            .any(|lane| lane.channel_kind() == ChannelKind::of::<C>())
+            .any(|channel| channel.channel_kind() == ChannelKind::of::<C>())
     }
 
-    /// Returns the sending lane registered for `channel_kind`.
-    pub fn send_lane(&self, channel_kind: ChannelKind) -> Option<&SendLane> {
+    /// Returns the sending channel registered for `channel_kind`.
+    pub fn channel_send(&self, channel_kind: ChannelKind) -> Option<&ChannelSend> {
         self.senders.get(&channel_kind)
     }
 
-    /// Returns the sending lane registered for `channel_kind`.
-    pub fn send_lane_mut(&mut self, channel_kind: ChannelKind) -> Option<&mut SendLane> {
+    /// Returns the sending channel registered for `channel_kind`.
+    pub fn channel_send_mut(&mut self, channel_kind: ChannelKind) -> Option<&mut ChannelSend> {
         self.senders.get_mut(&channel_kind)
     }
 
-    /// Iterates over the registered sending lanes and their channel kinds.
-    pub fn send_lanes(&self) -> impl Iterator<Item = (ChannelKind, &SendLane)> {
+    /// Iterates over the registered sending channels and their channel kinds.
+    pub fn channel_sends(&self) -> impl Iterator<Item = (ChannelKind, &ChannelSend)> {
         self.senders
             .iter()
-            .map(|(channel_kind, lane)| (*channel_kind, lane))
+            .map(|(channel_kind, channel)| (*channel_kind, channel))
     }
 
-    /// Mutably iterates over the registered sending lanes and their channel kinds.
-    pub fn send_lanes_mut(&mut self) -> impl Iterator<Item = (ChannelKind, &mut SendLane)> {
+    /// Mutably iterates over the registered sending channels and their channel kinds.
+    pub fn channel_sends_mut(&mut self) -> impl Iterator<Item = (ChannelKind, &mut ChannelSend)> {
         self.senders
             .iter_mut()
-            .map(|(channel_kind, lane)| (*channel_kind, lane))
+            .map(|(channel_kind, channel)| (*channel_kind, channel))
     }
 
-    /// Returns the receiving lane registered for `channel_id`.
-    pub fn recv_lane(&self, channel_id: ChannelId) -> Option<&RecvLane> {
+    /// Returns the receiving channel registered for `channel_id`.
+    pub fn channel_receive(&self, channel_id: ChannelId) -> Option<&ChannelReceive> {
         self.receivers.get(&channel_id)
     }
 
-    /// Returns the receiving lane registered for `channel_id`.
-    pub fn recv_lane_mut(&mut self, channel_id: ChannelId) -> Option<&mut RecvLane> {
+    /// Returns the receiving channel registered for `channel_id`.
+    pub fn channel_receive_mut(&mut self, channel_id: ChannelId) -> Option<&mut ChannelReceive> {
         self.receivers.get_mut(&channel_id)
     }
 
-    /// Iterates over the registered receiving lanes.
-    pub fn recv_lanes(&self) -> impl Iterator<Item = &RecvLane> {
+    /// Iterates over the registered receiving channels.
+    pub fn channel_receives(&self) -> impl Iterator<Item = &ChannelReceive> {
         self.receivers.values()
     }
 
-    /// Mutably iterates over the registered receiving lanes.
-    pub fn recv_lanes_mut(&mut self) -> impl Iterator<Item = &mut RecvLane> {
+    /// Mutably iterates over the registered receiving channels.
+    pub fn channel_receives_mut(&mut self) -> impl Iterator<Item = &mut ChannelReceive> {
         self.receivers.values_mut()
     }
 
-    /// Adds a manually configured sending lane.
+    /// Adds a manually configured sending channel.
     ///
-    /// Normal application setup should use [`Self::add_send_lane_from_registry`].
-    pub fn add_send_lane<C: Channel>(&mut self, settings: ChannelSettings, channel_id: ChannelId) {
+    /// Normal application setup should use [`Self::add_channel_send_from_registry`].
+    pub fn add_channel_send<C: Channel>(
+        &mut self,
+        settings: ChannelSettings,
+        channel_id: ChannelId,
+    ) {
         self.senders.insert(
             ChannelKind::of::<C>(),
-            SendLane::new(
+            ChannelSend::new(
                 ChannelKind::of::<C>(),
                 channel_id,
                 DebugName::type_name::<C>(),
@@ -329,14 +330,9 @@ impl Transport {
         );
     }
 
-    #[deprecated(note = "Use add_send_lane instead")]
-    pub fn add_sender<C: Channel>(&mut self, settings: ChannelSettings, channel_id: ChannelId) {
-        self.add_send_lane::<C>(settings, channel_id);
-    }
-
-    /// Adds a sending lane using the channel's registered settings and wire ID.
-    // TODO: make this available via observer by triggering AddSender<C> on the Transport entity.
-    pub fn add_send_lane_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+    /// Adds a sending channel using the channel's registered settings and wire ID.
+    // TODO: make this available via an observer on the Transport entity.
+    pub fn add_channel_send_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         trace!(
             "Adding sender from registry for channel {}. Kind: {:?}",
             DebugName::type_name::<C>(),
@@ -349,30 +345,29 @@ impl Transport {
             );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-        self.add_send_lane::<C>(*settings, channel_id);
+        self.add_channel_send::<C>(*settings, channel_id);
     }
 
-    #[deprecated(note = "Use add_send_lane_from_registry instead")]
+    #[deprecated(note = "Use add_channel_send_from_registry instead")]
     pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
-        self.add_send_lane_from_registry::<C>(registry);
+        self.add_channel_send_from_registry::<C>(registry);
     }
 
-    /// Adds a manually configured receiving lane.
+    /// Adds a manually configured receiving channel.
     ///
-    /// Normal application setup should use [`Self::add_recv_lane_from_registry`].
-    pub fn add_recv_lane<C: Channel>(&mut self, settings: ChannelSettings, channel_id: ChannelId) {
-        let mut lane = RecvLane::new(ChannelKind::of::<C>(), &settings);
-        lane.set_fragment_size(self.fragment_size);
-        self.receivers.insert(channel_id, lane);
+    /// Normal application setup should use [`Self::add_channel_receive_from_registry`].
+    pub fn add_channel_receive<C: Channel>(
+        &mut self,
+        settings: ChannelSettings,
+        channel_id: ChannelId,
+    ) {
+        let mut channel = ChannelReceive::new(ChannelKind::of::<C>(), &settings);
+        channel.set_fragment_size(self.fragment_size);
+        self.receivers.insert(channel_id, channel);
     }
 
-    #[deprecated(note = "Use add_recv_lane instead")]
-    pub fn add_receiver<C: Channel>(&mut self, settings: ChannelSettings, channel_id: ChannelId) {
-        self.add_recv_lane::<C>(settings, channel_id);
-    }
-
-    /// Adds a receiving lane using the channel's registered settings and wire ID.
-    pub fn add_recv_lane_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+    /// Adds a receiving channel using the channel's registered settings and wire ID.
+    pub fn add_channel_receive_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!(
                 "ChannelSettings not found for channel {}",
@@ -380,12 +375,12 @@ impl Transport {
             );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-        self.add_recv_lane::<C>(*settings, channel_id);
+        self.add_channel_receive::<C>(*settings, channel_id);
     }
 
-    #[deprecated(note = "Use add_recv_lane_from_registry instead")]
+    #[deprecated(note = "Use add_channel_receive_from_registry instead")]
     pub fn add_receiver_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
-        self.add_recv_lane_from_registry::<C>(registry);
+        self.add_channel_receive_from_registry::<C>(registry);
     }
 
     pub fn send_with_priority<C: Channel>(
@@ -437,11 +432,15 @@ impl Transport {
             compression_scratch,
             ..
         } = self;
-        let send_lane = senders
+        let channel_send = senders
             .get_mut(&kind)
             .ok_or(TransportError::ChannelNotFound(kind))?;
-        let message_id =
-            send_lane.buffer_send_with_scratch(bytes, priority, compression, compression_scratch);
+        let message_id = channel_send.buffer_send_with_scratch(
+            bytes,
+            priority,
+            compression,
+            compression_scratch,
+        );
         Ok(message_id)
     }
 
@@ -449,13 +448,13 @@ impl Transport {
     pub(crate) fn reset(&mut self, registry: &ChannelRegistry) {
         self.receivers.iter_mut().for_each(|(channel_id, r)| {
             let settings = registry.settings_from_net_id(*channel_id).unwrap();
-            let mut lane = RecvLane::new(r.channel_kind(), settings);
-            lane.set_fragment_size(self.fragment_size);
-            *r = lane;
+            let mut channel = ChannelReceive::new(r.channel_kind(), settings);
+            channel.set_fragment_size(self.fragment_size);
+            *r = channel;
         });
         self.senders.iter_mut().for_each(|(channel_kind, s)| {
             let settings = registry.settings(*channel_kind).unwrap();
-            *s = SendLane::new(
+            *s = ChannelSend::new(
                 *channel_kind,
                 s.channel_id(),
                 s.name().clone(),
@@ -469,7 +468,6 @@ impl Transport {
         self.packet_manager = Default::default();
         self.compression_scratch = Default::default();
         self.packet_to_message_map = Default::default();
-        self.fragment_acks.clear();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         self.send_channel = send_channel;
         self.recv_channel = recv_channel;
@@ -604,11 +602,11 @@ mod tests {
 
         let mut sender_transport =
             Transport::new(PriorityConfig::default()).with_compression(compression);
-        sender_transport.add_send_lane::<CompressionChannel>(settings, channel_id);
+        sender_transport.add_channel_send::<CompressionChannel>(settings, channel_id);
 
         let mut receiver_transport =
             Transport::new(PriorityConfig::default()).with_compression(compression);
-        receiver_transport.add_recv_lane::<CompressionChannel>(settings, channel_id);
+        receiver_transport.add_channel_receive::<CompressionChannel>(settings, channel_id);
 
         let message = Bytes::from(vec![7u8; FRAGMENT_SIZE * 3]);
         let message_id = sender_transport
@@ -683,7 +681,7 @@ mod tests {
         let mut registry = ChannelRegistry::default();
         let (channel_kind, channel_id) = registry.add_channel::<CompressionChannel>(settings);
         let mut transport = Transport::new(PriorityConfig::new(600)).with_compression(compression);
-        transport.add_send_lane::<CompressionChannel>(settings, channel_id);
+        transport.add_channel_send::<CompressionChannel>(settings, channel_id);
 
         for _ in 0..8 {
             transport
