@@ -21,7 +21,7 @@ bench = false
 [features]
 default = ["std", "2d", "avian2d/parry-f32"]
 f32 = ["avian2d/f32"]
-2d = ["avian2d/2d"]
+2d = ["avian2d/2d", "avian2d/serialize"]
 std = ["lightyear_prediction/std"]
 deterministic = ["dep:seahash"]
 lag_compensation = []
@@ -35,8 +35,8 @@ lightyear_frame_interpolation.workspace = true
 lightyear_replication = { workspace = true, features = ["avian2d"] }
 
 avian2d.workspace = true
+arrayvec.workspace = true
 bevy_transform_interpolation.workspace = true
-
 tracing.workspace = true
 
 # bevy
@@ -50,6 +50,9 @@ bevy_utils.workspace = true
 
 # utils
 seahash = { workspace = true, optional = true }
+
+[dev-dependencies]
+bevy_state.workspace = true
 
 [lints]
 workspace = true

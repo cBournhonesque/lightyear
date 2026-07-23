@@ -40,6 +40,7 @@ impl Plugin for SharedPlugin {
             replication_mode: AvianReplicationMode::Position {
                 sync_to_transform: false,
             },
+            register_physics_components: false,
             rollback_resources: true,
             ..default()
         });

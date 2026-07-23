@@ -83,35 +83,7 @@ impl Plugin for ProtocolPlugin {
 
         app.component::<BallMarker>().replicate();
 
-        app.component::<Position>()
-            // Replicate only authoritative rigid-body poses. A child collider
-            // without its own RigidBody gets its world pose from the root and
-            // its fixed local Transform, so neither pose component should be replicated.
-            .replicate_filtered::<With<RigidBody>>()
-            .predict()
-            .with_rollback_condition(position_should_rollback)
-            .add_linear_interpolation()
-            .add_correction();
-
-        app.component::<Rotation>()
-            .replicate_filtered::<With<RigidBody>>()
-            .predict()
-            .with_rollback_condition(rotation_should_rollback)
-            .add_linear_interpolation()
-            .add_correction();
-
-        // The Avian integration automatically combines these with Position
-        // and Rotation in its velocity-aware Hermite interpolation rule.
-        app.component::<LinearVelocity>().replicate().predict();
-
-        app.component::<AngularVelocity>().replicate().predict();
+        // The LightyearAvianPlugin registers Avian's Position, Rotation,
+        // LinearVelocity, and AngularVelocity networking rules.
     }
-}
-
-fn position_should_rollback(this: &Position, that: &Position) -> bool {
-    (this.0 - that.0).length() >= 0.01
-}
-
-fn rotation_should_rollback(this: &Rotation, that: &Rotation) -> bool {
-    this.angle_between(*that) >= 0.01
 }

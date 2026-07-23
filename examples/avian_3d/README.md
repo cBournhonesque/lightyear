@@ -11,9 +11,10 @@ https://github.com/user-attachments/assets/4e0eb373-2f46-4c48-8157-46e1e5085097
   * A character is a dynamic 3D capsule.
   * The client can control the character with `W/A/S/D/SPACE`.
   * Client inputs are converted into physical forces applied to the character.
-  * All clients will predict the position, rotation, and velocity of all characters.
-* The serve will spawn some dynamic blocks and a static floor on start.
-  * All clients will predict the position, rotation, and velocity of all blocks.
+  * All clients predict every character so player-player and player-block collisions are simulated locally.
+  * Each capsule has a touching, fixed-offset child cube collider reconstructed locally from the character template.
+* The server will spawn a dynamic block and a static floor on start.
+  * All clients predict the block.
   * The floor is only replicated and not predicted because we do not expect it to move.
 
 

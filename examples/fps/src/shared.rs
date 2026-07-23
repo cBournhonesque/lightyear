@@ -31,6 +31,8 @@ impl Plugin for SharedPlugin {
             replication_mode: AvianReplicationMode::Position {
                 sync_to_transform: false,
             },
+            // This example keeps custom physics-component rules in its protocol.
+            register_physics_components: false,
             ..default()
         });
 

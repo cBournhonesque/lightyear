@@ -9,6 +9,11 @@
 //! and writes their final visual values to Bevy `Transform` in `PostUpdate`. Setting its
 //! `sync_to_transform` field to `true` synchronizes that authoritative pose to `Transform` before
 //! `FixedUpdate`, allowing fixed-tick gameplay to use `Transform`.
+//!
+//! Position mode also registers the standard rigid-body `Position`, `Rotation`,
+//! `LinearVelocity`, and `AngularVelocity` networking rules by default. Add this plugin after the
+//! Lightyear networking plugins or your component protocol. Specialized protocols can disable
+//! those defaults with [`plugin::LightyearAvianPlugin::register_physics_components`].
 #![allow(unexpected_cfgs)]
 #![no_std]
 

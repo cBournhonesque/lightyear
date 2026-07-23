@@ -159,6 +159,7 @@ impl Plugin for DetProtocolPlugin {
             replication_mode: lightyear_avian2d::plugin::AvianReplicationMode::Position {
                 sync_to_transform: false,
             },
+            register_physics_components: false,
             rollback_resources: true,
             ..default()
         });
