@@ -661,12 +661,12 @@ fn check_rollback(
                     debug!("Rollback was triggered by state, skipping input rollback checks");
                 } else if let Some(last_confirmed_input) = last_confirmed_input
                     && last_confirmed_input.received_input()
+                    && let Some(rollback_tick) = last_confirmed_input.get()
                 {
                     debug!(
                         ?last_confirmed_input,
                         "Rollback because we have received a new remote input. (no mismatch check)"
                     );
-                    let rollback_tick = last_confirmed_input.tick.get();
                     trace!(
                         target: "lightyear_debug::prediction",
                         kind = "input_rollback_always",
