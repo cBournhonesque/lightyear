@@ -937,7 +937,7 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     // TODO: how to handle multiple actions S?
 
     // find the earliest last_confirmed_tick for each client
-    // (we replaced LastConfirmedInput in  with a high tick to avoid any tick-wrapping issues)
+    // The tracker was reset to a high tick, so the first real tick always becomes the minimum.
     last_confirmed_input.received_for_all_clients = true;
     predicted_query.iter().for_each(|buffer| {
         // if we received any messages, we update the LastConfirmedInput

@@ -1365,6 +1365,39 @@ fn test_input_rollback_always_mode() {
     );
 }
 
+/// Receiving a relevant input and computing its aggregate confirmed tick happen in different
+/// schedule phases. `RollbackMode::Always` must not interpret the temporary `u32::MAX` sentinel as
+/// a real rollback tick.
+#[test]
+fn test_input_rollback_always_ignores_unset_last_confirmed_tick() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+    {
+        let mut client = stepper.client_mut(0);
+        {
+            let mut prediction_manager = client.get_mut::<PredictionManager>().unwrap();
+            prediction_manager.rollback_policy.input = RollbackMode::Always;
+            prediction_manager.rollback_policy.state = RollbackMode::Disabled;
+        }
+        let last_confirmed_input = client.get::<LastConfirmedInput>().unwrap();
+        assert_eq!(last_confirmed_input.get(), None);
+        last_confirmed_input
+            .received_any_messages
+            .store(true, core::sync::atomic::Ordering::Relaxed);
+    }
+    observe_rollback_start(stepper.client_app());
+
+    stepper.frame_step(1);
+
+    assert_eq!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<ObservedRollbackStart>()
+            .0,
+        None
+    );
+}
+
 /// Test that LastConfirmedInput computes the earliest input across multiple clients
 #[test]
 fn test_last_confirmed_input_multiple_clients() {

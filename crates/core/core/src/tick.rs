@@ -1,13 +1,105 @@
+use core::ops::{Add, AddAssign, Deref as CoreDeref, Sub};
 use core::time::Duration;
-use lightyear_utils::wrapping_id;
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::resource::Resource;
 use bevy_platform::sync::atomic::{AtomicU32, Ordering};
 use bevy_reflect::Reflect;
+use lightyear_serde::reader::{ReadInteger, Reader};
+use lightyear_serde::writer::WriteInteger;
+use lightyear_serde::{SerializationError, ToBytes};
+use serde::{Deserialize, Serialize};
 
-// Internal id that tracks the Tick value for the server and the client
-wrapping_id!(Tick);
+/// Monotonically increasing simulation tick shared by the server and clients.
+///
+/// Unlike packet and message sequence IDs, ticks are numerically ordered and do not wrap. At
+/// 60 Hz, exhausting the `u32` range takes more than two years of continuous runtime. Arithmetic
+/// that produces another [`Tick`] saturates at `0` or [`u32::MAX`] instead of wrapping; signed
+/// tick differences saturate to the `i32` range.
+#[repr(transparent)]
+#[derive(
+    Serialize,
+    Deserialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    PartialEq,
+    Ord,
+    PartialOrd,
+    Default,
+    Reflect,
+)]
+pub struct Tick(pub u32);
+
+impl ToBytes for Tick {
+    fn bytes_len(&self) -> usize {
+        core::mem::size_of::<u32>()
+    }
+
+    fn to_bytes(&self, buffer: &mut impl WriteInteger) -> Result<(), SerializationError> {
+        buffer.write_u32(self.0)?;
+        Ok(())
+    }
+
+    fn from_bytes(buffer: &mut Reader) -> Result<Self, SerializationError> {
+        Ok(Self(buffer.read_u32()?))
+    }
+}
+
+impl From<u32> for Tick {
+    fn from(value: u32) -> Self {
+        Self(value)
+    }
+}
+
+impl CoreDeref for Tick {
+    type Target = u32;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl Sub for Tick {
+    type Output = i32;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        let difference = i64::from(self.0) - i64::from(rhs.0);
+        difference.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32
+    }
+}
+
+impl Sub<u32> for Tick {
+    type Output = Self;
+
+    fn sub(self, rhs: u32) -> Self::Output {
+        Self(self.0.saturating_sub(rhs))
+    }
+}
+
+impl Add for Tick {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0.saturating_add(rhs.0))
+    }
+}
+
+impl AddAssign<u32> for Tick {
+    fn add_assign(&mut self, rhs: u32) {
+        self.0 = self.0.saturating_add(rhs);
+    }
+}
+
+impl Add<i32> for Tick {
+    type Output = Self;
+
+    fn add(self, rhs: i32) -> Self::Output {
+        Self(self.0.saturating_add_signed(rhs))
+    }
+}
 
 /// Resource that contains the global TickDuration
 #[derive(Resource, Debug, Clone, Copy, PartialEq, Eq, Reflect, Deref, DerefMut)]
@@ -39,8 +131,7 @@ impl AtomicTick {
 
     /// Update the value only if the new tick is strictly lower than the current value.
     ///
-    /// Uses plain (non-wrapping) comparison: with u32 ticks, wrapping never occurs
-    /// during a game session (~828 days at 60 Hz), so a simple `<` is correct.
+    /// Uses the tick's ordinary numeric ordering.
     pub fn set_if_lower(&self, new_value: Tick) {
         let mut current = self.0.load(Ordering::Acquire);
         loop {
@@ -68,9 +159,19 @@ mod tests {
     use test_log::test;
 
     #[test]
+    fn tick_uses_numeric_ordering_and_saturating_arithmetic() {
+        assert!(Tick(u32::MAX) > Tick(0));
+        assert_eq!(Tick(0) - 1, Tick(0));
+        assert_eq!(Tick(u32::MAX) + 1, Tick(u32::MAX));
+        assert_eq!(Tick(10) + (-20), Tick(0));
+        assert_eq!(Tick(u32::MAX - 1) + Tick(2), Tick(u32::MAX));
+        assert_eq!(Tick(u32::MAX) - Tick(0), i32::MAX);
+        assert_eq!(Tick(0) - Tick(u32::MAX), i32::MIN);
+    }
+
+    #[test]
     fn test_shared_atomic_tick_minimum() {
         // Plain comparison: minimum is the numerically smallest value.
-        // With u32 ticks, wrapping never occurs in practice.
         let min_value_tracker = AtomicTick::from(10u32);
 
         let values_to_test = vec![u32::MAX - 5, 5, 100, u32::MAX];

@@ -349,6 +349,7 @@ mod tests {
         let last_confirmed_input = LastConfirmedInput::default();
 
         assert_eq!(last_confirmed_input.tick.get(), Tick(u32::MAX));
+        assert_eq!(last_confirmed_input.get(), None);
         assert!(!last_confirmed_input.received_input());
     }
 

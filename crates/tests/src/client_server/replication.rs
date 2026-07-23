@@ -586,11 +586,10 @@ fn test_late_join_client_gets_latest_state_for_existing_predicted_entity() {
 
 /// Test that replicating updates works even after a large tick jump.
 ///
-/// With u32 ticks, wrapping takes ~828 days at 60 Hz so it is not a practical
-/// concern. This test verifies that a moderate jump (10 000 ticks) does not
-/// break replication.
+/// Exhausting a `u32` tick takes more than two years at 60 Hz, so this test only verifies that a
+/// moderate jump (10 000 ticks) does not break replication.
 #[test]
-fn test_component_update_after_tick_wrap() {
+fn test_component_update_after_large_tick_jump() {
     for direction in active_replication_directions() {
         let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
         // remove InputTimeline otherwise it will try to resync
