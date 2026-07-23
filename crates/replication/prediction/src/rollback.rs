@@ -942,6 +942,11 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
         predicted_history.clear();
         if let Some(state) = restore_state.clone() {
             predicted_history.add_state(rollback_tick, state);
+        } else if let Some(current) = predicted_component.as_deref() {
+            // No state exists at rollback_tick (e.g. the entity was revealed to
+            // this client after the rollback target). The replay starts from the
+            // current component value, so seed the history with it.
+            predicted_history.add_state(rollback_tick, HistoryState::Updated(current.clone()));
         }
         trace!(
             target: "lightyear_debug::prediction",
@@ -1232,6 +1237,8 @@ mod tests {
 
     /// Test that rollback does not remove a predicted component
     /// when the rollback tick predates the first retained history entry.
+    /// The history is then seeded with the current component value at the
+    /// rollback tick, anchoring the replay/checksum base.
     #[test]
     fn test_predicted_component_initial_rollback() {
         let rollback_tick = Tick(10);
@@ -1259,6 +1266,15 @@ mod tests {
         assert_eq!(
             world.get::<TestComponent>(predicted),
             Some(&TestComponent(1.0))
+        );
+        // No history sample existed at-or-before the rollback tick, so the
+        // history is seeded with the current component value.
+        assert_eq!(
+            world
+                .get::<PredictionHistory<TestComponent>>(predicted)
+                .unwrap()
+                .get_state(rollback_tick),
+            Some(&HistoryState::Updated(TestComponent(1.0)))
         );
     }
 }
