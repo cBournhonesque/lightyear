@@ -334,10 +334,12 @@ impl Plugin for LightyearAvianPlugin {
                     (
                         PhysicsSystems::StepSimulation,
                         PhysicsSystems::Writeback,
-                        (
-                            PredictionSystems::UpdateHistory,
-                            FrameInterpolationSystems::Update,
-                        ),
+                        // UpdateHistory must run before FrameUpdate: game-rule
+                        // systems conventionally run before UpdateHistory, so an
+                        // unordered FrameUpdate could record pre-rule values and
+                        // resurrect them via FrameInterpolationSystems::Restore.
+                        PredictionSystems::UpdateHistory,
+                        FrameInterpolationSystems::Update,
                     )
                         .chain(),
                 );
@@ -381,12 +383,12 @@ impl Plugin for LightyearAvianPlugin {
                         PhysicsSystems::StepSimulation,
                         // sync updated Position to Transform
                         PhysicsSystems::Writeback,
-                        (
-                            // save the new Transform values in the history
-                            PredictionSystems::UpdateHistory,
-                            // save the values for visual interpolation
-                            FrameInterpolationSystems::Update,
-                        ),
+                        // save the new Transform values in the history; as in
+                        // Position mode, FrameUpdate must run after UpdateHistory
+                        // so it records post-game-rule values
+                        PredictionSystems::UpdateHistory,
+                        // save the values for visual interpolation
+                        FrameInterpolationSystems::Update,
                     )
                         .chain(),
                 );
