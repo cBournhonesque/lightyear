@@ -232,123 +232,6 @@ struct RollbackColliderProxy {
     flags: ColliderTreeProxyFlags,
 }
 
-// Keep the default networking protocol independent from Avian's broad `serialize` feature. That
-// feature also serializes collision internals that Lightyear does not replicate here.
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct PositionWire([Scalar; 2]);
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct PositionWire([Scalar; 3]);
-
-impl From<Position> for PositionWire {
-    fn from(value: Position) -> Self {
-        Self(value.0.to_array())
-    }
-}
-
-impl From<PositionWire> for Position {
-    fn from(value: PositionWire) -> Self {
-        Self(Vector::from_array(value.0))
-    }
-}
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct RotationWire([Scalar; 2]);
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct RotationWire([Scalar; 4]);
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-impl From<Rotation> for RotationWire {
-    fn from(value: Rotation) -> Self {
-        Self([value.cos, value.sin])
-    }
-}
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-impl From<RotationWire> for Rotation {
-    fn from(value: RotationWire) -> Self {
-        Self {
-            cos: value.0[0],
-            sin: value.0[1],
-        }
-    }
-}
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-impl From<Rotation> for RotationWire {
-    fn from(value: Rotation) -> Self {
-        Self(value.0.to_array())
-    }
-}
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-impl From<RotationWire> for Rotation {
-    fn from(value: RotationWire) -> Self {
-        Self(Quaternion::from_array(value.0))
-    }
-}
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct LinearVelocityWire([Scalar; 2]);
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct LinearVelocityWire([Scalar; 3]);
-
-impl From<LinearVelocity> for LinearVelocityWire {
-    fn from(value: LinearVelocity) -> Self {
-        Self(value.0.to_array())
-    }
-}
-
-impl From<LinearVelocityWire> for LinearVelocity {
-    fn from(value: LinearVelocityWire) -> Self {
-        Self(Vector::from_array(value.0))
-    }
-}
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct AngularVelocityWire(Scalar);
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-#[derive(Clone, Copy, serde::Serialize, serde::Deserialize)]
-struct AngularVelocityWire([Scalar; 3]);
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-impl From<AngularVelocity> for AngularVelocityWire {
-    fn from(value: AngularVelocity) -> Self {
-        Self(value.0)
-    }
-}
-
-#[cfg(all(feature = "2d", not(feature = "3d")))]
-impl From<AngularVelocityWire> for AngularVelocity {
-    fn from(value: AngularVelocityWire) -> Self {
-        Self(value.0)
-    }
-}
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-impl From<AngularVelocity> for AngularVelocityWire {
-    fn from(value: AngularVelocity) -> Self {
-        Self(value.0.to_array())
-    }
-}
-
-#[cfg(all(feature = "3d", not(feature = "2d")))]
-impl From<AngularVelocityWire> for AngularVelocity {
-    fn from(value: AngularVelocityWire) -> Self {
-        Self(Vector::from_array(value.0))
-    }
-}
-
 const DEFAULT_ROLLBACK_TOLERANCE: f32 = 0.01;
 
 fn position_should_rollback(confirmed: &Position, predicted: &Position) -> bool {
@@ -572,26 +455,26 @@ impl LightyearAvianPlugin {
     /// Register the standard network protocol for Avian's canonical Position-mode state.
     fn register_position_mode_components(app: &mut App) {
         app.component::<Position>()
-            .replicate_filtered_as::<PositionWire, With<RigidBody>>()
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(position_should_rollback)
             .add_linear_interpolation()
             .add_correction();
 
         app.component::<Rotation>()
-            .replicate_filtered_as::<RotationWire, With<RigidBody>>()
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(rotation_should_rollback)
             .add_linear_interpolation()
             .add_correction();
 
         app.component::<LinearVelocity>()
-            .replicate_filtered_as::<LinearVelocityWire, With<RigidBody>>()
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(linear_velocity_should_rollback);
 
         app.component::<AngularVelocity>()
-            .replicate_filtered_as::<AngularVelocityWire, With<RigidBody>>()
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(angular_velocity_should_rollback);
     }
@@ -1510,7 +1393,7 @@ mod mode_tests {
             ..Default::default()
         });
         app.component::<Position>()
-            .replicate_filtered_as::<PositionWire, With<RigidBody>>()
+            .replicate_filtered::<With<RigidBody>>()
             .predict()
             .with_rollback_condition(never_rollback);
 
