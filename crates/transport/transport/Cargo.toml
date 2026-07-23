@@ -23,6 +23,7 @@ test_utils = []
 [dependencies]
 # local crates
 lightyear_core.workspace = true
+lightyear_crossbeam.workspace = true
 lightyear_link.workspace = true
 lightyear_serde.workspace = true
 lightyear_utils.workspace = true
