@@ -77,9 +77,7 @@ pub(crate) const FRAGMENT_SIZE: usize = match fragment_size_for_min_mtu(DEFAULT_
 pub(crate) struct MessageMetadata {
     pub(crate) channel: ChannelId,
     pub(crate) message: Option<MessageId>,
-    // if the message is fragmented, we store the total number of fragments
     pub(crate) fragment_index: Option<FragmentIndex>,
-    pub(crate) num_fragments: Option<u64>,
     /// Channel-owned pending state to update after this packet is admitted to `Link.send`.
     pub(crate) commit: SendCommit,
     // Size of the message in bytes (for fragments, it's only the size of the fragment)
@@ -119,7 +117,6 @@ impl Packet {
         channel: ChannelId,
         message: Option<MessageId>,
         fragment_index: Option<FragmentIndex>,
-        num_fragments: Option<u64>,
         commit: SendCommit,
         #[cfg(feature = "metrics")] num_bytes: usize,
     ) {
@@ -127,7 +124,6 @@ impl Packet {
             channel,
             message,
             fragment_index,
-            num_fragments,
             commit,
             #[cfg(feature = "metrics")]
             num_bytes,

@@ -28,7 +28,7 @@ pub(crate) struct FragmentIndex(pub(crate) u64);
 ///
 /// Queue indices remain valid because unreliable channels only compact their queues after packet
 /// staging and commit have completed. Reliable messages already have a stable [`MessageId`].
-#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Hash, Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SendMessageKey {
     UnreliableSingle(usize),
     UnreliableFragment(usize),
@@ -37,13 +37,19 @@ pub(crate) enum SendMessageKey {
 }
 
 impl SendMessageKey {
-    /// Position of this message in its channel's current pending order.
-    pub(crate) fn send_order(self) -> u64 {
+    fn unreliable_send_order(self) -> Option<u64> {
         match self {
-            Self::UnreliableSingle(index) | Self::UnreliableFragment(index) => index as u64,
-            Self::ReliableSingle(message_id) | Self::ReliableFragment(message_id, _) => {
-                u64::from(message_id.0)
-            }
+            Self::UnreliableSingle(index) | Self::UnreliableFragment(index) => Some(index as u64),
+            Self::ReliableSingle(_) | Self::ReliableFragment(_, _) => None,
+        }
+    }
+
+    pub(crate) fn packing_tiebreaker(self) -> (u8, u64) {
+        match self {
+            Self::UnreliableSingle(_) => (0, 0),
+            Self::UnreliableFragment(_) => (1, 0),
+            Self::ReliableSingle(_) => (2, 0),
+            Self::ReliableFragment(_, fragment_id) => (3, fragment_id.0),
         }
     }
 }
@@ -52,13 +58,15 @@ impl SendMessageKey {
 ///
 /// Creating a candidate clones only its [`Bytes`] handle. The underlying message allocation
 /// remains owned by the channel until
-/// [`ChannelSend::commit_send`](crate::channel::senders::ChannelSend::commit_send) is called after
+/// [`ChannelSend::commit_send`](crate::channel::send::ChannelSend::commit_send) is called after
 /// the final packet enters `Link.send`.
 #[derive(Debug)]
 pub(crate) struct SendCandidate {
     pub(crate) channel_kind: ChannelKind,
     pub(crate) channel_id: ChannelId,
     pub(crate) key: SendMessageKey,
+    /// Position in the channel's current pending order, independent of wrapping IDs.
+    pub(crate) send_order: u64,
     pub(crate) message: SendMessage,
     pub(crate) effective_priority: f32,
 }
@@ -70,10 +78,38 @@ impl SendCandidate {
         key: SendMessageKey,
         message: SendMessage,
     ) -> Self {
+        let send_order = key
+            .unreliable_send_order()
+            .expect("reliable candidates require an explicit non-wrapping send order");
+        Self::new_with_send_order(channel_kind, channel_id, key, send_order, message)
+    }
+
+    pub(crate) fn new_reliable(
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+        key: SendMessageKey,
+        send_order: u64,
+        message: SendMessage,
+    ) -> Self {
+        debug_assert!(matches!(
+            key,
+            SendMessageKey::ReliableSingle(_) | SendMessageKey::ReliableFragment(_, _)
+        ));
+        Self::new_with_send_order(channel_kind, channel_id, key, send_order, message)
+    }
+
+    fn new_with_send_order(
+        channel_kind: ChannelKind,
+        channel_id: ChannelId,
+        key: SendMessageKey,
+        send_order: u64,
+        message: SendMessage,
+    ) -> Self {
         Self {
             channel_kind,
             channel_id,
             key,
+            send_order,
             effective_priority: message.priority,
             message,
         }
@@ -323,6 +359,22 @@ impl FragmentData {
 mod tests {
     use super::*;
     use alloc::vec;
+
+    #[test]
+    fn message_id_arithmetic_and_order_wrap_at_u32_max() {
+        let last = MessageId(u32::MAX);
+        let first = MessageId(0);
+        let mut next = last;
+
+        next += 1;
+
+        assert_eq!(next, first);
+        assert_eq!(last + MessageId(1), first);
+        assert_eq!(first - 1, last);
+        assert_eq!(first - last, 1);
+        assert!(last < first);
+        assert!(first < MessageId(1));
+    }
 
     #[test]
     fn test_to_bytes_single_data() {

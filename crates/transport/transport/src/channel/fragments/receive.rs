@@ -1,7 +1,11 @@
+//! Fragment validation, reassembly, and decompression for channel receives.
+
 use alloc::{vec, vec::Vec};
 use bevy_platform::collections::HashMap;
 
-use crate::channel::receivers::error::{ChannelReceiveError, Result};
+use crate::channel::receive::ChannelReceiveError;
+
+type Result<T> = core::result::Result<T, ChannelReceiveError>;
 #[cfg(feature = "compression_lz4")]
 use crate::packet::compression::CompressionAlgorithm;
 use crate::packet::compression::{CompressionConfig, decompress_payload};
@@ -274,7 +278,7 @@ fn map_fragment_decompression_error(error: PacketError) -> ChannelReceiveError {
 
 #[cfg(test)]
 mod tests {
-    use crate::channel::senders::fragment_sender::FragmentSender;
+    use crate::channel::fragments::FragmentSender;
     #[cfg(feature = "compression_lz4")]
     use crate::packet::compression::CompressionScratch;
 

@@ -129,9 +129,12 @@ pub struct PacketHeaderManager {
     // Local packet id which we'll bump each time we send a new packet over the network.
     // (we always increment the packet_id, even when we resend a lost packet)
     next_packet_id: PacketId,
-    // keep track of the packets (of type Data) we send out and that have not been acked yet,
-    // so we can resend them when dropped
-    // sent_packets_not_acked: HashSet<PacketId>,
+    /// ACK-eliciting packets whose delivery has not yet been classified.
+    ///
+    /// ACK-only packets are deliberately omitted. Their packet type tells the peer not to schedule
+    /// a response solely to acknowledge them, which prevents ACK ping-pong. A later data packet may
+    /// acknowledge them incidentally, but no response is guaranteed; tracking them would therefore
+    /// misclassify an idle peer's ACK-only packets as lost.
     sent_packets_not_acked: IndexMap<PacketId, Duration, FixedHasher>,
     stats_manager: PacketStatsManager,
     pub(crate) lost_packets: Vec<PacketId>,
@@ -140,6 +143,8 @@ pub struct PacketHeaderManager {
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
     recv_buffer: ReceiveBuffer,
+    /// Whether an acknowledgement-eliciting packet has arrived since the last packet we sent.
+    ack_pending: bool,
     /// After how many multiples of RTT do we consider a packet to be lost?
     ///
     /// The default is 1.5; i.e. after 1.5 times the round trip time, we consider a packet lost if
@@ -162,6 +167,7 @@ impl PacketHeaderManager {
             lost_packets: vec![],
             newly_acked_packets: IndexMap::default(),
             recv_buffer: ReceiveBuffer::new(),
+            ack_pending: false,
             nack_rtt_multiple,
         }
     }
@@ -201,6 +207,7 @@ impl PacketHeaderManager {
         // update the receive buffer
         self.stats_manager.received_packet();
         self.recv_buffer.recv_packet(header.packet_id);
+        self.ack_pending |= header.packet_type.is_ack_eliciting();
 
         // read the ack information (ack id + ack bitfield) from the received header, and update
         // the list of our sent packets that have not been acked yet
@@ -275,10 +282,32 @@ impl PacketHeaderManager {
             packet_id, self.next_packet_id,
             "packets must be committed in preview order"
         );
-        self.stats_manager.sent_packet();
+        self.stats_manager.sent_ack_eliciting_packet();
         trace!(?self.next_packet_id, "Sent packet");
         self.sent_packets_not_acked.insert(packet_id, real);
         self.next_packet_id += 1;
+        self.ack_pending = false;
+    }
+
+    /// Commits a header-only acknowledgement without waiting for an acknowledgement of it.
+    ///
+    /// The peer does not schedule a packet merely to ACK this one; that non-ACK-eliciting behavior
+    /// is what prevents ACK ping-pong. Consequently, the packet is not inserted into
+    /// `sent_packets_not_acked` and is excluded from the packet-loss denominator: without a
+    /// guaranteed response, silence cannot distinguish successful delivery from packet loss.
+    pub(crate) fn commit_send_ack_only(&mut self, packet_id: PacketId) {
+        debug_assert_eq!(
+            packet_id, self.next_packet_id,
+            "packets must be committed in preview order"
+        );
+        self.stats_manager.sent_ack_only_packet();
+        trace!(?self.next_packet_id, "Sent ACK-only packet");
+        self.next_packet_id += 1;
+        self.ack_pending = false;
+    }
+
+    pub(crate) fn has_pending_ack(&self) -> bool {
+        self.ack_pending
     }
 }
 
@@ -473,6 +502,24 @@ mod tests {
             manager.sent_packets_not_acked.get(&PacketId(0)),
             Some(&Duration::from_millis(10))
         );
+    }
+
+    #[test]
+    fn ack_only_commit_advances_sequence_without_entering_loss_tracking() {
+        let mut manager = PacketHeaderManager::new(1.5);
+        let ack_only = manager.preview_send_packet_header(PacketType::AckOnly, Tick(1));
+
+        manager.commit_send_ack_only(ack_only.packet_id);
+
+        assert!(manager.sent_packets_not_acked.is_empty());
+        assert_eq!(
+            manager
+                .preview_send_packet_header(PacketType::Data, Tick(2))
+                .packet_id,
+            PacketId(1)
+        );
+        manager.update(Duration::from_secs(1), &LinkStats::default());
+        assert!(manager.lost_packets.is_empty());
     }
 
     #[test]

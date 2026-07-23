@@ -9,7 +9,6 @@ use bevy_replicon::shared::server_entity_map::ServerEntityMap;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_messages::MessageManager;
-use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
 
@@ -149,8 +148,8 @@ fn receive_client_packets(
 ) {
     for mut transport in transports.iter_mut() {
         for (idx, &(_, channel_id)) in channel_map.server_channels.iter().enumerate() {
-            if let Some(receiver) = transport.receivers.get_mut(&channel_id) {
-                while let Some((_, message, _)) = receiver.receiver.read_message() {
+            if let Some(receiver) = transport.channel_receive_mut(channel_id) {
+                while let Some((_, message, _)) = receiver.read_message() {
                     client_messages.insert_received(idx, message);
                 }
             }

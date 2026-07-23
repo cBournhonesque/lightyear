@@ -18,7 +18,6 @@ use lightyear_serde::ToBytes;
 use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
-use lightyear_transport::channel::receivers::ChannelReceive;
 use lightyear_transport::prelude::Transport;
 use lightyear_utils::collections::HashMap;
 use lightyear_utils::ready_buffer::ReadyBuffer;
@@ -591,7 +590,7 @@ impl MessagePlugin {
             ),
             With<Connected>,
         >,
-        // List of ChannelReceivers<M> present on that entity
+        // List of MessageReceiver<M> components present on that entity.
         receiver_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
         channel_registry: Res<ChannelRegistry>,
@@ -615,7 +614,8 @@ impl MessagePlugin {
                 let transport = &mut *transport;
                 // TODO: we can run this in parallel using rayon!
                 if let Some(host_client) = host_client.as_mut() {
-                    // for host-clients, we might have to deserialize messages that are in the Transports' senders
+                    // Host-client messages already carry their channel kind, so they do not need
+                    // to pass through a transport send channel.
                     let buffered = core::mem::take(&mut host_client.buffer);
                     let mut buffered = buffered.into_iter();
                     while let Some((bytes, channel_type_id, tick)) = buffered.next() {
@@ -646,14 +646,11 @@ impl MessagePlugin {
                         }
                     }
                 } else {
-                    transport
-                        .receivers
-                        .values_mut()
-                        .try_for_each(|receiver_metadata| {
-                            let channel_kind = receiver_metadata.channel_kind;
+                    transport.channel_receives_mut().try_for_each(|channel_receive| {
+                            let channel_kind = channel_receive.channel_kind();
                             let channel_name = channel_registry.get_name_from_kind(&channel_kind);
                             while let Some((tick, bytes, message_id)) =
-                                receiver_metadata.receiver.read_message()
+                                channel_receive.read_message()
                             {
                                 let target_timeline = channel_registry
                                     .settings(channel_kind)
