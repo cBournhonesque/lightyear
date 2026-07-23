@@ -38,6 +38,7 @@ members = [
   "benches/*",
   "demos/*",
   "examples/*",
+  "certificates",
 ]
 default-members = ["crates/core/lightyear"]
 exclude = []
