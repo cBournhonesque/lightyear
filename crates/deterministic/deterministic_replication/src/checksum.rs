@@ -151,9 +151,10 @@ impl ChecksumSendPlugin {
                     let (hash_fn, pop_until_tick_and_hash_fn) = world.state.hash_fns.get(component_id).expect("Component in checksum archetype must have a hash function registered");
 
                     let mut hasher = seahash::SeaHasher::default();
-                    pop_until_tick_and_hash_fn.unwrap()(history_ptr, tick, &mut hasher, hash_fn.inner);
-                    let hash = hasher.finish();
-                    checksum ^= hash; // XOR the hashes together to get an order-independent checksum
+                    if pop_until_tick_and_hash_fn.unwrap()(history_ptr, tick, &mut hasher, hash_fn.inner) {
+                        // XOR the hashes together to get an order-independent checksum
+                        checksum ^= hasher.finish();
+                    }
                 });
             });
         });
