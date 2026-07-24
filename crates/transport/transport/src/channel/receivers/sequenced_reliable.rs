@@ -1,4 +1,4 @@
-use alloc::collections::{BTreeMap, btree_map};
+use bevy_platform::collections::{HashMap, hash_map};
 
 use super::error::{ChannelReceiveError, Result};
 use bytes::Bytes;
@@ -13,10 +13,11 @@ use crate::packet::message::{MessageData, MessageId, ReceiveMessage};
 /// do not return them in order, but ignore the messages that are older than the most recent one received
 #[derive(Debug)]
 pub struct SequencedReliableReceiver {
-    // TODO: optimize via ring buffer?
-    // TODO: actually do we even need a buffer? we might just need a buffer of 1
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, (Tick, Bytes)>,
+    ///
+    /// This is an equality lookup only. Sequence order is relative to
+    /// `most_recent_message_id`.
+    recv_message_buffer: HashMap<MessageId, (Tick, Bytes)>,
     /// Highest message id received so far
     most_recent_message_id: MessageId,
     fragment_receiver: FragmentReceiver,
@@ -31,7 +32,7 @@ impl Default for SequencedReliableReceiver {
 impl SequencedReliableReceiver {
     pub fn new() -> Self {
         Self {
-            recv_message_buffer: BTreeMap::new(),
+            recv_message_buffer: HashMap::default(),
             most_recent_message_id: MessageId(0),
             fragment_receiver: FragmentReceiver::new(),
         }
@@ -60,10 +61,11 @@ impl ChannelReceive for SequencedReliableReceiver {
         // update the most recent message id
         if message_id > self.most_recent_message_id {
             self.most_recent_message_id = message_id;
+            self.recv_message_buffer.clear();
         }
 
         // add the message to the buffer
-        if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
+        if let hash_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             match message.data {
                 MessageData::Single(single) => {
                     entry.insert((message.remote_sent_tick, single.bytes));
@@ -83,13 +85,10 @@ impl ChannelReceive for SequencedReliableReceiver {
         Ok(())
     }
     fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
-        // keep popping messages until we get one that is more recent than the last one we processed
-        loop {
-            let (message_id, (tick, bytes)) = self.recv_message_buffer.pop_first()?;
-            if message_id >= self.most_recent_message_id {
-                return Some((tick, bytes, Some(message_id)));
-            }
-        }
+        let message_id = self.most_recent_message_id;
+        self.recv_message_buffer
+            .remove(&message_id)
+            .map(|(tick, bytes)| (tick, bytes, Some(message_id)))
     }
 }
 
@@ -154,6 +153,26 @@ mod tests {
         })?;
         assert_eq!(receiver.recv_message_buffer.len(), 0);
         assert_eq!(receiver.read_message(), None);
+        Ok(())
+    }
+
+    #[test]
+    fn newest_message_survives_message_id_rollover() -> Result<()> {
+        let mut receiver = SequencedReliableReceiver::new();
+        receiver.most_recent_message_id = MessageId(u32::MAX);
+
+        let after_wrap = SingleData::new(Some(MessageId(0)), Bytes::from("after wrap"));
+        receiver.buffer_recv(ReceiveMessage {
+            data: after_wrap.clone().into(),
+            remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
+        })?;
+
+        assert_eq!(receiver.most_recent_message_id, MessageId(0));
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(1), after_wrap.bytes, Some(MessageId(0))))
+        );
         Ok(())
     }
 }

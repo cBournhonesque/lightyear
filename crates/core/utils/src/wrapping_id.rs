@@ -1,4 +1,4 @@
-//! u32 that wraps around when it reaches the maximum value.
+//! `u32` identifier with wrapping sequence-number arithmetic.
 //!
 //! In practice with u32, wrapping never occurs during a game session
 //! (~828 days at 60 Hz). The wrapping arithmetic is kept for correctness
@@ -24,6 +24,12 @@ macro_rules! wrapping_id {
             use lightyear_serde::{SerializationError, reader::{Reader, ReadInteger}, writer::WriteInteger, ToBytes};
             use lightyear_utils::wrapping_id::WrappedId;
 
+            /// A wrapping sequence identifier.
+            ///
+            /// This type intentionally does not implement [`Ord`]: circular sequence order is
+            /// meaningful only relative to a nearby anchor and cannot satisfy a global ordering
+            /// contract. Use equality-based containers for lookup and keep chronological order in
+            /// the owning data structure.
             #[derive(Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq, Default, Reflect
             )]
             pub struct $struct_name(pub u32);
@@ -64,15 +70,24 @@ macro_rules! wrapping_id {
                 }
             }
 
-            impl Ord for $struct_name {
-                fn cmp(&self, other: &Self) -> Ordering {
-                    self.0.cmp(&other.0)
-                }
-            }
-
             impl PartialOrd for $struct_name {
                 fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-                    Some(self.cmp(other))
+                    // Relative comparisons require the caller to keep both sequence numbers
+                    // within a window smaller than half the u32 range. Values immediately after
+                    // rollover therefore compare newer than values immediately before rollover.
+                    Some(match self.0.cmp(&other.0) {
+                        Ordering::Less
+                            if other.0.wrapping_sub(self.0) > u32::MAX / 2 =>
+                        {
+                            Ordering::Greater
+                        }
+                        Ordering::Greater
+                            if self.0.wrapping_sub(other.0) > u32::MAX / 2 =>
+                        {
+                            Ordering::Less
+                        }
+                        ordering => ordering,
+                    })
                 }
             }
 
@@ -80,7 +95,7 @@ macro_rules! wrapping_id {
                 type Output = i32;
 
                 fn sub(self, rhs: Self) -> Self::Output {
-                    (self.0 as i64 - rhs.0 as i64) as i32
+                    self.0.wrapping_sub(rhs.0) as i32
                 }
             }
 
@@ -88,7 +103,7 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn sub(self, rhs: u32) -> Self::Output {
-                    Self(self.0.saturating_sub(rhs))
+                    Self(self.0.wrapping_sub(rhs))
                 }
             }
 
@@ -96,13 +111,13 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn add(self, rhs: Self) -> Self::Output {
-                    Self(self.0.saturating_add(rhs.0))
+                    Self(self.0.wrapping_add(rhs.0))
                 }
             }
 
             impl AddAssign<u32> for $struct_name {
                 fn add_assign(&mut self, rhs: u32) {
-                    self.0 = self.0.saturating_add(rhs);
+                    self.0 = self.0.wrapping_add(rhs);
                 }
             }
 
@@ -110,7 +125,7 @@ macro_rules! wrapping_id {
                 type Output = Self;
 
                 fn add(self, rhs: i32) -> Self::Output {
-                    Self(self.0.saturating_add_signed(rhs))
+                    Self(self.0.wrapping_add_signed(rhs))
                 }
             }
         }

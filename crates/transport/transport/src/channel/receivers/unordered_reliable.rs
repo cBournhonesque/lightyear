@@ -1,4 +1,4 @@
-use alloc::collections::{BTreeMap, btree_map};
+use alloc::collections::VecDeque;
 use bevy_platform::collections::HashSet;
 use core::time::Duration;
 
@@ -19,10 +19,8 @@ pub struct UnorderedReliableReceiver {
     /// Next message id that we are waiting to receive
     /// The channel is reliable so we should see all message ids.
     pending_recv_message_id: MessageId,
-    // TODO: optimize via ring buffer?
-    // TODO: actually we could just use a VecDeque here?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, (Tick, Bytes, MessageId)>,
+    recv_message_buffer: VecDeque<(Tick, Bytes, MessageId)>,
     fragment_receiver: FragmentReceiver,
     /// Keep tracking of the message ids we have received, so we can update the oldest_pending_message_id
     received_message_ids: HashSet<MessageId>,
@@ -38,7 +36,7 @@ impl UnorderedReliableReceiver {
     pub fn new() -> Self {
         Self {
             pending_recv_message_id: MessageId(0),
-            recv_message_buffer: BTreeMap::new(),
+            recv_message_buffer: VecDeque::new(),
             fragment_receiver: FragmentReceiver::new(),
             received_message_ids: HashSet::default(),
         }
@@ -70,29 +68,30 @@ impl ChannelReceive for UnorderedReliableReceiver {
             return Ok(());
         }
 
-        // add the message to the buffer
-        if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
-            match message.data {
-                MessageData::Single(single) => {
-                    // receive the message if we haven't received it already
-                    if !self.received_message_ids.contains(&message_id) {
-                        self.received_message_ids.insert(message_id);
-                        entry.insert((message.remote_sent_tick, single.bytes, message_id));
-                    }
-                }
-                MessageData::Fragment(fragment) => {
-                    if let Some((tick, bytes)) = self.fragment_receiver.receive_fragment(
-                        fragment,
+        if self.received_message_ids.contains(&message_id) {
+            return Ok(());
+        }
+
+        match message.data {
+            MessageData::Single(single) => {
+                if self.received_message_ids.insert(message_id) {
+                    self.recv_message_buffer.push_back((
                         message.remote_sent_tick,
-                        None,
-                        message.compression,
-                    )? {
-                        // receive the message if we haven't received it already
-                        if !self.received_message_ids.contains(&message_id) {
-                            self.received_message_ids.insert(message_id);
-                            entry.insert((tick, bytes, message_id));
-                        }
-                    }
+                        single.bytes,
+                        message_id,
+                    ));
+                }
+            }
+            MessageData::Fragment(fragment) => {
+                if let Some((tick, bytes)) = self.fragment_receiver.receive_fragment(
+                    fragment,
+                    message.remote_sent_tick,
+                    None,
+                    message.compression,
+                )? && self.received_message_ids.insert(message_id)
+                {
+                    self.recv_message_buffer
+                        .push_back((tick, bytes, message_id));
                 }
             }
         }
@@ -101,7 +100,7 @@ impl ChannelReceive for UnorderedReliableReceiver {
 
     fn read_message(&mut self) -> Option<(Tick, Bytes, Option<MessageId>)> {
         // return if there are no messages in the buffer
-        let (message_id, data) = self.recv_message_buffer.pop_first()?;
+        let (tick, bytes, message_id) = self.recv_message_buffer.pop_front()?;
 
         // this was the message we were waiting for (as a reliable receiver)
         if self.pending_recv_message_id == message_id {
@@ -116,8 +115,6 @@ impl ChannelReceive for UnorderedReliableReceiver {
             }
         }
 
-        // receive oldest message in the buffer
-        let (tick, bytes, message_id) = data;
         Some((tick, bytes, Some(message_id)))
     }
 }
@@ -163,7 +160,12 @@ mod tests {
 
         // we process the message
         assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert!(receiver.recv_message_buffer.contains_key(&MessageId(1)));
+        assert!(
+            receiver
+                .recv_message_buffer
+                .iter()
+                .any(|(_, _, message_id)| *message_id == MessageId(1))
+        );
         assert_eq!(
             receiver.read_message(),
             Some((Tick(3), single2.bytes.clone(), Some(MessageId(1))))
@@ -182,12 +184,60 @@ mod tests {
 
         // we process the message
         assert_eq!(receiver.recv_message_buffer.len(), 1);
-        assert!(receiver.recv_message_buffer.contains_key(&MessageId(0)));
+        assert!(
+            receiver
+                .recv_message_buffer
+                .iter()
+                .any(|(_, _, message_id)| *message_id == MessageId(0))
+        );
         assert_eq!(
             receiver.read_message(),
             Some((Tick(5), single1.bytes.clone(), Some(MessageId(0))))
         );
         assert_eq!(receiver.pending_recv_message_id, MessageId(2));
+        Ok(())
+    }
+
+    #[test]
+    fn advances_and_deduplicates_across_message_id_rollover() -> Result<(), ChannelReceiveError> {
+        let mut receiver = UnorderedReliableReceiver::new();
+        receiver.pending_recv_message_id = MessageId(u32::MAX);
+
+        let after_wrap = SingleData::new(Some(MessageId(0)), Bytes::from("after wrap"));
+        receiver.buffer_recv(ReceiveMessage {
+            data: after_wrap.clone().into(),
+            remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
+        })?;
+
+        let before_wrap = SingleData::new(Some(MessageId(u32::MAX)), Bytes::from("before wrap"));
+        receiver.buffer_recv(ReceiveMessage {
+            data: before_wrap.clone().into(),
+            remote_sent_tick: Tick(2),
+            compression: CompressionConfig::DISABLED,
+        })?;
+
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(1), after_wrap.bytes, Some(MessageId(0))))
+        );
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(2), before_wrap.bytes, Some(MessageId(u32::MAX))))
+        );
+        assert_eq!(receiver.pending_recv_message_id, MessageId(1));
+
+        receiver.buffer_recv(ReceiveMessage {
+            data: SingleData::new(Some(MessageId(u32::MAX)), Bytes::from("duplicate")).into(),
+            remote_sent_tick: Tick(3),
+            compression: CompressionConfig::DISABLED,
+        })?;
+        receiver.buffer_recv(ReceiveMessage {
+            data: SingleData::new(Some(MessageId(0)), Bytes::from("duplicate")).into(),
+            remote_sent_tick: Tick(4),
+            compression: CompressionConfig::DISABLED,
+        })?;
+        assert_eq!(receiver.read_message(), None);
         Ok(())
     }
 }
