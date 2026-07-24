@@ -460,8 +460,8 @@ mod tests {
         // Add the Transport component with a receiver/sender for channel C, and a receiver/sender for message M
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TestChannel>(registry);
-        transport.add_receiver_from_registry::<TestChannel>(registry);
+        transport.add_channel_send_from_registry::<TestChannel>(registry);
+        transport.add_channel_receive_from_registry::<TestChannel>(registry);
         // TODO: are these tests useful? they need so many components from other plugins..
         let mut entity_mut = app.world_mut().spawn((
             Link::default(),
@@ -573,8 +573,8 @@ mod tests {
             .apply_delta(10);
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TimelineChannel>(registry);
-        transport.add_receiver_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_send_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_receive_from_registry::<TimelineChannel>(registry);
         let entity = app
             .world_mut()
             .spawn((
@@ -630,8 +630,8 @@ mod tests {
             .apply_delta(10);
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TimelineChannel>(registry);
-        transport.add_receiver_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_send_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_receive_from_registry::<TimelineChannel>(registry);
         let entity = app
             .world_mut()
             .spawn((
@@ -672,8 +672,8 @@ mod tests {
             .apply_delta(10);
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TestChannel>(registry);
-        transport.add_receiver_from_registry::<TestChannel>(registry);
+        transport.add_channel_send_from_registry::<TestChannel>(registry);
+        transport.add_channel_receive_from_registry::<TestChannel>(registry);
         let entity = app
             .world_mut()
             .spawn((
@@ -706,8 +706,8 @@ mod tests {
         let mut app = message_test_app(false);
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TimelineChannel>(registry);
-        transport.add_receiver_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_send_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_receive_from_registry::<TimelineChannel>(registry);
         let entity = app
             .world_mut()
             .spawn((
@@ -905,8 +905,8 @@ mod tests {
         let transport = {
             let registry = app.world().resource::<ChannelRegistry>();
             let mut transport = Transport::default();
-            transport.add_sender_from_registry::<TestChannel>(registry);
-            transport.add_receiver_from_registry::<TestChannel>(registry);
+            transport.add_channel_send_from_registry::<TestChannel>(registry);
+            transport.add_channel_receive_from_registry::<TestChannel>(registry);
             transport
         };
         app.world_mut().entity_mut(entity).insert(transport);
@@ -932,8 +932,8 @@ mod tests {
             .apply_delta(6);
         let registry = app.world().resource::<ChannelRegistry>();
         let mut transport = Transport::default();
-        transport.add_sender_from_registry::<TimelineChannel>(registry);
-        transport.add_receiver_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_send_from_registry::<TimelineChannel>(registry);
+        transport.add_channel_receive_from_registry::<TimelineChannel>(registry);
         let entity = app
             .world_mut()
             .spawn((

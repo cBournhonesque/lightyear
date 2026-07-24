@@ -1,11 +1,12 @@
-/*! Channels are used to add reliability/ordering on top of the transport layer
-*/
+//! Channels add delivery and ordering policies on top of the packet transport.
 
 pub use crate::channel::registry::ChannelKind;
 
 pub mod builder;
-pub mod receivers;
-pub mod senders;
+pub(crate) mod fragments;
+pub mod receive;
+pub mod send;
+mod send_reliable;
 
 pub mod registry;
 #[cfg(feature = "trace")]

@@ -1,3 +1,5 @@
+//! Fragment construction for channel sends.
+
 use crate::packet::compression::{
     CompressionConfig, CompressionScratch, PayloadCompressionCandidate, compress_fragment,
 };
@@ -7,7 +9,7 @@ use alloc::vec::Vec;
 use bytes::Bytes;
 use tracing::trace;
 
-/// `FragmentReceiver` is used to reconstruct fragmented messages
+/// Splits oversized messages into transport fragments.
 #[derive(Debug)]
 pub(crate) struct FragmentSender {
     pub(crate) fragment_size: usize,

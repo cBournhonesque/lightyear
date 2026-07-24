@@ -53,8 +53,8 @@ impl PriorityConfig {
 
 /// Reusable scheduler scratch for ordering channel-owned send candidates.
 ///
-/// This type never owns channel queues and does not decide whether a packet was sent. Bandwidth is
-/// consumed separately by [`BandwidthLimiter`] after packet staging and compression.
+/// This type never owns channel queues and does not decide whether a packet was sent. The transport
+/// consumes bandwidth separately after packet staging and compression.
 #[derive(Debug)]
 pub struct PriorityManager {
     pub(crate) config: PriorityConfig,
@@ -135,6 +135,14 @@ impl PriorityManager {
         );
     }
 
+    /// Orders candidates which have the same effective priority for efficient, deterministic
+    /// packet packing.
+    ///
+    /// Fragments come first so the packet builder can append smaller single messages to the final,
+    /// partially filled fragment packet. Singles are then ordered from smallest to largest.
+    /// `send_order`, channel ID, and
+    /// [`SendMessageKey::packing_tiebreaker`](crate::packet::message::SendMessageKey::packing_tiebreaker)
+    /// preserve deterministic order without comparing wrapping message IDs.
     fn packing_order(a: &SendCandidate, b: &SendCandidate) -> core::cmp::Ordering {
         match (&a.message.data, &b.message.data) {
             (MessageData::Fragment(_), MessageData::Single(_)) => core::cmp::Ordering::Less,
