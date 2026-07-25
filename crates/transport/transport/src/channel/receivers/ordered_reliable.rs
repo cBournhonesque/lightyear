@@ -1,4 +1,4 @@
-use alloc::collections::{BTreeMap, btree_map};
+use bevy_platform::collections::{HashMap, hash_map};
 
 use super::error::{ChannelReceiveError, Result};
 use crate::channel::receivers::ChannelReceive;
@@ -15,9 +15,10 @@ pub struct OrderedReliableReceiver {
     /// Next message id that we are waiting to receive
     /// The channel is reliable so we should see all message ids sequentially.
     pending_recv_message_id: MessageId,
-    // TODO: optimize via ring buffer?
     /// Buffer of the messages that we received, but haven't processed yet
-    recv_message_buffer: BTreeMap<MessageId, (Tick, Bytes)>,
+    ///
+    /// Ordering is anchored by `pending_recv_message_id`, not by this map.
+    recv_message_buffer: HashMap<MessageId, (Tick, Bytes)>,
     fragment_receiver: FragmentReceiver,
 }
 
@@ -31,7 +32,7 @@ impl OrderedReliableReceiver {
     pub fn new() -> Self {
         Self {
             pending_recv_message_id: MessageId(0),
-            recv_message_buffer: BTreeMap::new(),
+            recv_message_buffer: HashMap::default(),
             fragment_receiver: FragmentReceiver::new(),
         }
     }
@@ -57,7 +58,7 @@ impl ChannelReceive for OrderedReliableReceiver {
         }
 
         // add the message to the buffer
-        if let btree_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
+        if let hash_map::Entry::Vacant(entry) = self.recv_message_buffer.entry(message_id) {
             match message.data {
                 MessageData::Single(single) => {
                     entry.insert((message.remote_sent_tick, single.bytes));
@@ -158,6 +159,42 @@ mod tests {
         assert_eq!(
             receiver.read_message(),
             Some((Tick(2), single2.bytes.clone(), Some(MessageId(1))))
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn buffers_messages_across_message_id_rollover() -> Result<(), PacketError> {
+        let mut receiver = OrderedReliableReceiver::new();
+        receiver.pending_recv_message_id = MessageId(u32::MAX);
+
+        let mut after_wrap = SingleData::new(Some(MessageId(0)), Bytes::from("after wrap"));
+        receiver.buffer_recv(ReceiveMessage {
+            data: after_wrap.clone().into(),
+            remote_sent_tick: Tick(1),
+            compression: CompressionConfig::DISABLED,
+        })?;
+        assert_eq!(receiver.read_message(), None);
+
+        after_wrap.id = Some(MessageId(u32::MAX));
+        after_wrap.bytes = Bytes::from("before wrap");
+        receiver.buffer_recv(ReceiveMessage {
+            data: after_wrap.clone().into(),
+            remote_sent_tick: Tick(2),
+            compression: CompressionConfig::DISABLED,
+        })?;
+
+        assert_eq!(
+            receiver.read_message(),
+            Some((
+                Tick(2),
+                Bytes::from("before wrap"),
+                Some(MessageId(u32::MAX))
+            ))
+        );
+        assert_eq!(
+            receiver.read_message(),
+            Some((Tick(1), Bytes::from("after wrap"), Some(MessageId(0))))
         );
         Ok(())
     }
