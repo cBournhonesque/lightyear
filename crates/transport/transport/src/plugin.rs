@@ -63,10 +63,33 @@ pub struct PacketAcked {
 
 /// Event triggered on a [`Transport`] entity when a sent packet is presumed lost
 /// (its acknowledgement did not arrive before the nack timeout).
+///
+/// A lost packet doesn't always mean that the packet never reached the
+/// receiver. A [`PacketAckedLate`] event could fire afterwards if the
+/// acknowledgement for the packet does finally arrive.
 #[derive(EntityEvent)]
 pub struct PacketLost {
     pub entity: Entity,
     pub packet_id: u32,
+}
+
+/// Event triggered on a [`Transport`] entity when an acknowledgement arrives
+/// for a packet that was already reported as [`PacketLost`].
+///
+/// The packet was lost, but this event helps differentiate the following
+/// situations:
+///
+/// * The receiver did receive the packet but the acknowledgement took too long.
+/// * The packet was discarded somewhere in transit and the receiver never
+///   received it.
+///
+/// This is important for accurately measuring a network connection's true
+/// packet loss and delay.
+#[derive(EntityEvent)]
+pub struct PacketAckedLate {
+    pub entity: Entity,
+    pub packet_id: u32,
+    pub rtt_sample: Duration,
 }
 
 pub struct TransportPlugin;
@@ -198,11 +221,26 @@ impl TransportPlugin {
                             .packet_manager
                             .header_manager
                             .process_recv_packet_header(&header, time.elapsed());
+                        let late_acked_packets = core::mem::take(
+                            &mut transport.packet_manager.header_manager.late_acked_packets,
+                        );
+                        #[cfg(feature = "metrics")]
+                        if !late_acked_packets.is_empty() {
+                            metrics::counter!("transport/packets_acked_late")
+                                .increment(late_acked_packets.len() as u64);
+                        }
 
                         #[cfg(feature = "std")]
                         par_commands.command_scope(|mut commands| {
                             newly_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
                                 commands.trigger(PacketAcked {
+                                    entity,
+                                    packet_id: packet_id.0,
+                                    rtt_sample: *rtt_sample,
+                                });
+                            });
+                            late_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
+                                commands.trigger(PacketAckedLate {
                                     entity,
                                     packet_id: packet_id.0,
                                     rtt_sample: *rtt_sample,
@@ -214,6 +252,13 @@ impl TransportPlugin {
                         {
                             newly_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
                                 commands.trigger(PacketAcked {
+                                    entity,
+                                    packet_id: packet_id.0,
+                                    rtt_sample: *rtt_sample,
+                                });
+                            });
+                            late_acked_packets.iter().for_each(|(packet_id, rtt_sample)| {
+                                commands.trigger(PacketAckedLate {
                                     entity,
                                     packet_id: packet_id.0,
                                     rtt_sample: *rtt_sample,

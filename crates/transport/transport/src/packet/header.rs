@@ -122,6 +122,14 @@ const MIN_NACK_MILLIS: u64 = 10;
 /// maximum number of seconds after which we consider a packet lost
 const MAX_NACK_SECONDS: u64 = 3;
 
+/// How long a lost packet id (with its send time) is retained so that a late
+/// acknowledgment can still be matched to it and reported as late-acked.
+///
+/// Measured from the packet's send time. The nack timeout is capped at
+/// [`MAX_NACK_SECONDS`], so this guarantees at least `MAX_NACK_SECONDS` of
+/// retention after the packet was reported lost.
+const LATE_ACK_RETENTION: Duration = Duration::from_secs(2 * MAX_NACK_SECONDS);
+
 /// Keeps track of sent and received packets to be able to write the packet headers correctly
 /// For more information: [GafferOnGames](https://gafferongames.com/post/reliability_ordering_and_congestion_avoidance_over_udp/)
 #[derive(Debug)]
@@ -133,8 +141,21 @@ pub struct PacketHeaderManager {
     // so we can resend them when dropped
     // sent_packets_not_acked: HashSet<PacketId>,
     sent_packets_not_acked: IndexMap<PacketId, Duration, FixedHasher>,
+
+    /// Send times of the packets that were reported lost (nacked) in case a
+    /// late ack does arrive. Entries are held on to until
+    /// [`LATE_ACK_RETENTION`] has passed since their send time.
+    ///
+    /// Packets will still be considered lost even if a late ack does arrive.
+    recently_lost: IndexMap<PacketId, Duration, FixedHasher>,
+
     stats_manager: PacketStatsManager,
     pub(crate) lost_packets: Vec<PacketId>,
+
+    /// RTTs of the packets that were reported lost but whose ack arrived
+    /// afterwards.
+    pub(crate) late_acked_packets: Vec<(PacketId, Duration)>,
+
     pub(crate) newly_acked_packets: IndexMap<PacketId, Duration, FixedHasher>,
 
     // keep track of the packets that were received (last packet received and the
@@ -159,7 +180,9 @@ impl PacketHeaderManager {
             next_packet_id: PacketId(0),
             stats_manager: PacketStatsManager::default(),
             sent_packets_not_acked: IndexMap::default(),
+            recently_lost: IndexMap::default(),
             lost_packets: vec![],
+            late_acked_packets: vec![],
             newly_acked_packets: IndexMap::default(),
             recv_buffer: ReceiveBuffer::new(),
             nack_rtt_multiple,
@@ -182,10 +205,19 @@ impl PacketHeaderManager {
             {
                 trace!(?packet_id, "sent packet got lost");
                 self.lost_packets.push(*packet_id);
+                // Hold onto the packet's send time for longer in case an ack does arrive late
+                // so that we can report a late ack.
+                self.recently_lost.insert(*packet_id, *time_sent);
                 self.stats_manager.sent_packet_lost();
                 return false;
             }
             true
+        });
+
+        // Clear lost packets whose ack can no longer be reported late.
+        self.recently_lost.retain(|packet_id, time_sent| {
+            real.saturating_sub(*time_sent) <= LATE_ACK_RETENTION
+                && (self.next_packet_id - *packet_id <= i32::MAX / 3)
         });
     }
 
@@ -208,16 +240,35 @@ impl PacketHeaderManager {
             self.update_sent_packets_not_acked(&header.last_ack_packet_id)
         {
             self.record_newly_acked_packet(packet, real, time_sent, &mut newly_acked_packets);
+        } else {
+            self.update_late_acked_packet(&header.last_ack_packet_id, real);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
+            if !header.get_bitfield_bit(i - 1) {
+                // The peer did not acknowledge this packet and so we cannot mark it as
+                // acknowledged.
+                continue;
+            }
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u32));
-            if header.get_bitfield_bit(i - 1)
-                && let Some((packet, time_sent)) = self.update_sent_packets_not_acked(&packet_id)
-            {
+            if let Some((packet, time_sent)) = self.update_sent_packets_not_acked(&packet_id) {
                 self.record_newly_acked_packet(packet, real, time_sent, &mut newly_acked_packets);
+            } else {
+                // Packet was not waiting to be acked. Perhaps it was marked as lost and this
+                // is a late ack.
+                self.update_late_acked_packet(&packet_id, real);
             }
         }
         newly_acked_packets
+    }
+
+    /// If `packet_id` was already reported lost, record it as late-acked so the
+    /// presumed loss can be corrected.
+    fn update_late_acked_packet(&mut self, packet_id: &PacketId, real: Duration) {
+        if let Some(time_sent) = self.recently_lost.swap_remove(packet_id) {
+            trace!(?packet_id, "Received ack for packet previously marked lost");
+            self.late_acked_packets
+                .push((*packet_id, real.saturating_sub(time_sent)));
+        }
     }
 
     fn record_newly_acked_packet(
@@ -555,5 +606,133 @@ mod tests {
             ]
         );
         assert!(!sender.newly_acked_packets.contains_key(&PacketId(1)));
+    }
+
+    #[test]
+    fn ack_after_nack_is_reported_late_acked_once() {
+        let mut sender = PacketHeaderManager::new(1.5);
+        let mut receiver = PacketHeaderManager::new(1.5);
+
+        // Packet is sent at t=10ms.
+        const SEND_TIME: Duration = Duration::from_millis(10);
+        let sent_header = sender.prepare_send_packet_header(PacketType::Data, SEND_TIME, Tick(1));
+
+        // Sender is fast-forwarded to t=25ms with `LinkStats::default()` whose zero RTT
+        // sets the nack timeout to 10ms. Since it's been more than 10ms since the
+        // send-time, the packet is declared lost.
+        sender.update(Duration::from_millis(25), &LinkStats::default());
+        assert_eq!(sender.lost_packets, vec![sent_header.packet_id]);
+
+        // The packet arrives at the receiver at t=30ms, after the nack timeout.
+        receiver.process_recv_packet_header(&sent_header, Duration::from_millis(30));
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(30),
+            Tick(2),
+        );
+
+        // The receiver sends an ack which the sender receives at t=60ms, well past the
+        // nack timeout.
+        const ACK_TIME: Duration = Duration::from_millis(60);
+        let acked_packets = sender.process_recv_packet_header(&ack_header, ACK_TIME);
+
+        // Verify the sender reports the packet as acked late.
+        // `saturating_sub` because `Sub` is not usable in const contexts.
+        const RTT_TIME: Duration = ACK_TIME.saturating_sub(SEND_TIME);
+        assert!(acked_packets.is_empty());
+        assert_eq!(
+            sender.late_acked_packets,
+            vec![(sent_header.packet_id, RTT_TIME)]
+        );
+
+        // Verify a duplicate ack of the same packet is not reported again.
+        sender.late_acked_packets.clear();
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(70),
+            Tick(3),
+        );
+        let acked_packets =
+            sender.process_recv_packet_header(&ack_header, Duration::from_millis(80));
+        assert!(acked_packets.is_empty());
+        assert!(sender.late_acked_packets.is_empty());
+    }
+
+    #[test]
+    fn duplicate_ack_of_normally_acked_packet_is_not_late_acked() {
+        let mut sender = PacketHeaderManager::new(1.5);
+        let mut receiver = PacketHeaderManager::new(1.5);
+
+        // Packet is sent at t=10ms.
+        let sent_header =
+            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(10), Tick(1));
+
+        // Receiver receives packet at t=15ms.
+        receiver.process_recv_packet_header(&sent_header, Duration::from_millis(15));
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(15),
+            Tick(2),
+        );
+
+        // Sender receives ack at t=20ms, before the nack timeout. Packet is not
+        // declared lost.
+        assert_eq!(
+            sender
+                .process_recv_packet_header(&ack_header, Duration::from_millis(20))
+                .len(),
+            1
+        );
+
+        // Receiver prepares another header at t=25ms, re-acking the same packet.
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(25),
+            Tick(3),
+        );
+
+        // Sender receives duplicate ack at t=30ms.
+        let acked_packets =
+            sender.process_recv_packet_header(&ack_header, Duration::from_millis(30));
+
+        // Verify the sender does not report additional acks or late-acks for an
+        // already-acked packet.
+        assert!(acked_packets.is_empty());
+        assert!(sender.late_acked_packets.is_empty());
+    }
+
+    #[test]
+    fn ack_after_retention_window_is_not_reported() {
+        let mut sender = PacketHeaderManager::new(1.5);
+        let mut receiver = PacketHeaderManager::new(1.5);
+
+        // Packet is sent at t=10ms.
+        let sent_header =
+            sender.prepare_send_packet_header(PacketType::Data, Duration::from_millis(10), Tick(1));
+
+        // Sender waits until t=25ms at which point it considers the packet lost.
+        sender.update(Duration::from_millis(25), &LinkStats::default());
+        assert_eq!(sender.lost_packets, vec![sent_header.packet_id]);
+
+        // Sender waits even longer, until after the late-ack retention window
+        // expires.
+        sender.update(
+            Duration::from_millis(10) + LATE_ACK_RETENTION + Duration::from_secs(1),
+            &LinkStats::default(),
+        );
+
+        // Receiver receives the packet at t=30ms.
+        receiver.process_recv_packet_header(&sent_header, Duration::from_millis(30));
+        let ack_header = receiver.prepare_send_packet_header(
+            PacketType::Data,
+            Duration::from_millis(30),
+            Tick(2),
+        );
+
+        // Ack did not reach sender until after the retention window expired and so no
+        // late-acks are reported.
+        let acked_packets = sender.process_recv_packet_header(&ack_header, Duration::from_secs(8));
+        assert!(acked_packets.is_empty());
+        assert!(sender.late_acked_packets.is_empty());
     }
 }
