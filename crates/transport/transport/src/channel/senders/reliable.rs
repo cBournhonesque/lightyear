@@ -1,5 +1,5 @@
-use alloc::collections::BTreeMap;
 use alloc::vec::Vec;
+use bevy_platform::collections::HashMap;
 use bevy_time::{Real, Time, Timer, TimerMode};
 
 use crate::channel::builder::ReliableSettings;
@@ -40,6 +40,8 @@ pub struct UnackedMessageWithPriority {
     pub unacked_message: UnackedMessage,
     pub base_priority: f32,
     pub accumulated_priority: f32,
+    /// Stable chronological tie-breaker independent of the wrapping message ID.
+    pub send_order: u64,
 }
 
 /// A sender that makes sure to resend messages until it receives an ack
@@ -47,11 +49,11 @@ pub struct UnackedMessageWithPriority {
 pub struct ReliableSender {
     /// Settings for reliability
     reliable_settings: ReliableSettings,
-    // TODO: maybe optimize by using a RingBuffer
-    /// Ordered map of the messages that haven't been acked yet
-    unacked_messages: BTreeMap<MessageId, UnackedMessageWithPriority>,
+    /// Pending messages keyed by exact wrapping ID. Chronology lives in `send_order`.
+    unacked_messages: HashMap<MessageId, UnackedMessageWithPriority>,
     /// Message id to use for the next message to be sent
     next_send_message_id: MessageId,
+    next_send_order: u64,
 
     /// Used to split a message into fragments if the message is too big
     fragment_sender: FragmentSender,
@@ -75,6 +77,7 @@ impl ReliableSender {
             reliable_settings,
             unacked_messages: Default::default(),
             next_send_message_id: MessageId(0),
+            next_send_order: 0,
             fragment_sender: FragmentSender::new(),
             current_rtt: Duration::default(),
             current_time: Duration::default(),
@@ -142,10 +145,15 @@ impl ChannelSend for ReliableSender {
             // store with 0.0 accumulated priority because priority gets accumulated when we collect the messages
             // for sending (even the first time the message is sent)
             accumulated_priority: 0.0,
+            send_order: self.next_send_order,
         };
         self.unacked_messages
             .insert(message_id, unacked_message_with_priority);
         self.next_send_message_id += 1;
+        self.next_send_order = self
+            .next_send_order
+            .checked_add(1)
+            .expect("reliable message send order exhausted");
         Some(message_id)
     }
 
@@ -176,7 +184,8 @@ impl ChannelSend for ReliableSender {
             }
         };
 
-        // Iterate through all unacked messages, oldest message ids first
+        // Hash-map iteration order is irrelevant: the priority manager uses each message's
+        // non-wrapping `send_order` as its stable chronological tie-breaker.
         for (message_id, unacked_message_with_priority) in self.unacked_messages.iter_mut() {
             // accumulate the priority for all messages (including the ones that were just added, since we set the accumulated priority to 0.0)
             unacked_message_with_priority.accumulated_priority +=
@@ -193,10 +202,11 @@ impl ChannelSend for ReliableSender {
                 UnackedMessage::Single { bytes, last_sent } => {
                     if should_send(last_sent) {
                         trace!(?last_sent, ?self.current_time, "Should send message {:?}", message_id);
-                        output.push(SendCandidate::new(
+                        output.push(SendCandidate::new_reliable(
                             channel_kind,
                             channel_id,
                             SendMessageKey::ReliableSingle(*message_id),
+                            unacked_message_with_priority.send_order,
                             SendMessage {
                                 data: SingleData::new(Some(*message_id), bytes.clone()).into(),
                                 priority: unacked_message_with_priority.accumulated_priority,
@@ -210,10 +220,11 @@ impl ChannelSend for ReliableSender {
                         .iter_mut()
                         .filter(|f| !f.acked && should_send(&f.last_sent))
                         .for_each(|f| {
-                            output.push(SendCandidate::new(
+                            output.push(SendCandidate::new_reliable(
                                 channel_kind,
                                 channel_id,
                                 SendMessageKey::ReliableFragment(*message_id, f.data.fragment_id),
+                                unacked_message_with_priority.send_order,
                                 SendMessage {
                                     data: f.data.clone().into(),
                                     priority: unacked_message_with_priority.accumulated_priority,
@@ -378,5 +389,43 @@ mod tests {
         candidates.clear();
         sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
         assert!(candidates.is_empty());
+    }
+
+    #[test]
+    fn pending_order_and_lookup_survive_message_id_rollover() {
+        let mut sender = ReliableSender::new(ReliableSettings::default(), Duration::default());
+        sender.next_send_message_id = MessageId(u32::MAX);
+
+        for bytes in [Bytes::from("before wrap"), Bytes::from("after wrap")] {
+            sender
+                .buffer_send(
+                    bytes,
+                    1.0,
+                    CompressionConfig::DISABLED,
+                    &mut CompressionScratch::default(),
+                )
+                .unwrap();
+        }
+
+        let mut candidates = Vec::new();
+        sender.collect_send_candidates(ChannelKind::of::<TestChannel>(), 0, &mut candidates);
+        candidates.sort_by_key(|candidate| candidate.send_order);
+        let order = candidates
+            .iter()
+            .map(|candidate| {
+                (
+                    candidate.message.data.message_id().unwrap(),
+                    candidate.send_order,
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(order, [(MessageId(u32::MAX), 0), (MessageId(0), 1)]);
+
+        sender.receive_ack(&MessageAck {
+            message_id: MessageId(u32::MAX),
+            fragment_id: None,
+        });
+        assert!(!sender.unacked_messages.contains_key(&MessageId(u32::MAX)));
+        assert!(sender.unacked_messages.contains_key(&MessageId(0)));
     }
 }
