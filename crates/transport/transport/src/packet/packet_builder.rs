@@ -157,6 +157,22 @@ impl PacketBuilder {
         self.buffer_pool.recycle_message_metadata(messages);
     }
 
+    /// Build a header-only acknowledgement packet.
+    pub(crate) fn build_ack_only_packet(
+        &mut self,
+        current_tick: Tick,
+        mtu: usize,
+    ) -> Result<Packet, PacketError> {
+        self.buffer_pool.set_payload_capacity(mtu);
+        if mtu < HEADER_BYTES {
+            return Err(PacketError::PacketTooLarge {
+                actual: HEADER_BYTES,
+                mtu,
+            });
+        }
+        Ok(self.new_staged_packet(PacketType::AckOnly, current_tick)?)
+    }
+
     /// Stage the next packet from globally ordered, channel-owned candidates.
     ///
     /// This method only consumes candidate snapshots. It deliberately does not mutate channel
@@ -195,7 +211,6 @@ impl PacketBuilder {
                     first.channel_id,
                     Some(fragment.message_id),
                     Some(fragment.fragment_id),
-                    Some(fragment.num_fragments.0),
                     SendCommit {
                         channel_kind: first.channel_kind,
                         key: first.key,
@@ -347,7 +362,6 @@ impl PacketBuilder {
         packet.record_message_metadata(
             candidate.channel_id,
             message.id,
-            None,
             None,
             SendCommit {
                 channel_kind: candidate.channel_kind,
@@ -524,8 +538,8 @@ mod tests {
     use bevy_utils::default;
 
     use crate::channel::builder::{ChannelMode, ChannelSettings};
+    use crate::channel::fragments::FragmentSender;
     use crate::channel::registry::{AppChannelExt, ChannelKind, ChannelRegistry};
-    use crate::channel::senders::fragment_sender::FragmentSender;
     #[cfg(feature = "compression_lz4")]
     use crate::packet::compression::decompress_payload;
     use crate::packet::error::PacketError;

@@ -44,12 +44,17 @@ impl SendMessageKey {
         }
     }
 
-    pub(crate) fn packing_tiebreaker(self) -> (u8, u64) {
+    /// Returns a deterministic final key for otherwise equivalent packing candidates.
+    ///
+    /// Fragmented messages are ordered before single messages earlier in the packing comparison,
+    /// and message age is represented by [`SendCandidate::send_order`]. By the time this fallback
+    /// is evaluated, candidates also have the same channel ID; because a channel has one fixed
+    /// delivery mode, reliable and unreliable candidates cannot compete here. Only reliable
+    /// fragments need an additional key because every fragment of a message shares its send order.
+    pub(crate) fn packing_tiebreaker(self) -> u64 {
         match self {
-            Self::UnreliableSingle(_) => (0, 0),
-            Self::UnreliableFragment(_) => (1, 0),
-            Self::ReliableSingle(_) => (2, 0),
-            Self::ReliableFragment(_, fragment_id) => (3, fragment_id.0),
+            Self::ReliableFragment(_, fragment_id) => fragment_id.0,
+            Self::UnreliableSingle(_) | Self::UnreliableFragment(_) | Self::ReliableSingle(_) => 0,
         }
     }
 }
@@ -58,7 +63,7 @@ impl SendMessageKey {
 ///
 /// Creating a candidate clones only its [`Bytes`] handle. The underlying message allocation
 /// remains owned by the channel until
-/// [`ChannelSend::commit_send`](crate::channel::senders::ChannelSend::commit_send) is called after
+/// [`ChannelSend::commit_send`](crate::channel::send::ChannelSend::commit_send) is called after
 /// the final packet enters `Link.send`.
 #[derive(Debug)]
 pub(crate) struct SendCandidate {

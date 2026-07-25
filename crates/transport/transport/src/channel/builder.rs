@@ -1,8 +1,7 @@
 //! This module contains the [`Channel`] trait
-use crate::channel::receivers::{ChannelReceive, ChannelReceiverEnum};
+use crate::channel::receive::ChannelReceive;
 use crate::channel::registry::{ChannelId, ChannelKind};
-use crate::channel::senders::ChannelSend;
-use crate::channel::senders::ChannelSenderEnum;
+use crate::channel::send::ChannelSend;
 use crate::packet::compression::{CompressionConfig, CompressionScratch};
 use crate::packet::error::PacketError;
 use crate::packet::message::{MessageAck, MessageId};
@@ -154,8 +153,8 @@ mod protocol_tests {
 #[component(on_add = Transport::on_add)]
 #[require(Link)]
 pub struct Transport {
-    pub receivers: HashMap<ChannelId, ReceiverMetadata>,
-    pub senders: HashMap<ChannelKind, SenderMetadata>,
+    pub(crate) receivers: HashMap<ChannelId, ChannelReceive>,
+    pub(crate) senders: HashMap<ChannelKind, ChannelSend>,
     /// PriorityManager shared between all channels of this transport
     pub priority_manager: PriorityManager,
     /// Bandwidth admission is separate from priority ordering and uses final packet bytes.
@@ -177,17 +176,13 @@ pub struct Transport {
     ///
     /// Every packet is either acked or nacked, so this shouldn't grow indefinitely
     pub(crate) packet_to_message_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
-    /// For fragmented messages, we only ack if we acked the packets of all fragments.
-    /// This counter keeps track of the number of packet acks remaining before we can ack the message.
-    pub(crate) fragment_acks: HashMap<MessageId, u64>,
-
     /// mpsc channel sender/receiver to allow users to write bytes to the same channel in parallel
     pub send_channel: Sender<(ChannelKind, Bytes, f32)>,
     pub recv_channel: Receiver<(ChannelKind, Bytes, f32)>,
     /// Buffer to store payloads that have been processed by the transport, and will be processed
     /// by the Link or the Connection
     pub send: Vec<SendPayload>,
-    /// Buffer to store payloads that will be processed by the transport and stored in the ChannelReceiverEnum
+    /// Buffer to store payloads that will be processed by the transport and stored in receive channels.
     pub recv: Vec<RecvPayload>,
 }
 
@@ -205,7 +200,6 @@ impl Transport {
             fragment_size: FRAGMENT_SIZE,
             compression: CompressionConfig::default(),
             packet_to_message_map: Default::default(),
-            fragment_acks: Default::default(),
             send_channel,
             recv_channel,
             send: vec![],
@@ -252,47 +246,93 @@ impl Transport {
             self.fragment_size = fragment_size;
             self.senders
                 .values_mut()
-                .for_each(|metadata| metadata.sender.set_fragment_size(fragment_size));
+                .for_each(|channel| channel.set_fragment_size(fragment_size));
             self.receivers
                 .values_mut()
-                .for_each(|metadata| metadata.receiver.set_fragment_size(fragment_size));
+                .for_each(|channel| channel.set_fragment_size(fragment_size));
         }
         Ok(())
     }
 
-    pub fn has_sender<C: Channel>(&self) -> bool {
+    /// Returns whether this transport has a sending side for channel `C`.
+    pub fn has_channel_send<C: Channel>(&self) -> bool {
         self.senders.contains_key(&ChannelKind::of::<C>())
     }
 
-    pub fn has_receiver<C: Channel>(&self) -> bool {
+    /// Returns whether this transport has a receiving side for channel `C`.
+    pub fn has_channel_receive<C: Channel>(&self) -> bool {
         self.receivers
             .values()
-            .any(|m| m.channel_kind == ChannelKind::of::<C>())
+            .any(|channel| channel.channel_kind() == ChannelKind::of::<C>())
     }
 
-    pub fn add_sender<C: Channel>(
+    /// Returns the sending channel registered for `channel_kind`.
+    pub fn channel_send(&self, channel_kind: ChannelKind) -> Option<&ChannelSend> {
+        self.senders.get(&channel_kind)
+    }
+
+    /// Returns the sending channel registered for `channel_kind`.
+    pub fn channel_send_mut(&mut self, channel_kind: ChannelKind) -> Option<&mut ChannelSend> {
+        self.senders.get_mut(&channel_kind)
+    }
+
+    /// Iterates over the registered sending channels and their channel kinds.
+    pub fn channel_sends(&self) -> impl Iterator<Item = (ChannelKind, &ChannelSend)> {
+        self.senders
+            .iter()
+            .map(|(channel_kind, channel)| (*channel_kind, channel))
+    }
+
+    /// Mutably iterates over the registered sending channels and their channel kinds.
+    pub fn channel_sends_mut(&mut self) -> impl Iterator<Item = (ChannelKind, &mut ChannelSend)> {
+        self.senders
+            .iter_mut()
+            .map(|(channel_kind, channel)| (*channel_kind, channel))
+    }
+
+    /// Returns the receiving channel registered for `channel_id`.
+    pub fn channel_receive(&self, channel_id: ChannelId) -> Option<&ChannelReceive> {
+        self.receivers.get(&channel_id)
+    }
+
+    /// Returns the receiving channel registered for `channel_id`.
+    pub fn channel_receive_mut(&mut self, channel_id: ChannelId) -> Option<&mut ChannelReceive> {
+        self.receivers.get_mut(&channel_id)
+    }
+
+    /// Iterates over the registered receiving channels.
+    pub fn channel_receives(&self) -> impl Iterator<Item = &ChannelReceive> {
+        self.receivers.values()
+    }
+
+    /// Mutably iterates over the registered receiving channels.
+    pub fn channel_receives_mut(&mut self) -> impl Iterator<Item = &mut ChannelReceive> {
+        self.receivers.values_mut()
+    }
+
+    /// Adds a manually configured sending channel.
+    ///
+    /// Normal application setup should use [`Self::add_channel_send_from_registry`].
+    pub fn add_channel_send<C: Channel>(
         &mut self,
-        mut sender: ChannelSenderEnum,
-        mode: ChannelMode,
+        settings: ChannelSettings,
         channel_id: ChannelId,
     ) {
-        sender.set_fragment_size(self.fragment_size);
         self.senders.insert(
             ChannelKind::of::<C>(),
-            SenderMetadata {
-                sender,
-                message_acks: vec![],
-                message_nacks: vec![],
-                messages_sent: vec![],
+            ChannelSend::new(
+                ChannelKind::of::<C>(),
                 channel_id,
-                mode,
-                name: DebugName::type_name::<C>(),
-            },
+                DebugName::type_name::<C>(),
+                &settings,
+                self.fragment_size,
+            ),
         );
     }
 
-    // TODO: make this available via observer by triggering AddSender<C> on the Transport entity.
-    pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+    /// Adds a sending channel using the channel's registered settings and wire ID.
+    // TODO: make this available via an observer on the Transport entity.
+    pub fn add_channel_send_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         trace!(
             "Adding sender from registry for channel {}. Kind: {:?}",
             DebugName::type_name::<C>(),
@@ -305,26 +345,29 @@ impl Transport {
             );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-        let sender = settings.into();
-        self.add_sender::<C>(sender, settings.mode, channel_id);
+        self.add_channel_send::<C>(*settings, channel_id);
     }
 
-    pub fn add_receiver<C: Channel>(
+    #[deprecated(note = "Use add_channel_send_from_registry instead")]
+    pub fn add_sender_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+        self.add_channel_send_from_registry::<C>(registry);
+    }
+
+    /// Adds a manually configured receiving channel.
+    ///
+    /// Normal application setup should use [`Self::add_channel_receive_from_registry`].
+    pub fn add_channel_receive<C: Channel>(
         &mut self,
-        mut receiver: ChannelReceiverEnum,
+        settings: ChannelSettings,
         channel_id: ChannelId,
     ) {
-        receiver.set_fragment_size(self.fragment_size);
-        self.receivers.insert(
-            channel_id,
-            ReceiverMetadata {
-                receiver,
-                channel_kind: ChannelKind::of::<C>(),
-            },
-        );
+        let mut channel = ChannelReceive::new(ChannelKind::of::<C>(), &settings);
+        channel.set_fragment_size(self.fragment_size);
+        self.receivers.insert(channel_id, channel);
     }
 
-    pub fn add_receiver_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+    /// Adds a receiving channel using the channel's registered settings and wire ID.
+    pub fn add_channel_receive_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
         let Some(settings) = registry.settings(ChannelKind::of::<C>()) else {
             panic!(
                 "ChannelSettings not found for channel {}",
@@ -332,8 +375,12 @@ impl Transport {
             );
         };
         let channel_id = *registry.get_net_from_kind(&ChannelKind::of::<C>()).unwrap();
-        let receiver = settings.into();
-        self.add_receiver::<C>(receiver, channel_id);
+        self.add_channel_receive::<C>(*settings, channel_id);
+    }
+
+    #[deprecated(note = "Use add_channel_receive_from_registry instead")]
+    pub fn add_receiver_from_registry<C: Channel>(&mut self, registry: &ChannelRegistry) {
+        self.add_channel_receive_from_registry::<C>(registry);
     }
 
     pub fn send_with_priority<C: Channel>(
@@ -385,13 +432,15 @@ impl Transport {
             compression_scratch,
             ..
         } = self;
-        let sender_metadata = senders
+        let channel_send = senders
             .get_mut(&kind)
             .ok_or(TransportError::ChannelNotFound(kind))?;
-        let message_id =
-            sender_metadata
-                .sender
-                .buffer_send(bytes, priority, compression, compression_scratch);
+        let message_id = channel_send.buffer_send_with_scratch(
+            bytes,
+            priority,
+            compression,
+            compression_scratch,
+        );
         Ok(message_id)
     }
 
@@ -399,26 +448,19 @@ impl Transport {
     pub(crate) fn reset(&mut self, registry: &ChannelRegistry) {
         self.receivers.iter_mut().for_each(|(channel_id, r)| {
             let settings = registry.settings_from_net_id(*channel_id).unwrap();
-            let mut receiver: ChannelReceiverEnum = settings.into();
-            receiver.set_fragment_size(self.fragment_size);
-            *r = ReceiverMetadata {
-                receiver,
-                channel_kind: r.channel_kind,
-            };
+            let mut channel = ChannelReceive::new(r.channel_kind(), settings);
+            channel.set_fragment_size(self.fragment_size);
+            *r = channel;
         });
         self.senders.iter_mut().for_each(|(channel_kind, s)| {
             let settings = registry.settings(*channel_kind).unwrap();
-            let mut sender: ChannelSenderEnum = settings.into();
-            sender.set_fragment_size(self.fragment_size);
-            *s = SenderMetadata {
-                sender,
-                message_acks: vec![],
-                message_nacks: vec![],
-                messages_sent: vec![],
-                channel_id: s.channel_id,
-                mode: s.mode,
-                name: s.name.clone(),
-            };
+            *s = ChannelSend::new(
+                *channel_kind,
+                s.channel_id(),
+                s.name().clone(),
+                settings,
+                self.fragment_size,
+            );
         });
         let priority_config = self.priority_manager.config.clone();
         self.priority_manager = PriorityManager::new(priority_config.clone());
@@ -426,35 +468,12 @@ impl Transport {
         self.packet_manager = Default::default();
         self.compression_scratch = Default::default();
         self.packet_to_message_map = Default::default();
-        self.fragment_acks.clear();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         self.send_channel = send_channel;
         self.recv_channel = recv_channel;
         self.recv.clear();
         self.send.clear();
     }
-}
-
-pub struct ReceiverMetadata {
-    pub receiver: ChannelReceiverEnum,
-    pub channel_kind: ChannelKind,
-}
-
-#[doc(hidden)]
-pub struct SenderMetadata {
-    /// The component id of the ChannelSender<C> component
-    pub sender: ChannelSenderEnum,
-    // TODO: these are currently only used by EntityUpdatesChannel. Maybe limit their computation only to that channel?
-    /// List of messages that have been acked; is cleared every frame.
-    pub message_acks: Vec<MessageId>,
-    /// List of messages that have been nacked; is cleared every frame.
-    pub message_nacks: Vec<MessageId>,
-    /// List of messages that have been sent; is cleared every frame. Note that buffering a message via ChannelSender::send does
-    /// not guarantee that the message will actually be sent, because of the PriorityManager.
-    pub messages_sent: Vec<MessageId>,
-    pub(crate) channel_id: ChannelId,
-    pub(crate) mode: ChannelMode,
-    pub(crate) name: DebugName,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -482,18 +501,6 @@ impl ChannelMode {
     pub fn is_reliable(&self) -> bool {
         match self {
             ChannelMode::UnorderedUnreliableWithAcks => false,
-            ChannelMode::UnorderedUnreliable => false,
-            ChannelMode::SequencedUnreliable => false,
-            ChannelMode::UnorderedReliable(_) => true,
-            ChannelMode::SequencedReliable(_) => true,
-            ChannelMode::OrderedReliable(_) => true,
-        }
-    }
-
-    /// Returns true if the channel cares about tracking ACKs of messages
-    pub(crate) fn is_watching_acks(&self) -> bool {
-        match self {
-            ChannelMode::UnorderedUnreliableWithAcks => true,
             ChannelMode::UnorderedUnreliable => false,
             ChannelMode::SequencedUnreliable => false,
             ChannelMode::UnorderedReliable(_) => true,
@@ -563,7 +570,6 @@ mod mtu_tests {
 #[cfg(all(test, feature = "compression_lz4"))]
 mod tests {
     use super::*;
-    use crate::channel::receivers::ChannelReceive;
     use crate::packet::compression::decompress_payload;
     use crate::packet::error::PacketError;
     use crate::packet::header::PacketHeader;
@@ -596,15 +602,11 @@ mod tests {
 
         let mut sender_transport =
             Transport::new(PriorityConfig::default()).with_compression(compression);
-        sender_transport.add_sender::<CompressionChannel>(
-            (&settings).into(),
-            settings.mode,
-            channel_id,
-        );
+        sender_transport.add_channel_send::<CompressionChannel>(settings, channel_id);
 
         let mut receiver_transport =
             Transport::new(PriorityConfig::default()).with_compression(compression);
-        receiver_transport.add_receiver::<CompressionChannel>((&settings).into(), channel_id);
+        receiver_transport.add_channel_receive::<CompressionChannel>(settings, channel_id);
 
         let message = Bytes::from(vec![7u8; FRAGMENT_SIZE * 3]);
         let message_id = sender_transport
@@ -617,8 +619,7 @@ mod tests {
             .senders
             .get_mut(&channel_kind)
             .unwrap()
-            .sender
-            .collect_send_candidates(channel_kind, channel_id, &mut candidates);
+            .collect_send_candidates(&mut candidates);
         assert!(!candidates.is_empty());
 
         let fragments = candidates
@@ -659,11 +660,7 @@ mod tests {
             buffer_packet_into_receivers(&mut receiver_transport, packet, compression)?;
         }
 
-        let receiver = &mut receiver_transport
-            .receivers
-            .get_mut(&channel_id)
-            .unwrap()
-            .receiver;
+        let receiver = receiver_transport.receivers.get_mut(&channel_id).unwrap();
         assert_eq!(
             receiver.read_message(),
             Some((Tick(0), message, Some(message_id)))
@@ -684,7 +681,7 @@ mod tests {
         let mut registry = ChannelRegistry::default();
         let (channel_kind, channel_id) = registry.add_channel::<CompressionChannel>(settings);
         let mut transport = Transport::new(PriorityConfig::new(600)).with_compression(compression);
-        transport.add_sender::<CompressionChannel>((&settings).into(), settings.mode, channel_id);
+        transport.add_channel_send::<CompressionChannel>(settings, channel_id);
 
         for _ in 0..8 {
             transport
@@ -697,8 +694,7 @@ mod tests {
             .senders
             .get_mut(&channel_kind)
             .unwrap()
-            .sender
-            .collect_send_candidates(channel_kind, channel_id, candidates);
+            .collect_send_candidates(candidates);
         assert_eq!(transport.priority_manager.candidates().len(), 8);
         transport.priority_manager.prioritize(&registry);
         let mut cursor = crate::packet::packet_builder::CandidateCursor::default();
@@ -749,7 +745,6 @@ mod tests {
                 .receivers
                 .get_mut(&channel_id)
                 .ok_or(PacketError::ChannelNotFound)?
-                .receiver
                 .buffer_recv(ReceiveMessage {
                     data: fragment_data.into(),
                     remote_sent_tick: tick,
@@ -766,7 +761,6 @@ mod tests {
                     .receivers
                     .get_mut(&channel_id)
                     .ok_or(PacketError::ChannelNotFound)?
-                    .receiver
                     .buffer_recv(ReceiveMessage {
                         data: single_data.into(),
                         remote_sent_tick: tick,
