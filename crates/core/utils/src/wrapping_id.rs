@@ -22,7 +22,7 @@ macro_rules! wrapping_id {
             use core::cmp::Ordering;
             use bevy_reflect::Reflect;
             use lightyear_serde::{SerializationError, reader::{Reader, ReadInteger}, writer::WriteInteger, ToBytes};
-            use lightyear_utils::wrapping_id::WrappedId;
+            use lightyear_utils::wrapping_id::{WrappedId, wrapping_diff};
 
             /// A wrapping sequence identifier.
             ///
@@ -75,18 +75,11 @@ macro_rules! wrapping_id {
                     // Relative comparisons require the caller to keep both sequence numbers
                     // within a window smaller than half the u32 range. Values immediately after
                     // rollover therefore compare newer than values immediately before rollover.
-                    Some(match self.0.cmp(&other.0) {
-                        Ordering::Less
-                            if other.0.wrapping_sub(self.0) > u32::MAX / 2 =>
-                        {
-                            Ordering::Greater
-                        }
-                        Ordering::Greater
-                            if self.0.wrapping_sub(other.0) > u32::MAX / 2 =>
-                        {
-                            Ordering::Less
-                        }
-                        ordering => ordering,
+                    Some(match wrapping_diff(self.0, other.0) {
+                        0 => Ordering::Equal,
+                        x if x > 0 => Ordering::Less,
+                        x if x < 0 => Ordering::Greater,
+                        _ => unreachable!(),
                     })
                 }
             }
