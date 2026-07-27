@@ -8,9 +8,9 @@ use bevy_replicon::shared::backend::connected_client::NetworkId;
 use lightyear_connection::client::Connected;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::host::HostClient;
-use lightyear_connection::server::{Started, Stopped};
+use lightyear_connection::server::Started;
 use lightyear_core::id::RemoteId;
-use lightyear_link::prelude::{Link, Server};
+use lightyear_link::prelude::Link;
 use lightyear_transport::packet::fragment_size_for_min_mtu;
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_transport::prelude::Transport;
@@ -22,7 +22,7 @@ use tracing::{error, trace};
 /// Adds the replicon server-side backend bridge for lightyear.
 ///
 /// Handles:
-/// - `ServerState` transitions (Running when server starts or client connects)
+/// - `ServerState` transitions when `Started` is added or removed
 /// - `ConnectedClient` insertion for replicon visibility
 /// - Sending `ServerMessages` (replication) and receiving `ClientMessages` (acks) via transport
 pub struct RepliconServerPlugin;
@@ -33,10 +33,8 @@ impl Plugin for RepliconServerPlugin {
         app.add_observer(on_client_connected);
 
         // State management
-        app.add_systems(
-            PreUpdate,
-            sync_server_state.before(ServerSystems::ReceivePackets),
-        );
+        app.add_observer(on_server_started);
+        app.add_observer(on_server_stopped);
 
         // Packet bridge: replicon <-> lightyear transport
         app.add_systems(
@@ -98,21 +96,20 @@ fn on_client_connected(
     }
 }
 
-/// Sync replicon's `ServerState` with lightyear lifecycle.
+/// Set replicon's `ServerState` to `Running` when the server starts.
+fn on_server_started(_trigger: On<Add, Started>, mut next_state: ResMut<NextState<ServerState>>) {
+    NextState::set_if_neq(&mut next_state, ServerState::Running);
+}
+
+/// Set replicon's `ServerState` to `Stopped` when the server stops or is despawned.
 ///
-/// Sets `Running` when `Started` is present (server app).
-fn sync_server_state(
-    started: Query<(), (With<Server>, With<Started>)>,
-    stopped: Query<(), (With<Server>, With<Stopped>)>,
-    state: Res<State<ServerState>>,
+/// Bevy emits `Remove` when an entity is despawned, so this also handles teardown that bypasses
+/// the `Stopped` marker entirely.
+fn on_server_stopped(
+    _trigger: On<Remove, Started>,
     mut next_state: ResMut<NextState<ServerState>>,
 ) {
-    if !started.is_empty() && *state.get() != ServerState::Running {
-        next_state.set(ServerState::Running);
-    }
-    if started.is_empty() && !stopped.is_empty() && *state.get() != ServerState::Stopped {
-        next_state.set(ServerState::Stopped);
-    }
+    NextState::set_if_neq(&mut next_state, ServerState::Stopped);
 }
 
 /// Receive packets from transports and populate `ServerMessages` (ack data from peers).
@@ -160,15 +157,15 @@ fn send_server_packets(
 
 #[cfg(test)]
 mod tests {
-    use super::{on_client_connected, sync_server_state};
-    use bevy_app::{App, Update};
+    use super::{on_client_connected, on_server_started, on_server_stopped};
+    use bevy_app::App;
     use bevy_replicon::prelude::ServerState;
     use bevy_replicon::shared::backend::connected_client::{ConnectedClient, NetworkIdMap};
     use bevy_state::app::{AppExtStates, StatesPlugin};
     use bevy_state::state::State;
     use lightyear_connection::client::{Connected, PeerMetadata};
     use lightyear_connection::client_of::ClientOf;
-    use lightyear_connection::server::Stopped;
+    use lightyear_connection::server::{Started, Stopped};
     use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_link::prelude::{Link, LinkMtu, Server};
     use lightyear_transport::packet::fragment_size_for_min_mtu;
@@ -198,38 +195,71 @@ mod tests {
         );
     }
 
-    #[test]
-    fn non_server_stopped_marker_does_not_stop_local_sender() {
+    fn app_with_server_state(state: ServerState) -> App {
         let mut app = App::new();
         app.add_plugins(StatesPlugin)
             .init_resource::<PeerMetadata>()
             .init_state::<ServerState>()
-            .add_systems(Update, sync_server_state)
-            .insert_state(ServerState::Running);
+            .add_observer(on_server_started)
+            .add_observer(on_server_stopped)
+            .insert_state(state);
+        app
+    }
 
-        app.world_mut().spawn(Stopped);
+    #[test]
+    fn started_lifecycle_transitions_server_state() {
+        let mut app = app_with_server_state(ServerState::Stopped);
+        let server = app.world_mut().spawn((Server::default(), Started)).id();
 
-        app.update();
         app.update();
 
         assert_eq!(
             *app.world().resource::<State<ServerState>>().get(),
             ServerState::Running
         );
+
+        app.world_mut().entity_mut(server).insert(Stopped);
+
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<State<ServerState>>().get(),
+            ServerState::Stopped
+        );
     }
 
     #[test]
-    fn stopped_server_entity_transitions_state_to_stopped() {
-        let mut app = App::new();
-        app.add_plugins(StatesPlugin)
-            .init_resource::<PeerMetadata>()
-            .init_state::<ServerState>()
-            .add_systems(Update, sync_server_state)
-            .insert_state(ServerState::Running);
-
-        app.world_mut().spawn((Server::default(), Stopped));
+    fn despawned_started_entity_transitions_server_state_to_stopped() {
+        let mut app = app_with_server_state(ServerState::Stopped);
+        let server = app.world_mut().spawn((Server::default(), Started)).id();
 
         app.update();
+        assert_eq!(
+            *app.world().resource::<State<ServerState>>().get(),
+            ServerState::Running
+        );
+
+        app.world_mut().despawn(server);
+
+        app.update();
+
+        assert_eq!(
+            *app.world().resource::<State<ServerState>>().get(),
+            ServerState::Stopped
+        );
+    }
+
+    #[test]
+    fn started_and_despawned_in_same_flush_remains_stopped() {
+        let mut app = app_with_server_state(ServerState::Stopped);
+        let server = app.world_mut().spawn(Server::default()).id();
+        app.world_mut()
+            .commands()
+            .entity(server)
+            .insert(Started)
+            .despawn();
+        app.world_mut().flush();
+
         app.update();
 
         assert_eq!(

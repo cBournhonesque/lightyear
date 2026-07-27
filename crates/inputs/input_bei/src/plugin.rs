@@ -187,7 +187,7 @@ impl<
                 app.configure_sets(
                     FixedPreUpdate,
                     EnhancedInputSystems::Update
-                        .run_if(not(lightyear_connection::server::is_headless_server)),
+                        .run_if(not(lightyear_connection::identity::is_headless_server)),
                 );
             }
 
