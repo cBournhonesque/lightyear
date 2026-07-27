@@ -1,6 +1,7 @@
 use crate::client::Client;
-use crate::host::HostClient;
-use bevy_ecs::query::{With, Without};
+use crate::host::{HostClient, HostServer};
+use crate::server::{Started, Starting};
+use bevy_ecs::query::{Or, With, Without};
 use bevy_ecs::system::Query;
 use lightyear_link::server::Server;
 
@@ -9,18 +10,23 @@ pub fn is_client(query: Query<(), (With<Client>, Without<HostClient>)>) -> bool 
     !query.is_empty()
 }
 
-/// Returns true if the peer is a server
-pub fn is_server(query: Query<(), With<Server>>) -> bool {
+/// Returns true if the peer is starting or running a server.
+pub fn is_server(query: Query<(), (With<Server>, Or<(With<Starting>, With<Started>)>)>) -> bool {
     !query.is_empty()
+}
+
+/// Returns true if the peer is starting or running a server without any client entities.
+pub fn is_headless_server(
+    server_query: Query<(), (With<Server>, Or<(With<Starting>, With<Started>)>)>,
+    client_query: Query<(), With<Client>>,
+) -> bool {
+    !server_query.is_empty() && client_query.is_empty()
 }
 
 /// Returns true if we are running in host-server mode, i.e. the server is acting as a client
 /// (in which case we can disable the networking/prediction/interpolation systems on the client)
 ///
-/// We are in HostServer mode if the mode is set to HostServer AND the server is running.
-/// (checking if the mode is set to HostServer is not enough, it just means that the server plugin
-/// and client plugin are running in the same App)
-pub fn is_host_server() -> bool {
-    todo!();
-    // identity.is_some_and(|i| i.get() == &NetworkIdentityState::HostServer)
+/// We are in host-server mode when a running server has been marked as a host server.
+pub fn is_host_server(query: Query<(), (With<Server>, With<Started>, With<HostServer>)>) -> bool {
+    !query.is_empty()
 }
