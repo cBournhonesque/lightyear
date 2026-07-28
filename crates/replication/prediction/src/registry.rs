@@ -1158,6 +1158,29 @@ fn add_local_rollback_systems<C: Component<Mutability = Mutable> + Clone>(
         .is_some()
     {
         add_non_networked_rollback_systems::<C>(registration.app);
+
+        // Resources live on dedicated entities in Bevy. If the resource was inserted before
+        // rollback was registered, its `Add<C>` observer has already run, so backfill the history
+        // that marks the resource entity as a rollback participant.
+        let resource_entity =
+            registration
+                .app
+                .world()
+                .component_id::<C>()
+                .and_then(|component_id| {
+                    registration
+                        .app
+                        .world()
+                        .resource_entities()
+                        .get(component_id)
+                });
+        if let Some(resource_entity) = resource_entity {
+            registration
+                .app
+                .world_mut()
+                .entity_mut(resource_entity)
+                .insert_if_new(PredictionHistory::<C>::default());
+        }
     }
     registration
 }
@@ -1421,6 +1444,7 @@ mod tests {
     use super::*;
     use crate::plugin::PredictionPlugin;
     use alloc::vec::Vec;
+    use bevy_ecs::system::RunSystemOnce;
     use bevy_replicon::prelude::{
         AuthMethod, RepliconPlugins, RepliconSharedPlugin, RepliconTick, RuleFns,
     };
@@ -1446,7 +1470,7 @@ mod tests {
     #[derive(Component, Clone, Debug)]
     struct LocalRollbackOnlyComponent(u32);
 
-    #[derive(Resource, Clone, Debug)]
+    #[derive(Resource, Clone, Debug, PartialEq)]
     struct LocalRollbackOnlyResource(u32);
 
     fn prediction_app() -> App {
@@ -1639,10 +1663,17 @@ mod tests {
     }
 
     #[test]
-    fn resource_builder_local_rollback_supports_non_sync_resource() {
+    fn resource_builder_local_rollback_backfills_existing_resource_history() {
         let mut app = prediction_app();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(LocalRollbackOnlyResource(42));
 
         app.resource::<LocalRollbackOnlyResource>().local_rollback();
+        app.world_mut()
+            .run_system_once(
+                crate::predicted_history::update_prediction_history::<LocalRollbackOnlyResource>,
+            )
+            .unwrap();
 
         assert!(
             app.world()
@@ -1658,6 +1689,55 @@ mod tests {
             !app.world()
                 .resource::<PredictionRegistry>()
                 .predicted::<LocalRollbackOnlyResource>()
+        );
+
+        let resource_entity = app
+            .world()
+            .resource_entities()
+            .get(
+                app.world()
+                    .component_id::<LocalRollbackOnlyResource>()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<PredictionHistory<LocalRollbackOnlyResource>>(resource_entity)
+                .unwrap()
+                .get_state(Tick(0)),
+            Some(&HistoryState::Updated(LocalRollbackOnlyResource(42)))
+        );
+    }
+
+    #[test]
+    fn resource_builder_local_rollback_adds_history_to_late_resource() {
+        let mut app = prediction_app();
+        app.insert_resource(LocalTimeline::default());
+
+        app.resource::<LocalRollbackOnlyResource>().local_rollback();
+        app.insert_resource(LocalRollbackOnlyResource(42));
+        app.world_mut().flush();
+        app.world_mut()
+            .run_system_once(
+                crate::predicted_history::update_prediction_history::<LocalRollbackOnlyResource>,
+            )
+            .unwrap();
+
+        let resource_entity = app
+            .world()
+            .resource_entities()
+            .get(
+                app.world()
+                    .component_id::<LocalRollbackOnlyResource>()
+                    .unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            app.world()
+                .get::<PredictionHistory<LocalRollbackOnlyResource>>(resource_entity)
+                .unwrap()
+                .get_state(Tick(0)),
+            Some(&HistoryState::Updated(LocalRollbackOnlyResource(42)))
         );
     }
 
