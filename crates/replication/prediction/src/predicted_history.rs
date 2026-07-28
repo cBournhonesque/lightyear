@@ -8,6 +8,7 @@ use crate::rollback::{CatchUpGated, DeterministicPredicted};
 use crate::{Predicted, SyncComponent};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
+use bevy_ecs::resource::IsResource;
 use bevy_reflect::Reflect;
 use bevy_replicon::shared::replication::diff::{DiffBuffer, Diffable as RepliconDiffable};
 use bevy_replicon::shared::replication::storage::ReplicationStorage;
@@ -214,9 +215,13 @@ pub(crate) fn apply_component_removal_predicted<C: Component>(
     }
 }
 
-/// When any of `C`, [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`],
-/// or [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`]
-/// is present, and if `C` has just been applied via an init message on a
+/// When `C` or one of [`Predicted`], [`PreSpawned`], [`DeterministicPredicted`], or
+/// [`CatchUpGated`] is added to an entity, ensure [`PredictionHistory<C>`] is present for predicted
+/// entities and resource entities. [`IsResource`] is an eligibility check rather than a trigger:
+/// `Add<C>` already fires when a resource is inserted, and triggering on every `IsResource`
+/// addition would wake this observer for unrelated resource types.
+///
+/// If `C` has just been applied via an init message on a
 /// marker that receives confirmed state, seed [`ConfirmedHistory<C>`] at the
 /// server tick that produced the init.
 ///
@@ -251,15 +256,18 @@ pub(crate) fn add_prediction_history<C: Component + Clone>(
         Has<PreSpawned>,
         Has<DeterministicPredicted>,
         Has<CatchUpGated>,
+        Has<IsResource>,
     )>,
     mut commands: Commands,
 ) {
-    let Ok((has_component, predicted, prespawned, deterministic, catchup_gated)) =
+    let Ok((has_component, predicted, prespawned, deterministic, catchup_gated, is_resource)) =
         query.get(trigger.entity)
     else {
         return;
     };
-    if !catchup_gated && !(has_component && (predicted || prespawned || deterministic)) {
+    if !catchup_gated
+        && !(has_component && (predicted || prespawned || deterministic || is_resource))
+    {
         return;
     }
     let should_seed_confirmed_history = has_component && (catchup_gated || predicted || prespawned);
