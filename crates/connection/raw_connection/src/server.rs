@@ -85,9 +85,9 @@ impl RawConnectionPlugin {
                             lightyear_connection::server::ConnectionError::InvalidConnectionType,
                         );
                     };
-                    // insert Disconnecting, so that the `Disconnected` component is added on the LinkOf
-                    // before the entity gets despawned
-                    commands.entity(entity).insert(Disconnecting);
+                    // The transport may already have queued a despawn for this link.
+                    // Otherwise, insert Disconnecting so Disconnected is added before despawn.
+                    commands.entity(entity).try_insert(Disconnecting);
                     Ok(())
                 },
             )?;
@@ -115,5 +115,43 @@ impl Plugin for RawConnectionPlugin {
         app.add_observer(Self::on_server_linked);
         app.add_observer(Self::on_link_of_linked);
         app.add_observer(Self::on_stop);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Despawns clients while raw-server stop commands are still deferred.
+    fn despawn_client_on_stop(
+        _trigger: On<Stop>,
+        clients: Query<Entity, With<ClientOf>>,
+        mut commands: Commands,
+    ) {
+        for client in &clients {
+            commands.entity(client).despawn();
+        }
+    }
+
+    #[test]
+    fn stopping_raw_server_tolerates_already_despawned_client() {
+        let mut app = App::new();
+        app.add_observer(despawn_client_on_stop);
+        app.add_plugins(RawConnectionPlugin);
+
+        let server = app.world_mut().spawn(RawServer).id();
+        let client = app
+            .world_mut()
+            .spawn((
+                LinkOf { server },
+                ClientOf,
+                RemoteId(PeerId::Raw("127.0.0.1:5000".parse().unwrap())),
+            ))
+            .id();
+
+        app.world_mut().trigger(Stop { entity: server });
+        app.world_mut().flush();
+
+        assert!(app.world().get_entity(client).is_err());
     }
 }
