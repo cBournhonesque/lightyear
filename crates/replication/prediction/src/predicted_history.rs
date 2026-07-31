@@ -5,7 +5,7 @@
 //! 2. Rollback to a past local state and replay the simulation
 
 use crate::rollback::{CatchUpGated, DeterministicPredicted};
-use crate::{Predicted, SyncComponent};
+use crate::{Predicted, SyncComponent, manager::PredictionManager};
 use bevy_ecs::component::Mutable;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
@@ -92,13 +92,21 @@ impl<C> PredictionHistory<C> {
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
+    manager: Single<(&PredictionManager, &InputTimelineConfig)>,
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
+    let (manager, input_config) = manager.into_inner();
+    let oldest_rollback_tick = tick
+        - u32::from(
+            manager
+                .rollback_policy
+                .effective_max_rollback_ticks(input_config),
+        );
 
-    // update history if the predicted component changed
+    // Update history if the predicted component changed, then prune it.
     for (entity, component, mut history) in query.iter_mut() {
         // change detection works even when running the schedule for rollback
         if component.is_changed() {
@@ -119,6 +127,7 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
                 "recorded predicted component history"
             );
         }
+        history.clear_until_tick(oldest_rollback_tick);
     }
 }
 
@@ -465,12 +474,13 @@ pub(crate) fn snap_to_confirmed_during_rollback<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::manager::StateRollbackMetadata;
+    use crate::manager::{RollbackPolicy, StateRollbackMetadata};
     use bevy_app::{App, Update};
     use bevy_replicon::shared::replication::diff::diff_index::DiffIndex;
+    use lightyear_sync::timeline::input::InputDelayConfig;
     use serde::{Deserialize, Serialize};
 
-    #[derive(Clone, PartialEq, Debug)]
+    #[derive(Component, Clone, PartialEq, Debug)]
     struct TestValue(f32);
 
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -506,6 +516,54 @@ mod tests {
         let has_tick_9 = history.buffer().iter().any(|(t, _)| *t == Tick(9));
         assert!(!has_tick_5);
         assert!(!has_tick_9);
+    }
+
+    fn prediction_history_test_app(
+        max_rollback_ticks: u16,
+        input_delay_config: InputDelayConfig,
+        tick: i32,
+    ) -> App {
+        let mut app = App::new();
+        let mut timeline = LocalTimeline::default();
+        timeline.apply_delta(tick);
+        app.insert_resource(timeline);
+        app.world_mut().spawn((
+            PredictionManager {
+                rollback_policy: RollbackPolicy {
+                    max_rollback_ticks,
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            InputTimelineConfig::default().with_input_delay(input_delay_config),
+        ));
+        app.world_mut().flush();
+        app
+    }
+
+    #[test]
+    fn prediction_history_is_pruned_to_effective_rollback_horizon() {
+        let mut app = prediction_history_test_app(20, InputDelayConfig::balanced(), 100);
+        app.add_systems(Update, update_prediction_history::<TestValue>);
+
+        let mut history = PredictionHistory::default();
+        for tick in [90, 95, 100] {
+            history.add_predicted(Tick(tick), Some(TestValue(tick as f32)));
+        }
+        let entity = app.world_mut().spawn((TestValue(100.0), history)).id();
+
+        app.update();
+
+        let history = app
+            .world()
+            .get::<PredictionHistory<TestValue>>(entity)
+            .unwrap();
+        assert_eq!(history.oldest().unwrap().0, Tick(93));
+        assert_eq!(
+            history.get(Tick(93)),
+            Some(&TestValue(90.0)),
+            "balanced input delay should cap the 20-tick policy at 7 ticks"
+        );
     }
 
     #[test]

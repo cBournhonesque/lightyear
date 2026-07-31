@@ -52,8 +52,10 @@ pub enum RollbackMode {
 pub struct RollbackPolicy {
     pub state: RollbackMode,
     pub input: RollbackMode,
-    /// Maximum number of ticks we can rollback to. If we receive some packets that would make us rollback more than
-    /// this number of ticks, we just do nothing.
+    /// Upper bound on the number of ticks we can roll back.
+    ///
+    /// A non-zero [`InputTimelineConfig::maximum_predicted_ticks`] can lower the effective bound.
+    /// Rollback requests beyond the effective bound are ignored.
     pub max_rollback_ticks: u16,
 }
 
@@ -62,12 +64,26 @@ impl Default for RollbackPolicy {
         Self {
             state: RollbackMode::Check,
             input: RollbackMode::Check,
-            max_rollback_ticks: 100,
+            max_rollback_ticks: 20,
         }
     }
 }
 
 impl RollbackPolicy {
+    /// Maximum rollback depth after applying the input timeline's prediction limit.
+    ///
+    /// A non-zero `maximum_predicted_ticks` bounds how far ahead the local simulation can be, so
+    /// rollback state older than that cannot be needed. Zero denotes lockstep and does not cap
+    /// explicit or forced state rollbacks.
+    pub fn effective_max_rollback_ticks(&self, input_config: &InputTimelineConfig) -> u16 {
+        let maximum_predicted_ticks = input_config.maximum_predicted_ticks();
+        if maximum_predicted_ticks == 0 {
+            self.max_rollback_ticks
+        } else {
+            self.max_rollback_ticks.min(maximum_predicted_ticks)
+        }
+    }
+
     /// Returns true if we don't need to store a prediction history.
     ///
     /// PredictionHistory is not needed if we always rollback on new states
@@ -343,6 +359,24 @@ impl StateRollbackMetadata {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_sync::timeline::input::InputDelayConfig;
+
+    #[test]
+    fn effective_max_rollback_ticks_respects_prediction_limit() {
+        let mut policy = RollbackPolicy::default();
+        assert_eq!(policy.max_rollback_ticks, 20);
+
+        let balanced =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced());
+        assert_eq!(policy.effective_max_rollback_ticks(&balanced), 7);
+
+        policy.max_rollback_ticks = 5;
+        assert_eq!(policy.effective_max_rollback_ticks(&balanced), 5);
+
+        let lockstep =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_prediction());
+        assert_eq!(policy.effective_max_rollback_ticks(&lockstep), 5);
+    }
 
     #[test]
     fn last_confirmed_input_default_starts_unset() {

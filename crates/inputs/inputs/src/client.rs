@@ -532,7 +532,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     sender: Query<(), (With<Client>, With<InputTimeline>, Without<HostClient>)>,
-    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
+    prediction_manager: Option<Single<(&PredictionManager, &InputTimelineConfig), With<Client>>>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
@@ -552,9 +552,17 @@ fn clean_buffers<S: ActionStateSequence>(
     }
 }
 
-fn input_history_depth(prediction_manager: Option<&PredictionManager>) -> u32 {
+fn input_history_depth(
+    prediction_manager: Option<(&PredictionManager, &InputTimelineConfig)>,
+) -> u32 {
     prediction_manager
-        .map(|manager| u32::from(manager.rollback_policy.max_rollback_ticks) + 1)
+        .map(|(manager, input_config)| {
+            u32::from(
+                manager
+                    .rollback_policy
+                    .effective_max_rollback_ticks(input_config),
+            ) + 1
+        })
         .unwrap_or(0)
         .max(HISTORY_DEPTH)
 }
@@ -1177,6 +1185,8 @@ mod tests {
     fn input_history_depth_covers_prediction_rollback_window() {
         assert_eq!(input_history_depth(None), HISTORY_DEPTH);
 
+        let input_config = InputTimelineConfig::default();
+
         let mut manager = PredictionManager {
             rollback_policy: RollbackPolicy {
                 max_rollback_ticks: 100,
@@ -1184,9 +1194,12 @@ mod tests {
             },
             ..Default::default()
         };
-        assert_eq!(input_history_depth(Some(&manager)), 101);
+        assert_eq!(input_history_depth(Some((&manager, &input_config))), 101);
 
         manager.rollback_policy.max_rollback_ticks = 5;
-        assert_eq!(input_history_depth(Some(&manager)), HISTORY_DEPTH);
+        assert_eq!(
+            input_history_depth(Some((&manager, &input_config))),
+            HISTORY_DEPTH
+        );
     }
 }

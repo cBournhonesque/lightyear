@@ -47,6 +47,11 @@ impl InputTimelineConfig {
         self.input_delay_config.is_lockstep()
     }
 
+    /// Maximum number of ticks the local simulation is allowed to predict ahead.
+    pub fn maximum_predicted_ticks(&self) -> u16 {
+        self.input_delay_config.maximum_predicted_ticks
+    }
+
     /// Update the input delay based on the current RTT and tick duration
     /// when there is a SyncEvent
     pub(crate) fn recompute_input_delay_on_sync(
