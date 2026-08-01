@@ -24,6 +24,7 @@ extern crate core;
 use bevy_app::{App, Plugin};
 use bevy_ecs::schedule::SystemSet;
 
+pub mod app_mode;
 pub mod client;
 
 pub mod server;
@@ -37,6 +38,7 @@ pub mod identity;
 pub mod shared;
 
 pub mod host;
+pub mod p2p;
 
 #[deprecated(note = "Use ConnectionSystems instead")]
 pub type ConnectionSet = ConnectionSystems;
@@ -57,6 +59,7 @@ pub enum ConnectionSystems {
 
 pub mod prelude {
     pub use crate::ConnectionSystems;
+    pub use crate::app_mode::{AppMode, AppModeError, AppModeSystems};
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
 
@@ -65,6 +68,7 @@ pub mod prelude {
         Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
         Disconnected, PeerMetadata,
     };
+    pub use crate::p2p::P2P;
 
     #[cfg(feature = "client")]
     pub mod client {
@@ -87,5 +91,7 @@ pub mod prelude {
 pub struct ConnectionPlugin;
 
 impl Plugin for ConnectionPlugin {
-    fn build(&self, _: &mut App) {}
+    fn build(&self, app: &mut App) {
+        app.add_plugins(app_mode::AppModePlugin);
+    }
 }
