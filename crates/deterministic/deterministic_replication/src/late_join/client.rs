@@ -18,7 +18,7 @@ use lightyear_prediction::prelude::{
 use lightyear_prediction::rollback::{CatchUpGated, DisableRollback};
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::prelude::ReplicationSystems;
-use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, IsSynced};
 use tracing::{debug, info, warn};
 
 use super::{CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems};
@@ -266,6 +266,7 @@ pub(crate) fn trigger_snapshot_rollback(
             &mut CatchUpManager,
             &LastConfirmedInput,
             &PredictionManager,
+            &InputTimelineConfig,
         ),
         With<Client>,
     >,
@@ -273,7 +274,7 @@ pub(crate) fn trigger_snapshot_rollback(
     mut state_metadata: ResMut<StateRollbackMetadata>,
     mut commands: Commands,
 ) {
-    let (client_entity, mut manager, last_confirmed_input, prediction_manager) =
+    let (client_entity, mut manager, last_confirmed_input, prediction_manager, input_config) =
         manager.into_inner();
     if manager.completed {
         return;
@@ -291,7 +292,11 @@ pub(crate) fn trigger_snapshot_rollback(
     if rollback_delta < 0 {
         return;
     }
-    let max_rollback_ticks = i32::from(prediction_manager.rollback_policy.max_rollback_ticks);
+    let max_rollback_ticks = i32::from(
+        prediction_manager
+            .rollback_policy
+            .effective_max_rollback_ticks(input_config),
+    );
     if rollback_delta > max_rollback_ticks {
         warn!(
             ?client_entity,

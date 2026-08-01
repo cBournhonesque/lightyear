@@ -67,7 +67,7 @@ use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
-use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, IsSynced};
 #[cfg(feature = "metrics")]
 use lightyear_utils::metrics::TimerGauge;
 use serde::{Deserialize, Serialize};
@@ -364,6 +364,7 @@ fn check_rollback(
             Entity,
             Option<&LastConfirmedInput>,
             &mut PredictionManager,
+            &InputTimelineConfig,
             &mut PreSpawnedReceiver,
         ),
         (With<IsSynced<InputTimeline>>, Without<HostClient>),
@@ -378,10 +379,18 @@ fn check_rollback(
     #[cfg(feature = "metrics")]
     let _timer = TimerGauge::new("prediction/rollback/check");
 
-    let (manager_entity, last_confirmed_input, mut prediction_manager, mut prespawned_receiver) =
-        receiver_query.into_inner();
+    let (
+        manager_entity,
+        last_confirmed_input,
+        mut prediction_manager,
+        input_config,
+        mut prespawned_receiver,
+    ) = receiver_query.into_inner();
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
+    let max_rollback_ticks = prediction_manager
+        .rollback_policy
+        .effective_max_rollback_ticks(input_config);
 
     // The tick where ALL messages have been received (guaranteed complete information).
     // Explicit mismatch checks can exist before this is known, so don't return early.
@@ -392,7 +401,6 @@ fn check_rollback(
                             prediction_manager: &PredictionManager,
                             commands: &mut Commands,
                             rollback: Rollback| {
-        let max_rollback_ticks = prediction_manager.rollback_policy.max_rollback_ticks;
         let delta = tick - rollback_tick;
         if delta < 0 || delta > max_rollback_ticks as i32 {
             warn!(
