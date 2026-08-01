@@ -29,6 +29,8 @@ use lightyear_utils::collections::HashMap;
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
 use serde::Serialize;
 use serde::de::DeserializeOwned;
+#[cfg(feature = "metrics")]
+use std::sync::OnceLock;
 #[allow(unused_imports)]
 use tracing::{debug, trace};
 
@@ -86,6 +88,29 @@ impl TypeKind for MessageKind {}
 impl From<TypeId> for MessageKind {
     fn from(type_id: TypeId) -> Self {
         Self(type_id)
+    }
+}
+
+#[cfg(feature = "metrics")]
+#[derive(Debug, Default, Clone)]
+pub(crate) struct MessageMetricHandles {
+    sent: OnceLock<metrics::Counter>,
+    sent_bytes: OnceLock<metrics::Gauge>,
+}
+
+#[cfg(feature = "metrics")]
+impl MessageMetricHandles {
+    pub(crate) fn record_send<M: Message>(&self, bytes: usize) {
+        self.sent
+            .get_or_init(
+                || metrics::counter!("message/send", "message" => core::any::type_name::<M>()),
+            )
+            .increment(1);
+        self.sent_bytes
+            .get_or_init(
+                || metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>()),
+            )
+            .increment(bytes as f64);
     }
 }
 
@@ -190,6 +215,8 @@ pub struct MessageRegistry {
     pub(crate) receive_metadata: HashMap<MessageKind, ReceiveMessageMetadata>,
     pub(crate) receive_trigger: HashMap<MessageKind, ReceiveTriggerMetadata>,
     pub serialize_fns_map: HashMap<MessageKind, ErasedSerializeFns>,
+    #[cfg(feature = "metrics")]
+    metric_handles: HashMap<MessageKind, MessageMetricHandles>,
     pub kind_map: TypeMapper<MessageKind>,
     hasher: RegistryHasher,
 }
@@ -229,6 +256,9 @@ impl MessageRegistry {
         trace!("Registering message: {}", DebugName::type_name::<M>());
         self.hasher.hash::<M>();
         let message_kind = self.kind_map.add::<I>();
+        #[cfg(feature = "metrics")]
+        self.metric_handles
+            .insert(message_kind, MessageMetricHandles::default());
         self.serialize_fns_map.insert(
             message_kind,
             ErasedSerializeFns::new::<SendEntityMap, ReceiveEntityMap, M, I>(
@@ -269,6 +299,16 @@ impl MessageRegistry {
             .get(&kind)
             .ok_or(MessageError::MissingSerializationFns)?;
         Ok(erased_fns.map_entities.is_some())
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn metric_handles(
+        &self,
+        kind: &MessageKind,
+    ) -> core::result::Result<&MessageMetricHandles, MessageError> {
+        self.metric_handles
+            .get(kind)
+            .ok_or(MessageError::UnrecognizedMessage(*kind))
     }
 
     pub(crate) fn add_map_entities<

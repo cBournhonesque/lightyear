@@ -49,10 +49,10 @@ use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputSnapshot, InputTarget,
     PerTargetData, StateMut, StateRef,
 };
+#[cfg(feature = "metrics")]
+use crate::metric_handles::InputMetricHandles;
 use crate::plugin::InputPlugin;
 use crate::{HISTORY_DEPTH, InputChannel};
-#[cfg(feature = "metrics")]
-use alloc::format;
 use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystems,
@@ -155,7 +155,6 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.init_resource::<SharedInputConfig>();
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
-
         // SETS
 
         // NOTE: this is subtle! We receive remote players messages after
@@ -276,6 +275,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 /// before receiving the input for tick T).
 fn buffer_action_state<S: ActionStateSequence>(
     local_timeline: Res<LocalTimeline>,
+    #[cfg(feature = "metrics")] metric_handles: Res<InputMetricHandles<S>>,
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
@@ -327,14 +327,9 @@ fn buffer_action_state<S: ActionStateSequence>(
             "buffered local action state"
         );
         #[cfg(feature = "metrics")]
-        {
-            metrics::gauge!(format!(
-                "inputs::{}::{}::buffer_size",
-                core::any::type_name::<S::Action>(),
-                entity
-            ))
+        metric_handles
+            .buffer_size(entity)
             .set(input_buffer.len() as f64);
-        }
     }
 }
 
@@ -747,6 +742,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     tick_duration: Res<TickDuration>,
     timeline: Res<LocalTimeline>,
+    #[cfg(feature = "metrics")] mut input_metric_handles: ResMut<InputMetricHandles<S>>,
     link: Single<
         (
             &mut MessageReceiver<InputMessage<S>>,
@@ -840,6 +836,13 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             };
             trace!(predicted=?entity, end_tick = ?message.end_tick, "update action diff buffer for remote player PREDICTED using input message");
 
+            // Adding a missing InputBuffer is deferred, so its Add observer has
+            // not populated the metric cache by the time we record this message.
+            #[cfg(feature = "metrics")]
+            if input_buffer.is_none() {
+                input_metric_handles.insert_entity(entity);
+            }
+
             if let Some(mut input_buffer) = input_buffer {
                 // do not parse the remote message our current Buffer end_tick is later than the message end_tick
                 // this can happen if we receive multiple messages out of order.
@@ -867,7 +870,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     message.end_tick,
                     entity,
                     prediction_manager,
-                    *tick_duration
+                    *tick_duration,
+                    #[cfg(feature = "metrics")]
+                    &input_metric_handles,
                 );
             } else {
                 // add the ActionState and InputBuffer if they are missing
@@ -880,7 +885,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     message.end_tick,
                     entity,
                     prediction_manager,
-                    *tick_duration
+                    *tick_duration,
+                    #[cfg(feature = "metrics")]
+                    &input_metric_handles,
                 );
                 // Initialize ActionState from the latest buffered input rather
                 // than from base_value(). When the remote player's end_tick is
@@ -892,10 +899,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                 if let Some(last) = input_buffer.get_last() {
                     S::from_snapshot(S::State::as_mut(&mut action_state), last);
                 }
-                commands.entity(entity).insert((
-                    input_buffer,
-                    action_state,
-                ));
+                commands.entity(entity).insert((input_buffer, action_state));
             };
         }
     });
@@ -969,6 +973,7 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
     entity: Entity,
     prediction_manager: &PredictionManager,
     tick_duration: TickDuration,
+    #[cfg(feature = "metrics")] input_metric_handles: &InputMetricHandles<S>,
 ) {
     // we don't need to update the ActionState here because:
     // - if it's in the future, we will fetch the ActionState from the buffer in the `get_action_state` system when
@@ -1018,24 +1023,14 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
 
         #[cfg(feature = "metrics")]
         {
-            metrics::counter!(format!(
-                "inputs::{}::remote_player::receive",
-                DebugName::type_name::<S::Action>(),
-            ))
-            .increment(1);
+            input_metric_handles.remote_player_receive().increment(1);
             let margin = input_buffer.last_remote_tick.unwrap() - tick;
-            metrics::gauge!(format!(
-                "inputs::{}::remote_player::{}::buffer_margin",
-                DebugName::type_name::<S::Action>(),
-                entity
-            ))
-            .set(margin as f64);
-            metrics::gauge!(format!(
-                "inputs::{}::remote_player::{}::buffer_size",
-                DebugName::type_name::<S::Action>(),
-                entity
-            ))
-            .set(input_buffer.len() as f64);
+            input_metric_handles
+                .remote_player_buffer_margin(entity)
+                .set(margin as f64);
+            input_metric_handles
+                .remote_player_buffer_size(entity)
+                .set(input_buffer.len() as f64);
         }
     };
     trace!(

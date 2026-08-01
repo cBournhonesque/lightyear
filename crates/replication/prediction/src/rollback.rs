@@ -69,7 +69,7 @@ use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
 use lightyear_sync::prelude::{InputTimeline, IsSynced};
 #[cfg(feature = "metrics")]
-use lightyear_utils::metrics::TimerGauge;
+use lightyear_utils::timer_gauge;
 use serde::{Deserialize, Serialize};
 #[allow(unused_imports)]
 use tracing::{debug, debug_span, error, info, trace, trace_span, warn};
@@ -376,7 +376,7 @@ fn check_rollback(
     mut commands: Commands,
 ) {
     #[cfg(feature = "metrics")]
-    let _timer = TimerGauge::new("prediction/rollback/check");
+    let _timer = timer_gauge!("prediction/rollback/check");
 
     let (manager_entity, last_confirmed_input, mut prediction_manager, mut prespawned_receiver) =
         receiver_query.into_inner();
@@ -1050,7 +1050,7 @@ fn rollback_fixed_time(current_fixed_time: &Time<Fixed>, num_rollback_ticks: i32
 
 pub(crate) fn run_rollback(world: &mut World) {
     #[cfg(feature = "metrics")]
-    let _timer = TimerGauge::new("prediction::rollback");
+    let _timer = timer_gauge!("prediction::rollback");
 
     let local_timeline = world.resource_mut::<LocalTimeline>();
     let current_tick = local_timeline.tick();

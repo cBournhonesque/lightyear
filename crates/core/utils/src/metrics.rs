@@ -1,4 +1,3 @@
-use alloc::format;
 use bevy_platform::sync::atomic::{AtomicBool, Ordering};
 use bevy_platform::time::Instant;
 
@@ -11,8 +10,8 @@ pub struct TimerGauge {
 }
 
 impl TimerGauge {
-    /// Create a new `TimerGauge` that will emit a metric when dropped
-    pub fn new(name: &'static str) -> Self {
+    #[doc(hidden)]
+    pub fn from_metric_name(name: &'static str) -> Self {
         Self {
             name,
             start: Instant::now(),
@@ -20,11 +19,22 @@ impl TimerGauge {
     }
 }
 
+/// Creates a [`TimerGauge`](crate::metrics::TimerGauge) from a metric-name prefix.
+///
+/// The emitted gauge is named `<prefix>/time_ms`. The prefix must be a string
+/// literal so the complete name can be assembled at compile time without an
+/// allocation.
+#[macro_export]
+macro_rules! timer_gauge {
+    ($name:literal $(,)?) => {
+        $crate::metrics::TimerGauge::from_metric_name(::core::concat!($name, "/time_ms"))
+    };
+}
+
 // TODO: if incremental, we want to reset the gauge to 0 at the end of the frame.
 impl Drop for TimerGauge {
     fn drop(&mut self) {
-        metrics::gauge!(format!("{}/time_ms", self.name))
-            .set(self.start.elapsed().as_secs_f64() * 1e3_f64);
+        metrics::gauge!(self.name).set(self.start.elapsed().as_secs_f64() * 1e3_f64);
     }
 }
 
@@ -35,11 +45,10 @@ pub struct DormantTimerGauge {
 }
 
 impl DormantTimerGauge {
-    /// Create a new [`DormantTimerGauge`] that starts dormant. It will only emit a metric when dropped
-    /// if `activate` is called
-    pub fn new(name: &'static str) -> Self {
+    #[doc(hidden)]
+    pub fn from_metric_name(name: &'static str) -> Self {
         Self {
-            timer: TimerGauge::new(name),
+            timer: TimerGauge::from_metric_name(name),
             inactive: AtomicBool::new(true),
         }
     }
@@ -50,10 +59,21 @@ impl DormantTimerGauge {
     }
 }
 
+/// Creates a dormant [`DormantTimerGauge`](crate::metrics::DormantTimerGauge) from a metric-name prefix.
+///
+/// The emitted gauge is named `<prefix>/time_ms`. The timer emits only if it
+/// is activated before being dropped.
+#[macro_export]
+macro_rules! dormant_timer_gauge {
+    ($name:literal $(,)?) => {
+        $crate::metrics::DormantTimerGauge::from_metric_name(::core::concat!($name, "/time_ms"))
+    };
+}
+
 impl Drop for DormantTimerGauge {
     fn drop(&mut self) {
         if !self.inactive.load(Ordering::Relaxed) {
-            metrics::gauge!(format!("{}/time_ms", self.timer.name))
+            metrics::gauge!(self.timer.name)
                 .set(self.timer.start.elapsed().as_secs_f64() * 1e3_f64);
         }
     }

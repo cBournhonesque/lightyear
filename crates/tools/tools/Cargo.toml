@@ -20,12 +20,14 @@ std = [
   "dep:tracing-subscriber",
 ]
 test_utils = ["lightyear_metrics/test_utils"]
+replication = ["dep:lightyear_replication"]
 
 [dependencies]
 lightyear_connection.workspace = true
 lightyear_core.workspace = true
 lightyear_link.workspace = true
 lightyear_metrics.workspace = true
+lightyear_replication = { workspace = true, optional = true }
 
 # utils
 metrics.workspace = true

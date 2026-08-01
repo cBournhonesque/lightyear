@@ -3,8 +3,6 @@ use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
 use crate::{SyncComponent, correction};
-#[cfg(feature = "metrics")]
-use alloc::format;
 use bevy_app::App;
 use bevy_ecs::component::{ComponentId, Mutable};
 use bevy_ecs::prelude::*;
@@ -38,6 +36,8 @@ use lightyear_replication::registry::replication::{
     AppComponentExt, ComponentRegistration, ComponentRegistrator,
 };
 use lightyear_replication::registry::{ComponentError, ComponentKind, ComponentRegistry, LerpFn};
+#[cfg(feature = "metrics")]
+use std::sync::OnceLock;
 use tracing::{debug, error, trace, trace_span};
 
 fn lerp<C: Ease + Clone>(start: C, other: C, t: f32) -> C {
@@ -65,10 +65,61 @@ pub struct PredictionMetadata {
     pub(crate) should_rollback: unsafe fn(),
     pub(crate) check_rollback: CheckRollbackFn,
     #[cfg(feature = "metrics")]
-    history_gauge: metrics::Gauge,
+    metric_handles: PredictionMetricHandles,
     #[cfg(feature = "deterministic")]
     /// Function to hash the value in [`PredictionHistory<C>`] at a given tick.
     pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
+}
+
+#[cfg(feature = "metrics")]
+#[derive(Debug, Clone, Default)]
+struct PredictionMetricHandles {
+    history: OnceLock<metrics::Gauge>,
+    value_mismatch: OnceLock<metrics::Counter>,
+    missing_on_predicted: OnceLock<metrics::Counter>,
+    missing_on_confirmed: OnceLock<metrics::Counter>,
+}
+
+#[cfg(feature = "metrics")]
+impl PredictionMetricHandles {
+    fn history<C: SyncComponent>(&self) -> &metrics::Gauge {
+        self.history.get_or_init(|| {
+            metrics::gauge!(
+                "prediction/rollback/history_values",
+                "component" => core::any::type_name::<C>(),
+            )
+        })
+    }
+
+    fn value_mismatch<C: SyncComponent>(&self) -> &metrics::Counter {
+        self.value_mismatch.get_or_init(|| {
+            metrics::counter!(
+                "prediction/rollback/causes",
+                "component" => core::any::type_name::<C>(),
+                "cause" => "value_mismatch",
+            )
+        })
+    }
+
+    fn missing_on_predicted<C: SyncComponent>(&self) -> &metrics::Counter {
+        self.missing_on_predicted.get_or_init(|| {
+            metrics::counter!(
+                "prediction/rollback/causes",
+                "component" => core::any::type_name::<C>(),
+                "cause" => "missing_on_predicted",
+            )
+        })
+    }
+
+    fn missing_on_confirmed<C: SyncComponent>(&self) -> &metrics::Counter {
+        self.missing_on_confirmed.get_or_init(|| {
+            metrics::counter!(
+                "prediction/rollback/causes",
+                "component" => core::any::type_name::<C>(),
+                "cause" => "missing_on_confirmed",
+            )
+        })
+    }
 }
 
 impl PredictionMetadata {
@@ -109,10 +160,7 @@ impl PredictionMetadata {
             },
             check_rollback: PredictionRegistry::check_rollback_for_unchanged_component::<C>,
             #[cfg(feature = "metrics")]
-            history_gauge: metrics::gauge!(format!(
-                "prediction::rollbacks::history::{:?}::num_values",
-                DebugName::type_name::<C>()
-            )),
+            metric_handles: PredictionMetricHandles::default(),
             #[cfg(feature = "deterministic")]
             pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
         }
@@ -265,11 +313,10 @@ impl PredictionRegistry {
                         "confirmed value differs from prediction history"
                     );
                     #[cfg(feature = "metrics")]
-                    metrics::counter!(format!(
-                        "prediction::rollbacks::causes::{}::value_mismatch",
-                        DebugName::type_name::<C>()
-                    ))
-                    .increment(1);
+                    self.prediction_map[&ComponentKind::of::<C>()]
+                        .metric_handles
+                        .value_mismatch::<C>()
+                        .increment(1);
                 }
                 should
             }
@@ -285,11 +332,10 @@ impl PredictionRegistry {
                     "confirmed component missing from prediction history"
                 );
                 #[cfg(feature = "metrics")]
-                metrics::counter!(format!(
-                    "prediction::rollbacks::causes::{}::missing_on_predicted",
-                    DebugName::type_name::<C>()
-                ))
-                .increment(1);
+                self.prediction_map[&ComponentKind::of::<C>()]
+                    .metric_handles
+                    .missing_on_predicted::<C>()
+                    .increment(1);
                 true
             }
             (None, Some(p)) => {
@@ -304,11 +350,10 @@ impl PredictionRegistry {
                     "predicted component missing from confirmed state"
                 );
                 #[cfg(feature = "metrics")]
-                metrics::counter!(format!(
-                    "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                    DebugName::type_name::<C>()
-                ))
-                .increment(1);
+                self.prediction_map[&ComponentKind::of::<C>()]
+                    .metric_handles
+                    .missing_on_confirmed::<C>()
+                    .increment(1);
                 true
             }
             (None, None) => false,
@@ -429,7 +474,8 @@ impl PredictionRegistry {
         #[cfg(feature = "metrics")]
         if let Some(predicted_history) = predicted_history.as_ref() {
             self.prediction_map[&ComponentKind::of::<C>()]
-                .history_gauge
+                .metric_handles
+                .history::<C>()
                 .set(predicted_history.len() as f64);
         }
 

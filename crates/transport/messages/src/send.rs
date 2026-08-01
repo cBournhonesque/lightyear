@@ -1,4 +1,6 @@
 use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
+#[cfg(feature = "metrics")]
+use crate::registry::MessageMetricHandles;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageManager, MessageNetId};
 use alloc::sync::Arc;
@@ -76,6 +78,7 @@ pub(crate) type SendMessageFn = unsafe fn(
     transport: &Transport,
     serialize_metadata: &ErasedSerializeFns,
     entity_map: &mut SendEntityMap,
+    #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
 ) -> Result<(), MessageError>;
 
 // SAFETY: the sender must correspond to the correct `MessageSender<M>` type
@@ -121,6 +124,7 @@ impl<M: Message> MessageSender<M> {
         transport: &Transport,
         serialize_metadata: &ErasedSerializeFns,
         entity_map: &mut SendEntityMap,
+        #[cfg(feature = "metrics")] metric_handles: &MessageMetricHandles,
     ) -> Result<(), MessageError> {
         // SAFETY:  the `message_sender` must be of type `MessageSender<M>`
         let mut sender = unsafe { message_sender.with_type::<Self>() };
@@ -142,12 +146,7 @@ impl<M: Message> MessageSender<M> {
                 };
                 let bytes = sender.writer.split();
                 #[cfg(feature = "metrics")]
-                {
-                    metrics::counter!("message/send", "message" => core::any::type_name::<M>())
-                        .increment(1);
-                    metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>())
-                        .increment(bytes.len() as f64);
-                }
+                metric_handles.record_send::<M>(bytes.len());
                 trace!(
                     "Sending message of type {:?} with net_id {net_id:?}/kind {:?} on channel {:?}",
                     DebugName::type_name::<M>(),
@@ -316,6 +315,8 @@ impl MessagePlugin {
                             .kind_map
                             .net_id(message_kind)
                             .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                        #[cfg(feature = "metrics")]
+                        let metric_handles = registry.metric_handles(message_kind)?;
                         // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
                         unsafe {
                             (send_metadata.send_message_fn)(
@@ -324,6 +325,8 @@ impl MessagePlugin {
                                 transport,
                                 serialize_fns,
                                 &mut message_manager.entity_mapper.local_to_remote,
+                                #[cfg(feature = "metrics")]
+                                metric_handles,
                             )?;
                         }
                         Ok::<_, MessageError>(())

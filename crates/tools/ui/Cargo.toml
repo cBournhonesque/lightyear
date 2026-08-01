@@ -12,6 +12,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = ["std"]
 std = ["lightyear_tools/std"]
 test_utils = ["lightyear_tools/test_utils"]
+replication = ["lightyear_tools/replication"]
 
 [dependencies]
 lightyear_tools.workspace = true

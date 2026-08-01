@@ -26,7 +26,7 @@ use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
 #[cfg(feature = "metrics")]
-use lightyear_utils::metrics::TimerGauge;
+use lightyear_utils::timer_gauge;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -81,7 +81,7 @@ impl TransportPlugin {
         mut query: Query<(Entity, &mut Link, &mut Transport), (With<Linked>, Without<HostClient>)>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport/recv");
+        let _timer = timer_gauge!("transport/recv");
 
         #[cfg(feature = "std")]
         let query = query.par_iter_mut();
@@ -243,10 +243,12 @@ impl TransportPlugin {
                         let channel_name = channel_registry.get_name_from_net_id(channel_id);
                         #[cfg(feature = "metrics")]
                         {
-                            metrics::gauge!("channel/recv_messages", "channel" => channel_name)
-                                .increment(1);
-                            metrics::gauge!("channel/recv_bytes", "channel" => channel_name)
-                                .increment(fragment_data.bytes.len() as f64);
+                            channel_registry.record_recv_messages(channel_id, channel_name, 1.0);
+                            channel_registry.record_recv_bytes(
+                                channel_id,
+                                channel_name,
+                                fragment_data.bytes.len() as f64,
+                            );
                         }
                         trace!(
                             target: "lightyear_debug::transport",
@@ -277,8 +279,11 @@ impl TransportPlugin {
                         let channel_name = channel_registry.get_name_from_net_id(channel_id);
                         let num_messages = cursor.read_u8().map_err(SerializationError::from)?;
                         #[cfg(feature = "metrics")]
-                        metrics::gauge!("channel/recv_messages", "channel" => channel_name)
-                            .increment(num_messages as f64);
+                        channel_registry.record_recv_messages(
+                            channel_id,
+                            channel_name,
+                            num_messages as f64,
+                        );
                         trace!(?channel_id, ?num_messages);
                         trace!(
                             target: "lightyear_debug::transport",
@@ -296,8 +301,11 @@ impl TransportPlugin {
                         for _ in 0..num_messages {
                             let single_data = SingleData::from_bytes(&mut cursor)?;
                             #[cfg(feature = "metrics")]
-                            metrics::gauge!("channel/recv_bytes", "channel" => channel_name)
-                                .increment(single_data.bytes.len() as f64);
+                            channel_registry.record_recv_bytes(
+                                channel_id,
+                                channel_name,
+                                single_data.bytes.len() as f64,
+                            );
                             trace!(
                                 target: "lightyear_debug::transport",
                                 kind = "channel_recv_message",
@@ -379,7 +387,7 @@ impl TransportPlugin {
         channel_registry: Res<ChannelRegistry>,
     ) {
         #[cfg(feature = "metrics")]
-        let _timer = TimerGauge::new("transport/send");
+        let _timer = timer_gauge!("transport/send");
         let tick = timeline.tick();
         query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
@@ -525,10 +533,11 @@ impl TransportPlugin {
                     {
                         let channel_name =
                             channel_registry.get_name_from_net_id(metadata.channel);
-                        metrics::gauge!("channel/send_messages", "channel" => channel_name)
-                            .increment(1);
-                        metrics::gauge!("channel/send_bytes", "channel" => channel_name)
-                            .increment(metadata.num_bytes as f64);
+                        channel_registry.record_send_message(
+                            metadata.channel,
+                            channel_name,
+                            metadata.num_bytes as f64,
+                        );
                     }
 
                     let Some(message_id) = metadata.message else {

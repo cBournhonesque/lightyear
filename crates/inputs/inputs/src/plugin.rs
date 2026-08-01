@@ -2,6 +2,10 @@
 
 use crate::InputChannel;
 use crate::input_message::{ActionStateSequence, InputMessage};
+#[cfg(feature = "metrics")]
+use crate::metric_handles::{
+    InputMetricHandles, add_input_metric_handles, remove_input_metric_handles,
+};
 use bevy_app::{App, Plugin};
 use bevy_ecs::entity::MapEntities;
 use core::time::Duration;
@@ -53,5 +57,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for InputPlugin<S> {
             .add_direction(NetworkDirection::Bidirectional);
 
         S::register_required_components(app);
+        #[cfg(feature = "metrics")]
+        {
+            app.init_resource::<InputMetricHandles<S>>();
+            app.add_observer(add_input_metric_handles::<S>);
+            app.add_observer(remove_input_metric_handles::<S>);
+        }
     }
 }
