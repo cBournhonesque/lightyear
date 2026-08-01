@@ -7,16 +7,15 @@ use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use core::time::Duration;
-use lightyear_core::tick::{Tick, TickDuration};
+use lightyear_core::tick::Tick;
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineConfig};
-use lightyear_link::{Link, LinkStats};
+use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
+use lightyear_link::LinkStats;
 use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer
-#[derive(Debug, Component, Reflect)]
-#[require(InputTimeline)]
+#[derive(Debug, Resource, Reflect)]
 pub struct InputTimelineConfig {
     pub(crate) sync: SyncConfig,
     pub(crate) input_delay_config: InputDelayConfig,
@@ -46,65 +45,9 @@ impl InputTimelineConfig {
     pub fn is_lockstep(&self) -> bool {
         self.input_delay_config.is_lockstep()
     }
-
     /// Maximum number of ticks the local simulation is allowed to predict ahead.
     pub fn maximum_predicted_ticks(&self) -> u16 {
         self.input_delay_config.maximum_predicted_ticks
-    }
-
-    /// Update the input delay based on the current RTT and tick duration
-    /// when there is a SyncEvent
-    pub(crate) fn recompute_input_delay_on_sync(
-        trigger: On<SyncEvent<InputTimelineConfig>>,
-        tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
-    ) {
-        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
-            let before = timeline.input_delay_ticks;
-            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
-                link.stats,
-                &config.sync,
-                tick_duration.0,
-            );
-            trace!(
-                "Recomputing input delay on sync event! Input delay ticks: {}",
-                timeline.input_delay_ticks
-            );
-            trace!(
-                target: "lightyear_debug::sync",
-                kind = "input_delay_recomputed_on_sync",
-                schedule = "PreUpdate",
-                sample_point = "PreUpdate",
-                entity = ?trigger.entity,
-                tick_delta = trigger.tick_delta,
-                input_delay_ticks_before = before,
-                input_delay_ticks_after = timeline.input_delay_ticks,
-                rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
-                "sync event: recomputed input delay"
-            );
-        }
-    }
-
-    // TODO: we want to limit this when only the config updates, not the timeline itself!
-    //  disabling this for now
-    /// Update the input delay based on the current RTT and tick duration
-    /// when the InputDelayConfig is updated
-    pub(crate) fn recompute_input_delay_on_config_update(
-        trigger: On<Insert, InputTimelineConfig>,
-        tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
-    ) {
-        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
-            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
-                link.stats,
-                &config.sync,
-                tick_duration.0,
-            );
-            trace!(
-                "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
-                timeline.input_delay_ticks, config.input_delay_config
-            );
-        }
     }
 }
 
@@ -272,8 +215,40 @@ impl InputDelayConfig {
 ///
 /// This timeline is updated in PostUpdate; it CANNOT be used to get accurate `tick` in PreUpdate or Update;
 /// use `LocalTimeline` instead.
-#[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
+#[derive(Resource, Deref, DerefMut, Default, Debug, Reflect)]
 pub struct InputTimeline(pub Timeline<InputTimelineConfig>);
+
+/// Emitted when the global [`InputTimeline`] is snapped by a whole number of ticks.
+///
+/// Tick-indexed input and prediction histories must apply the same delta.
+#[derive(Event, Debug, Clone, Copy)]
+pub struct InputTimelineShifted {
+    /// Whole-tick delta applied to the input and local timelines.
+    pub tick_delta: i32,
+}
+
+impl InputTimeline {
+    /// Returns whether the global input timeline has completed synchronization.
+    pub fn is_synced(&self) -> bool {
+        self.context.is_synced
+    }
+
+    pub(crate) fn set_synced(&mut self, synced: bool) {
+        self.context.is_synced = synced;
+    }
+
+    pub(crate) fn recompute_input_delay(
+        &mut self,
+        config: &InputTimelineConfig,
+        link_stats: LinkStats,
+        tick_duration: Duration,
+    ) {
+        self.context.input_delay_ticks =
+            config
+                .input_delay_config
+                .input_delay_ticks(link_stats, &config.sync, tick_duration);
+    }
+}
 
 impl TimelineConfig for InputTimelineConfig {
     type Context = InputContext;

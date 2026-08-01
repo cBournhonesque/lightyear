@@ -6,7 +6,6 @@ use lightyear_connection::network_target::NetworkTarget;
 use lightyear_messages::MessageManager;
 use lightyear_replication::prelude::{PredictionTarget, Replicate};
 use lightyear_sync::prelude::InputTimeline;
-use lightyear_sync::prelude::client::IsSynced;
 use test_log::test;
 use tracing::info;
 
@@ -17,12 +16,13 @@ use tracing::info;
 fn test_remote_client_replicated_input() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
-    stepper
-        .client_app()
-        .world_mut()
-        .query::<&IsSynced<InputTimeline>>()
-        .single(stepper.client_app().world())
-        .unwrap();
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .resource::<InputTimeline>()
+            .is_synced()
+    );
 
     // SETUP
     // entity controlled by the remote client
@@ -160,12 +160,13 @@ fn test_remote_client_predicted_input() {
 fn test_host_client_inputers_replicated_to_remote_client() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
-    stepper
-        .server_app
-        .world_mut()
-        .query::<&IsSynced<InputTimeline>>()
-        .single(stepper.server_app.world())
-        .unwrap();
+    assert!(
+        stepper
+            .server_app
+            .world()
+            .resource::<InputTimeline>()
+            .is_synced()
+    );
 
     // SETUP
     // entity controlled by the host client

@@ -24,6 +24,7 @@ use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_replication::prelude::ReplicationSystems;
+use lightyear_sync::prelude::InputTimeline;
 
 /// Plugin that installs client-side prediction systems.
 ///
@@ -182,6 +183,7 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
+        app.init_resource::<InputTimeline>();
 
         // Custom entity disabling
         let rollback_disable_id = app

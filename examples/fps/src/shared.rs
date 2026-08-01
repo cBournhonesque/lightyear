@@ -118,7 +118,7 @@ fn player_movement(
     timeline: Res<LocalTimeline>,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline: Option<Res<InputTimeline>>,
     mut player_query: Query<
         (
             &mut Position,
@@ -132,7 +132,7 @@ fn player_movement(
 ) {
     let has_client = !client.is_empty();
     let is_host_server = !host_server.is_empty();
-    let client_is_synced = !synced_client.is_empty();
+    let client_is_synced = input_timeline.is_some_and(|timeline| timeline.is_synced());
     for (position, rotation, action_state, player_id, is_predicted) in player_query.iter_mut() {
         if should_skip_client_side_entity(
             has_client,
@@ -167,7 +167,7 @@ pub(crate) fn shoot_bullet(
     timeline: Res<LocalTimeline>,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline: Option<Res<InputTimeline>>,
     mut query: Query<
         (
             &PlayerId,
@@ -185,7 +185,7 @@ pub(crate) fn shoot_bullet(
     let tick = timeline.tick();
     let has_client = !client.is_empty();
     let is_host_server = !host_server.is_empty();
-    let client_is_synced = !synced_client.is_empty();
+    let client_is_synced = input_timeline.is_some_and(|timeline| timeline.is_synced());
     for (id, position, rotation, color, action, input_buffer, controlled_by, is_predicted) in
         query.iter_mut()
     {

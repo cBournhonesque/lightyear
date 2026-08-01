@@ -119,6 +119,18 @@ impl DetStepper {
             client_id: client_id as u64,
         };
 
+        let mut sync = SyncConfig::default();
+        // 2-tick margin (vs the default 1.0) is needed because
+        // the stepper runs every client app then the server app
+        // sequentially inside one "frame", giving the network
+        // no real flush window. See `stepper::test_input_timeline_config`.
+        sync.jitter_margin = 2.0;
+        client_app.insert_resource(
+            InputTimelineConfig::default()
+                .with_input_delay(InputDelayConfig::fixed_input_delay(0))
+                .with_sync_config(sync),
+        );
+
         let client_entity = client_app
             .world_mut()
             .spawn((
@@ -136,17 +148,6 @@ impl DetStepper {
                         max_rollback_ticks: 100,
                     },
                     ..default()
-                },
-                {
-                    let mut sync = SyncConfig::default();
-                    // 2-tick margin (vs the default 1.0) is needed because
-                    // the stepper runs every client app then the server app
-                    // sequentially inside one "frame", giving the network
-                    // no real flush window. See `stepper::test_input_timeline_config`.
-                    sync.jitter_margin = 2.0;
-                    InputTimelineConfig::default()
-                        .with_input_delay(InputDelayConfig::fixed_input_delay(0))
-                        .with_sync_config(sync)
                 },
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
             ))
@@ -263,7 +264,10 @@ impl DetStepper {
         });
         for _ in 0..200 {
             if self.client(id).contains::<Connected>()
-                && self.client(id).contains::<IsSynced<InputTimeline>>()
+                && self.client_apps[id]
+                    .world()
+                    .resource::<InputTimeline>()
+                    .is_synced()
             {
                 info!("Client {} connected + synced", id);
                 return;
@@ -309,9 +313,12 @@ impl DetStepper {
 
     pub fn wait_for_sync(&mut self) {
         for _ in 0..100 {
-            if (0..self.client_entities.len())
-                .all(|id| self.client(id).contains::<IsSynced<InputTimeline>>())
-            {
+            if (0..self.client_entities.len()).all(|id| {
+                self.client_apps[id]
+                    .world()
+                    .resource::<InputTimeline>()
+                    .is_synced()
+            }) {
                 info!("All clients synced");
                 return;
             }

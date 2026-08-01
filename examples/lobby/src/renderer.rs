@@ -37,12 +37,13 @@ struct VisualPlayerPosition {
 fn client_visuals_ready(
     client: &Query<(), With<Client>>,
     host_server: &Query<(), With<HostServer>>,
-    input_synced: &Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline: Option<&InputTimeline>,
     interpolation_synced: &Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
 ) -> bool {
     client.is_empty()
         || !host_server.is_empty()
-        || (!input_synced.is_empty() && !interpolation_synced.is_empty())
+        || (input_timeline.is_some_and(InputTimeline::is_synced)
+            && !interpolation_synced.is_empty())
 }
 
 fn ensure_player_visual_positions(
@@ -57,10 +58,15 @@ fn ensure_player_visual_positions(
     >,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    input_synced: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline: Option<Res<InputTimeline>>,
     interpolation_synced: Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
 ) {
-    if !client_visuals_ready(&client, &host_server, &input_synced, &interpolation_synced) {
+    if !client_visuals_ready(
+        &client,
+        &host_server,
+        input_timeline.as_deref(),
+        &interpolation_synced,
+    ) {
         return;
     }
     for (entity, position) in &players {

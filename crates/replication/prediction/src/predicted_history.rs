@@ -18,10 +18,10 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, SyncEvent};
+use lightyear_core::timeline::Rollback;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
-use lightyear_sync::prelude::InputTimelineConfig;
+use lightyear_sync::prelude::InputTimelineShifted;
 #[allow(unused_imports)]
 use tracing::{debug, info, trace};
 
@@ -135,7 +135,7 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
 /// If there is a TickEvent and the client tick suddenly changes, we need
 /// to update the ticks in the history buffer.
 pub(crate) fn handle_tick_event_prediction_history<C: Component>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+    trigger: On<InputTimelineShifted>,
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
@@ -145,7 +145,6 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
             kind = "prediction_history_tick_delta",
             schedule = "PostUpdate",
             sample_point = "PostUpdate",
-            entity = ?trigger.entity,
             component = ?DebugName::type_name::<C>(),
             tick_delta = trigger.tick_delta,
             history_len = history.len(),
@@ -155,7 +154,7 @@ pub(crate) fn handle_tick_event_prediction_history<C: Component>(
 }
 
 pub(crate) fn handle_tick_event_history_diff_receiver<C: RepliconDiffable>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+    trigger: On<InputTimelineShifted>,
     mut storage: ResMut<ReplicationStorage>,
 ) {
     for (entity, entity_storage) in storage.entities.iter_mut() {

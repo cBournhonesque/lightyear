@@ -67,7 +67,7 @@ use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
-use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, IsSynced};
+use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
 use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
 use lightyear_utils::timer_gauge;
@@ -227,6 +227,7 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -358,6 +359,8 @@ fn check_rollback(
     // make sure to include disabled entities
     mut predicted_entities: Query<(&ConfirmHistory, FilteredEntityMut)>,
     timeline: Res<LocalTimeline>,
+    input_timeline: Res<InputTimeline>,
+    input_config: Res<InputTimelineConfig>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     checkpoints: Res<ReplicationCheckpointMap>,
     receiver_query: Single<
@@ -365,10 +368,9 @@ fn check_rollback(
             Entity,
             Option<&LastConfirmedInput>,
             &mut PredictionManager,
-            &InputTimelineConfig,
             &mut PreSpawnedReceiver,
         ),
-        (With<IsSynced<InputTimeline>>, Without<HostClient>),
+        (With<Client>, Without<HostClient>),
     >,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
@@ -380,18 +382,16 @@ fn check_rollback(
     #[cfg(feature = "metrics")]
     let _timer = timer_gauge!("prediction/rollback/check");
 
-    let (
-        manager_entity,
-        last_confirmed_input,
-        mut prediction_manager,
-        input_config,
-        mut prespawned_receiver,
-    ) = receiver_query.into_inner();
+    if !input_timeline.is_synced() {
+        return;
+    }
+    let (manager_entity, last_confirmed_input, mut prediction_manager, mut prespawned_receiver) =
+        receiver_query.into_inner();
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
     let max_rollback_ticks = prediction_manager
         .rollback_policy
-        .effective_max_rollback_ticks(input_config);
+        .effective_max_rollback_ticks(&input_config);
 
     // The tick where ALL messages have been received (guaranteed complete information).
     // Explicit mismatch checks can exist before this is known, so don't return early.
@@ -831,8 +831,12 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
-    client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<IsSynced<InputTimeline>>>,
+    input_timeline: Res<InputTimeline>,
+    client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<Client>>,
 ) {
+    if !input_timeline.is_synced() {
+        return;
+    }
     let (last_confirmed_input, prediction_manager) = client.into_inner();
 
     // Reset to u32::MAX so the next `set_if_lower` call always wins and we

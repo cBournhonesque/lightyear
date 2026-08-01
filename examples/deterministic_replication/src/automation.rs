@@ -155,7 +155,8 @@ mod client {
         random_state: Option<ResMut<RandomState>>,
         mode: Res<CatchUpMode>,
         timeline: Res<LocalTimeline>,
-        client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
+        input_timeline: Res<InputTimeline>,
+        client: Option<Single<&LocalId, With<Client>>>,
         players: Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -169,7 +170,10 @@ mod client {
         if !input_rebroadcast_ready(
             &mode,
             timeline.tick(),
-            client.as_deref().copied(),
+            input_timeline
+                .is_synced()
+                .then(|| client.as_deref().copied())
+                .flatten(),
             &players,
             &settings,
         ) {
@@ -202,7 +206,8 @@ mod client {
         random_state: Option<Res<RandomState>>,
         mode: Res<CatchUpMode>,
         timeline: Res<LocalTimeline>,
-        client: Option<Single<&LocalId, (With<Client>, With<IsSynced<InputTimeline>>)>>,
+        input_timeline: Res<InputTimeline>,
+        client: Option<Single<&LocalId, With<Client>>>,
         players: Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -214,7 +219,10 @@ mod client {
         if !input_rebroadcast_ready(
             &mode,
             timeline.tick(),
-            client.as_deref().copied(),
+            input_timeline
+                .is_synced()
+                .then(|| client.as_deref().copied())
+                .flatten(),
             &players,
             &settings,
         ) {

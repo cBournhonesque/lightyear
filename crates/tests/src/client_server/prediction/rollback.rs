@@ -554,7 +554,7 @@ fn test_future_confirmed_insert_is_not_checked_by_unchanged_completed_tick() {
 
 #[test]
 fn test_input_timeline_sync_does_not_shift_confirmed_history() {
-    use lightyear_sync::prelude::InputTimelineConfig;
+    use lightyear_sync::prelude::InputTimelineShifted;
 
     let (mut stepper, predicted) = setup();
 
@@ -578,7 +578,7 @@ fn test_input_timeline_sync_does_not_shift_confirmed_history() {
     stepper
         .client_app()
         .world_mut()
-        .trigger(lightyear_core::timeline::SyncEvent::<InputTimelineConfig>::new(predicted, 100));
+        .trigger(InputTimelineShifted { tick_delta: 100 });
 
     let world = stepper.client_app().world();
     let confirmed_history = world

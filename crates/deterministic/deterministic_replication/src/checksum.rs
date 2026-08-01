@@ -42,7 +42,7 @@ use lightyear_messages::receive::MessageReceiver;
 #[cfg(feature = "client")]
 use lightyear_prediction::manager::{LastConfirmedInput, StateRollbackMetadata};
 #[cfg(feature = "client")]
-use lightyear_sync::prelude::{InputTimeline, IsSynced};
+use lightyear_sync::prelude::InputTimeline;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use tracing::error;
@@ -105,15 +105,16 @@ impl ChecksumSendPlugin {
     fn compute_and_send_checksum(
         mut world: ChecksumWorld<'_, '_, true>,
         local_timeline: Res<LocalTimeline>,
-        client: Single<
-            (&LastConfirmedInput, &mut MessageSender<ChecksumMessage>),
-            (With<Client>, With<IsSynced<InputTimeline>>),
-        >,
+        input_timeline: Res<InputTimeline>,
+        client: Single<(&LastConfirmedInput, &mut MessageSender<ChecksumMessage>), With<Client>>,
         #[cfg(feature = "replication")] catchup_manager: Option<
             Single<&CatchUpManager, With<Client>>,
         >,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
+        if !input_timeline.is_synced() {
+            return;
+        }
         let mut checksum = 0u64;
         let current_tick = local_timeline.tick();
         let (last_confirmed_input, mut sender) = client.into_inner();
@@ -180,7 +181,7 @@ impl Plugin for ChecksumSendPlugin {
         }
 
         // we need the LastConfirmedInput to compute the checksums
-        app.register_required_components::<InputTimeline, LastConfirmedInput>();
+        app.register_required_components::<Client, LastConfirmedInput>();
 
         register_checksum_message(app);
     }

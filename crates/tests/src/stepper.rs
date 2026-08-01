@@ -767,7 +767,10 @@ impl ClientServerStepper {
         let attempts = if self.io.uses_async_io() { 400 } else { 50 };
         for _ in 0..attempts {
             if (0..self.client_entities.len()).all(|client_id| {
-                self.client(client_id).contains::<IsSynced<InputTimeline>>()
+                self.client_apps[client_id]
+                    .world()
+                    .resource::<InputTimeline>()
+                    .is_synced()
                     && self
                         .client(client_id)
                         .contains::<IsSynced<InterpolationTimeline>>()

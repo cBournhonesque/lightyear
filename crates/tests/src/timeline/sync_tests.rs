@@ -126,13 +126,13 @@ fn input_timeline_adjusts_speed_after_repeated_error() {
 #[test_log::test]
 fn input_delay_config_update_recomputes_public_delay() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-    stepper.client_mut(0).insert(
+    stepper.client_app().world_mut().insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(3)),
     );
 
     stepper.frame_step(1);
 
-    let input_timeline = stepper.client(0).get::<InputTimeline>().unwrap();
+    let input_timeline = stepper.client_app().world().resource::<InputTimeline>();
     assert_eq!(input_timeline.context.input_delay(), 3);
 }
 

@@ -12,13 +12,12 @@ use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
-use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
 
 #[derive(Resource)]
 pub struct PredictionResource {
-    // entity that holds the InputTimeline
-    // We use this to avoid having to run a mutable query in component hook
+    // entity that holds the PredictionManager
+    // We use this to avoid having to run a mutable query in component hooks
     pub(crate) link_entity: Entity,
 }
 
@@ -101,7 +100,6 @@ impl RollbackPolicy {
 /// predicted entities, record prediction history, and perform rollback/reconciliation.
 #[derive(Component, Debug, Reflect)]
 #[component(on_insert = PredictionManager::on_insert)]
-#[require(InputTimelineConfig)]
 #[require(PreSpawnedReceiver)]
 #[require(LastConfirmedInput)]
 pub struct PredictionManager {
