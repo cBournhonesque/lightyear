@@ -6,6 +6,7 @@
 //! deterministic-replication surface area we want to exercise.
 
 use crate::client_server::deterministic::protocol::DetProtocolPlugin;
+use crate::stepper::input_timeline_is_synced;
 use avian2d::prelude::*;
 use bevy::MinimalPlugins;
 use bevy::app::PluginsState;
@@ -264,10 +265,7 @@ impl DetStepper {
         });
         for _ in 0..200 {
             if self.client(id).contains::<Connected>()
-                && self.client_apps[id]
-                    .world()
-                    .resource::<InputTimeline>()
-                    .is_synced()
+                && input_timeline_is_synced(self.client_apps[id].world())
             {
                 info!("Client {} connected + synced", id);
                 return;
@@ -313,12 +311,9 @@ impl DetStepper {
 
     pub fn wait_for_sync(&mut self) {
         for _ in 0..100 {
-            if (0..self.client_entities.len()).all(|id| {
-                self.client_apps[id]
-                    .world()
-                    .resource::<InputTimeline>()
-                    .is_synced()
-            }) {
+            if (0..self.client_entities.len())
+                .all(|id| input_timeline_is_synced(self.client_apps[id].world()))
+            {
                 info!("All clients synced");
                 return;
             }

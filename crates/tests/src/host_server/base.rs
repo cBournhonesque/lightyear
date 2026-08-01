@@ -23,13 +23,7 @@ fn test_setup_host_server() {
     // Check that the various components we expect are present
     assert!(stepper.host_client().contains::<HostClient>());
     // The global input timeline follows LocalTimeline directly for a host client.
-    assert!(
-        stepper
-            .server_app
-            .world()
-            .resource::<InputTimeline>()
-            .is_synced()
-    );
+    assert!(input_timeline_is_synced(stepper.server_app.world()));
     assert!(!stepper.host_client().contains::<InputTimeline>());
     assert!(stepper.host_client().contains::<RemoteTimeline>());
     // TODO: update Interpolation to be disabled for host-clients!

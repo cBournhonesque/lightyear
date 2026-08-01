@@ -42,7 +42,7 @@ use lightyear_messages::receive::MessageReceiver;
 #[cfg(feature = "client")]
 use lightyear_prediction::manager::{LastConfirmedInput, StateRollbackMetadata};
 #[cfg(feature = "client")]
-use lightyear_sync::prelude::InputTimeline;
+use lightyear_sync::prelude::SyncedInputTimeline;
 use serde::{Deserialize, Serialize};
 #[cfg(feature = "server")]
 use tracing::error;
@@ -105,19 +105,17 @@ impl ChecksumSendPlugin {
     fn compute_and_send_checksum(
         mut world: ChecksumWorld<'_, '_, true>,
         local_timeline: Res<LocalTimeline>,
-        input_timeline: Res<InputTimeline>,
-        client: Single<(&LastConfirmedInput, &mut MessageSender<ChecksumMessage>), With<Client>>,
+        _input_timeline: SyncedInputTimeline,
+        last_confirmed_input: Res<LastConfirmedInput>,
+        sender: Single<&mut MessageSender<ChecksumMessage>, With<Client>>,
         #[cfg(feature = "replication")] catchup_manager: Option<
             Single<&CatchUpManager, With<Client>>,
         >,
         state_metadata: Res<StateRollbackMetadata>,
     ) {
-        if !input_timeline.is_synced() {
-            return;
-        }
         let mut checksum = 0u64;
         let current_tick = local_timeline.tick();
-        let (last_confirmed_input, mut sender) = client.into_inner();
+        let mut sender = sender.into_inner();
         let tick = last_confirmed_input.tick.get();
         // only compute the checksum when we have received remote inputs
         if tick > current_tick {
@@ -180,8 +178,8 @@ impl Plugin for ChecksumSendPlugin {
             app.add_plugins(DeterministicReplicationPlugin);
         }
 
-        // we need the LastConfirmedInput to compute the checksums
-        app.register_required_components::<Client, LastConfirmedInput>();
+        // We need the application-wide remote-input frontier to compute checksums.
+        app.init_resource::<LastConfirmedInput>();
 
         register_checksum_message(app);
     }

@@ -1,16 +1,19 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{
-    SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
+    IsSynced, SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
 };
 
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::prelude::*;
+use bevy_ecs::resource::IsResource;
+use bevy_ecs::system::SystemParam;
 use bevy_reflect::Reflect;
 use core::time::Duration;
-use lightyear_core::tick::Tick;
+use lightyear_connection::client::{Client, Connected};
+use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
-use lightyear_core::timeline::{NetworkTimeline, Timeline, TimelineConfig};
-use lightyear_link::LinkStats;
+use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineConfig};
+use lightyear_link::{Link, LinkStats};
 use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
@@ -48,6 +51,70 @@ impl InputTimelineConfig {
     /// Maximum number of ticks the local simulation is allowed to predict ahead.
     pub fn maximum_predicted_ticks(&self) -> u16 {
         self.input_delay_config.maximum_predicted_ticks
+    }
+
+    /// Recompute input delay after the global input timeline snaps by whole ticks.
+    ///
+    /// The [`SyncEvent`] targets the input timeline's resource entity. Link statistics remain on
+    /// the single client link and are deliberately selected independently of that entity.
+    pub(crate) fn recompute_input_delay_on_sync(
+        _trigger: On<SyncEvent<InputTimelineConfig>>,
+        tick_duration: Option<Res<TickDuration>>,
+        links: Query<&Link, With<Client>>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<InputTimeline>,
+    ) {
+        let (Some(tick_duration), Ok(link)) = (tick_duration, links.single()) else {
+            return;
+        };
+        let before = timeline.input_delay();
+        timeline.recompute_input_delay(&config, link.stats, tick_duration.0);
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "input_delay_recomputed_on_sync",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            input_delay_ticks_before = before,
+            input_delay_ticks_after = timeline.input_delay(),
+            rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
+            "sync event: recomputed global input delay"
+        );
+    }
+
+    /// Recompute input delay when the global configuration resource is inserted or replaced.
+    pub(crate) fn recompute_input_delay_on_config_update(
+        _trigger: On<Insert, InputTimelineConfig>,
+        tick_duration: Option<Res<TickDuration>>,
+        links: Query<&Link, With<Client>>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<InputTimeline>,
+    ) {
+        let (Some(tick_duration), Ok(link)) = (tick_duration, links.single()) else {
+            return;
+        };
+        timeline.recompute_input_delay(&config, link.stats, tick_duration.0);
+        trace!(
+            input_delay_ticks = timeline.input_delay(),
+            config = ?config.input_delay_config,
+            "recomputed global input delay after config update"
+        );
+    }
+
+    /// Initialize input delay from the statistics of the client link that just connected.
+    pub(crate) fn recompute_input_delay_on_connect(
+        trigger: On<Add, Connected>,
+        tick_duration: Option<Res<TickDuration>>,
+        links: Query<&Link, With<Client>>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<InputTimeline>,
+    ) {
+        let Some(tick_duration) = tick_duration else {
+            return;
+        };
+        let Ok(link) = links.get(trigger.entity) else {
+            return;
+        };
+        timeline.recompute_input_delay(&config, link.stats, tick_duration.0);
     }
 }
 
@@ -207,9 +274,9 @@ impl InputDelayConfig {
     }
 }
 
-/// Timeline that is used to keep track of when the client should buffer inputs.
+/// Application-global timeline used to decide which tick should receive locally buffered input.
 ///
-/// This timeline is synced with the server timeline, and is the main driving timeline:
+/// This timeline is synced with a remote target timeline, and is the main driving timeline:
 /// any speed adjustments applied to this timeline will also be applied to the `Time<Virtual>` timeline.
 /// (and will therefore affect how fast the FixedUpdate loop runs, and how ticks are incremented)
 ///
@@ -218,25 +285,26 @@ impl InputDelayConfig {
 #[derive(Resource, Deref, DerefMut, Default, Debug, Reflect)]
 pub struct InputTimeline(pub Timeline<InputTimelineConfig>);
 
-/// Emitted when the global [`InputTimeline`] is snapped by a whole number of ticks.
+/// Read-only access to the global [`InputTimeline`] after it has synchronized.
 ///
-/// Tick-indexed input and prediction histories must apply the same delta.
-#[derive(Event, Debug, Clone, Copy)]
-pub struct InputTimelineShifted {
-    /// Whole-tick delta applied to the input and local timelines.
-    pub tick_delta: i32,
+/// Systems using this parameter are skipped until [`IsSynced<InputTimeline>`] has been inserted on
+/// the resource entity. This keeps callers from having to spell out Bevy's resource-entity query.
+#[derive(SystemParam)]
+pub struct SyncedInputTimeline<'w, 's> {
+    timeline:
+        Single<'w, 's, &'static InputTimeline, (With<IsResource>, With<IsSynced<InputTimeline>>)>,
+}
+
+impl core::ops::Deref for SyncedInputTimeline<'_, '_> {
+    type Target = InputTimeline;
+
+    fn deref(&self) -> &Self::Target {
+        *self.timeline
+    }
 }
 
 impl InputTimeline {
-    /// Returns whether the global input timeline has completed synchronization.
-    pub fn is_synced(&self) -> bool {
-        self.context.is_synced
-    }
-
-    pub(crate) fn set_synced(&mut self, synced: bool) {
-        self.context.is_synced = synced;
-    }
-
+    /// Recompute the number of delayed input ticks for the selected link statistics.
     pub(crate) fn recompute_input_delay(
         &mut self,
         config: &InputTimelineConfig,

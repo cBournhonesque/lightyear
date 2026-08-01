@@ -155,7 +155,7 @@ mod client {
         random_state: Option<ResMut<RandomState>>,
         mode: Res<CatchUpMode>,
         timeline: Res<LocalTimeline>,
-        input_timeline: Res<InputTimeline>,
+        input_timeline: Option<SyncedInputTimeline>,
         client: Option<Single<&LocalId, With<Client>>>,
         players: Query<(
             &PlayerId,
@@ -171,7 +171,7 @@ mod client {
             &mode,
             timeline.tick(),
             input_timeline
-                .is_synced()
+                .is_some()
                 .then(|| client.as_deref().copied())
                 .flatten(),
             &players,
@@ -206,7 +206,7 @@ mod client {
         random_state: Option<Res<RandomState>>,
         mode: Res<CatchUpMode>,
         timeline: Res<LocalTimeline>,
-        input_timeline: Res<InputTimeline>,
+        input_timeline: Option<SyncedInputTimeline>,
         client: Option<Single<&LocalId, With<Client>>>,
         players: Query<(
             &PlayerId,
@@ -220,7 +220,7 @@ mod client {
             &mode,
             timeline.tick(),
             input_timeline
-                .is_synced()
+                .is_some()
                 .then(|| client.as_deref().copied())
                 .flatten(),
             &players,

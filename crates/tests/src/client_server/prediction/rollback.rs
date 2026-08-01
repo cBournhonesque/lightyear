@@ -554,7 +554,8 @@ fn test_future_confirmed_insert_is_not_checked_by_unchanged_completed_tick() {
 
 #[test]
 fn test_input_timeline_sync_does_not_shift_confirmed_history() {
-    use lightyear_sync::prelude::InputTimelineShifted;
+    use lightyear_core::timeline::SyncEvent;
+    use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
 
     let (mut stepper, predicted) = setup();
 
@@ -575,10 +576,21 @@ fn test_input_timeline_sync_does_not_shift_confirmed_history() {
         .entity_mut(predicted)
         .insert(prediction_history);
 
+    let timeline_component = stepper
+        .client_app()
+        .world()
+        .component_id::<InputTimeline>()
+        .unwrap();
+    let timeline_entity = stepper
+        .client_app()
+        .world()
+        .resource_entities()
+        .get(timeline_component)
+        .unwrap();
     stepper
         .client_app()
         .world_mut()
-        .trigger(InputTimelineShifted { tick_delta: 100 });
+        .trigger(SyncEvent::<InputTimelineConfig>::new(timeline_entity, 100));
 
     let world = stepper.client_app().world();
     let confirmed_history = world
@@ -1239,8 +1251,12 @@ fn setup_stepper_for_input_rollback(
     stepper.frame_step_server_first(1);
 
     // Check that in PostUpdate, the LastConfirmedInput is reset if no input messages were received
-    let client = stepper.client(0);
-    assert!(!client.get::<LastConfirmedInput>().unwrap().received_input());
+    assert!(
+        !stepper.client_apps[0]
+            .world()
+            .resource::<LastConfirmedInput>()
+            .received_input()
+    );
 
     // add input-markers on client 1/2 so that they can send remote input messages
     let client_entity_1 = stepper
@@ -1316,8 +1332,8 @@ fn test_input_rollback_always_mode() {
 
     let check_rollback_start =
         move |timeline: Res<LocalTimeline>,
-              manager: Single<(&LastConfirmedInput, &PredictionManager)>| {
-            let (last_confirmed_input, manager) = manager.into_inner();
+              last_confirmed_input: Res<LastConfirmedInput>,
+              manager: Single<&PredictionManager>| {
             let tick = timeline.tick();
             if tick == input_tick {
                 assert!(last_confirmed_input.received_input());
@@ -1346,10 +1362,9 @@ fn test_input_rollback_always_mode() {
 
     // after the rollback, the last_confirmed_input is reset
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<LastConfirmedInput>()
-            .unwrap()
+        stepper.client_apps[0]
+            .world()
+            .resource::<LastConfirmedInput>()
             .tick
             .get(),
         input_tick
@@ -1378,7 +1393,10 @@ fn test_input_rollback_always_ignores_unset_last_confirmed_tick() {
             prediction_manager.rollback_policy.input = RollbackMode::Always;
             prediction_manager.rollback_policy.state = RollbackMode::Disabled;
         }
-        let last_confirmed_input = client.get::<LastConfirmedInput>().unwrap();
+        drop(client);
+        let last_confirmed_input = stepper.client_apps[0]
+            .world()
+            .resource::<LastConfirmedInput>();
         assert_eq!(last_confirmed_input.get(), None);
         last_confirmed_input
             .received_any_messages
@@ -1418,10 +1436,9 @@ fn test_last_confirmed_input_multiple_clients() {
     // after the rollback, the last_confirmed_input is updated. It's updated to `input_tick - 1` and not `input_tick`
     // because we didn't receive a new input message from client 1
     assert_eq!(
-        stepper
-            .client(0)
-            .get::<LastConfirmedInput>()
-            .unwrap()
+        stepper.client_apps[0]
+            .world()
+            .resource::<LastConfirmedInput>()
             .tick
             .get(),
         input_tick - 1

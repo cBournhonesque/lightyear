@@ -101,7 +101,6 @@ impl RollbackPolicy {
 #[derive(Component, Debug, Reflect)]
 #[component(on_insert = PredictionManager::on_insert)]
 #[require(PreSpawnedReceiver)]
-#[require(LastConfirmedInput)]
 pub struct PredictionManager {
     /// Configuration for how rollbacks are triggered
     pub rollback_policy: RollbackPolicy,
@@ -119,8 +118,11 @@ pub struct PredictionManager {
     pub rollback: RwLock<RollbackState>,
 }
 
-/// Store the most recent confirmed input across all remote clients.
-#[derive(Component, Debug, Reflect)]
+/// Application-global frontier of confirmed input across all remote players.
+///
+/// This is a resource because the rollback decision combines every remote input stream in the
+/// application; it does not belong to any one network link.
+#[derive(Resource, Debug, Reflect)]
 pub struct LastConfirmedInput {
     /// Updated via [`AtomicTick::set_if_lower`] to track the minimum last-confirmed tick
     /// across all remote clients. Reset to a high value each frame by

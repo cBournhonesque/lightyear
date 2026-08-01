@@ -266,10 +266,10 @@ pub fn shared_player_firing(
     )>,
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    input_timeline: Option<Res<InputTimeline>>,
+    input_timeline: Option<SyncedInputTimeline>,
     server: Query<(), With<Server>>,
 ) {
-    let client_is_synced = input_timeline.is_some_and(|timeline| timeline.is_synced());
+    let client_is_synced = input_timeline.is_some();
     let is_server = !server.is_empty();
     if q.is_empty() {
         return;

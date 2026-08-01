@@ -5,7 +5,7 @@ use crate::correction::{
 };
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionDiagnosticsPlugin;
-use crate::manager::PredictionManager;
+use crate::manager::{LastConfirmedInput, PredictionManager};
 use crate::predicted_history::{
     PredictionHistory, add_history_diff_receiver, add_prediction_history,
     apply_component_removal_predicted, handle_tick_event_history_diff_receiver,
@@ -24,7 +24,6 @@ use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::ConfirmedHistory;
 use lightyear_replication::prelude::ReplicationSystems;
-use lightyear_sync::prelude::InputTimeline;
 
 /// Plugin that installs client-side prediction systems.
 ///
@@ -183,7 +182,7 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
-        app.init_resource::<InputTimeline>();
+        app.init_resource::<LastConfirmedInput>();
 
         // Custom entity disabling
         let rollback_disable_id = app

@@ -33,12 +33,12 @@ struct InputMapAdded;
 /// sending input messages — without it, the client never broadcasts any
 /// input and the server can't rebroadcast it to other peers.
 fn add_input_map_after_sync(
-    input_timeline: Res<InputTimeline>,
+    _input_timeline: SyncedInputTimeline,
     client: Option<Single<&LocalId, With<Client>>>,
     mut commands: Commands,
     players: Query<(Entity, &PlayerId), (Without<InputMapAdded>, Without<InputMap<PlayerActions>>)>,
 ) {
-    let Some(client) = client.filter(|_| input_timeline.is_synced()) else {
+    let Some(client) = client else {
         return;
     };
     let local_id = client.into_inner();

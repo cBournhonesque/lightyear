@@ -24,7 +24,9 @@ use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, Tick};
 #[cfg(feature = "client")]
-use lightyear_sync::prelude::InputTimelineShifted;
+use lightyear_core::timeline::SyncEvent;
+#[cfg(feature = "client")]
+use lightyear_sync::prelude::InputTimelineConfig;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
 
@@ -452,7 +454,7 @@ impl PreSpawnedReceiver {
 
     #[cfg(feature = "client")]
     pub(crate) fn handle_tick_sync(
-        trigger: On<InputTimelineShifted>,
+        trigger: On<SyncEvent<InputTimelineConfig>>,
         mut manager: Single<&mut Self, With<Connected>>,
     ) {
         manager

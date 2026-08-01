@@ -92,13 +92,10 @@ fn buffer_input(
 ///
 /// If this example predicted remote entities, ownership would need to be checked before movement.
 fn player_movement(
-    input_timeline: Res<InputTimeline>,
+    _input_timeline: SyncedInputTimeline,
     // timeline: Single<&LocalTimeline>,
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
-    if !input_timeline.is_synced() {
-        return;
-    }
     // let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");
