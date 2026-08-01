@@ -939,7 +939,18 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
         // For completed state rollbacks this is the completed mutate tick; for
         // forced state and input rollbacks it may be older than the latest
         // completed mutate tick.
-        predicted_history.clear();
+        //
+        // Discard only the entries the rollback invalidates (strictly newer
+        // than the target): the replay rewrites those from the restored state.
+        // Entries at-or-before the target are still the client's canonical
+        // past — the replay never touches them — and they are exactly what a
+        // later, DEEPER rollback in the same frame window needs as its floor
+        // sample. Clearing the whole buffer here would throw them away, so a
+        // second rollback to an older tick would find no sample at-or-before
+        // its target and fall through to seeding the history with the
+        // current-tick live value — injecting a future value into the past
+        // (permanent divergence, see the Some(stale) class in issue #1511).
+        predicted_history.clear_after_tick(rollback_tick);
         if let Some(state) = restore_state.clone() {
             predicted_history.add_state(rollback_tick, state);
         }
@@ -1259,6 +1270,76 @@ mod tests {
         assert_eq!(
             world.get::<TestComponent>(predicted),
             Some(&TestComponent(1.0))
+        );
+    }
+
+    /// Rollback churn (two rollbacks in one window, the second deeper than
+    /// the first): the first rollback must discard only the entries it
+    /// invalidates, so the deeper rollback still finds an exact per-tick
+    /// floor sample instead of falling through to seeding the history with
+    /// the current-tick live value — which would inject a future value into
+    /// the past and permanently diverge the replay.
+    #[test]
+    fn test_rollback_preserves_pre_target_history_for_deeper_rollback() {
+        let mut world = World::new();
+        world.init_resource::<LocalTimeline>();
+        world.init_resource::<PredictionRegistry>();
+        world.init_resource::<ReplicationCheckpointMap>();
+
+        let manager = world
+            .spawn((PredictionManager::default(), Rollback::FromInputs))
+            .id();
+
+        let mut history = PredictionHistory::<TestComponent>::default();
+        for tick in [8, 10, 12, 15] {
+            history.add_predicted(Tick(tick), Some(TestComponent(tick as f32)));
+        }
+        let predicted = world.spawn((Predicted, TestComponent(15.0), history)).id();
+
+        // First rollback to tick 12: entries at-or-before 12 are preserved,
+        // strictly newer entries are discarded, and the component restores
+        // to the floor sample at the target.
+        world
+            .get_mut::<PredictionManager>(manager)
+            .unwrap()
+            .set_rollback_tick(Tick(12));
+        world
+            .run_system_once(prepare_rollback::<TestComponent>)
+            .unwrap();
+
+        let history = world
+            .get::<PredictionHistory<TestComponent>>(predicted)
+            .unwrap();
+        assert_eq!(
+            history.get_state(Tick(8)),
+            Some(&HistoryState::Updated(TestComponent(8.0))),
+            "an entry before the rollback target must be preserved"
+        );
+        assert_eq!(
+            history.get_state(Tick(15)),
+            Some(&HistoryState::Updated(TestComponent(12.0))),
+            "entries newer than the rollback target are discarded (the floor \
+             sample at a later tick is the restored target value)"
+        );
+        assert_eq!(
+            world.get::<TestComponent>(predicted),
+            Some(&TestComponent(12.0)),
+            "the component restores to the floor sample at the rollback target"
+        );
+
+        // Second, DEEPER rollback to tick 8: restores from the preserved
+        // per-tick sample, not from the live post-first-rollback value.
+        world
+            .get_mut::<PredictionManager>(manager)
+            .unwrap()
+            .set_rollback_tick(Tick(8));
+        world
+            .run_system_once(prepare_rollback::<TestComponent>)
+            .unwrap();
+        assert_eq!(
+            world.get::<TestComponent>(predicted),
+            Some(&TestComponent(8.0)),
+            "the deeper rollback restores the preserved per-tick sample"
         );
     }
 }
