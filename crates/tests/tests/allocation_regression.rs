@@ -72,7 +72,7 @@ fn steady_state_networking_work_stays_within_allocation_budget() {
 }
 
 fn measure_message_send_receive() -> AllocationMeasurement {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper.server_app.init_resource::<ReceivedMessageCount>();
     stepper
         .server_app
@@ -166,7 +166,7 @@ fn count_received_messages(
 }
 
 fn measure_replication_updates() -> AllocationMeasurement {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     use_single_threaded_schedules(&mut stepper);
     let server_entity = stepper
         .server_app
@@ -228,7 +228,7 @@ fn run_replication_update(
 }
 
 fn measure_prediction_updates() -> AllocationMeasurement {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     stepper.server_app.insert_resource(SimulationEnabled(true));
     stepper
         .client_app()

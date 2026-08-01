@@ -190,7 +190,6 @@ pub struct BEIActionVec2;
 // Protocol
 pub struct ProtocolPlugin {
     pub avian_mode: AvianReplicationMode,
-    pub enable_inputs: bool,
 }
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
@@ -251,29 +250,27 @@ impl Plugin for ProtocolPlugin {
             .replicate_diff()
             .predict_diff()
             .add_custom_interpolation_diff();
-
-        if self.enable_inputs {
-            app.add_plugins(native::InputPlugin::<NativeInput> {
-                config: InputConfig::<NativeInput> {
-                    rebroadcast_inputs: true,
-                    ..default()
-                },
-            });
-            app.add_plugins(leafwing::InputPlugin::<LeafwingInput1> {
-                config: InputConfig::<LeafwingInput1> {
-                    rebroadcast_inputs: true,
-                    ..default()
-                },
-            });
-            app.add_plugins(bei::InputPlugin::<BEIContext>::new(InputConfig::<
-                BEIContext,
-            > {
+        // inputs
+        app.add_plugins(native::InputPlugin::<NativeInput> {
+            config: InputConfig::<NativeInput> {
                 rebroadcast_inputs: true,
                 ..default()
-            }));
-            app.register_input_action::<BEIAction1>();
-            app.register_input_action::<BEIActionVec2>();
-        }
+            },
+        });
+        app.add_plugins(leafwing::InputPlugin::<LeafwingInput1> {
+            config: InputConfig::<LeafwingInput1> {
+                rebroadcast_inputs: true,
+                ..default()
+            },
+        });
+        app.add_plugins(bei::InputPlugin::<BEIContext>::new(InputConfig::<
+            BEIContext,
+        > {
+            rebroadcast_inputs: true,
+            ..default()
+        }));
+        app.register_input_action::<BEIAction1>();
+        app.register_input_action::<BEIActionVec2>();
 
         app.add_plugins(lightyear::avian2d::plugin::LightyearAvianPlugin {
             replication_mode: self.avian_mode,
