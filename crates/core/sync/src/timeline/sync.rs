@@ -206,34 +206,22 @@ impl SyncContext {
     }
 }
 
-/// Stores each synchronized timeline on the link whose remote timeline it follows.
-///
-/// This is the default storage used by [`SyncedTimelinePlugin`], and is appropriate for
-/// per-link timelines such as an interpolation timeline.
-pub struct ComponentTimelineStorage;
-
-/// Stores one synchronized timeline as a Bevy resource.
-///
-/// The remote timeline and ping measurements remain on a single connected [`Client`] link. This
-/// storage is appropriate for application-global driving timelines such as the input timeline.
-pub struct ResourceTimelineStorage;
-
 /// Plugin to synchronize one timeline with a remote timeline.
 ///
-/// `Storage` determines whether the synchronized timeline and its configuration are components on
-/// the remote link or application-global resources. The const generic indicates whether the
-/// synchronized timeline drives [`Time<Virtual>`] and [`LocalTimeline`].
+/// `DRIVING` indicates whether the synchronized timeline drives [`Time<Virtual>`] and
+/// [`LocalTimeline`]. `RESOURCE` selects whether the synchronized timeline and its configuration
+/// are application-global resources or components on each remote link.
 pub struct SyncedTimelinePlugin<
     Synced,
     Remote,
     const DRIVING: bool = false,
-    Storage = ComponentTimelineStorage,
+    const RESOURCE: bool = false,
 > {
-    pub(crate) _marker: core::marker::PhantomData<(Synced, Remote, Storage)>,
+    pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
 
-impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool, Storage>
-    SyncedTimelinePlugin<Synced, Remote, DRIVING, Storage>
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool, const RESOURCE: bool>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING, RESOURCE>
 {
     /// Reset a timeline when its session starts and align a driving timeline with local time.
     fn reset_timeline(timeline: &mut Synced, local_timeline: &LocalTimeline) {
@@ -420,7 +408,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool, St
 }
 
 impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
-    SyncedTimelinePlugin<Synced, Remote, DRIVING, ComponentTimelineStorage>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING, false>
 {
     /// Reset a link-held synchronized timeline when that link connects.
     fn handle_connect(
@@ -500,7 +488,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
 }
 
 impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
-    SyncedTimelinePlugin<Synced, Remote, DRIVING, ResourceTimelineStorage>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING, true>
 where
     Synced::Config: Resource,
 {
@@ -590,8 +578,8 @@ where
     }
 }
 
-impl<Synced, Remote, const DRIVING: bool, Storage> Default
-    for SyncedTimelinePlugin<Synced, Remote, DRIVING, Storage>
+impl<Synced, Remote, const DRIVING: bool, const RESOURCE: bool> Default
+    for SyncedTimelinePlugin<Synced, Remote, DRIVING, RESOURCE>
 {
     fn default() -> Self {
         Self {
@@ -601,7 +589,7 @@ impl<Synced, Remote, const DRIVING: bool, Storage> Default
 }
 
 impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Plugin
-    for SyncedTimelinePlugin<Synced, Remote, DRIVING, ComponentTimelineStorage>
+    for SyncedTimelinePlugin<Synced, Remote, DRIVING, false>
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
@@ -627,7 +615,7 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
 }
 
 impl<Synced: SyncedTimeline + Resource + Default, Remote: SyncTargetTimeline, const DRIVING: bool>
-    Plugin for SyncedTimelinePlugin<Synced, Remote, DRIVING, ResourceTimelineStorage>
+    Plugin for SyncedTimelinePlugin<Synced, Remote, DRIVING, true>
 where
     Synced::Config: Resource + Default,
 {

@@ -59,12 +59,12 @@ impl InputTimelineConfig {
     /// the single client link and are deliberately selected independently of that entity.
     pub(crate) fn recompute_input_delay_on_sync(
         _trigger: On<SyncEvent<InputTimelineConfig>>,
-        tick_duration: Option<Res<TickDuration>>,
+        tick_duration: Res<TickDuration>,
         links: Query<&Link, With<Client>>,
         config: Res<InputTimelineConfig>,
         mut timeline: ResMut<InputTimeline>,
     ) {
-        let (Some(tick_duration), Ok(link)) = (tick_duration, links.single()) else {
+        let Ok(link) = links.single() else {
             return;
         };
         let before = timeline.input_delay();
@@ -84,12 +84,12 @@ impl InputTimelineConfig {
     /// Recompute input delay when the global configuration resource is inserted or replaced.
     pub(crate) fn recompute_input_delay_on_config_update(
         _trigger: On<Insert, InputTimelineConfig>,
-        tick_duration: Option<Res<TickDuration>>,
+        tick_duration: Res<TickDuration>,
         links: Query<&Link, With<Client>>,
         config: Res<InputTimelineConfig>,
         mut timeline: ResMut<InputTimeline>,
     ) {
-        let (Some(tick_duration), Ok(link)) = (tick_duration, links.single()) else {
+        let Ok(link) = links.single() else {
             return;
         };
         timeline.recompute_input_delay(&config, link.stats, tick_duration.0);
@@ -103,14 +103,11 @@ impl InputTimelineConfig {
     /// Initialize input delay from the statistics of the client link that just connected.
     pub(crate) fn recompute_input_delay_on_connect(
         trigger: On<Add, Connected>,
-        tick_duration: Option<Res<TickDuration>>,
+        tick_duration: Res<TickDuration>,
         links: Query<&Link, With<Client>>,
         config: Res<InputTimelineConfig>,
         mut timeline: ResMut<InputTimeline>,
     ) {
-        let Some(tick_duration) = tick_duration else {
-            return;
-        };
         let Ok(link) = links.get(trigger.entity) else {
             return;
         };

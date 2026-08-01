@@ -4,7 +4,7 @@ use crate::plugin::TimelineSyncPlugin;
 use crate::prelude::client::RemoteTimeline;
 use crate::timeline::input::{InputTimeline, InputTimelineConfig};
 use crate::timeline::remote;
-use crate::timeline::sync::{ResourceTimelineStorage, SyncedTimelinePlugin};
+use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use lightyear_connection::client::Client;
@@ -49,17 +49,20 @@ impl Plugin for ClientPlugin {
 
         app.register_required_components::<Client, RemoteTimeline>();
 
-        app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
-        app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
-        app.add_observer(InputTimelineConfig::recompute_input_delay_on_connect);
-
         // The application has one driving input clock even when it has several network links.
         app.add_plugins(SyncedTimelinePlugin::<
             InputTimeline,
             RemoteTimeline,
             true,
-            ResourceTimelineStorage,
+            true,
         >::default());
+
+        // Register these after the resource-backed timeline plugin initializes its default
+        // configuration. `ClientPlugin` can be built before `CorePlugins` installs TickDuration,
+        // while every runtime configuration update, connection, and sync event happens after it.
+        app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
+        app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
+        app.add_observer(InputTimelineConfig::recompute_input_delay_on_connect);
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
