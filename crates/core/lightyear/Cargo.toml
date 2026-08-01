@@ -97,6 +97,7 @@ deterministic = [
 replication = [
   "dep:lightyear_replication",
   "lightyear_deterministic_replication?/replication",
+  "lightyear_tools?/replication",
 ]
 ## Enables client-side prediction handling to mask latency for local player actions
 prediction = [

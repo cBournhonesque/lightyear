@@ -210,6 +210,36 @@ would be useful; keep the focused hot-loop tests as the zero-allocation guardrai
   Heap-owning component fields make those clones allocate unless the component uses its own reuse
   strategy.
 
+## Metric Instrumentation
+
+Metric names are static literals where possible. Dynamic identity is represented as labels instead
+of being formatted into the metric path:
+
+- channel metrics use the `channel` label;
+- message metrics use the `message` label;
+- prediction history and rollback-cause metrics use `component` and `cause` labels;
+- input buffer metrics use `action` and `entity` labels.
+
+The `metrics` macros only build a fully static key when the name and every label are literals. A
+dynamic label value such as `type_name::<T>()`, a registered channel name, or an entity string makes
+the macro allocate a `Vec<Label>` on every invocation even when the label string itself is static.
+String interning alone therefore does not make labeled metric calls allocation-free.
+
+Message, channel, and prediction handles are initialized lazily and retained in their existing
+registry metadata. Input metrics without an entity label use the same pattern in a typed resource.
+This keeps recorder installation order safe, requires no user-facing metric family or cache
+resource, and reduces subsequent updates to handle operations. In the integration allocation
+regression, this reduced active-minus-idle message send/receive allocations over 32 measured cycles
+from 389 to 3.
+
+Entity-labeled input metric handles live in an entity-keyed map inside the typed input metric
+resource. Observers add an entry and stringify its entity label with `InputBuffer`, then remove the
+entry when the buffer is removed or its entity is despawned. Individual handles remain lazy: the
+first sample for an entity registers each labeled metric, but steady-state samples reuse the cached
+handle without rebuilding the entity string or label vector. The metrics registry itself still
+retains every registered labeled series, so applications with unbounded entity churn should avoid
+entity-level metrics or use a recorder with an appropriate retention policy.
+
 ## Next Steps
 
 1. Decide whether `Link` should accept a reusable payload type, or whether IO backends should write

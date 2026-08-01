@@ -7,9 +7,9 @@ use crate::input_buffer::InputBuffer;
 use crate::input_message::{
     ActionStateQueryData, ActionStateSequence, InputMessage, InputTarget, StateMut,
 };
-use crate::plugin::InputPlugin;
 #[cfg(feature = "metrics")]
-use alloc::format;
+use crate::metric_handles::InputMetricHandles;
+use crate::plugin::InputPlugin;
 use bevy_app::{App, FixedPreUpdate, Plugin, PreUpdate};
 use bevy_ecs::component::Component;
 use bevy_ecs::prelude::Has;
@@ -683,6 +683,7 @@ fn update_action_state<S: ActionStateSequence>(
     //  presumably the entity is replicated to many clients, but only one client is controlling the entity?
     timeline: Res<LocalTimeline>,
     server: Single<(Entity, Has<HostServer>), With<Started>>,
+    #[cfg(feature = "metrics")] metric_handles: Res<InputMetricHandles<S>>,
     mut action_state_query: Query<(
         Entity,
         StateMut<S>,
@@ -721,17 +722,12 @@ fn update_action_state<S: ActionStateSequence>(
                 "server applied input buffer to action state"
             );
 
+            // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
+            // so that we can handle lost messages
             #[cfg(feature = "metrics")]
-            {
-                // The size of the buffer should always bet at least 1, and hopefully be a bit more than that
-                // so that we can handle lost messages
-                metrics::gauge!(format!(
-                    "inputs::{}::{}::buffer_size",
-                    DebugName::type_name::<S::Action>(),
-                    entity
-                ))
+            metric_handles
+                .buffer_size(entity)
                 .set(input_buffer.len() as f64);
-            }
         }
 
         // NOTE: if we are the host-client, it is important to keep some history in the inputs

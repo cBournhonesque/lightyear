@@ -16,6 +16,8 @@ pub mod client;
 pub mod config;
 pub mod input_buffer;
 pub mod input_message;
+#[cfg(feature = "metrics")]
+mod metric_handles;
 pub mod plugin;
 #[cfg(feature = "server")]
 pub mod server;

@@ -14,16 +14,12 @@ use crate::predicted_history::{
 };
 use crate::registry::PredictionRegistry;
 use crate::rollback::DisabledDuringRollback;
-#[cfg(feature = "metrics")]
-use alloc::format;
 use bevy_app::FixedPreUpdate;
 use bevy_app::prelude::*;
 use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
-#[cfg(feature = "metrics")]
-use bevy_utils::prelude::DebugName;
 use lightyear_connection::client::{Client, Connected};
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::ConfirmedHistory;
@@ -130,36 +126,14 @@ pub(crate) fn add_prediction_systems<C: SyncComponent>(app: &mut App) {
     #[cfg(feature = "metrics")]
     {
         metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::missing_on_confirmed",
-                DebugName::type_name::<C>()
-            ),
+            "prediction/rollback/causes",
             metrics::Unit::Count,
-            "Component present in the prediction history but missing on the confirmed entity"
+            "Prediction rollback causes, labeled by component and cause"
         );
-        metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::value_mismatch",
-                DebugName::type_name::<C>()
-            ),
+        metrics::describe_gauge!(
+            "prediction/rollback/history_values",
             metrics::Unit::Count,
-            "Component present in the prediction history but with a different value than on the confirmed entity"
-        );
-        metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::missing_on_predicted",
-                DebugName::type_name::<C>()
-            ),
-            metrics::Unit::Count,
-            "Component present in the confirmed entity but missing in the prediction history"
-        );
-        metrics::describe_counter!(
-            format!(
-                "prediction::rollbacks::causes::{}::removed_on_predicted",
-                DebugName::type_name::<C>()
-            ),
-            metrics::Unit::Count,
-            "Component present in the confirmed entity but removed in the prediction history"
+            "Number of retained prediction-history values, labeled by component"
         );
     }
     // TODO: register type if C is reflect

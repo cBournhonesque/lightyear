@@ -20,6 +20,10 @@ use bevy_utils::prelude::*;
 
 use bevy_platform::collections::HashMap;
 use lightyear_metrics::prelude::{ClearBucketsSystem, MetricsPlugin, MetricsRegistry};
+#[cfg(feature = "replication")]
+use lightyear_replication::channels::{
+    RepliconMutationAcksChannel, RepliconMutationsChannel, RepliconUpdatesChannel,
+};
 use metrics::Key;
 use metrics_util::{CompositeKey, MetricKind};
 #[allow(unused_imports)]
@@ -71,7 +75,7 @@ struct DirectionMarker(pub MetricDirection);
 pub struct MetricSpec {
     /// Display label for the line
     pub label: &'static str,
-    /// Metrics registry key (supports fuzzy match)
+    /// Exact metrics registry key, including its complete label set.
     pub key: CompositeKey,
     /// If True, we need to divide the results per second
     pub per_second: bool,
@@ -98,6 +102,23 @@ impl MetricSpec {
         self.direction = dir;
         self
     }
+}
+
+fn channel_rate_metric(
+    label: &'static str,
+    metric_name: &'static str,
+    channel_name: &'static str,
+    direction: MetricDirection,
+) -> MetricSpec {
+    MetricSpec::new(
+        label,
+        CompositeKey::new(
+            MetricKind::Gauge,
+            Key::from_parts(metric_name, &[("channel", channel_name)]),
+        ),
+    )
+    .with_per_second(true)
+    .with_direction(direction)
 }
 
 /// A subsection of metrics within a section.
@@ -255,129 +276,82 @@ impl Default for MetricsPanelLayout {
                                 .with_direction(MetricDirection::Send),
                             ],
                         ),
+                        #[cfg(feature = "replication")]
                         MetricsSubsection::new(
                             "Replication",
                             vec![
-                                MetricSpec::new(
-                                    "Send Actions (bytes/s)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/send_bytes",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::ActionsChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Send),
-                                MetricSpec::new(
+                                channel_rate_metric(
                                     "Send Updates (bytes/s)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/send_bytes",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::UpdatesChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Send),
-                                MetricSpec::new(
-                                    "Send Actions (num messages)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/send_messages",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::ActionsChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Send),
-                                MetricSpec::new(
-                                    "Send Updates (num messages)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/send_messages",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::UpdatesChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Send),
-                                MetricSpec::new(
-                                    "Recv Actions (bytes/s)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/recv_bytes",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::ActionsChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Receive),
-                                MetricSpec::new(
+                                    "channel/send_bytes",
+                                    core::any::type_name::<RepliconUpdatesChannel>(),
+                                    MetricDirection::Send,
+                                ),
+                                channel_rate_metric(
+                                    "Send Mutations (bytes/s)",
+                                    "channel/send_bytes",
+                                    core::any::type_name::<RepliconMutationsChannel>(),
+                                    MetricDirection::Send,
+                                ),
+                                channel_rate_metric(
+                                    "Send Mutation Acks (bytes/s)",
+                                    "channel/send_bytes",
+                                    core::any::type_name::<RepliconMutationAcksChannel>(),
+                                    MetricDirection::Send,
+                                ),
+                                channel_rate_metric(
+                                    "Send Updates (messages/s)",
+                                    "channel/send_messages",
+                                    core::any::type_name::<RepliconUpdatesChannel>(),
+                                    MetricDirection::Send,
+                                ),
+                                channel_rate_metric(
+                                    "Send Mutations (messages/s)",
+                                    "channel/send_messages",
+                                    core::any::type_name::<RepliconMutationsChannel>(),
+                                    MetricDirection::Send,
+                                ),
+                                channel_rate_metric(
+                                    "Send Mutation Acks (messages/s)",
+                                    "channel/send_messages",
+                                    core::any::type_name::<RepliconMutationAcksChannel>(),
+                                    MetricDirection::Send,
+                                ),
+                                channel_rate_metric(
                                     "Recv Updates (bytes/s)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/recv_bytes",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::UpdatesChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Receive),
-                                MetricSpec::new(
-                                    "Recv Actions (num messages)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/recv_messages",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::ActionsChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Receive),
-                                MetricSpec::new(
-                                    "Recv Updates (num messages)",
-                                    CompositeKey::new(
-                                        MetricKind::Gauge,
-                                        Key::from_parts(
-                                            "channel/recv_messages",
-                                            &[(
-                                                "channel",
-                                                "lightyear_replication::message::UpdatesChannel",
-                                            )],
-                                        ),
-                                    ),
-                                )
-                                .with_per_second(true)
-                                .with_direction(MetricDirection::Receive),
+                                    "channel/recv_bytes",
+                                    core::any::type_name::<RepliconUpdatesChannel>(),
+                                    MetricDirection::Receive,
+                                ),
+                                channel_rate_metric(
+                                    "Recv Mutations (bytes/s)",
+                                    "channel/recv_bytes",
+                                    core::any::type_name::<RepliconMutationsChannel>(),
+                                    MetricDirection::Receive,
+                                ),
+                                channel_rate_metric(
+                                    "Recv Mutation Acks (bytes/s)",
+                                    "channel/recv_bytes",
+                                    core::any::type_name::<RepliconMutationAcksChannel>(),
+                                    MetricDirection::Receive,
+                                ),
+                                channel_rate_metric(
+                                    "Recv Updates (messages/s)",
+                                    "channel/recv_messages",
+                                    core::any::type_name::<RepliconUpdatesChannel>(),
+                                    MetricDirection::Receive,
+                                ),
+                                channel_rate_metric(
+                                    "Recv Mutations (messages/s)",
+                                    "channel/recv_messages",
+                                    core::any::type_name::<RepliconMutationsChannel>(),
+                                    MetricDirection::Receive,
+                                ),
+                                channel_rate_metric(
+                                    "Recv Mutation Acks (messages/s)",
+                                    "channel/recv_messages",
+                                    core::any::type_name::<RepliconMutationAcksChannel>(),
+                                    MetricDirection::Receive,
+                                ),
                             ],
                         ),
                         MetricsSubsection::new(

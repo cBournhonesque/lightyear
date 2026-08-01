@@ -9,6 +9,40 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_core::network::NetId;
 use lightyear_core::prelude::{IntoMessageTimeline, LocalTimeline};
 use lightyear_utils::registry::{RegistryHash, RegistryHasher, TypeKind, TypeMapper};
+#[cfg(feature = "metrics")]
+use std::sync::OnceLock;
+
+#[cfg(feature = "metrics")]
+#[derive(Clone, Debug, Default)]
+struct ChannelMetricHandles {
+    recv_messages: OnceLock<metrics::Gauge>,
+    recv_bytes: OnceLock<metrics::Gauge>,
+    send_messages: OnceLock<metrics::Gauge>,
+    send_bytes: OnceLock<metrics::Gauge>,
+}
+
+#[cfg(feature = "metrics")]
+impl ChannelMetricHandles {
+    fn recv_messages(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.recv_messages
+            .get_or_init(|| metrics::gauge!("channel/recv_messages", "channel" => channel_name))
+    }
+
+    fn recv_bytes(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.recv_bytes
+            .get_or_init(|| metrics::gauge!("channel/recv_bytes", "channel" => channel_name))
+    }
+
+    fn send_messages(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.send_messages
+            .get_or_init(|| metrics::gauge!("channel/send_messages", "channel" => channel_name))
+    }
+
+    fn send_bytes(&self, channel_name: &'static str) -> &metrics::Gauge {
+        self.send_bytes
+            .get_or_init(|| metrics::gauge!("channel/send_bytes", "channel" => channel_name))
+    }
+}
 
 // TODO: derive Reflect once we reach bevy 0.14
 /// ChannelKind - internal wrapper around the type of the channel
@@ -58,6 +92,8 @@ impl From<TypeId> for ChannelKind {
 #[derive(Resource, Default, Clone, Debug, TypePath)]
 pub struct ChannelRegistry {
     settings_map: HashMap<ChannelKind, ChannelSettings>,
+    #[cfg(feature = "metrics")]
+    metric_handles: HashMap<ChannelKind, ChannelMetricHandles>,
     kind_map: TypeMapper<ChannelKind>,
     hasher: RegistryHasher,
 }
@@ -101,6 +137,9 @@ impl ChannelRegistry {
         settings.timeline = T::timeline_kind();
         self.settings_map.insert(kind, settings);
         let kind = self.kind_map.add::<C>();
+        #[cfg(feature = "metrics")]
+        self.metric_handles
+            .insert(kind, ChannelMetricHandles::default());
         let net_id = self.get_net_from_kind(&kind).unwrap();
         (kind, *net_id)
     }
@@ -118,6 +157,49 @@ impl ChannelRegistry {
 
     pub fn get_kind_from_net_id(&self, channel_id: ChannelId) -> Option<&ChannelKind> {
         self.kind_map.kind(channel_id)
+    }
+
+    #[cfg(feature = "metrics")]
+    fn metric_handles(&self, channel_id: ChannelId) -> Option<&ChannelMetricHandles> {
+        self.get_kind_from_net_id(channel_id)
+            .and_then(|kind| self.metric_handles.get(kind))
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_recv_messages(
+        &self,
+        channel_id: ChannelId,
+        channel_name: &'static str,
+        count: f64,
+    ) {
+        if let Some(handles) = self.metric_handles(channel_id) {
+            handles.recv_messages(channel_name).increment(count);
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_recv_bytes(
+        &self,
+        channel_id: ChannelId,
+        channel_name: &'static str,
+        bytes: f64,
+    ) {
+        if let Some(handles) = self.metric_handles(channel_id) {
+            handles.recv_bytes(channel_name).increment(bytes);
+        }
+    }
+
+    #[cfg(feature = "metrics")]
+    pub(crate) fn record_send_message(
+        &self,
+        channel_id: ChannelId,
+        channel_name: &'static str,
+        bytes: f64,
+    ) {
+        if let Some(handles) = self.metric_handles(channel_id) {
+            handles.send_messages(channel_name).increment(1.0);
+            handles.send_bytes(channel_name).increment(bytes);
+        }
     }
 
     pub fn get_net_from_kind(&self, kind: &ChannelKind) -> Option<&ChannelId> {
