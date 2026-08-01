@@ -202,20 +202,18 @@ fn sync_entity_map(
     if !entity_map.is_changed() {
         return;
     }
-    let current: bevy_platform::collections::HashSet<Entity> = entity_map
-        .to_client()
-        .iter()
-        .map(|(server_entity, _)| *server_entity)
-        .collect();
 
     for mut mm in managers.iter_mut() {
         for (server_entity, client_entity) in entity_map.to_client().iter() {
             mm.entity_mapper.insert(*server_entity, *client_entity);
         }
-        for removed in synced_entities.difference(&current) {
-            mm.entity_mapper.remove_by_remote(*removed);
+        for server_entity in synced_entities.iter() {
+            if !entity_map.to_client().contains_key(server_entity) {
+                mm.entity_mapper.remove_by_remote(*server_entity);
+            }
         }
     }
 
-    synced_entities.clone_from(&current);
+    synced_entities.retain(|server_entity| entity_map.to_client().contains_key(server_entity));
+    synced_entities.extend(entity_map.to_client().keys().copied());
 }

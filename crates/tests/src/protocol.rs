@@ -190,6 +190,7 @@ pub struct BEIActionVec2;
 // Protocol
 pub struct ProtocolPlugin {
     pub avian_mode: AvianReplicationMode,
+    pub minimal: bool,
 }
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
@@ -250,6 +251,11 @@ impl Plugin for ProtocolPlugin {
             .replicate_diff()
             .predict_diff()
             .add_custom_interpolation_diff();
+
+        if self.minimal {
+            return;
+        }
+
         // inputs
         app.add_plugins(native::InputPlugin::<NativeInput> {
             config: InputConfig::<NativeInput> {

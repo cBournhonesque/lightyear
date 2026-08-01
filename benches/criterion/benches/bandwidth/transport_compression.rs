@@ -9,7 +9,10 @@ use lightyear_benches::transport_compression::{
 
 criterion_group!(
     name = transport_compression_bandwidth;
-    config = Criterion::default().with_measurement(Bandwidth);
+    // Exact byte counts commonly have zero variance, which Criterion 0.8's
+    // KDE plotter cannot handle. These benchmarks report totals, not a
+    // statistical timing distribution, so plots are not useful here.
+    config = Criterion::default().without_plots().with_measurement(Bandwidth);
     targets = send_receive_messages,
 );
 
