@@ -59,7 +59,7 @@ pub enum ConnectionSystems {
 
 pub mod prelude {
     pub use crate::ConnectionSystems;
-    pub use crate::app_mode::{AppMode, AppModeError, AppModeSystems};
+    pub use crate::app_mode::{AppMode, AppModeError, AppModeSystems, NetworkingMetadata};
     pub use crate::direction::NetworkDirection;
     pub use crate::network_target::NetworkTarget;
 
