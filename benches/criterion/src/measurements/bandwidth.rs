@@ -3,6 +3,7 @@ use criterion::measurement::{Measurement, ValueFormatter};
 use lightyear::metrics::metrics::Key;
 use lightyear::metrics::metrics_util::{CompositeKey, MetricKind};
 use lightyear::prelude::MetricsRegistry;
+use lightyear_replication::channels::{RepliconMutationsChannel, RepliconUpdatesChannel};
 
 pub struct Bandwidth;
 
@@ -12,6 +13,19 @@ pub enum BandwidthChannel {
 }
 
 impl Bandwidth {
+    fn channel_bytes(
+        registry: &MetricsRegistry,
+        metric_name: &'static str,
+        channel_name: &'static str,
+    ) -> f64 {
+        registry
+            .fetch_metric_value(&CompositeKey::new(
+                MetricKind::Gauge,
+                Key::from_parts(metric_name, &[("channel", channel_name)]),
+            ))
+            .unwrap_or_default()
+    }
+
     pub fn value(
         registry: &MetricsRegistry,
         send: bool,
@@ -42,46 +56,28 @@ impl Bandwidth {
             }
             BandwidthChannel::Replication => {
                 if send {
-                    let send_updates = registry
-                        .fetch_metric_value(&CompositeKey::new(
-                            MetricKind::Gauge,
-                            Key::from_parts(
-                                "channel/send_bytes",
-                                &[("channel", "lightyear_replication::message::UpdatesChannel")],
-                            ),
-                        ))
-                        .unwrap_or_default();
-                    let send_actions = registry
-                        .fetch_metric_value(&CompositeKey::new(
-                            MetricKind::Gauge,
-                            Key::from_parts(
-                                "channel/send_bytes",
-                                &[("channel", "lightyear_replication::message::ActionsChannel")],
-                            ),
-                        ))
-                        .unwrap_or_default();
-                    total += send_updates + send_actions;
+                    total += Self::channel_bytes(
+                        registry,
+                        "channel/send_bytes",
+                        core::any::type_name::<RepliconUpdatesChannel>(),
+                    );
+                    total += Self::channel_bytes(
+                        registry,
+                        "channel/send_bytes",
+                        core::any::type_name::<RepliconMutationsChannel>(),
+                    );
                 }
                 if recv {
-                    let recv_updates = registry
-                        .fetch_metric_value(&CompositeKey::new(
-                            MetricKind::Gauge,
-                            Key::from_parts(
-                                "channel/recv_bytes",
-                                &[("channel", "lightyear_replication::message::UpdatesChannel")],
-                            ),
-                        ))
-                        .unwrap_or_default();
-                    let recv_actions = registry
-                        .fetch_metric_value(&CompositeKey::new(
-                            MetricKind::Gauge,
-                            Key::from_parts(
-                                "channel/recv_bytes",
-                                &[("channel", "lightyear_replication::message::ActionsChannel")],
-                            ),
-                        ))
-                        .unwrap_or_default();
-                    total += recv_actions + recv_updates;
+                    total += Self::channel_bytes(
+                        registry,
+                        "channel/recv_bytes",
+                        core::any::type_name::<RepliconUpdatesChannel>(),
+                    );
+                    total += Self::channel_bytes(
+                        registry,
+                        "channel/recv_bytes",
+                        core::any::type_name::<RepliconMutationsChannel>(),
+                    );
                 }
             }
         }

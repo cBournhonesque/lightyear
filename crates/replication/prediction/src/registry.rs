@@ -64,6 +64,8 @@ pub struct PredictionMetadata {
     /// Will default to a PartialEq::ne implementation, but can be overridden.
     pub(crate) should_rollback: unsafe fn(),
     pub(crate) check_rollback: CheckRollbackFn,
+    #[cfg(feature = "metrics")]
+    history_gauge: metrics::Gauge,
     #[cfg(feature = "deterministic")]
     /// Function to hash the value in [`PredictionHistory<C>`] at a given tick.
     pub pop_until_tick_and_hash: Option<PopUntilTickAndHashFn>,
@@ -106,6 +108,11 @@ impl PredictionMetadata {
                 )
             },
             check_rollback: PredictionRegistry::check_rollback_for_unchanged_component::<C>,
+            #[cfg(feature = "metrics")]
+            history_gauge: metrics::gauge!(format!(
+                "prediction::rollbacks::history::{:?}::num_values",
+                DebugName::type_name::<C>()
+            )),
             #[cfg(feature = "deterministic")]
             pop_until_tick_and_hash: Some(PredictionRegistry::pop_until_tick_and_hash::<C>),
         }
@@ -421,11 +428,9 @@ impl PredictionRegistry {
 
         #[cfg(feature = "metrics")]
         if let Some(predicted_history) = predicted_history.as_ref() {
-            metrics::gauge!(format!(
-                "prediction::rollbacks::history::{:?}::num_values",
-                DebugName::type_name::<C>()
-            ))
-            .set(predicted_history.len() as f64);
+            self.prediction_map[&ComponentKind::of::<C>()]
+                .history_gauge
+                .set(predicted_history.len() as f64);
         }
 
         // Check for mismatch if requested. Authoritative mutations can be

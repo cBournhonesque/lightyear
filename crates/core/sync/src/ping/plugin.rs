@@ -107,8 +107,7 @@ impl PingPlugin {
                     ping_sender.send::<PingChannel>(ping);
                 }
                 // prepare the pong messages with the correct send time
-                m.take_pending_pongs()
-                    .into_iter()
+                m.drain_pending_pongs()
                     .for_each(|(mut pong, ping_receive_time)| {
                         pong.frame_time =
                             TickDelta::from_duration(now - ping_receive_time, tick_duration.0)
