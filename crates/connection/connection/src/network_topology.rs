@@ -14,8 +14,8 @@ use smallvec::SmallVec;
 /// Entities are only included after their relevant lifecycle has completed: clients and P2P links
 /// must be [`Connected`], and servers must be [`Started`].
 #[derive(Default, Debug, Clone, PartialEq, Eq)]
-pub enum AppMode {
-    /// No networking mode has been identified yet.
+pub enum NetworkTopology {
+    /// No networking topology has been identified yet.
     #[default]
     Undefined,
     /// A connected client and its server link.
@@ -33,8 +33,8 @@ pub enum AppMode {
     ///
     /// This can be empty while the session is waiting for its first peer to connect.
     P2P(SmallVec<[Entity; 4]>),
-    /// The ready entities do not form one supported application role.
-    Invalid(AppModeError),
+    /// The ready entities do not form one supported networking topology.
+    Invalid(NetworkTopologyError),
 }
 
 /// Cached metadata describing the networking configuration of this Bevy application.
@@ -43,8 +43,8 @@ pub enum AppMode {
 /// can read [`mode`](Self::mode), but do not need to update it themselves.
 #[derive(Resource, Debug, Clone)]
 pub struct NetworkingMetadata {
-    /// The currently identified networking mode.
-    pub mode: AppMode,
+    /// The currently identified networking topology.
+    pub mode: NetworkTopology,
     // This is kept in the same resource as the mode, but mutated without triggering Bevy change
     // detection. Consumers therefore only observe a change after `mode` itself changes.
     dirty: bool,
@@ -53,15 +53,15 @@ pub struct NetworkingMetadata {
 impl Default for NetworkingMetadata {
     fn default() -> Self {
         Self {
-            mode: AppMode::Undefined,
+            mode: NetworkTopology::Undefined,
             dirty: true,
         }
     }
 }
 
-/// Why ready networking entities could not be classified into a supported [`AppMode`].
+/// Why ready networking entities could not be classified into a supported [`NetworkTopology`].
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
-pub enum AppModeError {
+pub enum NetworkTopologyError {
     /// More than one conventional client link is connected.
     #[error("multiple conventional client links are connected: {0:?}")]
     MultipleConnectedClients(SmallVec<[Entity; 4]>),
@@ -102,10 +102,10 @@ pub enum AppModeError {
     },
 }
 
-/// System set that refreshes the cached [`AppMode`].
+/// System set that refreshes the cached [`NetworkTopology`].
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
-pub enum AppModeSystems {
-    /// Infer the application mode after networking lifecycle changes.
+pub enum NetworkTopologySystems {
+    /// Infer the topology after networking lifecycle changes.
     Update,
 }
 
@@ -116,7 +116,7 @@ struct ReadyClient {
     server: Option<Entity>,
 }
 
-type ModeComponents = (
+type TopologyComponents = (
     Client,
     Server,
     HostClient,
@@ -128,9 +128,9 @@ type ModeComponents = (
     Stopped,
 );
 
-pub(crate) struct AppModePlugin;
+pub(crate) struct NetworkTopologyPlugin;
 
-impl Plugin for AppModePlugin {
+impl Plugin for NetworkTopologyPlugin {
     fn build(&self, app: &mut App) {
         // NetworkingMetadata starts dirty so that entities spawned before this plugin are
         // classified on the first update too.
@@ -142,56 +142,56 @@ impl Plugin for AppModePlugin {
 
         app.configure_sets(
             PreUpdate,
-            AppModeSystems::Update
+            NetworkTopologySystems::Update
                 .after(LinkSystems::Receive)
                 .after(ConnectionSystems::Receive),
         );
         app.add_systems(
             PreUpdate,
-            refresh_app_mode
-                .in_set(AppModeSystems::Update)
-                .run_if(app_mode_is_dirty),
+            refresh_network_topology
+                .in_set(NetworkTopologySystems::Update)
+                .run_if(network_topology_is_dirty),
         );
 
         app.configure_sets(
             PostUpdate,
-            AppModeSystems::Update.before(ConnectionSystems::Send),
+            NetworkTopologySystems::Update.before(ConnectionSystems::Send),
         );
         app.add_systems(
             PostUpdate,
-            refresh_app_mode
-                .in_set(AppModeSystems::Update)
-                .run_if(app_mode_is_dirty),
+            refresh_network_topology
+                .in_set(NetworkTopologySystems::Update)
+                .run_if(network_topology_is_dirty),
         );
     }
 }
 
 fn mark_dirty_on_insert(
-    _trigger: On<Insert, ModeComponents>,
+    _trigger: On<Insert, TopologyComponents>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
 fn mark_dirty_on_remove(
-    _trigger: On<Remove, ModeComponents>,
+    _trigger: On<Remove, TopologyComponents>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
 fn mark_dirty_on_discard(
-    _trigger: On<Discard, ModeComponents>,
+    _trigger: On<Discard, TopologyComponents>,
     mut metadata: ResMut<NetworkingMetadata>,
 ) {
     metadata.bypass_change_detection().dirty = true;
 }
 
-fn app_mode_is_dirty(metadata: Res<NetworkingMetadata>) -> bool {
+fn network_topology_is_dirty(metadata: Res<NetworkingMetadata>) -> bool {
     metadata.dirty
 }
 
-fn refresh_app_mode(
+fn refresh_network_topology(
     mut metadata: ResMut<NetworkingMetadata>,
     p2p_markers: Query<(), With<P2P>>,
     ready_clients: Query<
@@ -208,12 +208,12 @@ fn refresh_app_mode(
             .map(|(entity, _, _, _)| entity)
             .collect();
         links.sort_unstable_by_key(|entity| entity.index_u32());
-        AppMode::P2P(links)
+        NetworkTopology::P2P(links)
     } else if let Some(client) = malformed_hosts
         .iter()
         .min_by_key(|entity| entity.index_u32())
     {
-        AppMode::Invalid(AppModeError::HostClientWithoutClient { client })
+        NetworkTopology::Invalid(NetworkTopologyError::HostClientWithoutClient { client })
     } else {
         let client = unique_ready_client(ready_clients.iter().filter_map(
             |(entity, is_p2p, is_host, link_of)| {
@@ -225,10 +225,10 @@ fn refresh_app_mode(
             },
         ));
         match client {
-            Err(error) => AppMode::Invalid(error),
+            Err(error) => NetworkTopology::Invalid(error),
             Ok(client) => match unique_ready_server(ready_servers.iter()) {
-                Err(error) => AppMode::Invalid(error),
-                Ok(server) => infer_standard_mode(client, server),
+                Err(error) => NetworkTopology::Invalid(error),
+                Ok(server) => infer_standard_topology(client, server),
             },
         }
     };
@@ -236,8 +236,8 @@ fn refresh_app_mode(
     let mode_changed = metadata.mode != next;
     metadata.bypass_change_detection().dirty = false;
     if mode_changed {
-        if let AppMode::Invalid(error) = &next {
-            tracing::error!(%error, "invalid Lightyear application mode");
+        if let NetworkTopology::Invalid(error) = &next {
+            tracing::error!(%error, "invalid Lightyear networking topology");
         }
         metadata.mode = next;
     }
@@ -245,7 +245,7 @@ fn refresh_app_mode(
 
 fn unique_ready_client(
     mut clients: impl Iterator<Item = ReadyClient>,
-) -> Result<Option<ReadyClient>, AppModeError> {
+) -> Result<Option<ReadyClient>, NetworkTopologyError> {
     let Some(first) = clients.next() else {
         return Ok(None);
     };
@@ -256,12 +256,12 @@ fn unique_ready_client(
     let mut entities: SmallVec<[Entity; 4]> = SmallVec::from_slice(&[first.entity, second.entity]);
     entities.extend(clients.map(|client| client.entity));
     entities.sort_unstable_by_key(|entity| entity.index_u32());
-    Err(AppModeError::MultipleConnectedClients(entities))
+    Err(NetworkTopologyError::MultipleConnectedClients(entities))
 }
 
 fn unique_ready_server(
     mut servers: impl Iterator<Item = Entity>,
-) -> Result<Option<Entity>, AppModeError> {
+) -> Result<Option<Entity>, NetworkTopologyError> {
     let Some(first) = servers.next() else {
         return Ok(None);
     };
@@ -272,40 +272,46 @@ fn unique_ready_server(
     let mut entities: SmallVec<[Entity; 4]> = SmallVec::from_slice(&[first, second]);
     entities.extend(servers);
     entities.sort_unstable_by_key(|entity| entity.index_u32());
-    Err(AppModeError::MultipleStartedServers(entities))
+    Err(NetworkTopologyError::MultipleStartedServers(entities))
 }
 
-fn infer_standard_mode(client: Option<ReadyClient>, server: Option<Entity>) -> AppMode {
+fn infer_standard_topology(client: Option<ReadyClient>, server: Option<Entity>) -> NetworkTopology {
     match (client.as_ref(), server) {
-        (None, None) => AppMode::Undefined,
-        (None, Some(server)) => AppMode::Server(server),
+        (None, None) => NetworkTopology::Undefined,
+        (None, Some(server)) => NetworkTopology::Server(server),
         (Some(client), None) if client.is_host => match client.server {
-            Some(server) => AppMode::Invalid(AppModeError::HostClientServerNotStarted {
-                client: client.entity,
-                server,
-            }),
-            None => AppMode::Invalid(AppModeError::HostClientMissingLinkOf {
+            Some(server) => {
+                NetworkTopology::Invalid(NetworkTopologyError::HostClientServerNotStarted {
+                    client: client.entity,
+                    server,
+                })
+            }
+            None => NetworkTopology::Invalid(NetworkTopologyError::HostClientMissingLinkOf {
                 client: client.entity,
             }),
         },
-        (Some(client), None) => AppMode::Client(client.entity),
+        (Some(client), None) => NetworkTopology::Client(client.entity),
         (Some(client), Some(server)) if client.is_host => match client.server {
-            Some(linked_server) if linked_server == server => AppMode::HostClient {
+            Some(linked_server) if linked_server == server => NetworkTopology::HostClient {
                 server,
                 client: client.entity,
             },
-            Some(linked_server) => AppMode::Invalid(AppModeError::HostClientServerNotStarted {
-                client: client.entity,
-                server: linked_server,
-            }),
-            None => AppMode::Invalid(AppModeError::HostClientMissingLinkOf {
+            Some(linked_server) => {
+                NetworkTopology::Invalid(NetworkTopologyError::HostClientServerNotStarted {
+                    client: client.entity,
+                    server: linked_server,
+                })
+            }
+            None => NetworkTopology::Invalid(NetworkTopologyError::HostClientMissingLinkOf {
                 client: client.entity,
             }),
         },
-        (Some(client), Some(server)) => AppMode::Invalid(AppModeError::MixedClientServer {
-            client: client.entity,
-            server,
-        }),
+        (Some(client), Some(server)) => {
+            NetworkTopology::Invalid(NetworkTopologyError::MixedClientServer {
+                client: client.entity,
+                server,
+            })
+        }
     }
 }
 
@@ -336,7 +342,7 @@ mod tests {
         app.world_mut().spawn((Server::default(), Started)).id()
     }
 
-    fn mode(app: &App) -> &AppMode {
+    fn mode(app: &App) -> &NetworkTopology {
         &app.world().resource::<NetworkingMetadata>().mode
     }
 
@@ -345,31 +351,31 @@ mod tests {
         let mut app = test_app();
         let client = app.world_mut().spawn(Client).id();
         app.update();
-        assert_eq!(mode(&app), &AppMode::Undefined);
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
         app.world_mut()
             .entity_mut(client)
             .insert((RemoteId(PeerId::Local(1)), Connected));
         app.update();
-        assert_eq!(mode(&app), &AppMode::Client(client));
+        assert_eq!(mode(&app), &NetworkTopology::Client(client));
 
         app.world_mut().entity_mut(client).insert(Disconnected {
             reason: Some("test".into()),
         });
         app.update();
-        assert_eq!(mode(&app), &AppMode::Undefined);
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
         let server = app.world_mut().spawn(Server::default()).id();
         app.update();
-        assert_eq!(mode(&app), &AppMode::Undefined);
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
 
         app.world_mut().entity_mut(server).insert(Started);
         app.update();
-        assert_eq!(mode(&app), &AppMode::Server(server));
+        assert_eq!(mode(&app), &NetworkTopology::Server(server));
 
         app.world_mut().entity_mut(server).insert(Stopped);
         app.update();
-        assert_eq!(mode(&app), &AppMode::Undefined);
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
     }
 
     #[test]
@@ -390,12 +396,15 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &AppMode::Invalid(AppModeError::HostClientServerNotStarted { client, server })
+            &NetworkTopology::Invalid(NetworkTopologyError::HostClientServerNotStarted {
+                client,
+                server
+            })
         );
 
         app.world_mut().entity_mut(server).insert(Started);
         app.update();
-        assert_eq!(mode(&app), &AppMode::HostClient { server, client });
+        assert_eq!(mode(&app), &NetworkTopology::HostClient { server, client });
     }
 
     #[test]
@@ -405,7 +414,7 @@ mod tests {
         let second = app.world_mut().spawn(P2P).id();
 
         app.update();
-        assert_eq!(mode(&app), &AppMode::P2P(SmallVec::new()));
+        assert_eq!(mode(&app), &NetworkTopology::P2P(SmallVec::new()));
 
         // Connect in reverse order to prove that insertion order does not affect the cache.
         app.world_mut()
@@ -418,22 +427,25 @@ mod tests {
 
         assert_eq!(
             mode(&app),
-            &AppMode::P2P(SmallVec::from_slice(&[first, second]))
+            &NetworkTopology::P2P(SmallVec::from_slice(&[first, second]))
         );
 
         app.world_mut().entity_mut(first).insert(Disconnected {
             reason: Some("test".into()),
         });
         app.update();
-        assert_eq!(mode(&app), &AppMode::P2P(SmallVec::from_slice(&[second])));
+        assert_eq!(
+            mode(&app),
+            &NetworkTopology::P2P(SmallVec::from_slice(&[second]))
+        );
 
         app.world_mut().despawn(second);
         app.update();
-        assert_eq!(mode(&app), &AppMode::P2P(SmallVec::new()));
+        assert_eq!(mode(&app), &NetworkTopology::P2P(SmallVec::new()));
 
         app.world_mut().entity_mut(first).remove::<P2P>();
         app.update();
-        assert_eq!(mode(&app), &AppMode::Undefined);
+        assert_eq!(mode(&app), &NetworkTopology::Undefined);
     }
 
     #[test]
@@ -447,7 +459,10 @@ mod tests {
         start_server(&mut app);
 
         app.update();
-        assert_eq!(mode(&app), &AppMode::P2P(SmallVec::from_slice(&[peer])));
+        assert_eq!(
+            mode(&app),
+            &NetworkTopology::P2P(SmallVec::from_slice(&[peer]))
+        );
     }
 
     #[test]
@@ -458,7 +473,7 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &AppMode::Invalid(AppModeError::MultipleConnectedClients(
+            &NetworkTopology::Invalid(NetworkTopologyError::MultipleConnectedClients(
                 SmallVec::from_slice(&[first, second])
             ))
         );
@@ -468,7 +483,7 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &AppMode::Invalid(AppModeError::MixedClientServer {
+            &NetworkTopology::Invalid(NetworkTopologyError::MixedClientServer {
                 client: first,
                 server,
             })
@@ -479,9 +494,9 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &AppMode::Invalid(AppModeError::MultipleStartedServers(SmallVec::from_slice(
-                &[server, other_server]
-            )))
+            &NetworkTopology::Invalid(NetworkTopologyError::MultipleStartedServers(
+                SmallVec::from_slice(&[server, other_server])
+            ))
         );
     }
 
@@ -501,7 +516,7 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &AppMode::Invalid(AppModeError::HostClientMissingLinkOf { client })
+            &NetworkTopology::Invalid(NetworkTopologyError::HostClientMissingLinkOf { client })
         );
     }
 
