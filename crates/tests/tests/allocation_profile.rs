@@ -11,7 +11,7 @@ static ALLOC: dhat::Alloc = dhat::Alloc;
 #[test]
 #[ignore = "manual heap profile; writes target/dhat-network-idle-frame.json"]
 fn dhat_warmed_idle_network_frame() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     use_single_threaded_schedules(&mut stepper);
     for _ in 0..128 {
         stepper.frame_step_server_first(1);
@@ -25,7 +25,7 @@ fn dhat_warmed_idle_network_frame() {
 #[test]
 #[ignore = "manual heap profile; writes target/dhat-network-messages.json"]
 fn dhat_warmed_bidirectional_messages() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     use_single_threaded_schedules(&mut stepper);
     for _ in 0..128 {
         run_bidirectional_message_cycle(&mut stepper);
@@ -39,7 +39,7 @@ fn dhat_warmed_bidirectional_messages() {
 #[test]
 #[ignore = "manual heap profile; writes target/dhat-network-replication.json"]
 fn dhat_warmed_replication_update() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     use_single_threaded_schedules(&mut stepper);
     let server_entity = stepper
         .server_app
@@ -59,7 +59,7 @@ fn dhat_warmed_replication_update() {
 #[test]
 #[ignore = "manual heap profile; writes target/dhat-network-prediction.json"]
 fn dhat_warmed_prediction_update() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     stepper
         .server_app
         .add_systems(FixedUpdate, increment_component);

@@ -44,7 +44,7 @@ pub struct ClientServerStepper {
     pub tick_duration: Duration,
     pub current_time: bevy::platform::time::Instant,
     pub avian_mode: AvianReplicationMode,
-    pub minimal_protocol: bool,
+    pub enable_inputs: bool,
 }
 
 /// Type of client to add
@@ -75,7 +75,7 @@ pub struct StepperConfig {
     pub server_registry: Option<MetricsRegistry>,
     pub client_registry: Option<MetricsRegistry>,
     pub avian_mode: AvianReplicationMode,
-    pub minimal_protocol: bool,
+    pub enable_inputs: bool,
 }
 
 impl StepperConfig {
@@ -90,15 +90,14 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
-            minimal_protocol: false,
+            enable_inputs: true,
         }
     }
 
-    /// Single-client setup with only the message, replication, and prediction
-    /// protocol registrations needed by allocation-sensitive tests.
-    pub fn single_minimal() -> Self {
+    /// Single-client setup without Bevy or Lightyear input plugins.
+    pub fn single_without_inputs() -> Self {
         Self {
-            minimal_protocol: true,
+            enable_inputs: false,
             ..Self::single()
         }
     }
@@ -114,7 +113,7 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
-            minimal_protocol: false,
+            enable_inputs: true,
         }
     }
 
@@ -128,7 +127,7 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
-            minimal_protocol: false,
+            enable_inputs: true,
         }
     }
 
@@ -142,7 +141,7 @@ impl StepperConfig {
             server_registry: None,
             client_registry: None,
             avian_mode: AvianReplicationMode::default(),
-            minimal_protocol: false,
+            enable_inputs: true,
         }
     }
 }
@@ -154,7 +153,7 @@ impl ClientServerStepper {
             config.frame_duration,
             config.server,
             config.avian_mode,
-            config.minimal_protocol,
+            config.enable_inputs,
             config.server_registry.clone(),
         );
         for client_type in config.clients {
@@ -173,20 +172,16 @@ impl ClientServerStepper {
         frame_duration: Duration,
         server_type: ServerType,
         avian_mode: AvianReplicationMode,
-        minimal_protocol: bool,
+        enable_inputs: bool,
         metrics_registry: Option<MetricsRegistry>,
     ) -> Self {
         let mut server_app = App::new();
-        server_app.add_plugins((MinimalPlugins, StatesPlugin));
-        if !minimal_protocol {
-            // NOTE: we add LogPlugin so that tracing works
-            server_app.add_plugins((
-                TransformPlugin,
-                InputPlugin,
-                LogPlugin::default(),
-                MetricsPlugin::new(metrics_registry),
-            ));
+        server_app.add_plugins((MinimalPlugins, TransformPlugin, StatesPlugin));
+        if enable_inputs {
+            server_app.add_plugins(InputPlugin);
         }
+        // NOTE: we add LogPlugin so that tracing works
+        server_app.add_plugins((LogPlugin::default(), MetricsPlugin::new(metrics_registry)));
         #[cfg(feature = "steam")]
         if matches!(server_type, ServerType::Steam) {
             // the steam resources need to be added before the ServerPlugins
@@ -196,7 +191,7 @@ impl ClientServerStepper {
         // ProtocolPlugin needs to be added AFTER InputPlugin
         server_app.add_plugins(ProtocolPlugin {
             avian_mode,
-            minimal: minimal_protocol,
+            enable_inputs,
         });
         let mut server = server_app.world_mut().spawn_empty();
 
@@ -231,7 +226,7 @@ impl ClientServerStepper {
             tick_duration,
             current_time: bevy::platform::time::Instant::now(),
             avian_mode,
-            minimal_protocol,
+            enable_inputs,
         }
     }
 
@@ -241,15 +236,11 @@ impl ClientServerStepper {
         metrics_registry: Option<MetricsRegistry>,
     ) -> usize {
         let mut client_app = App::new();
-        client_app.add_plugins((MinimalPlugins, StatesPlugin));
-        if !self.minimal_protocol {
-            client_app.add_plugins((
-                TransformPlugin,
-                InputPlugin,
-                LogPlugin::default(),
-                MetricsPlugin::new(metrics_registry),
-            ));
+        client_app.add_plugins((MinimalPlugins, TransformPlugin, StatesPlugin));
+        if self.enable_inputs {
+            client_app.add_plugins(InputPlugin);
         }
+        client_app.add_plugins((LogPlugin::default(), MetricsPlugin::new(metrics_registry)));
 
         #[cfg(feature = "steam")]
         if client_type == ClientType::Steam {
@@ -262,7 +253,7 @@ impl ClientServerStepper {
         // ProtocolPlugin needs to be added AFTER ClientPlugins, InputPlugin, because we need the PredictionRegistry to exist
         client_app.add_plugins(ProtocolPlugin {
             avian_mode: self.avian_mode,
-            minimal: self.minimal_protocol,
+            enable_inputs: self.enable_inputs,
         });
         client_app.finish();
         client_app.cleanup();
@@ -391,7 +382,7 @@ impl ClientServerStepper {
             frame_duration,
             server_type,
             AvianReplicationMode::default(),
-            false,
+            true,
             None,
         )
     }

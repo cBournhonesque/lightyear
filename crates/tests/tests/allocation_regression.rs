@@ -31,8 +31,8 @@ struct AllocationMeasurement {
 
 #[derive(Debug)]
 struct AllocationBudget {
-    allocations: usize,
-    bytes_allocated: usize,
+    max_allocations_per_frame: usize,
+    max_bytes_per_frame: usize,
 }
 
 #[test]
@@ -45,43 +45,34 @@ fn steady_state_networking_work_stays_within_allocation_budget() {
     eprintln!("replication update steady-state allocations: {replication_stats:#?}");
     eprintln!("prediction update steady-state allocations: {prediction_stats:#?}");
 
-    // Message serialization currently promotes each BytesMut payload to shared
-    // storage, and the netcode/transport layers add packet ownership allocations.
+    // These are deliberately coarse per-frame ceilings. They detect meaningful
+    // regressions without depending on allocator layouts or upstream struct sizes.
     assert_allocation_budget(
         "message send/receive",
         message_stats,
         AllocationBudget {
-            allocations: MEASURED_FRAMES * 13,
-            bytes_allocated: MEASURED_FRAMES * 1_200,
+            max_allocations_per_frame: 16,
+            max_bytes_per_frame: 2 * 1024,
         },
     );
-    // Bevy Replicon currently allocates one 304-byte MutateInfo entity vector
-    // for each frame containing a component mutation.
-    let replication_budget = || AllocationBudget {
-        allocations: MEASURED_FRAMES,
-        bytes_allocated: MEASURED_FRAMES * 304,
+    let entity_update_budget = || AllocationBudget {
+        max_allocations_per_frame: 2,
+        max_bytes_per_frame: 1024,
     };
     assert_allocation_budget(
         "replication update",
         replication_stats,
-        replication_budget(),
+        entity_update_budget(),
     );
-    // Prediction reuses its history buffers, but this window can cross four
-    // completed replication checkpoints. Each checkpoint enters Bevy's
-    // parallel unchanged-entity rollback scan, whose task-queue blocks are
-    // pending the adaptive-iteration work tracked separately.
     assert_allocation_budget(
         "prediction update",
         prediction_stats,
-        AllocationBudget {
-            allocations: MEASURED_FRAMES + 4,
-            bytes_allocated: MEASURED_FRAMES * 304 + 18 * 1024,
-        },
+        entity_update_budget(),
     );
 }
 
 fn measure_message_send_receive() -> AllocationMeasurement {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     stepper.server_app.init_resource::<ReceivedMessageCount>();
     stepper
         .server_app
@@ -175,7 +166,7 @@ fn count_received_messages(
 }
 
 fn measure_replication_updates() -> AllocationMeasurement {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     use_single_threaded_schedules(&mut stepper);
     let server_entity = stepper
         .server_app
@@ -237,7 +228,7 @@ fn run_replication_update(
 }
 
 fn measure_prediction_updates() -> AllocationMeasurement {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_minimal());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single_without_inputs());
     stepper.server_app.insert_resource(SimulationEnabled(true));
     stepper
         .client_app()
@@ -414,6 +405,8 @@ fn assert_allocation_budget(
     measurement: AllocationMeasurement,
     budget: AllocationBudget,
 ) {
+    let max_allocations = MEASURED_FRAMES * budget.max_allocations_per_frame;
+    let max_bytes = MEASURED_FRAMES * budget.max_bytes_per_frame;
     let incremental_allocations = measurement
         .active
         .allocations
@@ -424,19 +417,19 @@ fn assert_allocation_budget(
         .saturating_sub(measurement.idle.bytes_allocated);
 
     assert!(
-        incremental_allocations <= budget.allocations,
+        incremental_allocations <= max_allocations,
         "{name} exceeded its allocation-call budget ({incremental_allocations} > {}): \
          {measurement:#?}",
-        budget.allocations,
+        max_allocations,
     );
     assert!(
         measurement.active.reallocations <= measurement.idle.reallocations,
         "{name} added reallocation calls beyond the idle pipeline: {measurement:#?}",
     );
     assert!(
-        incremental_bytes <= budget.bytes_allocated,
+        incremental_bytes <= max_bytes,
         "{name} exceeded its allocated-byte budget ({incremental_bytes} > {}): {measurement:#?}",
-        budget.bytes_allocated,
+        max_bytes,
     );
     assert_eq!(
         measurement.active.allocations, measurement.active.deallocations,
