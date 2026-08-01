@@ -9,6 +9,8 @@ use bevy_utils::prelude::DebugName;
 use core::time::Duration;
 use lightyear_connection::client::{Client, Connected, Disconnected};
 use lightyear_connection::host::HostClient;
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_connection::p2p::P2P;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{Overstep, TickInstant};
@@ -495,7 +497,7 @@ where
     /// Reset the global synchronized timeline when its client link connects.
     fn handle_connect(
         trigger: On<Add, Connected>,
-        clients: Query<(), With<Client>>,
+        clients: Query<(), (With<Client>, Without<P2P>)>,
         local_timeline: Res<LocalTimeline>,
         mut timeline: Single<&mut Synced, With<IsResource>>,
     ) {
@@ -507,7 +509,7 @@ where
     /// Mark the resource entity as synchronized for a host-client session.
     fn handle_host_client(
         trigger: On<Add, HostClient>,
-        clients: Query<(), With<Client>>,
+        clients: Query<(), (With<Client>, Without<P2P>)>,
         timeline_entity: Single<Entity, (With<Synced>, With<IsResource>)>,
         mut commands: Commands,
     ) {
@@ -521,7 +523,7 @@ where
     /// Remove the synchronization marker from the resource entity when its client disconnects.
     fn handle_disconnect(
         trigger: On<Add, Disconnected>,
-        clients: Query<(), With<Client>>,
+        clients: Query<(), (With<Client>, Without<P2P>)>,
         timeline_entity: Single<Entity, (With<Synced>, With<IsResource>)>,
         mut commands: Commands,
     ) {
@@ -549,22 +551,28 @@ where
         Self::apply_relative_speed(&timeline, &mut virtual_time);
     }
 
-    /// Synchronize the resource timeline with the single connected, non-host client link.
+    /// Synchronize the resource timeline with the conventional Client Link cached by the topology.
     ///
     /// P2P aggregation will provide a different remote-target policy while retaining the same
     /// resource timeline and synchronization controller.
     fn sync_timelines(
         tick_duration: Res<TickDuration>,
+        metadata: Res<NetworkingMetadata>,
         config: Res<Synced::Config>,
         timeline: Single<(Entity, &mut Synced, Has<IsSynced<Synced>>), With<IsResource>>,
-        remote: Single<
+        remotes: Query<
             (&Remote, &PingManager),
             (With<Client>, With<Connected>, Without<HostClient>),
         >,
         mut commands: Commands,
     ) {
+        let NetworkTopology::Client(client) = &metadata.mode else {
+            return;
+        };
+        let Ok((remote, ping_manager)) = remotes.get(*client) else {
+            return;
+        };
         let (entity, mut synced, is_synced) = timeline.into_inner();
-        let (remote, ping_manager) = remote.into_inner();
         Self::sync_timeline(
             entity,
             &mut synced,

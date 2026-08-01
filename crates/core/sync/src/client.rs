@@ -62,7 +62,6 @@ impl Plugin for ClientPlugin {
         // while every runtime configuration update, connection, and sync event happens after it.
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
-        app.add_observer(InputTimelineConfig::recompute_input_delay_on_connect);
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
@@ -81,6 +80,7 @@ mod tests {
     use super::*;
     use bevy_time::{TimePlugin, TimeUpdateStrategy};
     use core::time::Duration;
+    use lightyear_connection::network_topology::NetworkingMetadata;
     use lightyear_core::plugin::CorePlugins;
     use lightyear_core::time::TickInstant;
     use lightyear_link::prelude::Linked;
@@ -93,6 +93,7 @@ mod tests {
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 10,
             )));
+        app.init_resource::<NetworkingMetadata>();
         app.add_plugins((
             TimePlugin,
             CorePlugins {
