@@ -1,6 +1,5 @@
 use crate::protocol::*;
 use crate::stepper::*;
-use bevy::ecs::entity::UniqueEntityArray;
 use bevy::prelude::*;
 use core::fmt::Debug;
 use lightyear::prelude::Message;
@@ -221,9 +220,7 @@ fn test_send_multi_messages() {
         .server_app
         .register_system(move |mut sender: MultiMessageSender| {
             sender
-                .send::<_, Channel1>(&message, unsafe {
-                    UniqueEntityArray::from_array_unchecked([client_of_0, client_of_1])
-                })
+                .send_iter::<_, Channel1, _>(&message, [client_of_0, client_of_1])
                 .ok();
         });
     stepper.server_app.world_mut().run_system(system_id);

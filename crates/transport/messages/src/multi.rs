@@ -3,6 +3,7 @@ use crate::registry::MessageKind;
 use crate::registry::MessageRegistry;
 use crate::send::Priority;
 use crate::{Message, MessageManager};
+use bevy_ecs::entity::ContainsEntity;
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     entity::EntitySet,
@@ -77,5 +78,78 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
 
     pub fn send<M: Message, C: Channel>(&mut self, message: &M, senders: impl EntitySet) -> Result {
         self.send_with_priority::<M, C>(message, senders, 1.0)
+    }
+
+    /// Sends a message to each entity yielded by `senders` without requiring the iterator to
+    /// encode Bevy's [`EntitySet`] uniqueness guarantee.
+    ///
+    /// This is useful for small entity collections whose uniqueness is maintained by their owner
+    /// but not represented in their collection type. Unlike [`Self::send`], duplicate entities are
+    /// permitted and will receive the message more than once. Entities that do not contain the
+    /// required messaging components are skipped.
+    pub fn send_iter_with_priority<M: Message, C: Channel, I>(
+        &mut self,
+        message: &M,
+        senders: I,
+        priority: Priority,
+    ) -> Result
+    where
+        I: IntoIterator,
+        I::Item: ContainsEntity,
+    {
+        if !self.registry.is_map_entities::<M>()? {
+            self.registry.serialize::<M>(
+                message,
+                &mut self.writer,
+                &mut SendEntityMap::default(),
+            )?;
+            let bytes = self.writer.split();
+            let bytes_len = bytes.len();
+            for sender in senders {
+                let Ok((_, transport)) = self.query.get_mut(sender.entity()) else {
+                    continue;
+                };
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("message/send", "message" => core::any::type_name::<M>())
+                        .increment(1);
+                    metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>())
+                        .increment(bytes_len as f64);
+                }
+                transport.send_with_priority::<C>(bytes.clone(), priority)?;
+            }
+        } else {
+            for sender in senders {
+                let Ok((mut manager, transport)) = self.query.get_mut(sender.entity()) else {
+                    continue;
+                };
+                self.registry.serialize::<M>(
+                    message,
+                    &mut self.writer,
+                    &mut manager.entity_mapper.local_to_remote,
+                )?;
+                let bytes = self.writer.split();
+                #[cfg(feature = "metrics")]
+                {
+                    metrics::counter!("message/send", "message" => core::any::type_name::<M>())
+                        .increment(1);
+                    metrics::gauge!("message/send_bytes", "message" => core::any::type_name::<M>())
+                        .increment(bytes.len() as f64);
+                }
+                transport.send_with_priority::<C>(bytes, priority)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Sends a message with default priority to each entity yielded by `senders`.
+    ///
+    /// See [`Self::send_iter_with_priority`] for the distinction from [`Self::send`].
+    pub fn send_iter<M: Message, C: Channel, I>(&mut self, message: &M, senders: I) -> Result
+    where
+        I: IntoIterator,
+        I::Item: ContainsEntity,
+    {
+        self.send_iter_with_priority::<M, C, I>(message, senders, 1.0)
     }
 }
