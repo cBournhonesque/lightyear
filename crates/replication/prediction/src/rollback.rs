@@ -36,9 +36,7 @@ use super::predicted_history::PredictionHistory;
 use crate::correction::PreviousVisual;
 use crate::despawn::PredictionDisable;
 use crate::diagnostics::PredictionMetrics;
-use crate::manager::{
-    LastConfirmedInput, PredictionManager, PredictionResource, RollbackMode, StateRollbackMetadata,
-};
+use crate::manager::{LastConfirmedInput, PredictionManager, RollbackMode, StateRollbackMetadata};
 use crate::plugin::PredictionSystems;
 use crate::registry::PredictionRegistry;
 use alloc::vec::Vec;
@@ -56,8 +54,7 @@ use bevy_replicon::shared::backend::channels::ServerChannel;
 use bevy_time::{Fixed, Time};
 use bevy_utils::prelude::DebugName;
 use core::fmt::Debug;
-use lightyear_connection::client::{Client, Connected};
-use lightyear_connection::host::HostClient;
+use lightyear_connection::network_topology::NetworkingMetadata;
 use lightyear_core::history_buffer::HistoryState;
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
@@ -99,7 +96,7 @@ pub enum RollbackSystems {
     Rollback,
     /// Logic that returns right after the rollback is done:
     /// - Setting the VisualCorrection
-    /// - Removing the Rollback component
+    /// - Removing the [`Rollback`] resource
     EndRollback,
 
     // PostUpdate
@@ -116,7 +113,16 @@ struct NoRollbackCheckTargets;
 impl Plugin for RollbackPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
+        // `PredictionPlugin` can also be installed directly in small or test applications without
+        // the full Lightyear plugin group. Keep the cached topology available to the common
+        // rollback pipeline in those applications too.
+        app.init_resource::<NetworkingMetadata>();
         app.init_resource::<StateRollbackMetadata>();
+        // Input-only prediction does not install the replication backend. Empty registries and
+        // checkpoint state keep the state-reconciliation branch dormant while allowing the common
+        // rollback decision system to operate on remote inputs.
+        app.init_resource::<ComponentRegistry>();
+        app.init_resource::<ReplicationCheckpointMap>();
 
         // SETS
         app.configure_sets(
@@ -144,7 +150,7 @@ impl Plugin for RollbackPlugin {
         app.add_systems(
             PreUpdate,
             (
-                reset_state_rollback_metadata_if_disconnected.before(RollbackSystems::Check),
+                reset_state_rollback_metadata_on_topology_change.before(RollbackSystems::Check),
                 check_received_replication_messages
                     .after(ClientSystems::ReceivePackets)
                     .before(ClientSystems::Receive),
@@ -283,14 +289,7 @@ impl DeterministicPredicted {
         // TODO: avoid fetching DeterministicPredicted twice when we can convert DeferredWorld to UnsafeWorldCell (0.17.3)
         let deterministic_predicted = *world.get::<DeterministicPredicted>(context.entity).unwrap();
         let tick = world.resource::<LocalTimeline>().tick();
-        let Some(prediction_manager_entity) = world
-            .get_resource::<PredictionResource>()
-            .map(|r| r.link_entity)
-        else {
-            return;
-        };
-        let Some(mut manager) = world.get_mut::<PredictionManager>(prediction_manager_entity)
-        else {
+        let Some(mut manager) = world.get_resource_mut::<PredictionManager>() else {
             return;
         };
         if !deterministic_predicted.skip_despawn {
@@ -317,33 +316,26 @@ pub struct DisabledDuringRollback;
 /// Set a flag if we received any replication message this frame.
 /// Also reset the per-frame state.
 fn check_received_replication_messages(
-    client_messages: Res<ClientMessages>,
+    client_messages: Option<Res<ClientMessages>>,
     mut metadata: ResMut<StateRollbackMetadata>,
 ) {
     // Reset per-frame state
     metadata.reset_frame_state();
 
     // Check if we received any replication messages
-    if client_messages.received_count(ServerChannel::Updates) > 0
-        || client_messages.received_count(ServerChannel::Mutations) > 0
-    {
+    if client_messages.is_some_and(|messages| {
+        messages.received_count(ServerChannel::Updates) > 0
+            || messages.received_count(ServerChannel::Mutations) > 0
+    }) {
         metadata.received_messages_this_frame = true;
     }
 }
 
-fn reset_state_rollback_metadata_if_disconnected(
-    query: Query<
-        (),
-        (
-            With<PredictionManager>,
-            With<Client>,
-            With<Connected>,
-            Without<HostClient>,
-        ),
-    >,
+fn reset_state_rollback_metadata_on_topology_change(
+    networking: Res<NetworkingMetadata>,
     mut metadata: ResMut<StateRollbackMetadata>,
 ) {
-    if query.single().is_err() {
+    if networking.is_changed() {
         metadata.reset_connection_state();
     }
 }
@@ -364,12 +356,10 @@ fn check_rollback(
     _input_timeline: SyncedInputTimeline,
     input_config: Res<InputTimelineConfig>,
     last_confirmed_input: Res<LastConfirmedInput>,
+    mut prediction_manager: ResMut<PredictionManager>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    receiver_query: Single<
-        (Entity, &mut PredictionManager, &mut PreSpawnedReceiver),
-        (With<Client>, Without<HostClient>),
-    >,
+    mut prespawned_receivers: Query<&mut PreSpawnedReceiver>,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
     awaiting_catchup: Query<(), (With<CatchUpGated>, With<ConfirmHistory>)>,
@@ -380,8 +370,6 @@ fn check_rollback(
     #[cfg(feature = "metrics")]
     let _timer = timer_gauge!("prediction/rollback/check");
 
-    let (manager_entity, mut prediction_manager, mut prespawned_receiver) =
-        receiver_query.into_inner();
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
     let max_rollback_ticks = prediction_manager
@@ -409,7 +397,6 @@ fn check_rollback(
                 kind = "rollback_rejected",
                 schedule = "PreUpdate",
                 sample_point = "PreUpdate",
-                entity = ?manager_entity,
                 local_tick = tick.0,
                 rollback_tick = rollback_tick.0,
                 rollback_delta = delta,
@@ -421,13 +408,12 @@ fn check_rollback(
             return;
         }
         prediction_manager.set_rollback_tick(rollback_tick);
-        commands.entity(manager_entity).insert(rollback);
+        commands.insert_resource(rollback);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "rollback_requested",
             schedule = "PreUpdate",
             sample_point = "PreUpdate",
-            entity = ?manager_entity,
             local_tick = tick.0,
             rollback_tick = rollback_tick.0,
             rollback_delta = delta,
@@ -740,17 +726,19 @@ fn check_rollback(
             })
             .collect::<Vec<_>>();
         // If the prespawned entity didn't exist at the rollback tick, despawn it
-        prespawned_receiver.despawn_prespawned_after_with(
-            rollback_tick + 1,
-            |entity| {
-                protected_prespawn_entities.contains(&entity)
-                    || (forced_rollback_requested
-                        && deterministic_predicted
-                            .get(entity)
-                            .is_ok_and(|predicted| predicted.skip_despawn))
-            },
-            &mut commands,
-        );
+        if let Ok(mut prespawned_receiver) = prespawned_receivers.single_mut() {
+            prespawned_receiver.despawn_prespawned_after_with(
+                rollback_tick + 1,
+                |entity| {
+                    protected_prespawn_entities.contains(&entity)
+                        || (forced_rollback_requested
+                            && deterministic_predicted
+                                .get(entity)
+                                .is_ok_and(|predicted| predicted.skip_despawn))
+                },
+                &mut commands,
+            );
+        }
 
         // If the deterministic predicted entity didn't exist at the rollback tick, despawn it
         // We can drain everything because:
@@ -827,7 +815,7 @@ fn check_rollback(
 pub fn reset_input_rollback_tracker(
     _input_timeline: SyncedInputTimeline,
     last_confirmed_input: Res<LastConfirmedInput>,
-    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
+    prediction_manager: Option<Res<PredictionManager>>,
 ) {
     // Reset to u32::MAX so the next `set_if_lower` call always wins and we
     // compute the true minimum across all remote clients for this frame.
@@ -838,7 +826,7 @@ pub fn reset_input_rollback_tracker(
     last_confirmed_input
         .received_any_messages
         .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    if let Some(prediction_manager) = prediction_manager.as_deref() {
+    if let Some(prediction_manager) = prediction_manager {
         prediction_manager
             .earliest_mismatch_input
             .tick
@@ -891,10 +879,10 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
         ),
         Without<DisableRollback>,
     >,
-    manager_query: Single<(&PredictionManager, &Rollback)>,
+    manager: Res<PredictionManager>,
+    rollback: Res<Rollback>,
 ) {
     let kind = DebugName::type_name::<C>();
-    let (manager, rollback) = manager_query.into_inner();
     let current_tick = timeline.tick();
     let _span = trace_span!("prepare_rollback", tick = ?current_tick, kind = ?kind).entered();
     let rollback_tick = manager.get_rollback_start_tick().unwrap();
@@ -905,7 +893,7 @@ pub(crate) fn prepare_rollback<C: Component<Mutability = Mutable> + Clone>(
     for (entity, predicted_component, mut predicted_history, confirmed_history) in
         predicted_query.iter_mut()
     {
-        let is_state_rollback = matches!(rollback, Rollback::FromState);
+        let is_state_rollback = matches!(*rollback, Rollback::FromState);
         let is_completed_state_rollback =
             is_state_rollback && server_confirmed_tick == Some(rollback_tick);
         let is_forced_state_rollback = is_state_rollback && !is_completed_state_rollback;
@@ -1068,9 +1056,7 @@ pub(crate) fn run_rollback(world: &mut World) {
     let local_timeline = world.resource_mut::<LocalTimeline>();
     let current_tick = local_timeline.tick();
     let rollback_start_tick = world
-        .query::<&PredictionManager>()
-        .single(world)
-        .unwrap()
+        .resource::<PredictionManager>()
         .get_rollback_start_tick()
         .expect("we should be in rollback");
 
@@ -1187,22 +1173,22 @@ pub(crate) fn run_rollback(world: &mut World) {
 }
 
 pub(crate) fn end_rollback(
-    prediction_manager: Single<(Entity, &PredictionManager), With<Rollback>>,
+    prediction_manager: Res<PredictionManager>,
+    rollback: Res<Rollback>,
     mut commands: Commands,
 ) {
-    let (entity, prediction_manager) = prediction_manager.into_inner();
     let rollback_tick = prediction_manager.get_rollback_start_tick();
     trace!(
         target: "lightyear_debug::prediction",
         kind = "rollback_end",
         schedule = "PreUpdate",
         sample_point = "PreUpdate",
-        entity = ?entity,
+        rollback = ?*rollback,
         rollback_tick = ?rollback_tick,
         "ending rollback"
     );
     prediction_manager.set_non_rollback();
-    commands.entity(entity).remove::<Rollback>();
+    commands.remove_resource::<Rollback>();
 }
 
 #[cfg(feature = "metrics")]
@@ -1253,12 +1239,10 @@ mod tests {
         world.init_resource::<PredictionRegistry>();
         world.init_resource::<ReplicationCheckpointMap>();
 
-        let manager = world
-            .spawn((PredictionManager::default(), Rollback::FromState))
-            .id();
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromState);
         world
-            .get_mut::<PredictionManager>(manager)
-            .unwrap()
+            .resource::<PredictionManager>()
             .set_rollback_tick(rollback_tick);
 
         let mut history = PredictionHistory::<TestComponent>::default();

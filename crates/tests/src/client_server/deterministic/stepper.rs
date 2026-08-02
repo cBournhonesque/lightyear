@@ -131,6 +131,14 @@ impl DetStepper {
                 .with_input_delay(InputDelayConfig::fixed_input_delay(0))
                 .with_sync_config(sync),
         );
+        client_app.insert_resource(PredictionManager {
+            rollback_policy: RollbackPolicy {
+                state: RollbackMode::Disabled,
+                input: RollbackMode::Check,
+                max_rollback_ticks: 100,
+            },
+            ..default()
+        });
 
         let client_entity = client_app
             .world_mut()
@@ -142,14 +150,6 @@ impl DetStepper {
                 ReplicationSender,
                 ReplicationReceiver,
                 crossbeam_client,
-                PredictionManager {
-                    rollback_policy: RollbackPolicy {
-                        state: RollbackMode::Disabled,
-                        input: RollbackMode::Check,
-                        max_rollback_ticks: 100,
-                    },
-                    ..default()
-                },
                 NetcodeClient::new(auth, NetcodeConfig::default()).unwrap(),
             ))
             .id();

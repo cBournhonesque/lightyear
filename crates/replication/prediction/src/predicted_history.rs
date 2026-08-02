@@ -18,7 +18,7 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, SyncEvent};
+use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::prelude::InputTimelineConfig;
@@ -402,8 +402,6 @@ pub(crate) fn snap_to_confirmed_during_rollback<
 >(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    // Only run during rollback
-    rollback: Single<&Rollback>,
     mut query: Query<(Entity, Option<&mut C>, &ConfirmedHistory<C>), With<Predicted>>,
 ) {
     let tick = timeline.tick();

@@ -269,7 +269,7 @@ pub(crate) fn shoot_weapon(
         ),
         With<ClientContext>,
     >,
-    rollback: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
 ) {
     let tick = timeline.tick();
     let tick_duration = tick_duration.0;
@@ -302,7 +302,7 @@ pub(crate) fn shoot_weapon(
 
         weapon.last_fire_tick = Some(tick);
 
-        let in_rollback = rollback.single().is_ok();
+        let in_rollback = rollback.is_some();
         if !is_server
             && in_rollback
             && replication_mode != &GameReplicationMode::OnlyInputsReplicated

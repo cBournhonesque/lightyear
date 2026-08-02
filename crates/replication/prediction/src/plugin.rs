@@ -20,18 +20,34 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
-use lightyear_connection::client::{Client, Connected};
-use lightyear_connection::host::HostClient;
-use lightyear_core::prelude::ConfirmedHistory;
-use lightyear_replication::prelude::ReplicationSystems;
+#[cfg(feature = "metrics")]
+use bevy_utils::prelude::DebugName;
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_core::prelude::{ConfirmedHistory, is_in_rollback};
+use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSystems};
+use lightyear_replication::prespawn::PreSpawnedReceiver;
 
 /// Plugin that installs client-side prediction systems.
 ///
-/// The systems run for connected, non-host client entities with a
-/// [`PredictionManager`] component. Add `PredictionManager` to the local client
-/// entity to opt that client into prediction and rollback.
+/// The systems run when the application contains a [`PredictionManager`] resource and its cached
+/// network topology is a conventional client or P2P session. Use
+/// [`PredictionAppExt::enable_prediction`] to opt the application into one global prediction and
+/// rollback pipeline. Host-client and server topologies remain authoritative and do not run it.
 #[derive(Default)]
 pub struct PredictionPlugin;
+
+/// Application extension for enabling the global prediction pipeline.
+pub trait PredictionAppExt {
+    /// Enable prediction and rollback with the provided application-global manager.
+    fn enable_prediction(&mut self, manager: PredictionManager) -> &mut Self;
+}
+
+impl PredictionAppExt for App {
+    fn enable_prediction(&mut self, manager: PredictionManager) -> &mut Self {
+        self.init_resource::<LastConfirmedInput>()
+            .insert_resource(manager)
+    }
+}
 
 #[deprecated(note = "Use PredictionSystems instead")]
 pub type PredictionSet = PredictionSystems;
@@ -58,19 +74,19 @@ pub enum PredictionSystems {
     All,
 }
 
-pub(crate) type PredictionFilter = (
-    With<PredictionManager>,
-    With<Client>,
-    With<Connected>,
-    Without<HostClient>,
-);
-
 // NOTE: we need to run the prediction systems even if we're not synced, because we want
 //  our HistoryBuffer to contain values for components/resources that were updated before syncing
 //  is done.
-/// Returns true if the client is not a HostClient and is Connected
-pub(crate) fn should_run(query: Query<(), PredictionFilter>) -> bool {
-    query.single().is_ok()
+/// Returns true if this application opted into prediction and has a supported remote topology.
+pub(crate) fn should_run(
+    manager: Option<Res<PredictionManager>>,
+    metadata: Res<NetworkingMetadata>,
+) -> bool {
+    manager.is_some()
+        && matches!(
+            metadata.mode,
+            NetworkTopology::Client(_) | NetworkTopology::P2P(_)
+        )
 }
 
 /// Enable rollbacking a component even if the component is not networked
@@ -184,6 +200,10 @@ impl Plugin for PredictionPlugin {
         app.init_resource::<PredictionRegistry>();
         app.init_resource::<LastConfirmedInput>();
 
+        // State rollback keeps prespawn matching state on the authoritative receiver Link. This
+        // remains Link-scoped even though the rollback decision and manager are application-global.
+        app.register_required_components::<ReplicationReceiver, PreSpawnedReceiver>();
+
         // Custom entity disabling
         let rollback_disable_id = app
             .world_mut()
@@ -215,7 +235,9 @@ impl Plugin for PredictionPlugin {
         // - During rollback, snap components to confirmed values if we have them
         app.configure_sets(
             FixedPreUpdate,
-            PredictionSystems::SnapToConfirmed.in_set(PredictionSystems::All),
+            PredictionSystems::SnapToConfirmed
+                .in_set(PredictionSystems::All)
+                .run_if(is_in_rollback),
         );
         app.configure_sets(FixedPreUpdate, PredictionSystems::All.run_if(should_run));
 
@@ -242,5 +264,68 @@ impl Plugin for PredictionPlugin {
 
         // PLUGINS
         app.add_plugins((PredictionDiagnosticsPlugin::default(), RollbackPlugin));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::system::RunSystemOnce;
+
+    #[test]
+    fn enable_prediction_inserts_one_global_manager() {
+        let mut app = App::new();
+        let manager = PredictionManager {
+            rollback_policy: crate::manager::RollbackPolicy {
+                max_rollback_ticks: 17,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        app.enable_prediction(manager);
+
+        assert_eq!(
+            app.world()
+                .resource::<PredictionManager>()
+                .rollback_policy
+                .max_rollback_ticks,
+            17
+        );
+        assert!(app.world().contains_resource::<LastConfirmedInput>());
+    }
+
+    #[test]
+    fn prespawn_state_is_required_by_replication_receiver() {
+        let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
+
+        let receiver = app.world_mut().spawn(ReplicationReceiver).id();
+        app.world_mut().flush();
+
+        assert!(app.world().get::<PreSpawnedReceiver>(receiver).is_some());
+    }
+
+    #[test]
+    fn prediction_pipeline_excludes_authoritative_topologies() {
+        let mut app = App::new();
+        app.init_resource::<NetworkingMetadata>();
+        app.enable_prediction(PredictionManager::default());
+        let client = app.world_mut().spawn_empty().id();
+        let server = app.world_mut().spawn_empty().id();
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
+        assert!(app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::P2P(Default::default());
+        assert!(app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
+            NetworkTopology::HostClient { server, client };
+        assert!(!app.world_mut().run_system_once(should_run).unwrap());
+
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Server(server);
+        assert!(!app.world_mut().run_system_once(should_run).unwrap());
     }
 }
