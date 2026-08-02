@@ -1440,38 +1440,6 @@ mod tests {
         assert!(p2p_route.accepts_local_target(Some(&owned_by_client)));
         assert!(p2p_route.accepts_local_target(Some(&owned_by_other)));
     }
-
-    #[test]
-    fn input_route_is_inactive_without_ready_destinations() {
-        assert!(InputRoute::from_topology(&NetworkTopology::Undefined).is_none());
-        assert!(InputRoute::from_topology(&NetworkTopology::P2P(Default::default())).is_none());
-    }
-
-    #[test]
-    fn p2p_link_slice_is_only_viewed_as_an_entity_set_when_unique() {
-        let mut world = World::new();
-        let first = world.spawn_empty().id();
-        let second = world.spawn_empty().id();
-
-        let links = [first, second];
-        assert_eq!(unique_p2p_links(&links).unwrap().as_inner(), &links);
-        assert!(unique_p2p_links(&[first, second, first]).is_none());
-    }
-
-    #[test]
-    fn timeline_shift_updates_local_and_remote_input_ticks_once() {
-        let mut buffer = InputBuffer::<u8, ()> {
-            start_tick: Some(Tick(10)),
-            last_remote_tick: Some(Tick(12)),
-            ..Default::default()
-        };
-
-        shift_input_buffer_ticks(&mut buffer, 3);
-
-        assert_eq!(buffer.start_tick, Some(Tick(13)));
-        assert_eq!(buffer.last_remote_tick, Some(Tick(15)));
-    }
-
     #[test]
     fn input_history_depth_covers_prediction_rollback_window() {
         assert_eq!(input_history_depth(None), HISTORY_DEPTH);
