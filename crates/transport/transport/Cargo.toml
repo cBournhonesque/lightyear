@@ -46,14 +46,11 @@ indexmap.workspace = true
 governor.workspace = true
 lz4_flex = { workspace = true, optional = true }
 metrics = { workspace = true, optional = true }
+no_std_io2.workspace = true
 nonzero_ext.workspace = true
 ringbuffer.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-
-[dev-dependencies]
-dhat.workspace = true
-stats_alloc.workspace = true
 
 [lints]
 workspace = true

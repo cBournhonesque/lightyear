@@ -1,18 +1,21 @@
 use std::alloc::System;
+use std::sync::Mutex;
 
 use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
 use bevy::prelude::{Entity, FixedUpdate, Query, Res, ResMut, Resource, Update, With};
 use lightyear::prelude::{
     MessageReceiver, MessageSender, NetworkTarget, Predicted, PredictionTarget, Replicate,
+    Transport,
 };
 use lightyear_messages::MessageManager;
 use lightyear_prediction::predicted_history::PredictionHistory;
 use lightyear_tests::protocol::{Channel1, CompFull, StringMessage};
-use lightyear_tests::stepper::{ClientServerStepper, StepperConfig};
+use lightyear_tests::stepper::{ClientServerStepper, ClientType, ServerType, StepperConfig};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, Stats, StatsAlloc};
 
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
+static ALLOCATION_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 const WARMUP_FRAMES: usize = 128;
 const MEASURED_FRAMES: usize = 32;
@@ -37,6 +40,7 @@ struct AllocationBudget {
 
 #[test]
 fn steady_state_networking_work_stays_within_allocation_budget() {
+    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
     let message_stats = measure_message_send_receive();
     let replication_stats = measure_replication_updates();
     let prediction_stats = measure_prediction_updates();
@@ -69,6 +73,57 @@ fn steady_state_networking_work_stays_within_allocation_budget() {
         prediction_stats,
         entity_update_budget(),
     );
+}
+
+#[test]
+fn packet_payload_pool_has_no_misses_after_warmup_through_crossbeam_io() {
+    let _guard = ALLOCATION_TEST_LOCK.lock().unwrap();
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::from_link_types(
+        vec![ClientType::Raw],
+        ServerType::Raw,
+    ));
+    stepper.server_app.init_resource::<ReceivedMessageCount>();
+    stepper
+        .server_app
+        .add_systems(Update, count_received_messages);
+    stepper.client_app().init_resource::<ReceivedMessageCount>();
+    stepper
+        .client_app()
+        .add_systems(Update, count_received_messages);
+    use_single_threaded_schedules(&mut stepper);
+
+    for _ in 0..WARMUP_FRAMES {
+        run_bidirectional_message_cycle(&mut stepper);
+    }
+    let misses_before = packet_payload_pool_misses(&stepper);
+    assert!(
+        misses_before > 0,
+        "warmup should exercise packet payload allocation instrumentation",
+    );
+
+    for _ in 0..MEASURED_FRAMES {
+        run_bidirectional_message_cycle(&mut stepper);
+    }
+
+    assert_eq!(
+        packet_payload_pool_misses(&stepper),
+        misses_before,
+        "the real Transport -> Link -> Crossbeam IO path allocated a packet payload after warmup",
+    );
+}
+
+fn packet_payload_pool_misses(stepper: &ClientServerStepper) -> usize {
+    let client_misses = stepper
+        .client(0)
+        .get::<Transport>()
+        .expect("client should have a Transport")
+        .packet_payload_pool_misses();
+    let server_misses = stepper
+        .client_of(0)
+        .get::<Transport>()
+        .expect("server-side client should have a Transport")
+        .packet_payload_pool_misses();
+    client_misses + server_misses
 }
 
 fn measure_message_send_receive() -> AllocationMeasurement {
