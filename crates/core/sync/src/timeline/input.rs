@@ -4,11 +4,13 @@ use crate::timeline::sync::{
 };
 
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::change_detection::Tick as ChangeTick;
 use bevy_ecs::prelude::*;
-use bevy_ecs::resource::IsResource;
-use bevy_ecs::system::SystemParam;
+use bevy_ecs::query::FilteredAccessSet;
+use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
-use core::time::Duration;
+use core::{marker::PhantomData, time::Duration};
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
@@ -277,20 +279,110 @@ pub struct InputTimeline(pub Timeline<InputTimelineConfig>);
 /// Read-only access to the global [`InputTimeline`] after it has synchronized.
 ///
 /// Systems using this parameter are skipped until [`IsSynced<InputTimeline>`] has been inserted on
-/// the resource entity. This keeps callers from having to spell out Bevy's resource-entity query.
-#[derive(SystemParam)]
+/// the resource entity. The timeline itself uses [`Res`]'s cached resource lookup; readiness is
+/// then checked directly on that entity instead of scanning for a unique matching component.
 pub struct SyncedInputTimeline<'w, 's> {
-    timeline:
-        Single<'w, 's, &'static InputTimeline, (With<IsResource>, With<IsSynced<InputTimeline>>)>,
+    timeline: Res<'w, InputTimeline>,
+    marker: PhantomData<&'s ()>,
 }
 
 impl core::ops::Deref for SyncedInputTimeline<'_, '_> {
     type Target = InputTimeline;
 
     fn deref(&self) -> &Self::Target {
-        *self.timeline
+        &self.timeline
     }
 }
+
+type InputTimelineMarkerQuery<'w, 's> = Query<'w, 's, (), With<IsSynced<InputTimeline>>>;
+
+// SAFETY: Both delegated parameters are read-only. `Res<InputTimeline>` registers the timeline
+// resource access, while the marker query registers access to `IsSynced<InputTimeline>` before
+// `get_param` uses it to inspect the resource entity.
+unsafe impl SystemParam for SyncedInputTimeline<'_, '_> {
+    type State = (
+        <Res<'static, InputTimeline> as SystemParam>::State,
+        <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::State,
+    );
+    type Item<'world, 'state> = SyncedInputTimeline<'world, 'state>;
+
+    fn init_state(world: &mut World) -> Self::State {
+        (
+            <Res<'static, InputTimeline> as SystemParam>::init_state(world),
+            <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::init_state(world),
+        )
+    }
+
+    fn init_access(
+        state: &Self::State,
+        system_meta: &mut SystemMeta,
+        component_access_set: &mut FilteredAccessSet,
+        world: &mut World,
+    ) {
+        <Res<'static, InputTimeline> as SystemParam>::init_access(
+            &state.0,
+            system_meta,
+            component_access_set,
+            world,
+        );
+        <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::init_access(
+            &state.1,
+            system_meta,
+            component_access_set,
+            world,
+        );
+    }
+
+    #[inline]
+    unsafe fn get_param<'world, 'state>(
+        state: &'state mut Self::State,
+        system_meta: &SystemMeta,
+        world: UnsafeWorldCell<'world>,
+        change_tick: ChangeTick,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        // SAFETY: `init_access` delegated to `Res<InputTimeline>`, and the caller guarantees that
+        // this is the same World used by `init_state`.
+        let timeline = unsafe {
+            <Res<'static, InputTimeline> as SystemParam>::get_param(
+                &mut state.0,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        // SAFETY: The resource cache is metadata read through a read-only World cell. `state.0` is
+        // the cached ComponentId registered by `Res<InputTimeline>`.
+        let resource_entity = unsafe { world.resource_entities() }
+            .get(state.0)
+            .ok_or_else(|| {
+                SystemParamValidationError::invalid::<Self>(
+                    "InputTimeline resource entity does not exist",
+                )
+            })?;
+        // SAFETY: `init_access` delegated to the read-only marker query, and the caller guarantees
+        // that this is the same World used by `init_state`.
+        let marker_query = unsafe {
+            <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::get_param(
+                &mut state.1,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        if marker_query.get(resource_entity).is_err() {
+            return Err(SystemParamValidationError::skipped::<Self>(
+                "InputTimeline is not synchronized",
+            ));
+        }
+        Ok(SyncedInputTimeline {
+            timeline,
+            marker: PhantomData,
+        })
+    }
+}
+
+// SAFETY: `SyncedInputTimeline` only delegates to read-only system parameters.
+unsafe impl ReadOnlySystemParam for SyncedInputTimeline<'_, '_> {}
 
 impl InputTimeline {
     /// Recompute the global input delay from the Links selected by the current topology.
@@ -482,6 +574,38 @@ mod tests {
             error < 0.001,
             "expected {expected:?}, got {actual:?}, error {error}"
         );
+    }
+
+    #[derive(Resource, Default)]
+    struct SyncedParamRuns(u8);
+
+    #[test]
+    fn synced_input_timeline_checks_the_resource_entity_marker() {
+        fn require_synced_timeline(
+            _timeline: SyncedInputTimeline,
+            mut runs: ResMut<SyncedParamRuns>,
+        ) {
+            runs.0 += 1;
+        }
+
+        let mut app = App::new();
+        app.init_resource::<InputTimeline>();
+        app.init_resource::<SyncedParamRuns>();
+        app.add_systems(Update, require_synced_timeline);
+
+        // A marker on an arbitrary entity must not make the resource available as synchronized.
+        app.world_mut().spawn(IsSynced::<InputTimeline>::default());
+        app.update();
+        assert_eq!(app.world().resource::<SyncedParamRuns>().0, 0);
+
+        let timeline_id = app.world().component_id::<InputTimeline>().unwrap();
+        let timeline_entity = app.world().resource_entities().get(timeline_id).unwrap();
+        app.world_mut()
+            .entity_mut(timeline_entity)
+            .insert(IsSynced::<InputTimeline>::default());
+
+        app.update();
+        assert_eq!(app.world().resource::<SyncedParamRuns>().0, 1);
     }
 
     #[test]
