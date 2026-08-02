@@ -15,6 +15,7 @@ use bevy_ecs::schedule::IntoScheduleConfigs;
 use bevy_time::{Real, Time};
 #[cfg(feature = "test_utils")]
 use bevy_utils::default;
+#[cfg(test)]
 use bytes::Bytes;
 use core::time::Duration;
 use lightyear_connection::host::HostClient;
@@ -403,6 +404,7 @@ impl TransportPlugin {
                 }).inspect_err(|e| error!("error buffering host-client message: {e:?}")).ok();
                 return
             }
+            transport.packet_manager.begin_send(mtu);
             (|| {
                 while let Ok((channel_kind, bytes, priority)) = transport.recv_channel.try_recv() {
                     let channel_send = transport.senders.get(&channel_kind).ok_or(
@@ -504,7 +506,8 @@ impl TransportPlugin {
                 // Acceptance into Link.send is the transactional boundary. Packet ids, retry
                 // timestamps, ack maps, and metrics are committed only after this point.
                 total_bytes_sent += packet.payload.len() as u32;
-                link.send.push(Bytes::from(core::mem::take(&mut packet.payload)));
+                let payload = transport.packet_manager.take_send_payload(&mut packet);
+                link.send.push(payload);
                 transport
                     .packet_manager
                     .header_manager
@@ -595,16 +598,13 @@ impl TransportPlugin {
                         let packet_id = packet.packet_id;
                         let packet_len = packet.payload.len();
                         trace!(?packet_id, packet_len, "sending ACK-only packet");
-                        link.send
-                            .push(Bytes::from(core::mem::take(&mut packet.payload)));
+                        let payload = transport.packet_manager.take_send_payload(&mut packet);
+                        link.send.push(payload);
                         transport
                             .packet_manager
                             .header_manager
                             .commit_send_ack_only(packet_id);
                         total_bytes_sent += packet_len as u32;
-                        transport
-                            .packet_manager
-                            .recycle_message_metadata_list(packet.messages);
                     }
                     Err(error) => error!(?error, "failed to stage ACK-only packet"),
                 }

@@ -255,7 +255,8 @@ pub(crate) fn compress_packet(
     scratch: &mut CompressionScratch,
     output: &mut Vec<u8>,
 ) -> Result<CompressionOutcome, PacketError> {
-    let outcome = evaluate_packet_compression(&packet.payload, config, mtu, scratch, output)?;
+    let outcome =
+        evaluate_packet_compression(packet.payload.as_ref(), config, mtu, scratch, output)?;
     let CompressionOutcome::Compressed {
         original_len,
         compressed_len,
@@ -264,12 +265,13 @@ pub(crate) fn compress_packet(
         return Ok(outcome);
     };
 
-    let packet_type = PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET])?;
+    let packet_type =
+        PacketType::try_from(packet.payload.as_ref()[PacketHeader::PACKET_TYPE_OFFSET])?;
     let compressed_packet_type = packet_type
         .compressed_variant()
         .expect("compression evaluation rejects already-compressed packet types");
     let compressed_payload_len = compressed_len - HEADER_BYTES;
-    packet.payload[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
+    packet.payload.as_mut()[PacketHeader::PACKET_TYPE_OFFSET] = compressed_packet_type.into();
     packet.payload.truncate(HEADER_BYTES);
     packet
         .payload
@@ -362,13 +364,14 @@ mod tests {
     use super::*;
     use crate::packet::header::PacketHeaderManager;
     use crate::packet::packet::{MessageMetadata, PacketId};
+    use crate::packet::packet_builder::write_to_payload;
+    use bytes::BytesMut;
     use lightyear_core::tick::Tick;
-    use lightyear_serde::ToBytes;
 
     fn packet_with_body(packet_type: PacketType, body: &[u8]) -> Packet {
         let header = PacketHeaderManager::new(1.5).preview_send_packet_header(packet_type, Tick(0));
-        let mut payload = Vec::new();
-        header.to_bytes(&mut payload).unwrap();
+        let mut payload = BytesMut::with_capacity(HEADER_BYTES + body.len());
+        write_to_payload(&header, &mut payload).unwrap();
         payload.extend_from_slice(body);
 
         Packet {
@@ -382,7 +385,7 @@ mod tests {
     #[test]
     fn disabled_compression_leaves_packet_unchanged() {
         let mut packet = packet_with_body(PacketType::Data, &[1, 2, 3, 4]);
-        let original = packet.payload.clone();
+        let original = packet.payload.as_ref().to_vec();
         let mut scratch = CompressionScratch::default();
         let mut output = Vec::new();
 
@@ -396,7 +399,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(outcome, CompressionOutcome::Disabled);
-        assert_eq!(packet.payload, original);
+        assert_eq!(packet.payload.as_ref(), original.as_slice());
     }
 
     #[cfg(feature = "compression_lz4")]
@@ -410,7 +413,7 @@ mod tests {
             ..CompressionConfig::LZ4
         };
         let original_capacity = packet.payload.capacity();
-        let original_pointer = packet.payload.as_ptr();
+        let original_pointer = packet.payload.as_ref().as_ptr();
         let mut scratch = CompressionScratch::default();
         let mut output = Vec::new();
 
@@ -420,12 +423,14 @@ mod tests {
         assert!(matches!(outcome, CompressionOutcome::Compressed { .. }));
         assert!(packet.payload.len() < original_len);
         assert_eq!(packet.payload.capacity(), original_capacity);
-        assert_eq!(packet.payload.as_ptr(), original_pointer);
+        assert_eq!(packet.payload.as_ref().as_ptr(), original_pointer);
         assert_eq!(
-            PacketType::try_from(packet.payload[PacketHeader::PACKET_TYPE_OFFSET]).unwrap(),
+            PacketType::try_from(packet.payload.as_ref()[PacketHeader::PACKET_TYPE_OFFSET])
+                .unwrap(),
             PacketType::DataCompressed
         );
-        let decompressed = decompress_payload(&packet.payload[HEADER_BYTES..], config).unwrap();
+        let decompressed =
+            decompress_payload(&packet.payload.as_ref()[HEADER_BYTES..], config).unwrap();
         assert_eq!(decompressed, original_body);
     }
 
@@ -434,7 +439,7 @@ mod tests {
     fn lz4_compression_falls_back_when_not_smaller() {
         let original_body = *b"small payload that should expand";
         let mut packet = packet_with_body(PacketType::Data, &original_body);
-        let original = packet.payload.clone();
+        let original = packet.payload.as_ref().to_vec();
         let config = CompressionConfig {
             min_payload_size: 0,
             ..CompressionConfig::LZ4
@@ -446,7 +451,7 @@ mod tests {
             compress_packet(&mut packet, config, 1200, &mut scratch, &mut output).unwrap();
 
         assert!(matches!(outcome, CompressionOutcome::NotSmaller { .. }));
-        assert_eq!(packet.payload, original);
+        assert_eq!(packet.payload.as_ref(), original.as_slice());
     }
 
     #[cfg(feature = "compression_lz4")]

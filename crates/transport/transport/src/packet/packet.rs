@@ -3,8 +3,8 @@ use crate::channel::registry::ChannelId;
 use crate::channel::registry::ChannelKind;
 use crate::packet::header::PacketHeader;
 use crate::packet::message::{FragmentIndex, MessageId, SendMessageKey};
-use crate::packet::packet_builder::Payload;
 use alloc::vec::Vec;
+use bytes::BytesMut;
 use lightyear_link::DEFAULT_MTU;
 use lightyear_serde::varint::varint_len;
 use lightyear_utils::wrapping_id;
@@ -100,7 +100,7 @@ pub(crate) struct PacketCompressionInfo {
 /// Data structure that will help us write the packet
 #[derive(Debug)]
 pub(crate) struct Packet {
-    pub(crate) payload: Payload,
+    pub(crate) payload: BytesMut,
     /// One packet-local metadata entry per staged message.
     pub(crate) messages: Vec<MessageMetadata>,
     pub(crate) packet_id: PacketId,
@@ -152,7 +152,7 @@ mod tests {
         pub(crate) fn parse_packet_payload(
             self,
         ) -> Result<HashMap<ChannelId, Vec<Bytes>>, PacketError> {
-            let mut cursor = self.payload.into();
+            let mut cursor = self.payload.freeze().into();
             let mut res: HashMap<ChannelId, Vec<Bytes>> = HashMap::default();
             let header = PacketHeader::from_bytes(&mut cursor)?;
 

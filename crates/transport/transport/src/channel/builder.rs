@@ -215,6 +215,14 @@ impl Transport {
     pub fn set_compression(&mut self, compression: CompressionConfig) {
         self.compression = compression;
     }
+
+    /// Number of packet payload buffers allocated because none was ready in the local pool.
+    ///
+    /// This is test-only instrumentation for exercising the real Transport -> Link -> IO path.
+    #[cfg(feature = "test_utils")]
+    pub fn packet_payload_pool_misses(&self) -> usize {
+        self.packet_manager.payload_pool_misses()
+    }
 }
 
 impl Default for Transport {
@@ -726,7 +734,7 @@ mod tests {
         packet: Packet,
         compression: CompressionConfig,
     ) -> Result<(), PacketError> {
-        let mut cursor = Reader::from(packet.payload);
+        let mut cursor = Reader::from(packet.payload.freeze());
         let header = PacketHeader::from_bytes(&mut cursor)?;
         let tick = header.tick;
         let mut packet_type = header.get_packet_type();
