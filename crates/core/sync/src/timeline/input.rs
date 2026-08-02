@@ -508,7 +508,7 @@ impl SyncedTimeline for InputTimeline {
         let adjustment = if !self.is_synced {
             SyncAdjustment::Resync
         } else {
-            self.sync.speed_adjustment(&config.sync, error_ticks)
+            self.speed_adjustment(config, error_ticks)
         };
         trace!(
             ?now,
@@ -524,19 +524,25 @@ impl SyncedTimeline for InputTimeline {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));
             }
-            SyncAdjustment::SpeedAdjust(ratio) => {
-                self.set_relative_speed(ratio);
-            }
-            SyncAdjustment::DoNothing => {
-                // within acceptable margins, gradually return to normal speed (1.0)
-                let current = self.relative_speed();
-                if (current - 1.0).abs() > 0.001 {
-                    let new_speed = current + (1.0 - current) * 0.1;
-                    self.set_relative_speed(new_speed);
-                }
-            }
+            SyncAdjustment::SpeedAdjust(_) | SyncAdjustment::DoNothing => {}
         }
         None
+    }
+
+    fn speed_adjustment(&mut self, config: &Self::Config, offset: f32) -> SyncAdjustment {
+        let adjustment = self.sync.speed_adjustment(&config.sync, offset);
+        match adjustment {
+            SyncAdjustment::SpeedAdjust(ratio) => self.set_relative_speed(ratio),
+            SyncAdjustment::DoNothing => {
+                // Within acceptable margins, gradually return to normal speed.
+                let current = self.relative_speed();
+                if (current - 1.0).abs() > 0.001 {
+                    self.set_relative_speed(current + (1.0 - current) * 0.1);
+                }
+            }
+            SyncAdjustment::Resync => {}
+        }
+        adjustment
     }
 
     fn is_synced(&self) -> bool {
@@ -553,6 +559,7 @@ impl SyncedTimeline for InputTimeline {
 
     fn reset(&mut self) {
         trace!("Resetting InputTimeline");
+        self.sync = SyncContext::default();
         self.is_synced = false;
         self.relative_speed = 1.0;
         self.now = Default::default();
