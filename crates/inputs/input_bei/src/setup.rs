@@ -13,14 +13,15 @@ use bevy_replicon::shared::replication::registry::ctx::{SerializeCtx, WriteCtx};
 use lightyear_replication::prelude::ControlledBy;
 #[cfg(feature = "client")]
 use {
-    bevy_enhanced_input::context::ExternallyMocked, lightyear_connection::client::Client,
+    bevy_enhanced_input::context::ExternallyMocked,
+    lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata},
     lightyear_replication::prelude::Controlled,
 };
 
 use bevy_enhanced_input::prelude::*;
 #[cfg(any(feature = "client", feature = "server"))]
 use bevy_utils::prelude::DebugName;
-#[cfg(any(feature = "client", feature = "server"))]
+#[cfg(feature = "server")]
 use lightyear_connection::host::HostClient;
 #[cfg(all(feature = "client", feature = "server"))]
 use lightyear_connection::host::HostServer;
@@ -169,13 +170,13 @@ impl InputRegistryPlugin {
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_action_received<C: Component>(
         trigger: On<Add, ActionOf<C>>,
-        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        metadata: Res<NetworkingMetadata>,
         actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
         contexts: Query<(), With<C>>,
         controlled: Query<(), With<Controlled>>,
         mut commands: Commands,
     ) {
-        if clients.is_empty() {
+        if !receives_remote_inputs(&metadata.mode) {
             return;
         }
         let entity = trigger.entity;
@@ -197,12 +198,12 @@ impl InputRegistryPlugin {
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_context_received<C: Component>(
         trigger: On<Add, C>,
-        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        metadata: Res<NetworkingMetadata>,
         contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
         actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
         mut commands: Commands,
     ) {
-        if clients.is_empty() {
+        if !receives_remote_inputs(&metadata.mode) {
             return;
         }
         let Ok((context_actions, has_controlled)) = contexts.get(trigger.entity) else {
@@ -221,12 +222,12 @@ impl InputRegistryPlugin {
     #[cfg(feature = "client")]
     pub(crate) fn on_rebroadcast_context_controlled<C: Component>(
         trigger: On<Add, Controlled>,
-        clients: Query<(), (With<Client>, Without<HostClient>)>,
+        metadata: Res<NetworkingMetadata>,
         contexts: Query<(&Actions<C>, Has<Controlled>), With<C>>,
         actions: Query<(&ActionOf<C>, Has<ExternallyMocked>, Has<Bindings>), With<Remote>>,
         mut commands: Commands,
     ) {
-        if clients.is_empty() {
+        if !receives_remote_inputs(&metadata.mode) {
             return;
         }
         let Ok((context_actions, has_controlled)) = contexts.get(trigger.entity) else {
@@ -238,6 +239,18 @@ impl InputRegistryPlugin {
             &actions,
             &mut commands,
         );
+    }
+}
+
+#[cfg(feature = "client")]
+fn receives_remote_inputs(topology: &NetworkTopology) -> bool {
+    match topology {
+        NetworkTopology::Client(_) => true,
+        NetworkTopology::P2P(links) => !links.is_empty(),
+        NetworkTopology::Undefined
+        | NetworkTopology::Server(_)
+        | NetworkTopology::HostClient { .. }
+        | NetworkTopology::Invalid(_) => false,
     }
 }
 
@@ -344,7 +357,6 @@ impl InputRegistryExt for &mut App {
 #[cfg(all(test, feature = "client"))]
 mod tests {
     use super::*;
-    use lightyear_connection::client::Client;
     use lightyear_replication::prelude::Controlled;
 
     #[derive(Component)]
@@ -355,7 +367,10 @@ mod tests {
         app.add_observer(InputRegistryPlugin::on_rebroadcast_action_received::<TestContext>);
         app.add_observer(InputRegistryPlugin::on_rebroadcast_context_received::<TestContext>);
         app.add_observer(InputRegistryPlugin::on_rebroadcast_context_controlled::<TestContext>);
-        app.world_mut().spawn(Client);
+        let client = app.world_mut().spawn_empty().id();
+        let mut metadata = NetworkingMetadata::default();
+        metadata.mode = NetworkTopology::Client(client);
+        app.insert_resource(metadata);
         app
     }
 

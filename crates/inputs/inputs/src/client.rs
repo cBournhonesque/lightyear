@@ -61,15 +61,15 @@ use bevy_ecs::entity::MapEntities;
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
-use lightyear_connection::host::HostClient;
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::prelude::*;
 use lightyear_core::tick::TickDuration;
 #[cfg(feature = "interpolation")]
 use lightyear_core::time::TickDelta;
 
-use lightyear_connection::client::Client;
 #[cfg(feature = "interpolation")]
 use lightyear_interpolation::prelude::*;
+use lightyear_messages::multi::MultiMessageSender;
 use lightyear_messages::plugin::MessageSystems;
 #[cfg(feature = "prediction")]
 use lightyear_messages::prelude::MessageReceiver;
@@ -269,6 +269,74 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
     }
 }
 
+/// Cached input routing derived from [`NetworkingMetadata`].
+///
+/// Conventional client and host-client modes retain their single Link as the local ownership
+/// identity. P2P mode borrows the already-cached connected Link slice and treats `S::Marker` as
+/// the local-input identity because each Link represents a remote peer.
+#[derive(Clone, Copy, Debug)]
+enum InputRoute<'a> {
+    Conventional { link: Entity, host_client: bool },
+    P2P(&'a [Entity]),
+}
+
+impl<'a> InputRoute<'a> {
+    #[inline]
+    fn from_topology(topology: &'a NetworkTopology) -> Option<Self> {
+        match topology {
+            NetworkTopology::Client(link) => Some(Self::Conventional {
+                link: *link,
+                host_client: false,
+            }),
+            NetworkTopology::HostClient { client, .. } => Some(Self::Conventional {
+                link: *client,
+                host_client: true,
+            }),
+            NetworkTopology::P2P(links) if !links.is_empty() => Some(Self::P2P(links.as_slice())),
+            NetworkTopology::Undefined
+            | NetworkTopology::Server(_)
+            | NetworkTopology::P2P(_)
+            | NetworkTopology::Invalid(_) => None,
+        }
+    }
+
+    #[inline]
+    fn is_host_client(self) -> bool {
+        matches!(
+            self,
+            Self::Conventional {
+                host_client: true,
+                ..
+            }
+        )
+    }
+
+    #[inline]
+    fn accepts_local_target(self, controlled_by: Option<&ControlledBy>) -> bool {
+        match self {
+            Self::Conventional { link, .. } => {
+                !controlled_by.is_some_and(|controlled_by| controlled_by.owner != link)
+            }
+            // `S::Marker` is the local-capture marker in P2P. `ControlledBy` describes a
+            // replication sender and therefore cannot identify this app among remote peer Links.
+            Self::P2P(_) => true,
+        }
+    }
+
+    #[inline]
+    fn any_link(self, mut predicate: impl FnMut(Entity) -> bool) -> bool {
+        match self {
+            Self::Conventional { link, .. } => predicate(link),
+            Self::P2P(links) => links.iter().copied().any(predicate),
+        }
+    }
+}
+
+#[inline]
+fn route_is_in_rollback(route: InputRoute<'_>, rollbacks: &Query<(), With<Rollback>>) -> bool {
+    route.any_link(|link| rollbacks.contains(link))
+}
+
 // equivalent to &ActionState<S::Action>
 
 /// Write the value of the ActionState in the InputBuffer.
@@ -289,7 +357,8 @@ fn buffer_action_state<S: ActionStateSequence>(
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
     input_timeline: SyncedInputTimeline,
-    client_entity: Single<Entity, (With<Client>, Without<Rollback>)>,
+    metadata: Res<NetworkingMetadata>,
+    rollbacks: Query<(), With<Rollback>>,
     mut action_state_query: Query<
         (
             Entity,
@@ -300,11 +369,16 @@ fn buffer_action_state<S: ActionStateSequence>(
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let client_entity = *client_entity;
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    if route_is_in_rollback(route, &rollbacks) {
+        return;
+    }
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i32;
     for (entity, action_state, mut input_buffer, controlled_by) in action_state_query.iter_mut() {
-        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
+        if !route.accepts_local_target(controlled_by) {
             continue;
         }
         input_buffer.set(tick, S::to_snapshot(action_state));
@@ -345,7 +419,8 @@ fn get_action_state<S: ActionStateSequence>(
     //  in the server, and also clears the buffers
     input_timeline: Res<InputTimeline>,
     input_timeline_config: Res<InputTimelineConfig>,
-    client: Single<Has<Rollback>, (With<Client>, Without<HostClient>)>,
+    metadata: Res<NetworkingMetadata>,
+    rollbacks: Query<(), With<Rollback>>,
 
     // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -362,7 +437,15 @@ fn get_action_state<S: ActionStateSequence>(
         Allow<PredictionDisable>,
     >,
 ) {
-    let is_rollback = *client;
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    // A host-client shares its authoritative input application with the server-side input
+    // pipeline, so the client system must retain its existing exclusion.
+    if route.is_host_client() {
+        return;
+    }
+    let is_rollback = route_is_in_rollback(route, &rollbacks);
     let input_delay = input_timeline.input_delay() as i32;
     let tick = local_timeline.tick();
     if is_rollback && config.ignore_rollbacks {
@@ -464,7 +547,8 @@ fn get_action_state<S: ActionStateSequence>(
 fn get_delayed_action_state<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     input_timeline: SyncedInputTimeline,
-    client: Single<(Entity, Has<Rollback>), With<Client>>,
+    metadata: Res<NetworkingMetadata>,
+    rollbacks: Query<(), With<Rollback>>,
     mut action_state_query: Query<
         (
             Entity,
@@ -476,7 +560,10 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (client_entity, is_rollback) = client.into_inner();
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    let is_rollback = route_is_in_rollback(route, &rollbacks);
     let input_delay_ticks = input_timeline.input_delay() as i32;
     if is_rollback || input_delay_ticks == 0 {
         return;
@@ -484,7 +571,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     let tick = timeline.tick();
     let delayed_tick = tick + input_delay_ticks;
     for (entity, action_state, input_buffer, controlled_by) in action_state_query.iter_mut() {
-        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
+        if !route.accepts_local_target(controlled_by) {
             continue;
         }
         // TODO: lots of clone + is complicated. Shouldn't we just have a DelayedActionState component + resource?
@@ -522,21 +609,22 @@ fn clean_buffers<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
-    _client: Single<(), (With<Client>, Without<HostClient>)>,
-    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
+    metadata: Res<NetworkingMetadata>,
+    prediction_managers: Query<&PredictionManager>,
     input_config: Res<InputTimelineConfig>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
     >,
 ) {
-    let old_tick = timeline.tick()
-        - input_history_depth(
-            prediction_manager
-                .as_deref()
-                .copied()
-                .map(|manager| (manager, input_config.as_ref())),
-        );
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    if route.is_host_client() {
+        return;
+    }
+    let old_tick =
+        timeline.tick() - input_history_depth_for_route(route, &prediction_managers, &input_config);
 
     // trace!(
     //     "popping all input buffers since old tick: {old_tick:?}",
@@ -560,6 +648,30 @@ fn input_history_depth(
         })
         .unwrap_or(0)
         .max(HISTORY_DEPTH)
+}
+
+fn input_history_depth_for_route(
+    route: InputRoute<'_>,
+    prediction_managers: &Query<&PredictionManager>,
+    input_config: &InputTimelineConfig,
+) -> u32 {
+    let mut history_depth = HISTORY_DEPTH;
+    match route {
+        InputRoute::Conventional { link, .. } => {
+            if let Ok(manager) = prediction_managers.get(link) {
+                history_depth = input_history_depth(Some((manager, input_config)));
+            }
+        }
+        InputRoute::P2P(links) => {
+            for link in links {
+                if let Ok(manager) = prediction_managers.get(*link) {
+                    history_depth =
+                        history_depth.max(input_history_depth(Some((manager, input_config))));
+                }
+            }
+        }
+    }
+    history_depth
 }
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
@@ -591,7 +703,8 @@ fn prepare_input_message<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     input_config: Res<InputConfig<S::Action>>,
     input_timeline: SyncedInputTimeline,
-    client: Single<(Entity, Has<HostClient>), (With<Client>, Without<Rollback>)>,
+    metadata: Res<NetworkingMetadata>,
+    rollbacks: Query<(), With<Rollback>>,
     _channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
         (
@@ -605,7 +718,13 @@ fn prepare_input_message<S: ActionStateSequence>(
     real_time: Res<Time<Real>>,
     mut send_timer: Local<Option<Timer>>,
 ) {
-    let (client_entity, is_host_client) = client.into_inner();
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    if route_is_in_rollback(route, &rollbacks) {
+        return;
+    }
+    let is_host_client = route.is_host_client();
 
     // Only prepare input every send-interval.
     if !input_config.send_interval.is_zero() {
@@ -659,7 +778,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     num_ticks *= input_config.packet_redundancy as u32;
     let mut message = InputMessage::<S>::new(tick);
     for (entity, input_buffer, pre_spawned, controlled_by) in input_buffer_query.iter() {
-        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
+        if !route.accepts_local_target(controlled_by) {
             continue;
         }
         trace!(
@@ -744,20 +863,110 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     #[cfg(feature = "metrics")] mut input_metric_handles: ResMut<InputMetricHandles<S>>,
     _input_timeline: SyncedInputTimeline,
+    metadata: Res<NetworkingMetadata>,
     last_confirmed_input: Res<LastConfirmedInput>,
-    link: Single<
-        (&mut MessageReceiver<InputMessage<S>>, &PredictionManager),
-        // the host-client won't receive input messages from the Server
-        (With<Client>, Without<HostClient>),
-    >,
+    mut receivers: Query<&mut MessageReceiver<InputMessage<S>>>,
+    prediction_managers: Query<&PredictionManager>,
     mut predicted_query: Query<
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
     prespawned: Query<(Entity, &PreSpawned)>,
 ) {
-    let (mut receiver, prediction_manager) = link.into_inner();
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    // The host-client receives authoritative input directly through the server-side pipeline.
+    if route.is_host_client() {
+        return;
+    }
+    let Some(prediction_manager_link) = prediction_manager_link(route, &prediction_managers) else {
+        return;
+    };
+    let Ok(prediction_manager) = prediction_managers.get(prediction_manager_link) else {
+        return;
+    };
     let tick = timeline.tick();
+    let mut received_relevant_input = false;
+    match route {
+        InputRoute::Conventional { link, .. } => {
+            if let Ok(mut receiver) = receivers.get_mut(link) {
+                received_relevant_input |= receive_remote_player_input_messages_from_receiver::<S>(
+                    &mut receiver,
+                    &mut commands,
+                    *tick_duration,
+                    tick,
+                    prediction_manager,
+                    &mut predicted_query,
+                    &prespawned,
+                    #[cfg(feature = "metrics")]
+                    &mut input_metric_handles,
+                );
+            }
+        }
+        InputRoute::P2P(links) => {
+            for link in links {
+                let Ok(mut receiver) = receivers.get_mut(*link) else {
+                    continue;
+                };
+                received_relevant_input |= receive_remote_player_input_messages_from_receiver::<S>(
+                    &mut receiver,
+                    &mut commands,
+                    *tick_duration,
+                    tick,
+                    prediction_manager,
+                    &mut predicted_query,
+                    &prespawned,
+                    #[cfg(feature = "metrics")]
+                    &mut input_metric_handles,
+                );
+            }
+        }
+    }
+
+    if received_relevant_input {
+        last_confirmed_input
+            .received_any_messages
+            .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Return the sole prediction-manager Link selected by the cached route.
+///
+/// P2P temporarily keeps `PredictionManager` on one Link until it becomes a resource in PR 4. If
+/// zero or multiple routed Links contain a manager, input receive remains inactive rather than
+/// associating rollback state with an arbitrary peer.
+fn prediction_manager_link(
+    route: InputRoute<'_>,
+    prediction_managers: &Query<&PredictionManager>,
+) -> Option<Entity> {
+    match route {
+        InputRoute::Conventional { link, .. } => prediction_managers.contains(link).then_some(link),
+        InputRoute::P2P(links) => {
+            let mut matches = links
+                .iter()
+                .copied()
+                .filter(|link| prediction_managers.contains(*link));
+            let first = matches.next()?;
+            matches.next().is_none().then_some(first)
+        }
+    }
+}
+
+#[cfg(feature = "prediction")]
+fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
+    receiver: &mut MessageReceiver<InputMessage<S>>,
+    commands: &mut Commands,
+    tick_duration: TickDuration,
+    tick: Tick,
+    prediction_manager: &PredictionManager,
+    predicted_query: &mut Query<
+        Option<&mut InputBuffer<S::Snapshot, S::Action>>,
+        (Without<S::Marker>, Allow<PredictionDisable>),
+    >,
+    prespawned: &Query<(Entity, &PreSpawned)>,
+    #[cfg(feature = "metrics")] input_metric_handles: &mut InputMetricHandles<S>,
+) -> bool {
     let mut received_relevant_input = false;
     receiver.receive().for_each(|message| {
         trace!(?message.end_tick, ?message, "received remote input message for action: {:?}", DebugName::type_name::<S::Action>());
@@ -864,9 +1073,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     message.end_tick,
                     entity,
                     prediction_manager,
-                    *tick_duration,
+                    tick_duration,
                     #[cfg(feature = "metrics")]
-                    &input_metric_handles,
+                    &*input_metric_handles,
                 );
             } else {
                 // add the ActionState and InputBuffer if they are missing
@@ -879,9 +1088,9 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     message.end_tick,
                     entity,
                     prediction_manager,
-                    *tick_duration,
+                    tick_duration,
                     #[cfg(feature = "metrics")]
-                    &input_metric_handles,
+                    &*input_metric_handles,
                 );
                 // Initialize ActionState from the latest buffered input rather
                 // than from base_value(). When the remote player's end_tick is
@@ -897,12 +1106,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
             };
         }
     });
-
-    if received_relevant_input {
-        last_confirmed_input
-            .received_any_messages
-            .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
-    }
+    received_relevant_input
 }
 
 #[cfg(feature = "prediction")]
@@ -915,13 +1119,16 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     _input_timeline: SyncedInputTimeline,
     input_config: Res<InputTimelineConfig>,
-    _client: Single<(), With<Client>>,
+    metadata: Res<NetworkingMetadata>,
     mut last_confirmed_input: ResMut<LastConfirmedInput>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot, S::Action>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
+    if InputRoute::from_topology(&metadata.mode).is_none() {
+        return;
+    }
     let tick = timeline.tick();
     // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
     // we will just use the current tick as the last confirmed input tick
@@ -1041,17 +1248,31 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
 }
 
 /// Drain the messages from the buffer and send them to the server
+#[cfg_attr(
+    not(feature = "interpolation"),
+    expect(
+        unused_mut,
+        reason = "InputMessage is mutated only when interpolation is enabled"
+    )
+)]
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
     input_timeline: SyncedInputTimeline,
+    metadata: Res<NetworkingMetadata>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    sender: Single<(&mut MessageSender<InputMessage<S>>, Has<HostClient>), With<Client>>,
-    #[cfg(feature = "interpolation")] interpolation_timeline: Single<
+    mut senders: Query<&mut MessageSender<InputMessage<S>>>,
+    mut multi_sender: MultiMessageSender,
+    #[cfg(feature = "interpolation")] interpolation_timelines: Query<
         &InterpolationTimeline,
-        (With<Client>, With<IsSynced<InterpolationTimeline>>),
+        With<IsSynced<InterpolationTimeline>>,
     >,
 ) {
-    let (mut sender, is_host_client) = sender.into_inner();
+    // An inactive topology retains the buffered messages, matching the old `Single<Client>`
+    // parameter's skip-on-no-match behavior across disconnect/reconnect boundaries.
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    let is_host_client = route.is_host_client();
 
     #[cfg(not(feature = "prediction"))]
     if is_host_client {
@@ -1081,63 +1302,76 @@ fn send_input_messages<S: ActionStateSequence>(
     );
 
     #[cfg(feature = "interpolation")]
-    let interpolation_delay = {
-        // NOTE: this can be negative because of input-delay!
-        let mut delay = input_timeline.now() - interpolation_timeline.now();
-        if delay.is_negative() {
-            delay = TickDelta::from(Tick(0));
+    let interpolation_delay = match route {
+        InputRoute::Conventional { link, .. } => {
+            let Ok(interpolation_timeline) = interpolation_timelines.get(link) else {
+                return;
+            };
+            // NOTE: this can be negative because of input-delay!
+            let mut delay = input_timeline.now() - interpolation_timeline.now();
+            if delay.is_negative() {
+                delay = TickDelta::from(Tick(0));
+            }
+            Some(InterpolationDelay {
+                delay: delay.into(),
+            })
         }
-        InterpolationDelay {
-            delay: delay.into(),
-        }
+        // Input-only P2P has no interpolation timeline or server lag-compensation target.
+        InputRoute::P2P(_) => None,
     };
 
-    #[cfg_attr(
-        not(feature = "interpolation"),
-        expect(unused_mut, reason = "Used by expression behind feature flag")
-    )]
-    for mut message in message_buffer.0.drain(..) {
-        // if lag compensation is enabled, we send the current delay to the server
-        // (this runs here because the delay is only correct after the SyncSet has run)
-        // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
-        //  because the user is reacting to stuff from the previous frame?
-        #[cfg(feature = "interpolation")]
-        if input_config.lag_compensation {
-            message.interpolation_delay = Some(interpolation_delay);
+    match route {
+        InputRoute::Conventional { link, .. } => {
+            let Ok(mut sender) = senders.get_mut(link) else {
+                return;
+            };
+            for mut message in message_buffer.0.drain(..) {
+                // if lag compensation is enabled, we send the current delay to the server
+                // (this runs here because the delay is only correct after the SyncSet has run)
+                // TODO: or should we actually use the interpolation_delay BEFORE SyncSet
+                //  because the user is reacting to stuff from the previous frame?
+                #[cfg(feature = "interpolation")]
+                if input_config.lag_compensation {
+                    message.interpolation_delay = interpolation_delay;
+                }
+                sender.send::<InputChannel>(message);
+            }
         }
-        sender.send::<InputChannel>(message);
+        InputRoute::P2P(links) => {
+            for mut message in message_buffer.0.drain(..) {
+                #[cfg(feature = "interpolation")]
+                if input_config.lag_compensation {
+                    message.interpolation_delay = interpolation_delay;
+                }
+                if let Err(error) = multi_sender
+                    .send_iter::<InputMessage<S>, InputChannel, _>(&message, links.iter().copied())
+                {
+                    error!(%error, "failed to send input message to P2P Links");
+                }
+            }
+        }
     }
 }
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(
     trigger: On<SyncEvent<InputTimelineConfig>>,
-    client_entity: Single<Entity, With<Client>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut input_buffer_query: Query<
-        (
-            &mut InputBuffer<S::Snapshot, S::Action>,
-            Option<&ControlledBy>,
-        ),
+        &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
     >,
 ) {
-    let client_entity = *client_entity;
     let delta = trigger.tick_delta;
-    for (mut input_buffer, controlled_by) in input_buffer_query.iter_mut() {
-        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
-            continue;
-        }
-        if let Some(start_tick) = input_buffer.start_tick {
-            input_buffer.start_tick = Some(start_tick + delta);
+    for mut input_buffer in input_buffer_query.iter_mut() {
+        let had_start_tick = input_buffer.start_tick.is_some();
+        shift_input_buffer_ticks(&mut input_buffer, delta);
+        if had_start_tick {
             debug!(
                 "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
                 trigger.event(),
                 input_buffer.start_tick
             );
-        }
-        if let Some(last_remote_tick) = input_buffer.last_remote_tick {
-            input_buffer.last_remote_tick = Some(last_remote_tick + delta);
         }
     }
     for message in message_buffer.0.iter_mut() {
@@ -1145,9 +1379,64 @@ fn receive_tick_events<S: ActionStateSequence>(
     }
 }
 
+fn shift_input_buffer_ticks<S, A>(input_buffer: &mut InputBuffer<S, A>, delta: i32) {
+    if let Some(start_tick) = input_buffer.start_tick {
+        input_buffer.start_tick = Some(start_tick + delta);
+    }
+    if let Some(last_remote_tick) = input_buffer.last_remote_tick {
+        input_buffer.last_remote_tick = Some(last_remote_tick + delta);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_replication::prelude::Lifetime;
+
+    #[test]
+    fn input_route_uses_link_ownership_only_for_conventional_clients() {
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        let owned_by_client = ControlledBy {
+            owner: client,
+            lifetime: Lifetime::SessionBased,
+        };
+        let owned_by_other = ControlledBy {
+            owner: other,
+            lifetime: Lifetime::SessionBased,
+        };
+
+        let conventional = NetworkTopology::Client(client);
+        let conventional_route = InputRoute::from_topology(&conventional).unwrap();
+        assert!(conventional_route.accepts_local_target(None));
+        assert!(conventional_route.accepts_local_target(Some(&owned_by_client)));
+        assert!(!conventional_route.accepts_local_target(Some(&owned_by_other)));
+
+        let p2p = NetworkTopology::P2P([client, other].into_iter().collect());
+        let p2p_route = InputRoute::from_topology(&p2p).unwrap();
+        assert!(p2p_route.accepts_local_target(None));
+        assert!(p2p_route.accepts_local_target(Some(&owned_by_client)));
+        assert!(p2p_route.accepts_local_target(Some(&owned_by_other)));
+    }
+
+    #[test]
+    fn input_route_is_inactive_without_ready_destinations() {
+        assert!(InputRoute::from_topology(&NetworkTopology::Undefined).is_none());
+        assert!(InputRoute::from_topology(&NetworkTopology::P2P(Default::default())).is_none());
+    }
+
+    #[test]
+    fn timeline_shift_updates_local_and_remote_input_ticks_once() {
+        let mut buffer = InputBuffer::<u8, ()>::default();
+        buffer.start_tick = Some(Tick(10));
+        buffer.last_remote_tick = Some(Tick(12));
+
+        shift_input_buffer_ticks(&mut buffer, 3);
+
+        assert_eq!(buffer.start_tick, Some(Tick(13)));
+        assert_eq!(buffer.last_remote_tick, Some(Tick(15)));
+    }
 
     #[test]
     fn input_history_depth_covers_prediction_rollback_window() {
