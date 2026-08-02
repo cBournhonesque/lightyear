@@ -72,9 +72,9 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn enable_prediction(app: &mut App) {
-    use lightyear::prelude::{PredictionAppExt, PredictionManager, RollbackMode, RollbackPolicy};
+    use lightyear::prelude::{PredictionManager, RollbackMode, RollbackPolicy};
 
-    app.enable_prediction(PredictionManager {
+    app.insert_resource(PredictionManager {
         rollback_policy: RollbackPolicy {
             state: RollbackMode::Disabled,
             input: RollbackMode::Check,

@@ -30,23 +30,21 @@ use lightyear_replication::prespawn::PreSpawnedReceiver;
 /// Plugin that installs client-side prediction systems.
 ///
 /// The systems run when the application contains a [`PredictionManager`] resource and its cached
-/// network topology is a conventional client or P2P session. Use
-/// [`PredictionAppExt::enable_prediction`] to opt the application into one global prediction and
-/// rollback pipeline. Host-client and server topologies remain authoritative and do not run it.
+/// network topology is a conventional client or P2P session. Insert a [`PredictionManager`]
+/// resource to opt the application into one global prediction and rollback pipeline. Host-client
+/// and server topologies remain authoritative and do not run it.
 #[derive(Default)]
 pub struct PredictionPlugin;
 
-/// Application extension for enabling the global prediction pipeline.
-pub trait PredictionAppExt {
-    /// Enable prediction and rollback with the provided application-global manager.
-    fn enable_prediction(&mut self, manager: PredictionManager) -> &mut Self;
-}
-
-impl PredictionAppExt for App {
-    fn enable_prediction(&mut self, manager: PredictionManager) -> &mut Self {
-        self.init_resource::<LastConfirmedInput>()
-            .insert_resource(manager)
-    }
+/// Initialize resources required by the global prediction pipeline.
+///
+/// `LastConfirmedInput` is deliberately not removed with `PredictionManager`: it also represents
+/// useful global input state for deterministic simulations that do not enable prediction.
+fn initialize_prediction_resources(
+    _trigger: On<Insert, PredictionManager>,
+    mut commands: Commands,
+) {
+    commands.init_resource::<LastConfirmedInput>();
 }
 
 #[deprecated(note = "Use PredictionSystems instead")]
@@ -198,7 +196,12 @@ impl Plugin for PredictionPlugin {
     fn build(&self, app: &mut App) {
         // RESOURCES
         app.init_resource::<PredictionRegistry>();
-        app.init_resource::<LastConfirmedInput>();
+        app.add_observer(initialize_prediction_resources);
+        // Observers are not retroactive, so also handle applications that inserted their manager
+        // before adding this plugin.
+        if app.world().contains_resource::<PredictionManager>() {
+            app.init_resource::<LastConfirmedInput>();
+        }
 
         // State rollback keeps prespawn matching state on the authoritative receiver Link. This
         // remains Link-scoped even though the rollback decision and manager are application-global.
@@ -271,10 +274,12 @@ impl Plugin for PredictionPlugin {
 mod tests {
     use super::*;
     use bevy_ecs::system::RunSystemOnce;
+    use lightyear_core::timeline::Rollback;
 
     #[test]
-    fn enable_prediction_inserts_one_global_manager() {
+    fn prediction_manager_initializes_global_input_frontier() {
         let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
         let manager = PredictionManager {
             rollback_policy: crate::manager::RollbackPolicy {
                 max_rollback_ticks: 17,
@@ -283,7 +288,9 @@ mod tests {
             ..Default::default()
         };
 
-        app.enable_prediction(manager);
+        assert!(!app.world().contains_resource::<LastConfirmedInput>());
+        app.insert_resource(manager);
+        app.world_mut().flush();
 
         assert_eq!(
             app.world()
@@ -292,6 +299,16 @@ mod tests {
                 .max_rollback_ticks,
             17
         );
+        assert!(app.world().contains_resource::<LastConfirmedInput>());
+    }
+
+    #[test]
+    fn prediction_manager_inserted_before_plugin_initializes_global_input_frontier() {
+        let mut app = App::new();
+        app.insert_resource(PredictionManager::default());
+
+        app.add_plugins(PredictionPlugin);
+
         assert!(app.world().contains_resource::<LastConfirmedInput>());
     }
 
@@ -306,11 +323,39 @@ mod tests {
         assert!(app.world().get::<PreSpawnedReceiver>(receiver).is_some());
     }
 
+    #[derive(Resource, Default)]
+    struct SnapRuns(u32);
+
+    fn count_snap_runs(mut runs: ResMut<SnapRuns>) {
+        runs.0 += 1;
+    }
+
+    #[test]
+    fn snap_to_confirmed_set_only_runs_during_rollback() {
+        let mut app = App::new();
+        app.add_plugins(PredictionPlugin);
+        app.insert_resource(PredictionManager::default());
+        app.init_resource::<SnapRuns>();
+        let client = app.world_mut().spawn_empty().id();
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
+        app.add_systems(
+            FixedPreUpdate,
+            count_snap_runs.in_set(PredictionSystems::SnapToConfirmed),
+        );
+
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<SnapRuns>().0, 0);
+
+        app.insert_resource(Rollback::FromInputs);
+        app.world_mut().run_schedule(FixedPreUpdate);
+        assert_eq!(app.world().resource::<SnapRuns>().0, 1);
+    }
+
     #[test]
     fn prediction_pipeline_excludes_authoritative_topologies() {
         let mut app = App::new();
         app.init_resource::<NetworkingMetadata>();
-        app.enable_prediction(PredictionManager::default());
+        app.insert_resource(PredictionManager::default());
         let client = app.world_mut().spawn_empty().id();
         let server = app.world_mut().spawn_empty().id();
 

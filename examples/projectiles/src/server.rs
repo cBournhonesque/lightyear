@@ -455,7 +455,7 @@ mod bot {
             InputTimelineConfig::default()
                 .with_input_delay(InputDelayConfig::fixed_input_delay(BOT_INPUT_DELAY_TICKS)),
         );
-        app.enable_prediction(PredictionManager::default());
+        app.insert_resource(PredictionManager::default());
 
         app.world_mut().spawn((
             Client,

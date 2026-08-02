@@ -397,6 +397,11 @@ pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
 
 /// During rollback re-simulation, check if we have a confirmed value for this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
+///
+/// [`PredictionSystems::SnapToConfirmed`](crate::plugin::PredictionSystems::SnapToConfirmed) gates
+/// this system with [`is_in_rollback`](lightyear_core::timeline::is_in_rollback), so the global
+/// [`Rollback`](lightyear_core::timeline::Rollback) resource does not need to be fetched by every
+/// monomorphized component system.
 pub(crate) fn snap_to_confirmed_during_rollback<
     C: Component<Mutability = Mutable> + Clone + PartialEq + Debug,
 >(

@@ -32,10 +32,10 @@ app.component::<PlayerPosition>().replicate()
     .predict();
 ```
 
-Then, enable the application's prediction pipeline. `ClientPlugins` installs the prediction systems, but the systems only run while the application has a `PredictionManager` resource. The shared example helpers enable it automatically; otherwise call `enable_prediction` during application setup:
+Then, enable the application's prediction pipeline. `ClientPlugins` installs the prediction systems, but the systems only run while the application has a `PredictionManager` resource. The shared example helpers enable it automatically; otherwise insert the resource during application setup:
 
 ```rust,ignore
-app.enable_prediction(PredictionManager::default());
+app.insert_resource(PredictionManager::default());
 ```
 
 Finally, choose which replicated entities should be predicted. If the sender knows which clients
