@@ -57,7 +57,7 @@ use alloc::{vec, vec::Vec};
 use bevy_app::{
     App, FixedPostUpdate, FixedPreUpdate, Plugin, PostUpdate, PreUpdate, RunFixedMainLoopSystems,
 };
-use bevy_ecs::entity::MapEntities;
+use bevy_ecs::entity::{MapEntities, UniqueEntitySlice};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
@@ -271,12 +271,12 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
 /// Cached input routing derived from [`NetworkingMetadata`].
 ///
-/// Conventional client and host-client modes retain their single Link as the local ownership
+/// Client/server and host-client modes retain their single Link as the local ownership
 /// identity. P2P mode borrows the already-cached connected Link slice and treats `S::Marker` as
 /// the local-input identity because each Link represents a remote peer.
 #[derive(Clone, Copy, Debug)]
 enum InputRoute<'a> {
-    Conventional { link: Entity, host_client: bool },
+    ClientServer { link: Entity, host_client: bool },
     P2P(&'a [Entity]),
 }
 
@@ -284,11 +284,11 @@ impl<'a> InputRoute<'a> {
     #[inline]
     fn from_topology(topology: &'a NetworkTopology) -> Option<Self> {
         match topology {
-            NetworkTopology::Client(link) => Some(Self::Conventional {
+            NetworkTopology::Client(link) => Some(Self::ClientServer {
                 link: *link,
                 host_client: false,
             }),
-            NetworkTopology::HostClient { client, .. } => Some(Self::Conventional {
+            NetworkTopology::HostClient { client, .. } => Some(Self::ClientServer {
                 link: *client,
                 host_client: true,
             }),
@@ -304,7 +304,7 @@ impl<'a> InputRoute<'a> {
     fn is_host_client(self) -> bool {
         matches!(
             self,
-            Self::Conventional {
+            Self::ClientServer {
                 host_client: true,
                 ..
             }
@@ -314,7 +314,7 @@ impl<'a> InputRoute<'a> {
     #[inline]
     fn accepts_local_target(self, controlled_by: Option<&ControlledBy>) -> bool {
         match self {
-            Self::Conventional { link, .. } => {
+            Self::ClientServer { link, .. } => {
                 !controlled_by.is_some_and(|controlled_by| controlled_by.owner != link)
             }
             // `S::Marker` is the local-capture marker in P2P. `ControlledBy` describes a
@@ -326,7 +326,7 @@ impl<'a> InputRoute<'a> {
     #[inline]
     fn any_link(self, mut predicate: impl FnMut(Entity) -> bool) -> bool {
         match self {
-            Self::Conventional { link, .. } => predicate(link),
+            Self::ClientServer { link, .. } => predicate(link),
             Self::P2P(links) => links.iter().copied().any(predicate),
         }
     }
@@ -657,7 +657,7 @@ fn input_history_depth_for_route(
 ) -> u32 {
     let mut history_depth = HISTORY_DEPTH;
     match route {
-        InputRoute::Conventional { link, .. } => {
+        InputRoute::ClientServer { link, .. } => {
             if let Ok(manager) = prediction_managers.get(link) {
                 history_depth = input_history_depth(Some((manager, input_config)));
             }
@@ -889,7 +889,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     let tick = timeline.tick();
     let mut received_relevant_input = false;
     match route {
-        InputRoute::Conventional { link, .. } => {
+        InputRoute::ClientServer { link, .. } => {
             if let Ok(mut receiver) = receivers.get_mut(link) {
                 received_relevant_input |= receive_remote_player_input_messages_from_receiver::<S>(
                     &mut receiver,
@@ -941,7 +941,7 @@ fn prediction_manager_link(
     prediction_managers: &Query<&PredictionManager>,
 ) -> Option<Entity> {
     match route {
-        InputRoute::Conventional { link, .. } => prediction_managers.contains(link).then_some(link),
+        InputRoute::ClientServer { link, .. } => prediction_managers.contains(link).then_some(link),
         InputRoute::P2P(links) => {
             let mut matches = links
                 .iter()
@@ -1303,7 +1303,7 @@ fn send_input_messages<S: ActionStateSequence>(
 
     #[cfg(feature = "interpolation")]
     let interpolation_delay = match route {
-        InputRoute::Conventional { link, .. } => {
+        InputRoute::ClientServer { link, .. } => {
             let Ok(interpolation_timeline) = interpolation_timelines.get(link) else {
                 return;
             };
@@ -1321,7 +1321,7 @@ fn send_input_messages<S: ActionStateSequence>(
     };
 
     match route {
-        InputRoute::Conventional { link, .. } => {
+        InputRoute::ClientServer { link, .. } => {
             let Ok(mut sender) = senders.get_mut(link) else {
                 return;
             };
@@ -1338,19 +1338,40 @@ fn send_input_messages<S: ActionStateSequence>(
             }
         }
         InputRoute::P2P(links) => {
+            let Some(links) = unique_p2p_links(links) else {
+                error!("cached P2P Link entities must be unique");
+                message_buffer.0.clear();
+                return;
+            };
             for mut message in message_buffer.0.drain(..) {
                 #[cfg(feature = "interpolation")]
                 if input_config.lag_compensation {
                     message.interpolation_delay = interpolation_delay;
                 }
-                if let Err(error) = multi_sender
-                    .send_iter::<InputMessage<S>, InputChannel, _>(&message, links.iter().copied())
+                if let Err(error) =
+                    multi_sender.send::<InputMessage<S>, InputChannel>(&message, links)
                 {
                     error!(%error, "failed to send input message to P2P Links");
                 }
             }
         }
     }
+}
+
+/// View the cached P2P Link slice as Bevy's allocation-free entity-set type.
+///
+/// `NetworkingMetadata` builds this slice from distinct query entities. The explicit check keeps
+/// this conversion sound even if user code mutates the public cached metadata.
+fn unique_p2p_links(links: &[Entity]) -> Option<&UniqueEntitySlice> {
+    let has_duplicates = links
+        .iter()
+        .enumerate()
+        .any(|(index, link)| links[index + 1..].contains(link));
+    if has_duplicates {
+        return None;
+    }
+    // SAFETY: the pairwise check above proves that every Entity in the slice is unique.
+    Some(unsafe { UniqueEntitySlice::from_slice_unchecked(links) })
 }
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
@@ -1394,7 +1415,7 @@ mod tests {
     use lightyear_replication::prelude::Lifetime;
 
     #[test]
-    fn input_route_uses_link_ownership_only_for_conventional_clients() {
+    fn input_route_uses_link_ownership_only_for_client_server() {
         let mut world = World::new();
         let client = world.spawn_empty().id();
         let other = world.spawn_empty().id();
@@ -1407,11 +1428,11 @@ mod tests {
             lifetime: Lifetime::SessionBased,
         };
 
-        let conventional = NetworkTopology::Client(client);
-        let conventional_route = InputRoute::from_topology(&conventional).unwrap();
-        assert!(conventional_route.accepts_local_target(None));
-        assert!(conventional_route.accepts_local_target(Some(&owned_by_client)));
-        assert!(!conventional_route.accepts_local_target(Some(&owned_by_other)));
+        let client_server = NetworkTopology::Client(client);
+        let client_server_route = InputRoute::from_topology(&client_server).unwrap();
+        assert!(client_server_route.accepts_local_target(None));
+        assert!(client_server_route.accepts_local_target(Some(&owned_by_client)));
+        assert!(!client_server_route.accepts_local_target(Some(&owned_by_other)));
 
         let p2p = NetworkTopology::P2P([client, other].into_iter().collect());
         let p2p_route = InputRoute::from_topology(&p2p).unwrap();
@@ -1427,10 +1448,23 @@ mod tests {
     }
 
     #[test]
+    fn p2p_link_slice_is_only_viewed_as_an_entity_set_when_unique() {
+        let mut world = World::new();
+        let first = world.spawn_empty().id();
+        let second = world.spawn_empty().id();
+
+        let links = [first, second];
+        assert_eq!(unique_p2p_links(&links).unwrap().as_inner(), &links);
+        assert!(unique_p2p_links(&[first, second, first]).is_none());
+    }
+
+    #[test]
     fn timeline_shift_updates_local_and_remote_input_ticks_once() {
-        let mut buffer = InputBuffer::<u8, ()>::default();
-        buffer.start_tick = Some(Tick(10));
-        buffer.last_remote_tick = Some(Tick(12));
+        let mut buffer = InputBuffer::<u8, ()> {
+            start_tick: Some(Tick(10)),
+            last_remote_tick: Some(Tick(12)),
+            ..Default::default()
+        };
 
         shift_input_buffer_ticks(&mut buffer, 3);
 
