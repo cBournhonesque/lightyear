@@ -15,6 +15,7 @@ exclude = ["/tests"]
 default = ["client", "server", "netcode", "webtransport"]
 client = ["lightyear/client"]
 server = ["lightyear/server"]
+p2p = ["client", "udp", "lightyear/raw_connection"]
 netcode = ["lightyear/netcode"]
 webtransport = [
   "lightyear/webtransport",

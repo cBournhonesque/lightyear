@@ -9,10 +9,13 @@ use crate::automation::{self, AutomationClientPlugin};
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::input::*;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
+#[cfg(feature = "p2p")]
+use lightyear_examples_common::cli::P2PSettings;
 
 pub struct ExampleClientPlugin;
 
@@ -34,10 +37,20 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-fn configure_input_delay(mut commands: Commands) {
-    commands.insert_resource(
-        InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()),
-    );
+fn configure_input_delay(
+    mut commands: Commands,
+    #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
+) {
+    #[cfg(feature = "p2p")]
+    let input_delay = if p2p.is_some() {
+        InputDelayConfig::fixed_input_delay(2)
+    } else {
+        InputDelayConfig::no_input_delay()
+    };
+    #[cfg(not(feature = "p2p"))]
+    let input_delay = InputDelayConfig::no_input_delay();
+
+    commands.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay));
 }
 
 /// System that reads from peripherals and adds inputs to the buffer
@@ -93,10 +106,17 @@ fn buffer_input(
 /// If this example predicted remote entities, ownership would need to be checked before movement.
 fn player_movement(
     _input_timeline: SyncedInputTimeline,
-    // timeline: Single<&LocalTimeline>,
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    timeline: Res<LocalTimeline>,
+    #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
-    // let tick = timeline.tick();
+    #[cfg(feature = "p2p")]
+    if p2p.is_some() && timeline.tick().0 < crate::p2p::GAMEPLAY_START_TICK {
+        return;
+    }
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");
         // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.
@@ -105,7 +125,18 @@ fn player_movement(
 }
 
 /// System to receive messages on the client
-pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message1>>) {
+pub(crate) fn receive_message1(
+    metadata: Res<NetworkingMetadata>,
+    mut receivers: Query<&mut MessageReceiver<Message1>>,
+) {
+    let link = match &metadata.mode {
+        NetworkTopology::Client(link) => *link,
+        NetworkTopology::HostClient { client, .. } => *client,
+        _ => return,
+    };
+    let Ok(mut receiver) = receivers.get_mut(link) else {
+        return;
+    };
     for message in receiver.receive() {
         info!("Received message: {:?}", message);
     }
