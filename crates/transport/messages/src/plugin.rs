@@ -340,7 +340,7 @@ mod tests {
     use lightyear_core::prelude::{LocalTimeline, NetworkTimeline, Tick, TimelineKind};
     use lightyear_core::time::{Overstep, TickDelta, TickInstant};
     use lightyear_core::timeline::TimelineConfig;
-    use lightyear_link::{Link, Linked};
+    use lightyear_link::{Link, Linked, recv_payload_from_bytes};
     use lightyear_transport::channel::ChannelKind;
     use lightyear_transport::plugin::TestChannel;
     use lightyear_transport::plugin::TestTransportPlugin;
@@ -438,7 +438,7 @@ mod tests {
         let mut entity_mut = app.world_mut().entity_mut(entity);
         let mut link = entity_mut.get_mut::<Link>().unwrap();
         let payload = link.send.pop().expect("expected one outgoing payload");
-        link.recv.push_raw(payload);
+        link.recv.push_raw(recv_payload_from_bytes(payload));
     }
 
     // TODO: should we do a test without the Link?
@@ -489,7 +489,7 @@ mod tests {
 
         // transfer that payload to the recv side of the link
         let payload = link.send.pop().unwrap();
-        link.recv.push_raw(payload);
+        link.recv.push_raw(recv_payload_from_bytes(payload));
 
         app.world_mut().run_schedule(PreUpdate);
 

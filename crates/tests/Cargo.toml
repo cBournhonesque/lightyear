@@ -20,6 +20,7 @@ std = [
   "lightyear_serde/std",
   "lightyear_sync/std",
   "lightyear_transport/std",
+  "dep:lightyear_udp",
 ]
 test_utils = [
   "lightyear_core/test_utils",
@@ -27,9 +28,15 @@ test_utils = [
   "lightyear_replication/test_utils",
   "lightyear_crossbeam/test_utils",
   "lightyear_aeronet/test_utils",
+  "lightyear_udp?/test_utils",
 ]
 steam = ["lightyear/steam"]
-
+webtransport = [
+  "std",
+  "lightyear/webtransport",
+  "lightyear/webtransport_self_signed",
+  "lightyear/webtransport_dangerous_configuration",
+]
 
 [dependencies]
 lightyear = { workspace = true, features = [
@@ -67,6 +74,7 @@ lightyear_inputs_leafwing.workspace = true
 lightyear_avian2d = { workspace = true, features = ["deterministic", "2d"] }
 lightyear_link.workspace = true
 lightyear_aeronet.workspace = true
+lightyear_udp = { workspace = true, features = ["server"], optional = true }
 
 bevy_replicon.workspace = true
 

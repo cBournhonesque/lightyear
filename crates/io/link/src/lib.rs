@@ -4,8 +4,8 @@
 //! systems and concrete IO backends. Protocol, connection, replication, and message systems
 //! read from and write to [`Link`] buffers; transport crates such as `lightyear_udp`,
 //! `lightyear_webtransport`, `lightyear_websocket`, `lightyear_steam`, and
-//! `lightyear_crossbeam` are responsible for moving those [`bytes::Bytes`] payloads across an
-//! actual network or in-process channel.
+//! `lightyear_crossbeam` are responsible for moving byte payloads across an actual network or
+//! in-process channel.
 //!
 //! The crate deliberately keeps the IO abstraction narrow:
 //! - [`RecvPayload`] and [`SendPayload`] are opaque byte payloads.
@@ -37,7 +37,7 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use core::time::Duration;
 use lightyear_core::time::Instant;
 
@@ -54,12 +54,13 @@ pub mod prelude {
     }
 }
 
-/// Opaque byte payload received from a transport.
+/// Mutable byte payload received from a transport.
 ///
 /// A transport pushes this payload into [`LinkReceiver`] after decoding any transport-specific
-/// envelope. Higher-level Lightyear systems then interpret the bytes as messages, replication
-/// data, connection packets, or other protocol frames.
-pub type RecvPayload = Bytes;
+/// envelope. Keeping receive payloads mutable lets connection layers decrypt in place without
+/// first trying to recover mutable ownership from an immutable [`Bytes`] handle. Higher-level
+/// Lightyear systems can freeze the payload once they need cheap immutable subslices.
+pub type RecvPayload = BytesMut;
 
 /// Opaque byte payload queued for a transport to send.
 ///
@@ -67,6 +68,19 @@ pub type RecvPayload = Bytes;
 /// A transport drains [`LinkSender`] in [`LinkSystems::Send`] and writes the bytes to its concrete
 /// IO backend.
 pub type SendPayload = Bytes;
+
+/// Converts an immutable transport payload into Lightyear's mutable receive payload.
+///
+/// Some IO APIs, including Aeronet and Crossbeam, expose received packets as [`Bytes`]. This
+/// conversion reuses the allocation when that handle is uniquely owned and copies only when the
+/// IO backend or sender still holds another reference. IO backends that already receive into a
+/// [`BytesMut`] should push it directly instead of calling this function.
+pub fn recv_payload_from_bytes(payload: Bytes) -> RecvPayload {
+    match payload.try_into_mut() {
+        Ok(payload) => payload,
+        Err(payload) => BytesMut::from(payload),
+    }
+}
 
 /// Current lifecycle state of a [`Link`].
 ///
@@ -212,7 +226,7 @@ impl LinkReceiver {
 
     /// Iterates over the currently available received payloads without consuming them.
     #[cfg(feature = "test_utils")]
-    pub fn iter(&self) -> impl Iterator<Item = &SendPayload> {
+    pub fn iter(&self) -> impl Iterator<Item = &RecvPayload> {
         self.buffer.iter()
     }
 }
@@ -485,6 +499,28 @@ impl Plugin for LinkPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn immutable_receive_payload_reuses_unique_allocation() {
+        let bytes = Bytes::from(alloc::vec![1, 2, 3]);
+        let allocation = bytes.as_ptr();
+
+        let payload = recv_payload_from_bytes(bytes);
+
+        assert_eq!(payload.as_ptr(), allocation);
+    }
+
+    #[test]
+    fn immutable_receive_payload_copies_shared_allocation() {
+        let bytes = Bytes::from(alloc::vec![1, 2, 3]);
+        let shared = bytes.clone();
+        let allocation = bytes.as_ptr();
+
+        let payload = recv_payload_from_bytes(bytes);
+
+        assert_ne!(payload.as_ptr(), allocation);
+        assert_eq!(payload.as_ref(), shared.as_ref());
+    }
 
     #[test]
     fn explicit_link_mtu_does_not_change_link_owned_latency_stats() {

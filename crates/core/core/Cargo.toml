@@ -19,6 +19,7 @@ lightyear_utils.workspace = true
 lightyear_serde.workspace = true
 
 # utils
+bytes.workspace = true
 chrono.workspace = true
 fixed.workspace = true
 tracing.workspace = true

@@ -11,8 +11,8 @@ use super::{
     crypto::{self, Key},
     error::{Error, Result},
     packet::{
-        ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, PayloadPacket,
-        RequestPacket, ResponsePacket,
+        ChallengePacket, DeniedPacket, DisconnectPacket, KeepAlivePacket, Packet, RequestPacket,
+        ResponsePacket,
     },
     replay::ReplayProtection,
     token::{ChallengeToken, ConnectToken, ConnectTokenBuilder, ConnectTokenPrivate},
@@ -514,7 +514,7 @@ impl<Ctx> Server<Ctx> {
                     self.conn_cache.find_by_entity(&entity).map(|c| c.client_id)
                 {
                     self.touch_client(client_id);
-                    Ok(Some(packet.buf))
+                    Ok(Some(packet.into_recv()))
                 } else {
                     Ok(None)
                 }
@@ -563,6 +563,35 @@ impl<Ctx> Server<Ctx> {
 
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
+        self.writer.extend_from_slice(&buf[..size]);
+        sender.push(self.writer.split());
+
+        conn.last_access_time = self.time;
+        conn.last_send_time = self.time;
+        conn.sequence += 1;
+        Ok(())
+    }
+
+    fn send_payload_to_client(
+        &mut self,
+        payload: &SendPayload,
+        id: ClientId,
+        sender: &mut LinkSender,
+    ) -> Result<()> {
+        let conn = &mut self
+            .conn_cache
+            .clients
+            .get_mut(&id)
+            .ok_or(Error::ClientNotFound(id::PeerId::Netcode(id)))?;
+
+        let mut buf = [0u8; MAX_PKT_BUF_SIZE];
+        let size = Packet::write_payload(
+            payload,
+            &mut buf,
+            conn.sequence,
+            &conn.send_key,
+            self.protocol_id,
+        )?;
         self.writer.extend_from_slice(&buf[..size]);
         sender.push(self.writer.split());
 
@@ -924,8 +953,7 @@ impl<Ctx> Server<Ctx> {
             // send a keep-alive packet to the client to confirm the connection
             self.send_to_client(KeepAlivePacket::create(client_id), client_id, sender)?;
         }
-        let packet = PayloadPacket::create(buf);
-        self.send_to_client(packet, client_id, sender)
+        self.send_payload_to_client(&buf, client_id, sender)
     }
 
     /// Sends a packet to all connected clients.

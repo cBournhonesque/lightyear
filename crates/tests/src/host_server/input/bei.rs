@@ -17,7 +17,7 @@ const TEST_HASH: u64 = 42;
 /// while a host client is present in the topology.
 #[test]
 fn test_rebroadcast() {
-    let mut stepper = ClientServerStepper::from_config(StepperConfig::from_link_types(
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::from_connection_types(
         vec![ClientType::Host, ClientType::Netcode, ClientType::Netcode],
         ServerType::Netcode,
     ));
