@@ -1,7 +1,7 @@
 use crate::SerializationError;
 use crate::varint::varint_parse_len;
 use alloc::vec::Vec;
-use bytes::Bytes;
+use bytes::{Buf, Bytes};
 use no_std_io2::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom};
 
 #[derive(Clone)]
@@ -37,6 +37,27 @@ impl Seek for Reader {
 impl Read for Reader {
     fn read(&mut self, buf: &mut [u8]) -> Result<usize> {
         self.0.read(buf)
+    }
+}
+
+impl Buf for Reader {
+    fn remaining(&self) -> usize {
+        Reader::remaining(self)
+    }
+
+    fn chunk(&self) -> &[u8] {
+        let Ok(position) = usize::try_from(self.position()) else {
+            return &[];
+        };
+        self.as_ref().get(position..).unwrap_or_default()
+    }
+
+    fn advance(&mut self, cnt: usize) {
+        assert!(
+            cnt <= Reader::remaining(self),
+            "cannot advance past the remaining bytes"
+        );
+        self.0.set_position(self.position() + cnt as u64);
     }
 }
 

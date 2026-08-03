@@ -2,6 +2,7 @@
 
 use crate::reader::Reader;
 use crate::writer::Writer;
+use bytes::Buf;
 use postcard::ser_flavors::Flavor;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -39,18 +40,9 @@ impl Flavor for WriterFlavor<'_> {
 
 /// Deserializes from the unread part of a [`Reader`] and advances its cursor.
 pub(crate) fn from_reader<T: DeserializeOwned>(reader: &mut Reader) -> postcard::Result<T> {
-    let position = usize::try_from(reader.position())
-        .map_err(|_| postcard::Error::DeserializeUnexpectedEnd)?;
-    let (value, consumed) = {
-        let remaining = reader
-            .as_ref()
-            .get(position..)
-            .ok_or(postcard::Error::DeserializeUnexpectedEnd)?;
-        let initial_len = remaining.len();
-        let (value, remainder) = postcard::take_from_bytes(remaining)?;
-        (value, initial_len - remainder.len())
-    };
-    reader.set_position((position + consumed) as u64);
+    let initial_len = reader.remaining();
+    let (value, remainder) = postcard::take_from_bytes(reader.chunk())?;
+    reader.advance(initial_len - remainder.len());
     Ok(value)
 }
 
