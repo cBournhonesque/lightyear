@@ -5,7 +5,7 @@ use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
-use bevy_ecs::entity::{EntityHashSet, EntitySet};
+use bevy_ecs::entity::EntitySet;
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     error::Result,
@@ -16,7 +16,7 @@ use bevy_ecs::{
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::client_of::ClientOf;
 use lightyear_connection::direction::NetworkDirection;
-use lightyear_connection::network_target::NetworkTarget;
+use lightyear_connection::network_target::{NetworkTarget, NetworkTargetResolver};
 use lightyear_link::prelude::Server;
 use lightyear_transport::channel::Channel;
 
@@ -29,7 +29,7 @@ use lightyear_transport::channel::Channel;
 pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
     sender: MultiMessageSender<'w, 's, F>,
     metadata: Res<'w, PeerMetadata>,
-    targets: Local<'s, EntityHashSet>,
+    resolver: Local<'s, NetworkTargetResolver>,
 }
 
 impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
@@ -53,18 +53,15 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
         target: &NetworkTarget,
         priority: Priority,
     ) -> Result {
-        // Resolve the NetworkTarget to concrete entities, then delegate to
-        // MultiMessageSender which handles per-client entity mapping correctly.
-        self.targets.clear();
-        target.apply_targets(
-            server.collection().iter().copied(),
+        // Resolve the NetworkTarget to concrete entities, then delegate to MultiMessageSender,
+        // which handles per-client entity mapping correctly.
+        let targets = self.resolver.resolve(
+            target,
+            server.collection().as_slice(),
             &self.metadata.mapping,
-            &mut |entity| {
-                self.targets.insert(entity);
-            },
         );
         self.sender
-            .send_with_priority::<M, C>(message, &*self.targets, priority)
+            .send_with_priority::<M, C>(message, targets, priority)
     }
 
     /// Send a message to a set of  [`ClientOf`]s entities associated with the provided [`Server`]
