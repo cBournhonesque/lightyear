@@ -26,6 +26,7 @@ use lightyear_core::tick::Tick;
 use lightyear_link::{Link, LinkPlugin, LinkSystems, Linked};
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::{SerializationError, ToBytes};
+use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
 use lightyear_utils::timer_gauge;
 #[allow(unused_imports)]
@@ -85,7 +86,7 @@ impl TransportPlugin {
         let _timer = timer_gauge!("transport/recv");
 
         #[cfg(feature = "std")]
-        let query = query.par_iter_mut();
+        let query = adaptive_for_each_mut!(query);
         #[cfg(not(feature = "std"))]
         let query = query.iter_mut();
 
@@ -403,7 +404,8 @@ impl TransportPlugin {
         #[cfg(feature = "metrics")]
         let _timer = timer_gauge!("transport/send");
         let tick = timeline.tick();
-        query.par_iter_mut().for_each(|(mut link, mut transport, host_client)| {
+        let query = adaptive_for_each_mut!(query);
+        query.for_each(|(mut link, mut transport, host_client)| {
             // allow split borrows
             let transport = &mut *transport;
             let mtu = link.mtu();

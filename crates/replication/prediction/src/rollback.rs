@@ -68,6 +68,7 @@ use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
 use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, IsSynced};
+use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
 use lightyear_utils::timer_gauge;
 use serde::{Deserialize, Serialize};
@@ -582,7 +583,8 @@ fn check_rollback(
                             "Checking for state-based rollback at completed mutate tick"
                         );
 
-                        predicted_entities.par_iter_mut().for_each(
+                        let predicted_entities = adaptive_for_each_mut!(predicted_entities);
+                        predicted_entities.for_each(
                             |(confirm_history, mut entity_mut)| {
                             if prediction_manager.is_rollback() {
                                 return

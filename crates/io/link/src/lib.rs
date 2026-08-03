@@ -40,6 +40,7 @@ use bevy_ecs::world::DeferredWorld;
 use bytes::{Bytes, BytesMut};
 use core::time::Duration;
 use lightyear_core::time::Instant;
+use lightyear_utils::adaptive_for_each_mut;
 
 pub mod prelude {
     pub use crate::conditioner::{LinkConditionerConfig, LinkConditionerState};
@@ -453,7 +454,8 @@ impl LinkPlugin {
     /// simulated delivery time has elapsed. It is installed in
     /// [`LinkReceiveSystems::ApplyConditioner`] by [`LinkPlugin`].
     pub fn apply_link_conditioner(mut query: Query<&mut Link>) {
-        query.par_iter_mut().for_each(|mut link| {
+        let query = adaptive_for_each_mut!(query);
+        query.for_each(|mut link| {
             // enable split borrows
             let recv = &mut link.recv;
             if let Some(conditioner) = &mut recv.conditioner {

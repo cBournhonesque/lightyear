@@ -18,6 +18,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::{Link, LinkSystems, Linked};
 use lightyear_transport::plugin::TransportSystems;
+use lightyear_utils::adaptive_for_each_mut;
 use tracing::{debug, error, info};
 
 pub struct NetcodeClientPlugin;
@@ -107,7 +108,7 @@ impl NetcodeClientPlugin {
     fn send(
         mut query: Query<(&mut Link, &mut NetcodeClient), (With<Linked>, Without<HostClient>)>,
     ) {
-        query.par_iter_mut().for_each(|(mut link, mut client)| {
+        adaptive_for_each_mut!(query).for_each(|(mut link, mut client)| {
             // send user packets
             for _ in 0..link.send.len() {
                 if let Some(payload) = link.send.pop() {
@@ -146,9 +147,8 @@ impl NetcodeClientPlugin {
         parallel_commands: ParallelCommands,
     ) {
         let delta = real_time.delta();
-        query
-            .par_iter_mut()
-            .for_each(|(entity, mut link, mut client, connecting, disconnected)| {
+        adaptive_for_each_mut!(query).for_each(
+            |(entity, mut link, mut client, connecting, disconnected)| {
                 // #[cfg(feature = "test_utils")]
                 // trace!("CLIENT: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
@@ -187,7 +187,8 @@ impl NetcodeClientPlugin {
                         });
                     }
                 }
-            })
+            },
+        )
     }
 
     fn connect(
