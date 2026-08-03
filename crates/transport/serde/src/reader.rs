@@ -161,7 +161,7 @@ pub trait ReadInteger: Read {
     }
 }
 
-pub trait ReadVarInt: ReadInteger + Seek {
+pub trait ReadVarInt: ReadInteger {
     /// Reads an unsigned variable-length integer in network byte-order from
     /// the current offset and advances the buffer.
     fn read_varint(&mut self) -> core::result::Result<u64, SerializationError> {
@@ -170,18 +170,19 @@ pub trait ReadVarInt: ReadInteger + Seek {
         let out = match len {
             1 => u64::from(first),
             2 => {
-                // TODO: we actually don't need seek, no? we can just read the next few bytes ...
-                // go back 1 byte because we read the first byte above
-                self.seek(SeekFrom::Current(-1))?;
-                u64::from(self.read_u16()? & 0x3fff)
+                let mut bytes = [first, 0];
+                self.read_exact(&mut bytes[1..])?;
+                u64::from(u16::from_be_bytes(bytes) & 0x3fff)
             }
             4 => {
-                self.seek(SeekFrom::Current(-1))?;
-                u64::from(self.read_u32()? & 0x3fffffff)
+                let mut bytes = [first, 0, 0, 0];
+                self.read_exact(&mut bytes[1..])?;
+                u64::from(u32::from_be_bytes(bytes) & 0x3fffffff)
             }
             8 => {
-                self.seek(SeekFrom::Current(-1))?;
-                self.read_u64()? & 0x3fffffffffffffff
+                let mut bytes = [first, 0, 0, 0, 0, 0, 0, 0];
+                self.read_exact(&mut bytes[1..])?;
+                u64::from_be_bytes(bytes) & 0x3fffffffffffffff
             }
             _ => return Err(Error::other("value is too large for varint").into()),
         };
@@ -190,7 +191,7 @@ pub trait ReadVarInt: ReadInteger + Seek {
 }
 
 impl<T: Read> ReadInteger for T {}
-impl<T: Read + Seek> ReadVarInt for T {}
+impl<T: Read> ReadVarInt for T {}
 
 #[cfg(test)]
 mod tests {
@@ -222,5 +223,28 @@ mod tests {
         assert_eq!(reader.read_i16().unwrap(), -2);
         assert_eq!(reader.read_i32().unwrap(), -3);
         assert_eq!(reader.read_i64().unwrap(), -4);
+    }
+
+    #[test]
+    fn test_read_varint_without_seek() {
+        let values = [
+            0,
+            63,
+            64,
+            16_383,
+            16_384,
+            1_073_741_823,
+            1_073_741_824,
+            4_611_686_018_427_387_903,
+        ];
+        let mut writer = vec![];
+        for value in values {
+            writer.write_varint(value).unwrap();
+        }
+
+        let mut reader = writer.as_slice();
+        for value in values {
+            assert_eq!(reader.read_varint().unwrap(), value);
+        }
     }
 }
