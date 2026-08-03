@@ -3,13 +3,13 @@
 //! Unlike the conventional mode, no server spawns or replicates players. Every peer creates the
 //! same fixed roster locally and only exchanges tick-indexed inputs.
 
-use crate::protocol::{Inputs, PlayerBundle, PlayerId, PlayerPosition};
+use crate::protocol::{Inputs, PlayerBundle};
 use bevy::prelude::*;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
-use lightyear_examples_common::cli::P2PSettings;
+use lightyear_examples_common::p2p::P2PSettings;
 
 /// Namespace for stable simple-box player hashes on the input wire.
 const PLAYER_INPUT_HASH_BASE: u64 = 0x5349_4D50_4C45_0000;
@@ -30,9 +30,7 @@ impl Plugin for ExampleP2PPlugin {
             lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin,
         );
         app.add_systems(Startup, spawn_fixed_roster);
-        if std::env::var_os("LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS").is_some() {
-            app.add_systems(Update, log_positions);
-        }
+        crate::automation::add_p2p_debugging(app);
     }
 }
 
@@ -79,41 +77,5 @@ fn spawn_fixed_roster(
                 .entity(entity)
                 .insert(InputMarker::<Inputs>::default());
         }
-    }
-}
-
-/// Periodic state dump used by the headless two-process smoke test.
-fn log_positions(
-    time: Res<Time>,
-    timeline: Res<LocalTimeline>,
-    settings: Res<P2PSettings>,
-    links: Query<(&RemoteId, Has<Connected>, &PingManager), With<P2P>>,
-    synced_input_timeline: Query<(), (With<InputTimeline>, With<IsSynced<InputTimeline>>)>,
-    players: Query<(&PlayerId, &PlayerPosition)>,
-    mut timer: Local<Option<Timer>>,
-) {
-    let timer = timer.get_or_insert_with(|| Timer::from_seconds(1.0, TimerMode::Repeating));
-    timer.tick(time.delta());
-    if !timer.just_finished() {
-        return;
-    }
-    for (remote, connected, ping) in &links {
-        info!(
-            local_peer = settings.local_peer_id,
-            ?remote,
-            connected,
-            latency_samples = ping.latency_samples_recv(),
-            input_timeline_synced = !synced_input_timeline.is_empty(),
-            "P2P Link status"
-        );
-    }
-    for (player, position) in &players {
-        info!(
-            local_peer = settings.local_peer_id,
-            tick = timeline.tick().0,
-            ?player,
-            position = ?position.0,
-            "P2P player position"
-        );
     }
 }

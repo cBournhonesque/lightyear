@@ -93,5 +93,7 @@ pub mod cli;
 // A direct P2P-only build needs ClientPlugins but not the conventional netcode client harness.
 #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
 pub mod client;
+#[cfg(feature = "p2p")]
+pub mod p2p;
 #[cfg(feature = "server")]
 pub mod server;

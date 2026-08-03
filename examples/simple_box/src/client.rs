@@ -15,7 +15,7 @@ use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
 #[cfg(feature = "p2p")]
-use lightyear_examples_common::cli::P2PSettings;
+use lightyear_examples_common::p2p::P2PSettings;
 
 pub struct ExampleClientPlugin;
 
@@ -37,20 +37,10 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-fn configure_input_delay(
-    mut commands: Commands,
-    #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
-) {
-    #[cfg(feature = "p2p")]
-    let input_delay = if p2p.is_some() {
-        InputDelayConfig::fixed_input_delay(2)
-    } else {
-        InputDelayConfig::no_input_delay()
-    };
-    #[cfg(not(feature = "p2p"))]
-    let input_delay = InputDelayConfig::no_input_delay();
-
-    commands.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay));
+fn configure_input_delay(mut commands: Commands) {
+    commands.insert_resource(
+        InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()),
+    );
 }
 
 /// System that reads from peripherals and adds inputs to the buffer

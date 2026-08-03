@@ -1,6 +1,10 @@
 use crate::protocol::Direction;
+#[cfg(feature = "p2p")]
+use crate::protocol::{PlayerId, PlayerPosition};
 use bevy::prelude::*;
 use lightyear::prelude::*;
+#[cfg(feature = "p2p")]
+use lightyear_examples_common::p2p::P2PSettings;
 
 #[cfg(feature = "client")]
 pub struct AutomationClientPlugin;
@@ -20,6 +24,51 @@ pub struct AutomationServerPlugin;
 impl Plugin for AutomationServerPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Update, crate::debug::server::mark_debug_player_entities);
+    }
+}
+
+/// Install the opt-in diagnostics used by the headless P2P smoke test.
+#[cfg(feature = "p2p")]
+pub(crate) fn add_p2p_debugging(app: &mut App) {
+    if std::env::var_os("LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS").is_some() {
+        app.add_systems(Update, log_p2p_positions);
+    }
+}
+
+/// Periodically log P2P connection state and deterministic player positions.
+#[cfg(feature = "p2p")]
+fn log_p2p_positions(
+    time: Res<Time>,
+    timeline: Res<LocalTimeline>,
+    settings: Res<P2PSettings>,
+    links: Query<(&RemoteId, Has<Connected>, &PingManager), With<P2P>>,
+    synced_input_timeline: Query<(), (With<InputTimeline>, With<IsSynced<InputTimeline>>)>,
+    players: Query<(&PlayerId, &PlayerPosition)>,
+    mut timer: Local<Option<Timer>>,
+) {
+    let timer = timer.get_or_insert_with(|| Timer::from_seconds(1.0, TimerMode::Repeating));
+    timer.tick(time.delta());
+    if !timer.just_finished() {
+        return;
+    }
+    for (remote, connected, ping) in &links {
+        info!(
+            local_peer = settings.local_peer_id,
+            ?remote,
+            connected,
+            latency_samples = ping.latency_samples_recv(),
+            input_timeline_synced = !synced_input_timeline.is_empty(),
+            "P2P Link status"
+        );
+    }
+    for (player, position) in &players {
+        info!(
+            local_peer = settings.local_peer_id,
+            tick = timeline.tick().0,
+            ?player,
+            position = ?position.0,
+            "P2P player position"
+        );
     }
 }
 

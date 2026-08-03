@@ -5,11 +5,6 @@
 
 use core::str::FromStr;
 use core::time::Duration;
-#[cfg(feature = "p2p")]
-use core::{
-    net::{Ipv4Addr, SocketAddr},
-    ops::Range,
-};
 
 use bevy::log::{Level, LogPlugin};
 use bevy::prelude::*;
@@ -23,6 +18,8 @@ use clap::{ArgAction, Parser, Subcommand};
 use crate::client::{ClientTransports, ExampleClient, connect};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "client"))]
 use crate::client_renderer::ExampleClientRendererPlugin;
+#[cfg(feature = "p2p")]
+use crate::p2p::{self, DEFAULT_P2P_BASE_PORT};
 #[cfg(feature = "server")]
 use crate::server::{ExampleServer, ServerTransports, WebTransportCertificateSettings, start};
 #[cfg(all(any(feature = "gui2d", feature = "gui3d"), feature = "server"))]
@@ -37,33 +34,6 @@ use {
     bevy::window::PresentMode,
     bevy::winit::{UpdateMode, WinitSettings},
 };
-
-#[cfg(feature = "p2p")]
-const MAX_P2P_PLAYERS: u8 = 4;
-#[cfg(feature = "p2p")]
-const DEFAULT_P2P_BASE_PORT: u16 = 6000;
-
-/// Fixed roster used by an example running in direct P2P mode.
-///
-/// The initial example transport assigns compact numeric peer identities. Iroh can replace the
-/// transport-specific identity construction later without changing the topology or game setup.
-#[cfg(feature = "p2p")]
-#[derive(Resource, Clone, Copy, Debug, PartialEq, Eq)]
-pub struct P2PSettings {
-    pub local_peer_id: u8,
-    pub player_count: u8,
-}
-
-#[cfg(feature = "p2p")]
-impl P2PSettings {
-    pub fn peer_ids(&self) -> Range<u8> {
-        0..self.player_count
-    }
-
-    pub fn local_id(&self) -> PeerId {
-        PeerId::Entity(u64::from(self.local_peer_id))
-    }
-}
 
 fn parse_bool_arg(value: &str) -> Result<bool, String> {
     if value.eq_ignore_ascii_case("true") {
@@ -177,18 +147,13 @@ impl Cli {
                 player_count,
                 ..
             }) => {
-                validate_p2p_roster(peer_id, player_count);
-                app.add_plugins(lightyear::prelude::client::ClientPlugins { tick_duration });
-                app.insert_resource(P2PSettings {
-                    local_peer_id: peer_id,
+                p2p::configure_app(
+                    &mut app,
+                    tick_duration,
+                    self.headless(),
+                    peer_id,
                     player_count,
-                });
-                #[cfg(any(feature = "gui2d", feature = "gui3d"))]
-                if !self.headless() {
-                    app.add_plugins(ExampleClientRendererPlugin::new(format!(
-                        "P2P Peer {peer_id}"
-                    )));
-                }
+                );
                 app
             }
             #[cfg(feature = "server")]
@@ -260,29 +225,7 @@ impl Cli {
                 player_count,
                 base_port,
             }) => {
-                validate_p2p_roster(peer_id, player_count);
-                let local_id = PeerId::Entity(u64::from(peer_id));
-                for remote_peer_id in 0..player_count {
-                    if remote_peer_id == peer_id {
-                        continue;
-                    }
-                    let local_addr = p2p_addr(base_port, peer_id, remote_peer_id);
-                    let peer_addr = p2p_addr(base_port, remote_peer_id, peer_id);
-                    app.world_mut().spawn((
-                        P2P,
-                        RawClient,
-                        LocalId(local_id),
-                        RemoteId(PeerId::Entity(u64::from(remote_peer_id))),
-                        PingManager::default(),
-                        LocalAddr(local_addr),
-                        PeerAddr(peer_addr),
-                        UdpIo::default(),
-                        Link::default()
-                            .with_conditioner(Some(RecvLinkConditioner::new(conditioner.clone()))),
-                        Name::new(format!("P2P Link {peer_id} -> {remote_peer_id}")),
-                    ));
-                }
-                app.add_systems(Startup, connect_p2p);
+                p2p::spawn_connections(app, &conditioner, peer_id, player_count, base_port);
             }
             #[cfg(feature = "server")]
             Some(Mode::Server) => {
@@ -399,34 +342,6 @@ impl Mode {
                 "none"
             }
         }
-    }
-}
-
-#[cfg(feature = "p2p")]
-fn validate_p2p_roster(peer_id: u8, player_count: u8) {
-    assert!(
-        (2..=MAX_P2P_PLAYERS).contains(&player_count),
-        "P2P player_count must be between 2 and {MAX_P2P_PLAYERS}"
-    );
-    assert!(
-        peer_id < player_count,
-        "P2P peer_id {peer_id} is outside the {player_count}-player roster"
-    );
-}
-
-#[cfg(feature = "p2p")]
-fn p2p_addr(base_port: u16, local_peer_id: u8, remote_peer_id: u8) -> SocketAddr {
-    let offset = u16::from(local_peer_id) * u16::from(MAX_P2P_PLAYERS) + u16::from(remote_peer_id);
-    let port = base_port
-        .checked_add(offset)
-        .expect("P2P base port plus roster offset must fit in u16");
-    SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)
-}
-
-#[cfg(feature = "p2p")]
-fn connect_p2p(mut commands: Commands, links: Query<Entity, With<P2P>>) {
-    for entity in &links {
-        commands.trigger(Connect { entity });
     }
 }
 
