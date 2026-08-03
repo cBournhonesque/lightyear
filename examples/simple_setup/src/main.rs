@@ -106,7 +106,9 @@ fn main() {
             let server = app
                 .world_mut()
                 .spawn((
-                    NetcodeServer::new(ServerNetcodeConfig::default()),
+                    NetcodeServer::new(
+                        ServerNetcodeConfig::default().with_server_addr(shared::SERVER_ADDR),
+                    ),
                     LocalAddr(shared::SERVER_ADDR),
                     #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
                     WebTransportServerIo {

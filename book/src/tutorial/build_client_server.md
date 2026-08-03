@@ -94,7 +94,7 @@ a new entity will be spawned with the [`LinkOf`] component that will mark that [
 ```rust,ignore
 let server = commands
     .spawn((
-        NetcodeServer::new(NetcodeConfig::default()),
+        NetcodeServer::new(NetcodeConfig::default().with_server_addr(SERVER_ADDR)),
         LocalAddr(SERVER_ADDR),
         ServerUdpIo::default(),
     ))
@@ -103,6 +103,8 @@ commands.trigger_targets(Start, server);
 ```
 
 We need to add `NetcodeServer` because we need a connection layer. This will automatically insert the [`Server`] component.
+The configured server address is checked against incoming connection tokens; it may differ from
+the local bind address when the server is behind NAT.
 We also need to specify the [`LocalAddr`] component to define the local address of the server.
 The IO layer we choose is UDP, so we add the [`ServerUdpIo`] component to the entity.
 
