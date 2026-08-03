@@ -35,6 +35,10 @@ impl Write for Writer {
 }
 
 impl<const N: usize> From<[u8; N]> for Writer {
+    /// Creates a writer containing all `N` bytes from `value`.
+    ///
+    /// In particular, `Writer::from([0; N])` has length `N`; it is not an empty
+    /// writer with capacity `N`. Use [`Writer::with_capacity`] for that.
     #[inline]
     fn from(value: [u8; N]) -> Self {
         BytesMut::from(Bytes::copy_from_slice(&value)).into()
@@ -72,7 +76,7 @@ impl Writer {
     /// Split the current bytes written as a separate [`Bytes`].
     ///
     /// Retains any additional capacity. O(1) operation.
-    pub fn split(&mut self) -> Bytes {
+    pub fn take_written(&mut self) -> Bytes {
         self.0.split().freeze()
     }
 
@@ -101,17 +105,13 @@ impl Writer {
         self.0.clear();
     }
 
-    // by convention, to_* functions with non-Copy self types usually take a &self, but not here.
-    /// Consume the writer to get the RawData
-    #[allow(clippy::wrong_self_convention)]
-    pub fn to_bytes(self) -> Bytes {
+    /// Consumes the writer and returns its written bytes as immutable storage.
+    pub fn into_bytes(self) -> Bytes {
         self.0.into()
     }
 
-    // by convention, to_* functions with non-Copy self types usually take a &self, but not here.
-    /// Consume the writer to get the RawData
-    #[allow(clippy::wrong_self_convention)]
-    pub fn to_bytes_mut(self) -> BytesMut {
+    /// Consumes the writer and returns its mutable byte storage.
+    pub fn into_bytes_mut(self) -> BytesMut {
         self.0
     }
 }

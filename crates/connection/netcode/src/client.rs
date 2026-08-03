@@ -356,7 +356,7 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -376,7 +376,7 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())
@@ -392,7 +392,7 @@ impl<Ctx> Client<Ctx> {
             self.token.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        self.send_queue.push(self.writer.split());
+        self.send_queue.push(self.writer.take_written());
         self.last_send_time = self.time;
         self.sequence += 1;
         Ok(())

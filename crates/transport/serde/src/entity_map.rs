@@ -342,7 +342,7 @@ mod tests {
         e.to_bytes(&mut writer).unwrap();
         // entities of the first generation only serialize the row
         assert_eq!(writer.len(), 1);
-        let mut reader = Reader::from(writer.split());
+        let mut reader = Reader::from(writer.take_written());
         let serde_e = Entity::from_bytes(&mut reader).unwrap();
         assert_eq!(e, serde_e);
     }
@@ -358,7 +358,7 @@ mod tests {
         e.to_bytes(&mut writer).unwrap();
         // both the row and generation are serialized
         assert_eq!(writer.len(), 2);
-        let mut reader = Reader::from(writer.split());
+        let mut reader = Reader::from(writer.take_written());
         let serde_e = Entity::from_bytes(&mut reader).unwrap();
         assert_eq!(e, serde_e);
     }
@@ -374,7 +374,7 @@ mod tests {
         entity_mapped.to_bytes(&mut writer).unwrap();
         // even with entity mapping, it only takes 1 bytes (since the `is_mapped` information is included in the row)
         assert_eq!(writer.len(), 1);
-        let mut reader = Reader::from(writer.split());
+        let mut reader = Reader::from(writer.take_written());
         let serde_e = Entity::from_bytes(&mut reader).unwrap();
         assert_eq!(entity_mapped, serde_e);
     }
@@ -392,7 +392,7 @@ mod tests {
         let mut writer = Writer::with_capacity(100);
         entity_mapped.to_bytes(&mut writer).unwrap();
         assert_eq!(writer.len(), 2);
-        let mut reader = Reader::from(writer.split());
+        let mut reader = Reader::from(writer.take_written());
         let serde_e = Entity::from_bytes(&mut reader).unwrap();
         assert_eq!(entity_mapped, serde_e);
     }

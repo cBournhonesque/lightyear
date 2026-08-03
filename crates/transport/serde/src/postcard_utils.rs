@@ -80,7 +80,7 @@ mod tests {
         to_writer(&second, &mut writer).unwrap();
 
         assert!(writer.len() > first_len);
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         assert_eq!(from_reader::<Message>(&mut reader).unwrap(), first);
         assert_eq!(reader.position() as usize, first_len);
         assert_eq!(from_reader::<Message>(&mut reader).unwrap(), second);

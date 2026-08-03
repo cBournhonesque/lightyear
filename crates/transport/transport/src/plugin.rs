@@ -229,7 +229,7 @@ impl TransportPlugin {
 
                     let mut packet_type = header.get_packet_type();
                     if packet_type.is_compressed() {
-                        let compressed_payload = cursor.split();
+                        let compressed_payload = cursor.take_remaining();
                         let decompressed_payload =
                             decompress_payload(compressed_payload.as_ref(), transport.compression)?;
                         cursor = Reader::from(decompressed_payload);

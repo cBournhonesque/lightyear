@@ -274,7 +274,7 @@ mod tests {
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let read = Bytes::from_bytes(&mut reader).unwrap();
         assert_eq!(a, read);
     }
@@ -285,7 +285,7 @@ mod tests {
         writer.write_varint(10).unwrap();
         writer.extend_from_slice(&[7]);
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         assert!(Bytes::from_bytes(&mut reader).is_err());
     }
 
@@ -297,7 +297,7 @@ mod tests {
         let b: Vec<u8> = vec![];
         b.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let a_read = Vec::<u8>::from_bytes(&mut reader).unwrap();
         let b_read = Vec::<u8>::from_bytes(&mut reader).unwrap();
         assert_eq!(a, a_read);
@@ -312,7 +312,7 @@ mod tests {
         let mut writer = Writer::with_capacity(5);
         a.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let read = HashMap::<u8, u8>::from_bytes(&mut reader).unwrap();
         assert_eq!(a, read);
     }
@@ -327,7 +327,7 @@ mod tests {
         b.to_bytes(&mut writer).unwrap();
         c.to_bytes(&mut writer).unwrap();
 
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let read_a = Entity::from_bytes(&mut reader).unwrap();
         let read_b = Entity::from_bytes(&mut reader).unwrap();
         let read_c = Entity::from_bytes(&mut reader).unwrap();

@@ -68,8 +68,10 @@ impl AsRef<[u8]> for Reader {
 }
 
 impl Reader {
-    /// Returns the underlying RawData
-    pub fn consume(self) -> Bytes {
+    /// Consumes the reader and returns its entire underlying buffer.
+    ///
+    /// This includes bytes before the current cursor position.
+    pub fn into_bytes(self) -> Bytes {
         self.0.into_inner()
     }
 
@@ -102,9 +104,17 @@ impl Reader {
     /// Return the remaining length of the buffer as a separate Bytes.
     ///
     /// This doesn't allocate and just increases some reference counts. O(1) cost.
-    pub fn split(&mut self) -> Bytes {
+    pub fn take_remaining(&mut self) -> Bytes {
         let current_pos = self.0.position() as usize;
         self.0.get_mut().split_off(current_pos)
+    }
+
+    /// Returns the unread portion of the underlying buffer.
+    pub fn remaining_slice(&self) -> &[u8] {
+        let Ok(position) = usize::try_from(self.position()) else {
+            return &[];
+        };
+        self.as_ref().get(position..).unwrap_or_default()
     }
 
     pub fn has_remaining(&self) -> bool {
