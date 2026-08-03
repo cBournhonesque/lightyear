@@ -5,13 +5,13 @@ use crate::registry::MessageRegistration;
 use crate::send::Priority;
 use crate::send_trigger::EventSender;
 use crate::trigger::TriggerRegistration;
-use bevy_ecs::entity::EntitySet;
+use bevy_ecs::entity::{EntityHashSet, EntitySet};
 use bevy_ecs::query::QueryFilter;
 use bevy_ecs::{
     error::Result,
     event::Event,
     relationship::RelationshipTarget,
-    system::{Res, SystemParam},
+    system::{Local, Res, SystemParam},
 };
 use lightyear_connection::client::PeerMetadata;
 use lightyear_connection::client_of::ClientOf;
@@ -29,6 +29,7 @@ use lightyear_transport::channel::Channel;
 pub struct ServerMultiMessageSender<'w, 's, F: QueryFilter + 'static = ()> {
     sender: MultiMessageSender<'w, 's, F>,
     metadata: Res<'w, PeerMetadata>,
+    targets: Local<'s, EntityHashSet>,
 }
 
 impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
@@ -54,16 +55,16 @@ impl<'w, 's, F: QueryFilter> ServerMultiMessageSender<'w, 's, F> {
     ) -> Result {
         // Resolve the NetworkTarget to concrete entities, then delegate to
         // MultiMessageSender which handles per-client entity mapping correctly.
-        let mut targets = bevy_ecs::entity::EntityHashSet::default();
+        self.targets.clear();
         target.apply_targets(
             server.collection().iter().copied(),
             &self.metadata.mapping,
             &mut |entity| {
-                targets.insert(entity);
+                self.targets.insert(entity);
             },
         );
         self.sender
-            .send_with_priority::<M, C>(message, &targets, priority)
+            .send_with_priority::<M, C>(message, &*self.targets, priority)
     }
 
     /// Send a message to a set of  [`ClientOf`]s entities associated with the provided [`Server`]

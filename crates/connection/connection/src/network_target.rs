@@ -1,19 +1,13 @@
 use alloc::{vec, vec::Vec};
 use bevy_ecs::entity::Entity;
-use bevy_platform::{
-    collections::{HashMap, HashSet},
-    hash::FixedHasher,
-};
+use bevy_platform::collections::HashMap;
 use bevy_reflect::Reflect;
-use core::hash::Hash;
 use lightyear_core::id::PeerId;
 use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-
-type HS<K> = HashSet<K, FixedHasher>;
 
 pub type NetworkTarget = Target<PeerId>;
 pub type EntityTarget = Target<Entity>;
@@ -141,16 +135,37 @@ impl ToBytes for Target<PeerId> {
     }
 }
 
-impl<T: PartialEq + Eq + Hash + Clone + Copy> Extend<T> for Target<T> {
+impl<T: PartialEq + Copy> Extend<T> for Target<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
-        self.union(&iter.into_iter().collect::<Target<T>>());
+        self.normalize();
+        let iter = iter.into_iter();
+        let existing_len = match self {
+            Target::Single(_) => 1,
+            Target::Only(client_ids) => client_ids.len(),
+            _ => 0,
+        };
+        let capacity = existing_len.saturating_add(iter.size_hint().0).max(2);
+        if let Target::Only(client_ids) = self {
+            client_ids.reserve(capacity.saturating_sub(client_ids.len()));
+        }
+        iter.for_each(|id| self.insert(id, capacity));
+        self.normalize();
     }
 }
 
 impl<T> FromIterator<T> for Target<T> {
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
-        let clients: Vec<T> = iter.into_iter().collect();
-        Target::from(clients)
+        let mut iter = iter.into_iter();
+        let Some(first) = iter.next() else {
+            return Target::None;
+        };
+        let Some(second) = iter.next() else {
+            return Target::Single(first);
+        };
+        let mut clients = Vec::with_capacity(iter.size_hint().0.saturating_add(2));
+        clients.extend([first, second]);
+        clients.extend(iter);
+        Target::Only(clients)
     }
 }
 
@@ -164,7 +179,7 @@ impl<T> From<Vec<T>> for Target<T> {
     }
 }
 
-impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
+impl<T: PartialEq + Copy> Target<T> {
     /// Returns true if the target is empty
     pub fn is_empty(&self) -> bool {
         match self {
@@ -175,12 +190,10 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
     }
 
     pub fn from_exclude(client_ids: impl IntoIterator<Item = T>) -> Self {
-        let mut client_ids = client_ids.into_iter().collect::<Vec<_>>();
-        match client_ids.len() {
-            0 => Target::All,
-            1 => Target::AllExceptSingle(client_ids.pop().unwrap()),
-            _ => Target::AllExcept(client_ids),
-        }
+        let mut target = Target::None;
+        target.extend(client_ids);
+        target.inverse();
+        target
     }
 
     /// Return true if we should replicate to the specified client
@@ -195,41 +208,168 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
         }
     }
 
+    /// Inserts one client into this target without allocating an intermediate collection.
+    fn insert(&mut self, client_id: T, capacity: usize) {
+        match self {
+            Target::All => {}
+            Target::AllExceptSingle(excluded) => {
+                if *excluded == client_id {
+                    *self = Target::All;
+                }
+            }
+            Target::AllExcept(excluded) => excluded.retain(|id| id != &client_id),
+            Target::Only(included) => {
+                if !included.contains(&client_id) {
+                    included.push(client_id);
+                }
+            }
+            Target::Single(existing) => {
+                if *existing != client_id {
+                    let mut included = Vec::with_capacity(capacity);
+                    included.extend([*existing, client_id]);
+                    *self = Target::Only(included);
+                }
+            }
+            Target::None => *self = Target::Single(client_id),
+        }
+    }
+
+    /// Builds an inclusive target while avoiding a heap allocation for zero or one unique item.
+    fn only_unique(client_ids: impl IntoIterator<Item = T>) -> Self {
+        let iter = client_ids.into_iter();
+        // Internal callers derive this iterator from an existing target list, so its upper bound
+        // lets a multi-ID result allocate its final storage once without allocating for zero or
+        // one result.
+        let capacity = iter.size_hint().1.unwrap_or(2).max(2);
+        let mut first = None;
+        let mut many: Option<Vec<T>> = None;
+
+        for client_id in iter {
+            if let Some(client_ids) = many.as_mut() {
+                if !client_ids.contains(&client_id) {
+                    client_ids.push(client_id);
+                }
+            } else if let Some(first_client_id) = first {
+                if first_client_id != client_id {
+                    let mut client_ids = Vec::with_capacity(capacity);
+                    client_ids.extend([first_client_id, client_id]);
+                    many = Some(client_ids);
+                }
+            } else {
+                first = Some(client_id);
+            }
+        }
+
+        match many {
+            Some(client_ids) => Target::Only(client_ids),
+            None => first.map_or(Target::None, Target::Single),
+        }
+    }
+
+    /// Builds an exclusive target while avoiding a heap allocation for zero or one unique item.
+    fn all_except_unique(client_ids: impl IntoIterator<Item = T>) -> Self {
+        match Self::only_unique(client_ids) {
+            Target::None => Target::All,
+            Target::Single(client_id) => Target::AllExceptSingle(client_id),
+            Target::Only(client_ids) => Target::AllExcept(client_ids),
+            _ => unreachable!("only_unique only constructs inclusive targets"),
+        }
+    }
+
+    /// Restores the compact canonical representation and removes duplicate IDs in place.
+    fn normalize(&mut self) {
+        *self = match core::mem::take(self) {
+            Target::Only(mut client_ids) => {
+                Self::deduplicate(&mut client_ids);
+                match client_ids.len() {
+                    0 => Target::None,
+                    1 => Target::Single(client_ids.pop().unwrap()),
+                    _ => Target::Only(client_ids),
+                }
+            }
+            Target::AllExcept(mut client_ids) => {
+                Self::deduplicate(&mut client_ids);
+                match client_ids.len() {
+                    0 => Target::All,
+                    1 => Target::AllExceptSingle(client_ids.pop().unwrap()),
+                    _ => Target::AllExcept(client_ids),
+                }
+            }
+            target => target,
+        };
+    }
+
+    /// Stable in-place deduplication for the usually-small target lists.
+    fn deduplicate(client_ids: &mut Vec<T>) {
+        let mut index = 1;
+        while index < client_ids.len() {
+            if client_ids[..index].contains(&client_ids[index]) {
+                client_ids.remove(index);
+            } else {
+                index += 1;
+            }
+        }
+    }
+
     /// Compute the intersection of this target with another one (A ∩ B)
     pub(crate) fn intersection(&mut self, target: &Target<T>) {
+        self.normalize();
         match self {
             Target::All => {
                 *self = target.clone();
             }
-            // TODO: write the implementation by hand as an optimization!
             Target::AllExceptSingle(existing_client_id) => {
-                let mut a = Target::AllExcept(vec![*existing_client_id]);
-                a.intersection(target);
-                *self = a;
+                let existing_client_id = *existing_client_id;
+                *self = match target {
+                    Target::None => Target::None,
+                    Target::AllExceptSingle(target_client_id) => {
+                        Self::all_except_unique([existing_client_id, *target_client_id])
+                    }
+                    Target::AllExcept(target_client_ids) => Self::all_except_unique(
+                        core::iter::once(existing_client_id)
+                            .chain(target_client_ids.iter().copied()),
+                    ),
+                    Target::All => Target::AllExceptSingle(existing_client_id),
+                    Target::Only(target_client_ids) => Self::only_unique(
+                        target_client_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| id != &existing_client_id),
+                    ),
+                    Target::Single(target_client_id) => {
+                        if existing_client_id == *target_client_id {
+                            Target::None
+                        } else {
+                            Target::Single(*target_client_id)
+                        }
+                    }
+                };
             }
             Target::AllExcept(existing_client_ids) => match target {
                 Target::None => {
                     *self = Target::None;
                 }
                 Target::AllExceptSingle(target_client_id) => {
-                    let mut new_excluded_ids = HS::from_iter(existing_client_ids.clone());
-                    new_excluded_ids.insert(*target_client_id);
-                    *existing_client_ids = Vec::from_iter(new_excluded_ids);
+                    if !existing_client_ids.contains(target_client_id) {
+                        existing_client_ids.push(*target_client_id);
+                    }
                 }
                 Target::AllExcept(target_client_ids) => {
-                    let mut new_excluded_ids = HS::from_iter(existing_client_ids.clone());
-                    target_client_ids.iter().for_each(|id| {
-                        new_excluded_ids.insert(*id);
+                    target_client_ids.iter().copied().for_each(|id| {
+                        if !existing_client_ids.contains(&id) {
+                            existing_client_ids.push(id);
+                        }
                     });
-                    *existing_client_ids = Vec::from_iter(new_excluded_ids);
                 }
                 Target::All => {}
                 Target::Only(target_client_ids) => {
-                    let mut new_included_ids = HS::from_iter(target_client_ids.clone());
-                    existing_client_ids.iter_mut().for_each(|id| {
-                        new_included_ids.remove(id);
-                    });
-                    *self = Target::Only(Vec::from_iter(new_included_ids));
+                    let included = Self::only_unique(
+                        target_client_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| !existing_client_ids.contains(id)),
+                    );
+                    *self = included;
                 }
                 Target::Single(target_client_id) => {
                     if existing_client_ids.contains(target_client_id) {
@@ -244,30 +384,17 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
                     *self = Target::None;
                 }
                 Target::AllExceptSingle(target_client_id) => {
-                    let mut new_included_ids = HS::from_iter(existing_client_ids.clone());
-                    new_included_ids.remove(target_client_id);
-                    *self = Target::from(Vec::from_iter(new_included_ids));
+                    existing_client_ids.retain(|id| id != target_client_id);
                 }
                 Target::AllExcept(target_client_ids) => {
-                    let mut new_included_ids = HS::from_iter(existing_client_ids.clone());
-                    target_client_ids.iter().for_each(|id| {
-                        new_included_ids.remove(id);
-                    });
-                    *self = Target::from(Vec::from_iter(new_included_ids));
+                    existing_client_ids.retain(|id| !target_client_ids.contains(id));
                 }
                 Target::All => {}
                 Target::Single(target_client_id) => {
-                    if existing_client_ids.contains(target_client_id) {
-                        *self = Target::Single(*target_client_id);
-                    } else {
-                        *self = Target::None;
-                    }
+                    existing_client_ids.retain(|id| id == target_client_id);
                 }
                 Target::Only(target_client_ids) => {
-                    let new_included_ids = HS::from_iter(existing_client_ids.clone());
-                    let target_included_ids = HS::from_iter(target_client_ids.clone());
-                    let intersection = new_included_ids.intersection(&target_included_ids).cloned();
-                    *self = Target::from(intersection.collect::<Vec<_>>());
+                    existing_client_ids.retain(|id| target_client_ids.contains(id));
                 }
             },
             Target::Single(existing_client_id) => {
@@ -277,10 +404,12 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
             }
             Target::None => {}
         }
+        self.normalize();
     }
 
     /// Compute the union of this target with another one (A U B)
     pub(crate) fn union(&mut self, target: &Target<T>) {
+        self.normalize();
         match self {
             Target::All => {}
             Target::AllExceptSingle(existing_client_id) => {
@@ -298,23 +427,13 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
                     }
                 }
                 Target::AllExcept(target_client_ids) => {
-                    let new_excluded_ids = HS::from_iter(existing_client_ids.clone());
-                    let target_excluded_ids = HS::from_iter(target_client_ids.clone());
-                    let intersection = new_excluded_ids
-                        .intersection(&target_excluded_ids)
-                        .copied()
-                        .collect();
-                    *existing_client_ids = intersection;
+                    existing_client_ids.retain(|id| target_client_ids.contains(id));
                 }
                 Target::All => {
                     *self = Target::All;
                 }
                 Target::Only(target_client_ids) => {
-                    let mut new_excluded_ids = HS::from_iter(existing_client_ids.clone());
-                    target_client_ids.iter().for_each(|id| {
-                        new_excluded_ids.remove(id);
-                    });
-                    *self = Target::from_exclude(new_excluded_ids)
+                    existing_client_ids.retain(|id| !target_client_ids.contains(id));
                 }
                 Target::Single(target_client_id) => {
                     existing_client_ids.retain(|id| id != target_client_id);
@@ -330,23 +449,13 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
                     }
                 }
                 Target::AllExcept(target_client_ids) => {
-                    let mut target_excluded_ids = HS::from_iter(target_client_ids.clone());
-                    existing_client_ids.iter().for_each(|id| {
-                        target_excluded_ids.remove(id);
-                    });
-                    match target_excluded_ids.len() {
-                        0 => {
-                            *self = Target::All;
-                        }
-                        1 => {
-                            *self = Target::AllExceptSingle(
-                                *target_excluded_ids.iter().next().unwrap(),
-                            );
-                        }
-                        _ => {
-                            *self = Target::AllExcept(Vec::from_iter(target_excluded_ids));
-                        }
-                    }
+                    let excluded = Self::all_except_unique(
+                        target_client_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| !existing_client_ids.contains(id)),
+                    );
+                    *self = excluded;
                 }
                 Target::All => {
                     *self = Target::All;
@@ -357,10 +466,11 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
                     }
                 }
                 Target::Only(target_client_ids) => {
-                    let new_included_ids = HS::from_iter(existing_client_ids.clone());
-                    let target_included_ids = HS::from_iter(target_client_ids.clone());
-                    let union = new_included_ids.union(&target_included_ids);
-                    *existing_client_ids = union.into_iter().copied().collect::<Vec<_>>();
+                    target_client_ids.iter().copied().for_each(|id| {
+                        if !existing_client_ids.contains(&id) {
+                            existing_client_ids.push(id);
+                        }
+                    });
                 }
             },
             Target::Single(existing_client_id) => match target {
@@ -373,17 +483,21 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
                     }
                 }
                 Target::AllExcept(target_client_ids) => {
-                    let mut new_excluded = target_client_ids.clone();
-                    new_excluded.retain(|id| id != existing_client_id);
-                    *self = Target::from_exclude(new_excluded);
+                    *self = Self::all_except_unique(
+                        target_client_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| id != existing_client_id),
+                    );
                 }
                 Target::All => {
                     *self = Target::All;
                 }
                 Target::Only(target_client_ids) => {
-                    let mut new_targets = HS::from_iter(target_client_ids.clone());
-                    new_targets.insert(*existing_client_id);
-                    *self = Target::from(Vec::from_iter(new_targets));
+                    *self = Self::only_unique(
+                        core::iter::once(*existing_client_id)
+                            .chain(target_client_ids.iter().copied()),
+                    );
                 }
                 Target::Single(target_client_id) => {
                     if existing_client_id != target_client_id {
@@ -395,37 +509,106 @@ impl<T: PartialEq + Eq + Hash + Clone + Copy> Target<T> {
                 *self = target.clone();
             }
         }
+        self.normalize();
     }
 
     /// Compute the inverse of this target (¬A)
     pub(crate) fn inverse(&mut self) {
-        match self {
-            Target::All => {
-                *self = Target::None;
-            }
-            Target::AllExceptSingle(client_id) => {
-                *self = Target::Single(*client_id);
-            }
-            Target::AllExcept(client_ids) => {
-                *self = Target::Only(client_ids.clone());
-            }
-            Target::Only(client_ids) => {
-                *self = Target::AllExcept(client_ids.clone());
-            }
-            Target::Single(client_id) => {
-                *self = Target::AllExceptSingle(*client_id);
-            }
-            Target::None => {
-                *self = Target::All;
-            }
-        }
+        self.normalize();
+        *self = match core::mem::take(self) {
+            Target::All => Target::None,
+            Target::AllExceptSingle(client_id) => Target::Single(client_id),
+            Target::AllExcept(client_ids) => Target::Only(client_ids),
+            Target::Only(client_ids) => Target::AllExcept(client_ids),
+            Target::Single(client_id) => Target::AllExceptSingle(client_id),
+            Target::None => Target::All,
+        };
     }
 
     /// Compute the difference of this target with another one (A - B)
     pub(crate) fn exclude(&mut self, target: &Target<T>) {
-        let mut target = target.clone();
-        target.inverse();
-        self.intersection(&target);
+        self.normalize();
+        match self {
+            Target::All => {
+                *self = match target {
+                    Target::None => Target::All,
+                    Target::AllExceptSingle(client_id) => Target::Single(*client_id),
+                    Target::AllExcept(client_ids) => Self::only_unique(client_ids.iter().copied()),
+                    Target::All => Target::None,
+                    Target::Only(client_ids) => Self::all_except_unique(client_ids.iter().copied()),
+                    Target::Single(client_id) => Target::AllExceptSingle(*client_id),
+                };
+            }
+            Target::AllExceptSingle(existing_client_id) => {
+                let existing_client_id = *existing_client_id;
+                *self = match target {
+                    Target::None => Target::AllExceptSingle(existing_client_id),
+                    Target::AllExceptSingle(target_client_id) => {
+                        if existing_client_id == *target_client_id {
+                            Target::None
+                        } else {
+                            Target::Single(*target_client_id)
+                        }
+                    }
+                    Target::AllExcept(target_client_ids) => Self::only_unique(
+                        target_client_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| id != &existing_client_id),
+                    ),
+                    Target::All => Target::None,
+                    Target::Only(target_client_ids) => Self::all_except_unique(
+                        core::iter::once(existing_client_id)
+                            .chain(target_client_ids.iter().copied()),
+                    ),
+                    Target::Single(target_client_id) => {
+                        Self::all_except_unique([existing_client_id, *target_client_id])
+                    }
+                };
+            }
+            Target::AllExcept(existing_client_ids) => match target {
+                Target::None => {}
+                Target::AllExceptSingle(target_client_id) => {
+                    if existing_client_ids.contains(target_client_id) {
+                        *self = Target::None;
+                    } else {
+                        *self = Target::Single(*target_client_id);
+                    }
+                }
+                Target::AllExcept(target_client_ids) => {
+                    let included = Self::only_unique(
+                        target_client_ids
+                            .iter()
+                            .copied()
+                            .filter(|id| !existing_client_ids.contains(id)),
+                    );
+                    *self = included;
+                }
+                Target::All => *self = Target::None,
+                Target::Only(target_client_ids) => {
+                    target_client_ids.iter().copied().for_each(|id| {
+                        if !existing_client_ids.contains(&id) {
+                            existing_client_ids.push(id);
+                        }
+                    });
+                }
+                Target::Single(target_client_id) => {
+                    if !existing_client_ids.contains(target_client_id) {
+                        existing_client_ids.push(*target_client_id);
+                    }
+                }
+            },
+            Target::Only(existing_client_ids) => {
+                existing_client_ids.retain(|id| !target.targets(id));
+            }
+            Target::Single(existing_client_id) => {
+                if target.targets(existing_client_id) {
+                    *self = Target::None;
+                }
+            }
+            Target::None => {}
+        }
+        self.normalize();
     }
 }
 
@@ -444,106 +627,131 @@ mod tests {
         assert_eq!(target, deserialized);
     }
 
-    #[test]
-    fn test_exclude() {
-        let client_0 = PeerId::Netcode(0);
-        let client_1 = PeerId::Netcode(1);
-        let client_2 = PeerId::Netcode(2);
-        let mut target = Target::All;
-        assert!(target.targets(&client_0));
-        target.exclude(&Target::Only(vec![client_1, client_2]));
-        assert_eq!(target, Target::AllExcept(vec![client_1, client_2]));
+    fn peer(id: u64) -> PeerId {
+        PeerId::Netcode(id)
+    }
 
-        target = Target::AllExcept(vec![client_0]);
-        assert!(!target.targets(&client_0));
-        assert!(target.targets(&client_1));
-        target.exclude(&Target::Only(vec![client_0, client_1]));
-        assert!(matches!(target, Target::AllExcept(_)));
+    fn target_cases() -> Vec<(&'static str, NetworkTarget)> {
+        vec![
+            ("none", Target::None),
+            ("all", Target::All),
+            ("single", Target::Single(peer(0))),
+            ("all-except-single", Target::AllExceptSingle(peer(0))),
+            ("only-many", Target::Only(vec![peer(0), peer(1)])),
+            ("all-except-many", Target::AllExcept(vec![peer(0), peer(1)])),
+            ("only-empty", Target::Only(vec![])),
+            ("all-except-empty", Target::AllExcept(vec![])),
+            ("only-duplicate", Target::Only(vec![peer(0), peer(0)])),
+            (
+                "all-except-duplicate",
+                Target::AllExcept(vec![peer(0), peer(0)]),
+            ),
+        ]
+    }
 
-        if let Target::AllExcept(ids) = target {
-            assert!(ids.contains(&client_0));
-            assert!(ids.contains(&client_1));
+    fn assert_canonical(target: &NetworkTarget) {
+        if let Target::Only(client_ids) | Target::AllExcept(client_ids) = target {
+            assert!(client_ids.len() >= 2, "non-canonical target: {target:?}");
+            for (index, client_id) in client_ids.iter().enumerate() {
+                assert!(
+                    !client_ids[..index].contains(client_id),
+                    "duplicate client in target: {target:?}"
+                );
+            }
         }
+    }
 
-        target = Target::Only(vec![client_0]);
-        assert!(target.targets(&client_0));
-        assert!(!target.targets(&client_1));
-        target.exclude(&Target::Single(client_1));
-        assert_eq!(target, Target::Single(client_0));
-        target.exclude(&Target::Only(vec![client_0, client_2]));
-        assert_eq!(target, Target::None);
+    fn assert_binary_operation(
+        name: &str,
+        operation: fn(&mut NetworkTarget, &NetworkTarget),
+        expected: fn(bool, bool) -> bool,
+    ) {
+        let cases = target_cases();
+        let clients = [peer(0), peer(1), peer(2), peer(3)];
 
-        target = Target::None;
-        assert!(!target.targets(&client_0));
-        target.exclude(&Target::Single(client_1));
-        assert_eq!(target, Target::None);
+        for (left_name, left) in &cases {
+            for (right_name, right) in &cases {
+                let mut actual = left.clone();
+                operation(&mut actual, right);
+
+                for client in clients {
+                    assert_eq!(
+                        actual.targets(&client),
+                        expected(left.targets(&client), right.targets(&client)),
+                        "{name} failed for {left_name} and {right_name} at {client:?}: {actual:?}"
+                    );
+                }
+                assert_canonical(&actual);
+            }
+        }
     }
 
     #[test]
-    fn test_intersection() {
-        let client_0 = PeerId::Netcode(0);
-        let client_1 = PeerId::Netcode(1);
-        let client_2 = PeerId::Netcode(2);
-        let mut target = Target::All;
-        target.intersection(&Target::AllExcept(vec![client_1, client_2]));
-        assert_eq!(target, Target::AllExcept(vec![client_1, client_2]));
-
-        target = Target::AllExcept(vec![client_0]);
-        target.intersection(&Target::AllExcept(vec![client_0, client_1]));
-        assert!(matches!(target, Target::AllExcept(_)));
-
-        if let Target::AllExcept(ids) = target {
-            assert!(ids.contains(&client_0));
-            assert!(ids.contains(&client_1));
-        }
-
-        target = Target::AllExcept(vec![client_0, client_1]);
-        target.intersection(&Target::Only(vec![client_0, client_2]));
-        assert_eq!(target, Target::Only(vec![client_2]));
-
-        target = Target::Only(vec![client_0, client_1]);
-        target.intersection(&Target::Only(vec![client_0, client_2]));
-        assert_eq!(target, Target::Single(client_0));
-
-        target = Target::Only(vec![client_0, client_1]);
-        target.intersection(&Target::AllExcept(vec![client_0, client_2]));
-        assert_eq!(target, Target::Single(client_1));
-
-        target = Target::None;
-        target.intersection(&Target::AllExcept(vec![client_0, client_2]));
-        assert_eq!(target, Target::None);
+    fn set_operations_match_membership() {
+        assert_binary_operation("intersection", Target::intersection, |left, right| {
+            left && right
+        });
+        assert_binary_operation("union", Target::union, |left, right| left || right);
+        assert_binary_operation("exclude", Target::exclude, |left, right| left && !right);
     }
 
     #[test]
-    fn test_union() {
-        let client_0 = PeerId::Netcode(0);
-        let client_1 = PeerId::Netcode(1);
-        let client_2 = PeerId::Netcode(2);
-        let mut target = Target::All;
-        target.union(&Target::AllExcept(vec![client_1, client_2]));
-        assert_eq!(target, Target::All);
+    fn inverse_matches_membership() {
+        let clients = [peer(0), peer(1), peer(2), peer(3)];
+        for (name, target) in target_cases() {
+            let mut actual = target.clone();
+            actual.inverse();
+            for client in clients {
+                assert_eq!(
+                    actual.targets(&client),
+                    !target.targets(&client),
+                    "inverse failed for {name} at {client:?}: {actual:?}"
+                );
+            }
+            assert_canonical(&actual);
+        }
+    }
 
-        target = Target::AllExcept(vec![client_0]);
-        target.union(&Target::Only(vec![client_0, client_1]));
-        assert_eq!(target, Target::All);
+    #[test]
+    fn builders_use_compact_variants() {
+        assert_eq!(core::iter::empty().collect::<NetworkTarget>(), Target::None);
+        assert_eq!(
+            [peer(0)].into_iter().collect::<NetworkTarget>(),
+            Target::Single(peer(0))
+        );
+        assert_eq!(
+            NetworkTarget::from_exclude([peer(0), peer(0)]),
+            Target::AllExceptSingle(peer(0))
+        );
 
-        target = Target::AllExcept(vec![client_0, client_1]);
-        target.union(&Target::Only(vec![client_0, client_2]));
-        assert_eq!(target, Target::AllExceptSingle(client_1));
+        let mut target = Target::Single(peer(0));
+        target.extend([peer(0), peer(1), peer(1)]);
+        assert_eq!(target, Target::Only(vec![peer(0), peer(1)]));
+    }
 
-        target = Target::Only(vec![client_0, client_1]);
-        target.union(&Target::Only(vec![client_0, client_2]));
-        assert!(matches!(target, Target::Only(_)));
-        assert!(target.targets(&client_0));
-        assert!(target.targets(&client_1));
-        assert!(target.targets(&client_2));
+    #[test]
+    fn operations_reuse_left_hand_vec_capacity() {
+        assert_reuses_left_hand_vec(Target::intersection, Target::Only(vec![peer(0), peer(2)]));
+        assert_reuses_left_hand_vec(Target::union, Target::Single(peer(3)));
+        assert_reuses_left_hand_vec(Target::exclude, Target::Single(peer(1)));
+    }
 
-        target = Target::Only(vec![client_0, client_1]);
-        target.union(&Target::AllExcept(vec![client_0, client_2]));
-        assert_eq!(target, Target::AllExceptSingle(client_2));
+    fn assert_reuses_left_hand_vec(
+        operation: fn(&mut NetworkTarget, &NetworkTarget),
+        right: NetworkTarget,
+    ) {
+        let mut client_ids = Vec::with_capacity(8);
+        client_ids.extend([peer(0), peer(1), peer(2)]);
+        let pointer = client_ids.as_ptr();
+        let capacity = client_ids.capacity();
+        let mut target = Target::Only(client_ids);
 
-        target = Target::None;
-        target.union(&Target::AllExcept(vec![client_0, client_2]));
-        assert_eq!(target, Target::AllExcept(vec![client_0, client_2]));
+        operation(&mut target, &right);
+
+        let Target::Only(client_ids) = target else {
+            panic!("expected a multi-client inclusive target");
+        };
+        assert_eq!(client_ids.as_ptr(), pointer);
+        assert_eq!(client_ids.capacity(), capacity);
     }
 }
