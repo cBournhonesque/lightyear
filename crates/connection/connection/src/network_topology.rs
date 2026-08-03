@@ -29,10 +29,14 @@ pub enum NetworkTopology {
         /// The connected host-client link entity.
         client: Entity,
     },
-    /// The connected direct peer links in this P2P session.
-    ///
-    /// This can be empty while the session is waiting for its first peer to connect.
-    P2P(SmallVec<[Entity; 4]>),
+    /// The declared and currently connected direct peer links in this P2P session.
+    P2P {
+        /// Connected P2P Link entities, sorted by local [`Entity`] ID.
+        connected: SmallVec<[Entity; 4]>,
+        /// Total number of Link entities carrying the [`P2P`] marker, including disconnected
+        /// Links. This lets consumers test startup readiness without rediscovering the roster.
+        declared: u8,
+    },
     /// The ready entities do not form one supported networking topology.
     Invalid(NetworkTopologyError),
 }
@@ -202,13 +206,23 @@ fn refresh_network_topology(
     malformed_hosts: Query<Entity, (With<HostClient>, With<Connected>, Without<Client>)>,
 ) {
     let next = if !p2p_markers.is_empty() {
-        let mut links: SmallVec<[Entity; 4]> = ready_clients
+        let declared = u8::try_from(p2p_markers.iter().count()).unwrap_or_else(|_| {
+            tracing::error!(
+                maximum = u8::MAX,
+                "P2P topology declared more Links than its cached count can represent"
+            );
+            u8::MAX
+        });
+        let mut connected: SmallVec<[Entity; 4]> = ready_clients
             .iter()
             .filter(|(_, is_p2p, _, _)| *is_p2p)
             .map(|(entity, _, _, _)| entity)
             .collect();
-        links.sort_unstable_by_key(|entity| entity.index_u32());
-        NetworkTopology::P2P(links)
+        connected.sort_unstable_by_key(|entity| entity.index_u32());
+        NetworkTopology::P2P {
+            connected,
+            declared,
+        }
     } else if let Some(client) = malformed_hosts
         .iter()
         .min_by_key(|entity| entity.index_u32())
@@ -414,7 +428,13 @@ mod tests {
         let second = app.world_mut().spawn(P2P).id();
 
         app.update();
-        assert_eq!(mode(&app), &NetworkTopology::P2P(SmallVec::new()));
+        assert_eq!(
+            mode(&app),
+            &NetworkTopology::P2P {
+                connected: SmallVec::new(),
+                declared: 2,
+            }
+        );
 
         // Connect in reverse order to prove that insertion order does not affect the cache.
         app.world_mut()
@@ -427,7 +447,10 @@ mod tests {
 
         assert_eq!(
             mode(&app),
-            &NetworkTopology::P2P(SmallVec::from_slice(&[first, second]))
+            &NetworkTopology::P2P {
+                connected: SmallVec::from_slice(&[first, second]),
+                declared: 2,
+            }
         );
 
         app.world_mut().entity_mut(first).insert(Disconnected {
@@ -436,12 +459,21 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &NetworkTopology::P2P(SmallVec::from_slice(&[second]))
+            &NetworkTopology::P2P {
+                connected: SmallVec::from_slice(&[second]),
+                declared: 2,
+            }
         );
 
         app.world_mut().despawn(second);
         app.update();
-        assert_eq!(mode(&app), &NetworkTopology::P2P(SmallVec::new()));
+        assert_eq!(
+            mode(&app),
+            &NetworkTopology::P2P {
+                connected: SmallVec::new(),
+                declared: 1,
+            }
+        );
 
         app.world_mut().entity_mut(first).remove::<P2P>();
         app.update();
@@ -461,7 +493,10 @@ mod tests {
         app.update();
         assert_eq!(
             mode(&app),
-            &NetworkTopology::P2P(SmallVec::from_slice(&[peer]))
+            &NetworkTopology::P2P {
+                connected: SmallVec::from_slice(&[peer]),
+                declared: 1,
+            }
         );
     }
 
