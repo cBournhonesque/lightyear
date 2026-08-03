@@ -11,7 +11,7 @@ use crate::packet::packet::{HEADER_BYTES, MessageMetadata, Packet, SendCommit};
 use crate::packet::packet_type::PacketType;
 use alloc::vec::Vec;
 use bytes::{Bytes, BytesMut};
-use lightyear_core::tick::Tick;
+use lightyear_core::{buffer_pool::BufferPool, tick::Tick};
 use lightyear_link::{DEFAULT_MTU, SendPayload};
 use lightyear_serde::{SerializationError, ToBytes};
 use no_std_io2::io::{self, Write};
@@ -80,69 +80,34 @@ struct SingleBatchState {
 #[derive(Debug)]
 pub(crate) struct PacketBuilder {
     pub(crate) header_manager: PacketHeaderManager,
-    buffer_pool: BufferPool,
+    buffer_pool: PacketBufferPool,
     compression_output: Vec<u8>,
 }
 
-/// Reusable packet-builder buffers, partitioned by whether they are currently writable.
+/// Reusable packet-builder storage.
 ///
-/// A successful send splits a mutable packet buffer into an immutable [`Bytes`] prefix for
-/// `Link`/IO and an empty [`BytesMut`] tail retained here. Both handles share one allocation. The
-/// tail cannot recover the prefix's capacity until every immutable clone has been dropped.
-///
-/// Keeping two lists makes the packet-building hot path cheap:
-///
-/// - `ready_payloads` contains buffers already known to have the full configured capacity, so
-///   [`take_payload`](Self::take_payload) is an O(1) pop with no ownership probe.
-/// - `pending_payloads` contains only shared tails that failed [`BytesMut::try_reclaim`]. They are
-///   scanned once at the start of a transport send pass, rather than repeatedly scanning and
-///   retrying every retained buffer whenever another packet is built in the same pass.
-///
-/// The pending scan is still linear in the number of in-flight payloads, but it is bounded by
-/// [`MAX_RETAINED_PACKET_PAYLOADS`] and never visits buffers already known to be ready.
+/// Payload allocation recycling is delegated to the shared [`BufferPool`]. This wrapper also
+/// retains packet-specific message metadata lists.
 #[derive(Debug)]
-pub(crate) struct BufferPool {
-    payload_capacity: usize,
-    /// Writable buffers with at least `payload_capacity` immediately available.
-    ready_payloads: Vec<BytesMut>,
-    /// Split tails waiting for all immutable `Bytes` views of their allocation to be dropped.
-    pending_payloads: Vec<BytesMut>,
+pub(crate) struct PacketBufferPool {
+    payloads: BufferPool,
     message_metadata: Vec<Vec<MessageMetadata>>,
-    #[cfg(feature = "test_utils")]
-    payload_pool_misses: usize,
 }
 
-impl BufferPool {
+impl PacketBufferPool {
     pub(crate) fn new(payload_capacity: usize) -> Self {
         Self {
-            payload_capacity,
-            ready_payloads: Vec::new(),
-            pending_payloads: Vec::new(),
+            payloads: BufferPool::new(payload_capacity, MAX_RETAINED_PACKET_PAYLOADS),
             message_metadata: Vec::new(),
-            #[cfg(feature = "test_utils")]
-            payload_pool_misses: 0,
         }
     }
 
     pub(crate) fn take_payload(&mut self) -> BytesMut {
-        if let Some(mut payload) = self.ready_payloads.pop() {
-            debug_assert!(payload.capacity() >= self.payload_capacity);
-            payload.clear();
-            return payload;
-        }
-        #[cfg(feature = "test_utils")]
-        {
-            self.payload_pool_misses += 1;
-        }
-        BytesMut::with_capacity(self.payload_capacity)
+        self.payloads.take()
     }
 
     fn set_payload_capacity(&mut self, payload_capacity: usize) {
-        if self.payload_capacity != payload_capacity {
-            self.payload_capacity = payload_capacity;
-            self.ready_payloads.clear();
-            self.pending_payloads.clear();
-        }
+        self.payloads.set_buffer_capacity(payload_capacity);
     }
 
     /// Promotes split tails whose immutable views have all been dropped to the ready list.
@@ -151,15 +116,7 @@ impl BufferPool {
     /// restore the sibling's capacity. It only makes `try_reclaim` capable of recovering the full
     /// allocation. This sweep performs that explicit recovery once per transport send pass.
     fn reclaim_pending_payloads(&mut self) {
-        let mut index = 0;
-        while index < self.pending_payloads.len() {
-            if self.pending_payloads[index].try_reclaim(self.payload_capacity) {
-                let payload = self.pending_payloads.swap_remove(index);
-                self.ready_payloads.push(payload);
-            } else {
-                index += 1;
-            }
-        }
+        self.payloads.reclaim_pending();
     }
 
     pub(crate) fn take_message_metadata(&mut self) -> Vec<MessageMetadata> {
@@ -177,49 +134,8 @@ impl BufferPool {
         let Packet {
             payload, messages, ..
         } = packet;
-        self.recycle_unsplit_payload(payload);
+        self.payloads.recycle(payload);
         self.recycle_message_metadata(messages);
-    }
-
-    /// Recycles a complete buffer from a packet that never crossed the `Link` ownership boundary.
-    ///
-    /// Its current capacity still describes the complete writable allocation, so it is safe to
-    /// apply the MTU-sized retention policy here. A buffer can legitimately have grown beyond the
-    /// MTU even though no oversized packet is sent: candidate serialization writes speculatively
-    /// and then truncates when the candidate does not fit, while compression-aware packing may
-    /// intentionally build an uncompressed payload larger than the MTU before compressing it.
-    /// `truncate` reduces the length but does not shrink the allocation, so this is not a valid
-    /// debug assertion. Oversized allocations are simply not retained by the pool.
-    fn recycle_unsplit_payload(&mut self, mut payload: BytesMut) {
-        payload.clear();
-        if payload.capacity() != self.payload_capacity {
-            return;
-        }
-        self.enqueue_retained_payload(payload);
-    }
-
-    /// Recycles the empty mutable tail left by a successful send-side split.
-    ///
-    /// Unlike [`Self::recycle_unsplit_payload`], `payload.capacity()` no longer describes the
-    /// complete allocation: splitting an `N`-byte packet from an MTU-sized buffer leaves this tail
-    /// with only `MTU - N` visible capacity. The full capacity was therefore checked before the
-    /// split in [`PacketBuilder::take_send_payload`]. Here `try_reclaim` decides whether the tail
-    /// is immediately writable or must wait in `pending_payloads` for Link/IO to drop its `Bytes`.
-    fn recycle_split_payload_tail(&mut self, mut payload: BytesMut) {
-        payload.clear();
-        self.enqueue_retained_payload(payload);
-    }
-
-    /// Places an eligible payload in the ready or pending partition.
-    fn enqueue_retained_payload(&mut self, mut payload: BytesMut) {
-        if self.ready_payloads.len() + self.pending_payloads.len() >= MAX_RETAINED_PACKET_PAYLOADS {
-            return;
-        }
-        if payload.try_reclaim(self.payload_capacity) {
-            self.ready_payloads.push(payload);
-        } else {
-            self.pending_payloads.push(payload);
-        }
     }
 
     pub(crate) fn recycle_message_metadata(&mut self, mut messages: Vec<MessageMetadata>) {
@@ -230,9 +146,8 @@ impl BufferPool {
         }
     }
 
-    #[cfg(feature = "test_utils")]
     fn payload_pool_misses(&self) -> usize {
-        self.payload_pool_misses
+        self.payloads.misses()
     }
 }
 
@@ -246,7 +161,7 @@ impl PacketBuilder {
     pub fn new(nack_rtt_multiple: f32) -> Self {
         Self {
             header_manager: PacketHeaderManager::new(nack_rtt_multiple),
-            buffer_pool: BufferPool::new(DEFAULT_MTU),
+            buffer_pool: PacketBufferPool::new(DEFAULT_MTU),
             compression_output: Vec::new(),
         }
     }
@@ -280,25 +195,18 @@ impl PacketBuilder {
     /// 1. Check the complete buffer's capacity before splitting. After the split, the tail exposes
     ///    only its remaining portion and cannot reveal whether the original allocation was larger
     ///    than the MTU.
-    /// 2. [`BytesMut::split`] moves the initialized prefix into another `BytesMut` and leaves
-    ///    `packet.payload` as an empty tail with `original_capacity - packet_len` capacity.
+    /// 2. [`BufferPool::split_for_handoff`] moves the initialized prefix into another
+    ///    [`BytesMut`] and retains the empty sibling tail internally.
     /// 3. Freezing the prefix produces the ordinary [`SendPayload`] (`Bytes`) expected by Link and
     ///    every IO backend, without copying the packet bytes.
-    /// 4. Move the tail into the pool. It usually enters `pending_payloads` because the returned
-    ///    `Bytes` still shares the allocation. Dropping the final `Bytes` clone merely makes the
-    ///    tail reclaimable; the next [`Self::begin_send`] sweep explicitly restores its capacity.
+    /// 4. The retained tail is normally pending because the returned [`Bytes`] still shares its
+    ///    allocation. Dropping the final `Bytes` clone merely makes the tail reclaimable; the next
+    ///    [`Self::begin_send`] sweep explicitly restores its capacity.
     pub(crate) fn take_send_payload(&mut self, packet: &mut Packet) -> SendPayload {
-        // `BytesMut::capacity` reports only the capacity visible to the current handle. Capture it
-        // while this handle still spans the complete writable allocation; after splitting, an
-        // oversized allocation can leave an MTU-sized tail and become indistinguishable from a
-        // normal pooled buffer.
-        let retain_tail = packet.payload.capacity() == self.buffer_pool.payload_capacity;
-        let payload = packet.payload.split().freeze();
-        let tail = core::mem::take(&mut packet.payload);
-        if retain_tail {
-            self.buffer_pool.recycle_split_payload_tail(tail);
-        }
-        payload
+        self.buffer_pool
+            .payloads
+            .split_for_handoff(core::mem::take(&mut packet.payload))
+            .freeze()
     }
 
     /// Build a header-only acknowledgement packet.
@@ -817,7 +725,7 @@ mod tests {
 
     #[test]
     fn buffer_pool_reuses_message_metadata_up_to_retained_capacity() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
+        let mut pool = PacketBufferPool::new(DEFAULT_MTU);
 
         pool.recycle_message_metadata(Vec::with_capacity(MAX_RETAINED_MESSAGE_METADATA_CAPACITY));
         assert_eq!(
@@ -828,7 +736,7 @@ mod tests {
 
     #[test]
     fn buffer_pool_drops_oversized_message_metadata() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
+        let mut pool = PacketBufferPool::new(DEFAULT_MTU);
 
         pool.recycle_message_metadata(Vec::with_capacity(
             MAX_RETAINED_MESSAGE_METADATA_CAPACITY + 1,
@@ -837,61 +745,16 @@ mod tests {
     }
 
     #[test]
-    fn buffer_pool_reclaims_split_payload_after_bytes_drop() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
-        let mut payload = pool.take_payload();
-        payload.extend_from_slice(b"packet");
-        let bytes = payload.split().freeze();
-
-        pool.recycle_split_payload_tail(payload);
-        assert!(pool.ready_payloads.is_empty());
-        assert_eq!(pool.pending_payloads.len(), 1);
-
-        pool.reclaim_pending_payloads();
-        assert!(pool.ready_payloads.is_empty());
-        assert_eq!(pool.pending_payloads.len(), 1);
-
-        drop(bytes);
-        pool.reclaim_pending_payloads();
-        assert_eq!(pool.ready_payloads.len(), 1);
-        assert!(pool.pending_payloads.is_empty());
-        assert!(pool.take_payload().capacity() >= DEFAULT_MTU);
-    }
-
-    #[test]
-    fn buffer_pool_reclaims_multiple_outstanding_payloads() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
-        let bytes = (0..3)
-            .map(|value| {
-                let mut payload = pool.take_payload();
-                payload.extend_from_slice(&[value]);
-                let bytes = payload.split().freeze();
-                pool.recycle_split_payload_tail(payload);
-                bytes
-            })
-            .collect::<Vec<_>>();
-
-        assert!(pool.ready_payloads.is_empty());
-        assert_eq!(pool.pending_payloads.len(), 3);
-        pool.reclaim_pending_payloads();
-        assert_eq!(pool.pending_payloads.len(), 3);
-
-        drop(bytes);
-        pool.reclaim_pending_payloads();
-        assert_eq!(pool.ready_payloads.len(), 3);
-        assert!(pool.pending_payloads.is_empty());
-    }
-
-    #[test]
     fn buffer_pool_does_not_retain_payloads_that_grew_past_the_mtu() {
-        let mut pool = BufferPool::new(DEFAULT_MTU);
+        let mut pool = PacketBufferPool::new(DEFAULT_MTU);
         let mut payload = pool.take_payload();
         payload.extend_from_slice(&alloc::vec![0; DEFAULT_MTU + 1]);
 
-        pool.recycle_unsplit_payload(payload);
+        pool.payloads.recycle(payload);
 
-        assert!(pool.ready_payloads.is_empty());
-        assert!(pool.pending_payloads.is_empty());
+        let misses = pool.payload_pool_misses();
+        let _ = pool.take_payload();
+        assert_eq!(pool.payload_pool_misses(), misses + 1);
     }
 
     #[test]
@@ -910,8 +773,9 @@ mod tests {
 
         assert_eq!(bytes.len(), DEFAULT_MTU);
         assert_eq!(packet.payload.capacity(), 0);
-        assert!(builder.buffer_pool.ready_payloads.is_empty());
-        assert!(builder.buffer_pool.pending_payloads.is_empty());
+        let misses = builder.buffer_pool.payload_pool_misses();
+        let _ = builder.buffer_pool.take_payload();
+        assert_eq!(builder.buffer_pool.payload_pool_misses(), misses + 1);
     }
 
     #[test]

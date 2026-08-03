@@ -52,6 +52,7 @@ use crossbeam_channel::{Receiver, Sender, TryRecvError, TrySendError};
 use lightyear_core::time::Instant;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Unlink,
+    recv_payload_from_bytes,
 };
 use tracing::{error, trace};
 
@@ -191,7 +192,8 @@ impl CrossbeamPlugin {
                 match crossbeam_io.receiver.try_recv() {
                     Ok(data) => {
                         trace!("recv data: {data:?}");
-                        link.recv.push(data, Instant::now())
+                        link.recv
+                            .push(recv_payload_from_bytes(data), Instant::now())
                     }
                     Err(TryRecvError::Empty) => break,
                     Err(TryRecvError::Disconnected) => {

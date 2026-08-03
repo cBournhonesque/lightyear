@@ -167,7 +167,9 @@ impl TransportPlugin {
                     #[cfg(feature = "metrics")]
                     metrics::gauge!("transport/recv_bytes").increment(packet_len as f64);
 
-                    let mut cursor = Reader::from(packet);
+                    // Connection layers are the last receive stage that needs in-place mutation.
+                    // Freeze here so transport parsing can retain cheap immutable subslices.
+                    let mut cursor = Reader::from(packet.freeze());
 
                     // Parse the packet
                     let header = PacketHeader::from_bytes(&mut cursor)?;
@@ -787,11 +789,9 @@ mod tests {
         let entity = world
             .spawn((Link::default(), Linked, Transport::default()))
             .id();
-        world
-            .get_mut::<Link>(entity)
-            .unwrap()
-            .recv
-            .push_raw(Bytes::from(data_packet));
+        world.get_mut::<Link>(entity).unwrap().recv.push_raw(
+            lightyear_link::recv_payload_from_bytes(Bytes::from(data_packet)),
+        );
 
         world
             .run_system_once(TransportPlugin::buffer_receive)
@@ -815,7 +815,7 @@ mod tests {
             .get_mut::<Link>(entity)
             .unwrap()
             .recv
-            .push_raw(ack_packet);
+            .push_raw(lightyear_link::recv_payload_from_bytes(ack_packet));
         world
             .run_system_once(TransportPlugin::buffer_receive)
             .unwrap();
@@ -864,9 +864,10 @@ mod tests {
 
         {
             let mut link = world.get_mut::<Link>(entity).unwrap();
-            packets
-                .into_iter()
-                .for_each(|packet| link.recv.push_raw(packet));
+            packets.into_iter().for_each(|packet| {
+                link.recv
+                    .push_raw(lightyear_link::recv_payload_from_bytes(packet));
+            });
         }
         world
             .run_system_once(TransportPlugin::buffer_receive)

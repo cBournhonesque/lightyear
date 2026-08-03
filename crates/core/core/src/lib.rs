@@ -14,6 +14,9 @@ extern crate core;
 #[cfg(test)]
 extern crate std;
 
+/// Bounded recycling for split mutable byte-buffer allocations.
+pub mod buffer_pool;
+
 /// Defines the `Tick` type and related systems for managing discrete time steps.
 pub mod tick;
 

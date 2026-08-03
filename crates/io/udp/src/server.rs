@@ -19,8 +19,9 @@ use tracing::{debug, error, info};
 use crate::UdpError;
 use aeronet_io::connection::{LocalAddr, PeerAddr};
 use bevy_platform::collections::{HashMap, hash_map::Entry};
-use bytes::{BufMut, BytesMut};
+use bytes::BufMut;
 use core::net::SocketAddr;
+use lightyear_core::buffer_pool::BufferPool;
 use lightyear_core::time::Instant;
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkPlugin, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked};
@@ -43,7 +44,7 @@ pub(crate) const MTU: usize = 1472;
 #[require(Server)]
 pub struct ServerUdpIo {
     socket: Option<std::net::UdpSocket>,
-    buffer: BytesMut,
+    recv_buffers: BufferPool,
     connected_addresses: HashMap<SocketAddr, LinkOfStatus>,
 }
 
@@ -70,9 +71,17 @@ impl Default for ServerUdpIo {
     fn default() -> Self {
         ServerUdpIo {
             socket: None,
-            buffer: BytesMut::with_capacity(MTU),
+            recv_buffers: crate::recv_buffer_pool(),
             connected_addresses: HashMap::with_capacity(1),
         }
+    }
+}
+
+impl ServerUdpIo {
+    /// Returns receive-buffer pool misses for allocation regression tests.
+    #[cfg(feature = "test_utils")]
+    pub fn recv_buffer_pool_misses(&self) -> usize {
+        self.recv_buffers.misses()
     }
 }
 
@@ -162,22 +171,21 @@ impl ServerUdpPlugin {
 
                 // enable split borrows
                 let server_udp_io = &mut *server_udp_io;
+                server_udp_io.recv_buffers.reclaim_pending();
 
                 loop {
-                    // reserve additional space in the buffer
-                    // this tries to reclaim space at the start of the buffer if possible
-                    server_udp_io.buffer.reserve(crate::MTU);
+                    let mut buffer = server_udp_io.recv_buffers.take();
                     // Check how much actual uninitialized space we have at the end
-                    let capacity = server_udp_io.buffer.capacity();
-                    let current_len = server_udp_io.buffer.len();
+                    let capacity = buffer.capacity();
+                    let current_len = buffer.len();
                     assert_eq!(current_len, 0);
                     let available_uninit = capacity - current_len;
                     let max_recv_len = core::cmp::min(available_uninit, crate::MTU);
 
                     // We get a raw pointer to the start of the uninitialized region.
-                    // SAFETY: we know we have enough space to receive the data because we just reserved it
+                    // SAFETY: `take` returns a buffer with at least `MTU` bytes of writable capacity.
                     let buf_slice: &mut [u8] = unsafe {
-                        let ptr = server_udp_io.buffer.as_mut_ptr().add(current_len);
+                        let ptr = buffer.as_mut_ptr().add(current_len);
                         core::slice::from_raw_parts_mut(ptr, max_recv_len)
                     };
                     match server_udp_io.socket.as_mut().unwrap().recv_from(buf_slice) {
@@ -185,9 +193,9 @@ impl ServerUdpPlugin {
                             // Mark the received bytes as initialized
                             // SAFETY: we know that the buffer is large enough to hold the received data.
                             unsafe {
-                                server_udp_io.buffer.advance_mut(recv_len);
+                                buffer.advance_mut(recv_len);
                             }
-                            let payload = server_udp_io.buffer.split_to(recv_len).freeze();
+                            let payload = server_udp_io.recv_buffers.split_for_handoff(buffer);
                             match server_udp_io.connected_addresses.entry(address) {
                                 Entry::Occupied(mut entry) => {
                                     match *entry.get_mut() {
@@ -254,12 +262,19 @@ impl ServerUdpPlugin {
                                 }
                             };
                         }
-                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                            server_udp_io.recv_buffers.recycle(buffer);
+                            break;
+                        }
                         // Windows-specific: when a UDP client disconnects, the OS sends an
                         // ICMP "port unreachable" back, which surfaces as ConnectionReset on
                         // the next recv. This is harmless — just skip to the next packet.
-                        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => continue,
+                        Err(ref e) if e.kind() == std::io::ErrorKind::ConnectionReset => {
+                            server_udp_io.recv_buffers.recycle(buffer);
+                            continue;
+                        }
                         Err(e) => {
+                            server_udp_io.recv_buffers.recycle(buffer);
                             error!("Error receiving UDP packet: {}", e);
                             break;
                         }
