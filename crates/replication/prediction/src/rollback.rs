@@ -1273,9 +1273,8 @@ mod tests {
         world.init_resource::<PredictionRegistry>();
         world.init_resource::<ReplicationCheckpointMap>();
 
-        let manager = world
-            .spawn((PredictionManager::default(), Rollback::FromInputs))
-            .id();
+        world.insert_resource(PredictionManager::default());
+        world.insert_resource(Rollback::FromInputs);
 
         let mut history = PredictionHistory::<TestComponent>::default();
         for tick in [8, 10, 12, 15] {
@@ -1287,8 +1286,7 @@ mod tests {
         // strictly newer entries are discarded, and the component restores
         // to the floor sample at the target.
         world
-            .get_mut::<PredictionManager>(manager)
-            .unwrap()
+            .resource::<PredictionManager>()
             .set_rollback_tick(Tick(12));
         world
             .run_system_once(prepare_rollback::<TestComponent>)
@@ -1317,8 +1315,7 @@ mod tests {
         // Second, DEEPER rollback to tick 8: restores from the preserved
         // per-tick sample, not from the live post-first-rollback value.
         world
-            .get_mut::<PredictionManager>(manager)
-            .unwrap()
+            .resource::<PredictionManager>()
             .set_rollback_tick(Tick(8));
         world
             .run_system_once(prepare_rollback::<TestComponent>)

@@ -20,8 +20,6 @@ use bevy_ecs::component::Mutable;
 use bevy_ecs::entity_disabling::DefaultQueryFilters;
 use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
-#[cfg(feature = "metrics")]
-use bevy_utils::prelude::DebugName;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::prelude::{ConfirmedHistory, is_in_rollback};
 use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSystems};

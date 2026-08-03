@@ -1505,6 +1505,7 @@ mod tests {
     use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::AppComponentExt;
+    use lightyear_sync::prelude::InputTimelineConfig;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -1531,6 +1532,8 @@ mod tests {
             },
         ));
         app.init_resource::<PredictionRegistry>();
+        app.init_resource::<PredictionManager>();
+        app.init_resource::<InputTimelineConfig>();
         app
     }
 

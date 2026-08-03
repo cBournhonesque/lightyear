@@ -93,14 +93,13 @@ impl<C> PredictionHistory<C> {
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
-    manager: Single<&PredictionManager>,
+    manager: Res<PredictionManager>,
     input_config: Res<InputTimelineConfig>,
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
-    let manager = manager.into_inner();
     let oldest_rollback_tick = tick
         - u32::from(
             manager
@@ -539,15 +538,14 @@ mod tests {
         let mut timeline = LocalTimeline::default();
         timeline.apply_delta(tick);
         app.insert_resource(timeline);
-        app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
-        app.world_mut().spawn(PredictionManager {
+        app.insert_resource(PredictionManager {
             rollback_policy: RollbackPolicy {
                 max_rollback_ticks,
                 ..Default::default()
             },
             ..Default::default()
         });
-        app.world_mut().flush();
+        app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
         app
     }
 
