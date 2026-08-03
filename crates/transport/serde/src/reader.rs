@@ -2,7 +2,7 @@ use crate::SerializationError;
 use crate::varint::varint_parse_len;
 use alloc::vec::Vec;
 use bytes::Bytes;
-use no_std_io2::io::{Cursor, Error, Read, Result, Seek, SeekFrom};
+use no_std_io2::io::{Cursor, Error, ErrorKind, Read, Result, Seek, SeekFrom};
 
 #[derive(Clone)]
 pub struct Reader(Cursor<Bytes>);
@@ -63,14 +63,19 @@ impl Reader {
     /// Split of the next `len` bytes from the reader into a separate Bytes.
     ///
     /// This doesn't allocate and just increases some reference counts. O(1) cost.
-    pub fn split_len(&mut self, len: usize) -> Bytes {
-        let current_pos = self.0.position() as usize;
-        let new_pos = current_pos + len;
+    /// Returns [`ErrorKind::UnexpectedEof`] if fewer than `len` bytes remain.
+    pub fn split_len(&mut self, len: usize) -> Result<Bytes> {
+        let current_pos = usize::try_from(self.0.position())
+            .map_err(|_| Error::from(ErrorKind::UnexpectedEof))?;
+        let new_pos = current_pos
+            .checked_add(len)
+            .filter(|&new_pos| new_pos <= self.len())
+            .ok_or_else(|| Error::from(ErrorKind::UnexpectedEof))?;
         // slice off the subset into a separate Bytes
         let bytes = self.0.get_ref().slice(current_pos..new_pos);
         // increment the position
         self.0.set_position(new_pos as u64);
-        bytes
+        Ok(bytes)
     }
 
     /// Return the remaining length of the buffer as a separate Bytes.
