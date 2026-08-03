@@ -728,7 +728,7 @@ mod tests {
         let mut metadata = NetworkingMetadata::default();
         metadata.mode = NetworkTopology::P2P {
             connected: [fast, slow].into_iter().collect(),
-            declared: 2,
+            declared_links: 2,
         };
         app.insert_resource(metadata);
         app.insert_resource(TickDuration(Duration::from_millis(10)));

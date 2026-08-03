@@ -93,18 +93,19 @@ impl<C> PredictionHistory<C> {
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
-    manager: Single<(&PredictionManager, &InputTimelineConfig)>,
+    manager: Single<&PredictionManager>,
+    input_config: Res<InputTimelineConfig>,
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
-    let (manager, input_config) = manager.into_inner();
+    let manager = manager.into_inner();
     let oldest_rollback_tick = tick
         - u32::from(
             manager
                 .rollback_policy
-                .effective_max_rollback_ticks(input_config),
+                .effective_max_rollback_ticks(&input_config),
         );
 
     // Update history if the predicted component changed, then prune it.
@@ -535,16 +536,14 @@ mod tests {
         let mut timeline = LocalTimeline::default();
         timeline.apply_delta(tick);
         app.insert_resource(timeline);
-        app.world_mut().spawn((
-            PredictionManager {
-                rollback_policy: RollbackPolicy {
-                    max_rollback_ticks,
-                    ..Default::default()
-                },
+        app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
+        app.world_mut().spawn(PredictionManager {
+            rollback_policy: RollbackPolicy {
+                max_rollback_ticks,
                 ..Default::default()
             },
-            InputTimelineConfig::default().with_input_delay(input_delay_config),
-        ));
+            ..Default::default()
+        });
         app.world_mut().flush();
         app
     }
