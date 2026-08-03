@@ -35,7 +35,7 @@ pub enum NetworkTopology {
         connected: SmallVec<[Entity; 4]>,
         /// Total number of Link entities carrying the [`P2P`] marker, including disconnected
         /// Links. This lets consumers test startup readiness without rediscovering the roster.
-        declared: u8,
+        declared_links: u8,
     },
     /// The ready entities do not form one supported networking topology.
     Invalid(NetworkTopologyError),
@@ -66,6 +66,18 @@ impl Default for NetworkingMetadata {
 /// Why ready networking entities could not be classified into a supported [`NetworkTopology`].
 #[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
 pub enum NetworkTopologyError {
+    /// Ready P2P and conventional networking roles exist in the same application.
+    #[error(
+        "P2P link {p2p:?} is ready alongside conventional roles (client: {conventional_client:?}, server: {server:?})"
+    )]
+    MixedP2PAndConventional {
+        /// One of the application's declared P2P Links.
+        p2p: Entity,
+        /// A connected conventional Client or HostClient, when present.
+        conventional_client: Option<Entity>,
+        /// A started conventional Server, when present.
+        server: Option<Entity>,
+    },
     /// More than one conventional client link is connected.
     #[error("multiple conventional client links are connected: {0:?}")]
     MultipleConnectedClients(SmallVec<[Entity; 4]>),
@@ -197,7 +209,7 @@ fn network_topology_is_dirty(metadata: Res<NetworkingMetadata>) -> bool {
 
 fn refresh_network_topology(
     mut metadata: ResMut<NetworkingMetadata>,
-    p2p_markers: Query<(), With<P2P>>,
+    p2p_markers: Query<Entity, With<P2P>>,
     ready_clients: Query<
         (Entity, Has<P2P>, Has<HostClient>, Option<&LinkOf>),
         (With<Client>, With<Connected>),
@@ -205,29 +217,46 @@ fn refresh_network_topology(
     ready_servers: Query<Entity, (With<Server>, With<Started>)>,
     malformed_hosts: Query<Entity, (With<HostClient>, With<Connected>, Without<Client>)>,
 ) {
-    let next = if !p2p_markers.is_empty() {
-        let declared = u8::try_from(p2p_markers.iter().count()).unwrap_or_else(|_| {
-            tracing::error!(
-                maximum = u8::MAX,
-                "P2P topology declared more Links than its cached count can represent"
-            );
-            u8::MAX
-        });
-        let mut connected: SmallVec<[Entity; 4]> = ready_clients
-            .iter()
-            .filter(|(_, is_p2p, _, _)| *is_p2p)
-            .map(|(entity, _, _, _)| entity)
-            .collect();
-        connected.sort_unstable_by_key(|entity| entity.index_u32());
-        NetworkTopology::P2P {
-            connected,
-            declared,
-        }
-    } else if let Some(client) = malformed_hosts
+    let malformed_host = malformed_hosts
         .iter()
-        .min_by_key(|entity| entity.index_u32())
-    {
+        .min_by_key(|entity| entity.index_u32());
+    let first_p2p = p2p_markers.iter().min_by_key(|entity| entity.index_u32());
+    let next = if let Some(client) = malformed_host {
         NetworkTopology::Invalid(NetworkTopologyError::HostClientWithoutClient { client })
+    } else if let Some(p2p) = first_p2p {
+        // A connected non-P2P Client is conventional. HostClient is conventional even if it was
+        // accidentally combined with P2P on the same Link.
+        let conventional_client = ready_clients
+            .iter()
+            .filter(|(_, is_p2p, is_host, _)| !*is_p2p || *is_host)
+            .map(|(entity, _, _, _)| entity)
+            .min_by_key(|entity| entity.index_u32());
+        let server = ready_servers.iter().min_by_key(|entity| entity.index_u32());
+        if conventional_client.is_some() || server.is_some() {
+            NetworkTopology::Invalid(NetworkTopologyError::MixedP2PAndConventional {
+                p2p,
+                conventional_client,
+                server,
+            })
+        } else {
+            let declared_links = u8::try_from(p2p_markers.iter().count()).unwrap_or_else(|_| {
+                tracing::error!(
+                    maximum = u8::MAX,
+                    "P2P topology declared more Links than its cached count can represent"
+                );
+                u8::MAX
+            });
+            let mut connected: SmallVec<[Entity; 4]> = ready_clients
+                .iter()
+                .filter(|(_, is_p2p, _, _)| *is_p2p)
+                .map(|(entity, _, _, _)| entity)
+                .collect();
+            connected.sort_unstable_by_key(|entity| entity.index_u32());
+            NetworkTopology::P2P {
+                connected,
+                declared_links,
+            }
+        }
     } else {
         let client = unique_ready_client(ready_clients.iter().filter_map(
             |(entity, is_p2p, is_host, link_of)| {
@@ -432,7 +461,7 @@ mod tests {
             mode(&app),
             &NetworkTopology::P2P {
                 connected: SmallVec::new(),
-                declared: 2,
+                declared_links: 2,
             }
         );
 
@@ -449,7 +478,7 @@ mod tests {
             mode(&app),
             &NetworkTopology::P2P {
                 connected: SmallVec::from_slice(&[first, second]),
-                declared: 2,
+                declared_links: 2,
             }
         );
 
@@ -461,7 +490,7 @@ mod tests {
             mode(&app),
             &NetworkTopology::P2P {
                 connected: SmallVec::from_slice(&[second]),
-                declared: 2,
+                declared_links: 2,
             }
         );
 
@@ -471,7 +500,7 @@ mod tests {
             mode(&app),
             &NetworkTopology::P2P {
                 connected: SmallVec::new(),
-                declared: 1,
+                declared_links: 1,
             }
         );
 
@@ -481,21 +510,42 @@ mod tests {
     }
 
     #[test]
-    fn p2p_markers_take_priority_over_conventional_roles() {
+    fn ready_p2p_and_conventional_roles_are_invalid() {
         let mut app = test_app();
         let peer = app
             .world_mut()
             .spawn((P2P, RemoteId(PeerId::Local(1)), Connected))
             .id();
-        connect_client(&mut app, 2);
-        start_server(&mut app);
+        let client = connect_client(&mut app, 2);
+        let server = start_server(&mut app);
+
+        app.update();
+        assert_eq!(
+            mode(&app),
+            &NetworkTopology::Invalid(NetworkTopologyError::MixedP2PAndConventional {
+                p2p: peer,
+                conventional_client: Some(client),
+                server: Some(server),
+            })
+        );
+    }
+
+    #[test]
+    fn unready_conventional_roles_do_not_conflict_with_p2p() {
+        let mut app = test_app();
+        let peer = app
+            .world_mut()
+            .spawn((P2P, RemoteId(PeerId::Local(1)), Connected))
+            .id();
+        app.world_mut().spawn(Client);
+        app.world_mut().spawn(Server::default());
 
         app.update();
         assert_eq!(
             mode(&app),
             &NetworkTopology::P2P {
                 connected: SmallVec::from_slice(&[peer]),
-                declared: 1,
+                declared_links: 1,
             }
         );
     }
