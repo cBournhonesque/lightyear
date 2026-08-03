@@ -104,6 +104,7 @@ mock_instant.workspace = true
 
 [dev-dependencies]
 test-log.workspace = true
+tracing-subscriber.workspace = true
 mock_instant.workspace = true
 approx.workspace = true
 dhat.workspace = true
