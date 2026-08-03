@@ -108,6 +108,8 @@ impl TransportPlugin {
                 .packet_manager
                 .header_manager
                 .update(time.elapsed(), &link.stats);
+            let packet_message_acks = &mut transport.packet_message_acks;
+            let senders = &mut transport.senders;
             transport
                 .packet_manager
                 .header_manager
@@ -138,23 +140,27 @@ impl TransportPlugin {
                         entity,
                         packet_id: lost_packet.0,
                     });
-                    if let Some(message_map) = transport.packet_to_message_map.remove(&lost_packet)
-                    {
-                        for (channel_kind, message_ack) in message_map {
-                            let channel_send = transport
-                                .senders
-                                .get_mut(&channel_kind)
-                                .ok_or(PacketError::ChannelNotFound)?;
-                            // TODO: batch the messages?
-                            trace!(
-                                ?lost_packet,
-                                ?channel_kind,
-                                "message lost: {:?}",
-                                message_ack.message_id
-                            );
-                            channel_send.message_nacks.push(message_ack.message_id);
-                            channel_send.receive_nack(&message_ack);
-                        }
+                    if let Some(mut message_acks) = packet_message_acks.take(&lost_packet) {
+                        let result =
+                            message_acks
+                                .drain(..)
+                                .try_for_each(|(channel_kind, message_ack)| {
+                                    let channel_send = senders
+                                        .get_mut(&channel_kind)
+                                        .ok_or(PacketError::ChannelNotFound)?;
+                                    // TODO: batch the messages?
+                                    trace!(
+                                        ?lost_packet,
+                                        ?channel_kind,
+                                        "message lost: {:?}",
+                                        message_ack.message_id
+                                    );
+                                    channel_send.message_nacks.push(message_ack.message_id);
+                                    channel_send.receive_nack(&message_ack);
+                                    Ok::<(), TransportError>(())
+                                });
+                        packet_message_acks.recycle(message_acks);
+                        result?;
                     }
                     Ok::<(), TransportError>(())
                 })
@@ -341,6 +347,8 @@ impl TransportPlugin {
                 .ok();
 
             // Update the list of messages that have been acked
+            let packet_message_acks = &mut transport.packet_message_acks;
+            let senders = &mut transport.senders;
             transport
                 .packet_manager
                 .header_manager
@@ -358,23 +366,26 @@ impl TransportPlugin {
                         rtt_sample_ms = rtt_sample.as_secs_f64() * 1000.0,
                         "transport packet acked"
                     );
-                    if let Some(message_acks) =
-                        transport.packet_to_message_map.remove(&acked_packet)
-                    {
-                        for (channel_kind, message_ack) in message_acks {
-                            let channel_send = transport
-                                .senders
-                                .get_mut(&channel_kind)
-                                .ok_or(PacketError::ChannelNotFound)?;
-                            if channel_send.receive_ack(&message_ack) {
-                                trace!(
-                                    "Acked message: channel={:?},message_ack={:?}",
-                                    channel_send.name(),
-                                    message_ack
-                                );
-                                channel_send.message_acks.push(message_ack.message_id);
-                            }
-                        }
+                    if let Some(mut message_acks) = packet_message_acks.take(&acked_packet) {
+                        let result =
+                            message_acks
+                                .drain(..)
+                                .try_for_each(|(channel_kind, message_ack)| {
+                                    let channel_send = senders
+                                        .get_mut(&channel_kind)
+                                        .ok_or(PacketError::ChannelNotFound)?;
+                                    if channel_send.receive_ack(&message_ack) {
+                                        trace!(
+                                            "Acked message: channel={:?},message_ack={:?}",
+                                            channel_send.name(),
+                                            message_ack
+                                        );
+                                        channel_send.message_acks.push(message_ack.message_id);
+                                    }
+                                    Ok::<(), TransportError>(())
+                                });
+                        packet_message_acks.recycle(message_acks);
+                        result?;
                     }
                     Ok::<(), TransportError>(())
                 })
@@ -560,18 +571,15 @@ impl TransportPlugin {
                             metadata.channel, metadata, packet.packet_id
                         );
 
-                        transport
-                            .packet_to_message_map
-                            .entry(packet.packet_id)
-                            .or_default()
-                            .push((
-                                commit.channel_kind,
-                                MessageAck {
-                                    message_id,
-                                    fragment_id: metadata.fragment_index,
-                                },
-                            ));
-                        trace!(?transport.packet_to_message_map, "packet to message");
+                        transport.packet_message_acks.track(
+                            packet.packet_id,
+                            commit.channel_kind,
+                            MessageAck {
+                                message_id,
+                                fragment_id: metadata.fragment_index,
+                            },
+                        );
+                        trace!(?transport.packet_message_acks, "packet to message");
                     }
                 }
                 transport

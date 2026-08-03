@@ -139,6 +139,13 @@ pub struct PacketHeaderManager {
     stats_manager: PacketStatsManager,
     pub(crate) lost_packets: Vec<PacketId>,
     pub(crate) newly_acked_packets: IndexMap<PacketId, Duration, FixedHasher>,
+    /// Per-received-packet ACK results exposed to the transport event pipeline.
+    ///
+    /// This is separate from `newly_acked_packets`, which accumulates ACKs until channel
+    /// bookkeeping runs at the end of the receive pass. Clearing this scratch before each packet
+    /// keeps its allocation available while preserving the per-packet ordering of `PacketAcked`
+    /// and `PacketReceived` events.
+    newly_acked_packet_scratch: Vec<(PacketId, Duration)>,
 
     // keep track of the packets that were received (last packet received and the
     // `ACK_BITFIELD_SIZE` packets before that)
@@ -166,6 +173,7 @@ impl PacketHeaderManager {
             sent_packets_not_acked: IndexMap::default(),
             lost_packets: vec![],
             newly_acked_packets: IndexMap::default(),
+            newly_acked_packet_scratch: vec![],
             recv_buffer: ReceiveBuffer::new(),
             ack_pending: false,
             nack_rtt_multiple,
@@ -197,13 +205,16 @@ impl PacketHeaderManager {
 
     /// Process the header of a received packet (update ack metadata)
     ///
-    /// Returns the list of packets that have been newly acked by the remote
+    /// Returns the packets newly acknowledged by this header.
+    ///
+    /// The returned slice borrows manager-owned scratch storage. Its allocation is retained and
+    /// reused by the next call instead of creating a new `Vec` for every received packet.
     pub(crate) fn process_recv_packet_header(
         &mut self,
         header: &PacketHeader,
         real: Duration,
-    ) -> Vec<(PacketId, Duration)> {
-        let mut newly_acked_packets = vec![];
+    ) -> &[(PacketId, Duration)] {
+        self.newly_acked_packet_scratch.clear();
         // update the receive buffer
         self.stats_manager.received_packet();
         self.recv_buffer.recv_packet(header.packet_id);
@@ -214,30 +225,24 @@ impl PacketHeaderManager {
         if let Some((packet, time_sent)) =
             self.update_sent_packets_not_acked(&header.last_ack_packet_id)
         {
-            self.record_newly_acked_packet(packet, real, time_sent, &mut newly_acked_packets);
+            self.record_newly_acked_packet(packet, real, time_sent);
         }
         for i in 1..=ACK_BITFIELD_SIZE {
             let packet_id = PacketId(header.last_ack_packet_id.wrapping_sub(i as u32));
             if header.get_bitfield_bit(i - 1)
                 && let Some((packet, time_sent)) = self.update_sent_packets_not_acked(&packet_id)
             {
-                self.record_newly_acked_packet(packet, real, time_sent, &mut newly_acked_packets);
+                self.record_newly_acked_packet(packet, real, time_sent);
             }
         }
-        newly_acked_packets
+        &self.newly_acked_packet_scratch
     }
 
-    fn record_newly_acked_packet(
-        &mut self,
-        packet: PacketId,
-        real: Duration,
-        time_sent: Duration,
-        newly_acked_packets: &mut Vec<(PacketId, Duration)>,
-    ) {
+    fn record_newly_acked_packet(&mut self, packet: PacketId, real: Duration, time_sent: Duration) {
         self.stats_manager.sent_packet_acked();
         let rtt_sample = real.saturating_sub(time_sent);
         self.newly_acked_packets.insert(packet, rtt_sample);
-        newly_acked_packets.push((packet, rtt_sample));
+        self.newly_acked_packet_scratch.push((packet, rtt_sample));
     }
 
     /// Update the list of sent packets that have not been acked yet
