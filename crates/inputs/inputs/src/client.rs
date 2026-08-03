@@ -292,10 +292,12 @@ impl<'a> InputRoute<'a> {
                 link: *client,
                 host_client: true,
             }),
-            NetworkTopology::P2P(links) if !links.is_empty() => Some(Self::P2P(links.as_slice())),
+            NetworkTopology::P2P { connected, .. } if !connected.is_empty() => {
+                Some(Self::P2P(connected.as_slice()))
+            }
             NetworkTopology::Undefined
             | NetworkTopology::Server(_)
-            | NetworkTopology::P2P(_)
+            | NetworkTopology::P2P { .. }
             | NetworkTopology::Invalid(_) => None,
         }
     }
@@ -1434,7 +1436,10 @@ mod tests {
         assert!(client_server_route.accepts_local_target(Some(&owned_by_client)));
         assert!(!client_server_route.accepts_local_target(Some(&owned_by_other)));
 
-        let p2p = NetworkTopology::P2P([client, other].into_iter().collect());
+        let p2p = NetworkTopology::P2P {
+            connected: [client, other].into_iter().collect(),
+            declared: 2,
+        };
         let p2p_route = InputRoute::from_topology(&p2p).unwrap();
         assert!(p2p_route.accepts_local_target(None));
         assert!(p2p_route.accepts_local_target(Some(&owned_by_client)));
