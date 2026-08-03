@@ -1438,7 +1438,7 @@ mod tests {
 
         let p2p = NetworkTopology::P2P {
             connected: [client, other].into_iter().collect(),
-            declared: 2,
+            declared_links: 2,
         };
         let p2p_route = InputRoute::from_topology(&p2p).unwrap();
         assert!(p2p_route.accepts_local_target(None));
