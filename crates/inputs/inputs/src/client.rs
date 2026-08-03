@@ -1482,7 +1482,7 @@ mod tests {
         let target = world.spawn_empty().id();
         let topology = NetworkTopology::P2P {
             connected: [link].into_iter().collect(),
-            declared: 1,
+            declared_links: 1,
         };
         let route = InputRoute::from_topology(&topology).unwrap();
         let prespawned = PreSpawned::new(0xCAFE);
@@ -1501,7 +1501,7 @@ mod tests {
         let target = world.spawn_empty().id();
         let topology = NetworkTopology::P2P {
             connected: [link].into_iter().collect(),
-            declared: 1,
+            declared_links: 1,
         };
         let route = InputRoute::from_topology(&topology).unwrap();
 
