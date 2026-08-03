@@ -36,6 +36,54 @@ use bevy_utils::prelude::DebugName;
 
 pub const DEFAULT_MESSAGE_PRIORITY: f32 = 1.0;
 
+/// Bounds reusable per-packet ACK lists retained by one transport.
+const MAX_RETAINED_PACKET_MESSAGE_ACK_LISTS: usize = 64;
+/// Avoid retaining an unusually large ACK list after a pathological packet.
+const MAX_RETAINED_PACKET_MESSAGE_ACK_CAPACITY: usize = 256;
+
+type PacketMessageAcks = Vec<(ChannelKind, MessageAck)>;
+
+/// Tracks message ACKs by packet while recycling removed value allocations.
+///
+/// The map itself retains its buckets after removal, but removing a `Vec` value would otherwise
+/// free that value's allocation and force a later tracked packet to allocate it again.
+#[derive(Debug, Default)]
+pub(crate) struct PacketMessageAckTracker {
+    tracked: HashMap<PacketId, PacketMessageAcks>,
+    ready: Vec<PacketMessageAcks>,
+}
+
+impl PacketMessageAckTracker {
+    pub(crate) fn track(
+        &mut self,
+        packet_id: PacketId,
+        channel_kind: ChannelKind,
+        message_ack: MessageAck,
+    ) {
+        if let Some(message_acks) = self.tracked.get_mut(&packet_id) {
+            message_acks.push((channel_kind, message_ack));
+            return;
+        }
+        let mut message_acks = self.ready.pop().unwrap_or_default();
+        message_acks.push((channel_kind, message_ack));
+        self.tracked.insert(packet_id, message_acks);
+    }
+
+    pub(crate) fn take(&mut self, packet_id: &PacketId) -> Option<PacketMessageAcks> {
+        self.tracked.remove(packet_id)
+    }
+
+    pub(crate) fn recycle(&mut self, mut message_acks: PacketMessageAcks) {
+        if self.ready.len() >= MAX_RETAINED_PACKET_MESSAGE_ACK_LISTS
+            || message_acks.capacity() > MAX_RETAINED_PACKET_MESSAGE_ACK_CAPACITY
+        {
+            return;
+        }
+        message_acks.clear();
+        self.ready.push(message_acks);
+    }
+}
+
 /// [`ChannelSettings`] are used to specify how the [`Channel`] behaves (reliability, ordering, direction)
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChannelSettings {
@@ -175,7 +223,7 @@ pub struct Transport {
     /// reliable senders can stop trying to send a message that has already been received
     ///
     /// Every packet is either acked or nacked, so this shouldn't grow indefinitely
-    pub(crate) packet_to_message_map: HashMap<PacketId, Vec<(ChannelKind, MessageAck)>>,
+    pub(crate) packet_message_acks: PacketMessageAckTracker,
     /// mpsc channel sender/receiver to allow users to write bytes to the same channel in parallel
     pub send_channel: Sender<(ChannelKind, Bytes, f32)>,
     pub recv_channel: Receiver<(ChannelKind, Bytes, f32)>,
@@ -199,7 +247,7 @@ impl Transport {
             compression_scratch: CompressionScratch::default(),
             fragment_size: FRAGMENT_SIZE,
             compression: CompressionConfig::default(),
-            packet_to_message_map: Default::default(),
+            packet_message_acks: Default::default(),
             send_channel,
             recv_channel,
             send: vec![],
@@ -475,7 +523,7 @@ impl Transport {
         self.bandwidth_limiter = BandwidthLimiter::new(priority_config);
         self.packet_manager = Default::default();
         self.compression_scratch = Default::default();
-        self.packet_to_message_map = Default::default();
+        self.packet_message_acks = Default::default();
         let (send_channel, recv_channel) = crossbeam_channel::unbounded();
         self.send_channel = send_channel;
         self.recv_channel = recv_channel;

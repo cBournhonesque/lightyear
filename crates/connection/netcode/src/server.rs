@@ -115,6 +115,9 @@ struct ConnectionCache {
     // the main difference being that `Connection` includes the encryption mapping as well.
     clients: HashMap<ClientId, Connection>,
 
+    /// Reusable snapshot for loops that mutate `clients` while visiting its IDs.
+    client_ids_scratch: Vec<ClientId>,
+
     // map from client entity to client id
     client_id_map: HashMap<Entity, ClientId>,
 
@@ -129,6 +132,7 @@ impl ConnectionCache {
     fn new(server_time: f64) -> Self {
         Self {
             clients: HashMap::default(),
+            client_ids_scratch: Vec::new(),
             client_id_map: HashMap::default(),
             replay_protection: HashMap::default(),
             time: server_time,
@@ -185,8 +189,15 @@ impl ConnectionCache {
         self.clients.remove(&client_id);
     }
 
-    fn ids(&self) -> Vec<ClientId> {
-        self.clients.keys().cloned().collect()
+    fn take_client_ids(&mut self) -> Vec<ClientId> {
+        let mut client_ids = core::mem::take(&mut self.client_ids_scratch);
+        client_ids.clear();
+        client_ids.extend(self.clients.keys().copied());
+        client_ids
+    }
+
+    fn recycle_client_ids(&mut self, client_ids: Vec<ClientId>) {
+        self.client_ids_scratch = client_ids;
     }
 
     fn find_by_entity(&self, entity: &Entity) -> Option<&Connection> {
@@ -777,7 +788,8 @@ impl<Ctx> Server<Ctx> {
         Ok(())
     }
     fn check_for_timeouts(&mut self) {
-        for id in self.conn_cache.ids() {
+        let client_ids = self.conn_cache.take_client_ids();
+        for &id in &client_ids {
             let Some(client) = self.conn_cache.clients.get_mut(&id) else {
                 continue;
             };
@@ -793,6 +805,7 @@ impl<Ctx> Server<Ctx> {
                 self.conn_cache.remove(id);
             }
         }
+        self.conn_cache.recycle_client_ids(client_ids);
     }
 
     // fn send_keepalives(&mut self, sender: &mut LinkSender) -> Result<()> {
@@ -960,15 +973,21 @@ impl<Ctx> Server<Ctx> {
     ///
     /// The provided buffer must be smaller than [`MAX_PACKET_SIZE`].
     pub fn send_all(&mut self, buf: SendPayload, sender: &mut LinkSender) -> Result<()> {
-        for id in self.conn_cache.ids() {
+        let client_ids = self.conn_cache.take_client_ids();
+        let mut result = Ok(());
+        for &id in &client_ids {
             match self.send(buf.clone(), id, sender) {
                 Ok(_) | Err(Error::ClientNotConnected(_)) | Err(Error::ClientNotFound(_)) => {
                     continue;
                 }
-                Err(e) => return Err(e),
+                Err(e) => {
+                    result = Err(e);
+                    break;
+                }
             }
         }
-        Ok(())
+        self.conn_cache.recycle_client_ids(client_ids);
+        result
     }
 
     /// Creates a connect token builder for a given client ID.
@@ -1050,17 +1069,23 @@ impl<Ctx> Server<Ctx> {
     /// Disconnects all clients.
     pub fn disconnect_all(&mut self, sender: &mut LinkSender) -> Result<()> {
         debug!("Server preparing to disconnect all clients");
-        for id in self.conn_cache.ids() {
+        let client_ids = self.conn_cache.take_client_ids();
+        let mut result = Ok(());
+        for &id in &client_ids {
             let Some(conn) = self.conn_cache.clients.get_mut(&id) else {
                 warn!("Could not disconnect client {id:?} because the connection was not found");
                 continue;
             };
             if conn.is_connected() {
                 debug!("Server preparing to disconnect client {id:?}");
-                self.disconnect(id, sender)?;
+                if let Err(error) = self.disconnect(id, sender) {
+                    result = Err(error);
+                    break;
+                }
             }
         }
-        Ok(())
+        self.conn_cache.recycle_client_ids(client_ids);
+        result
     }
 
     pub fn connected_client_ids(&self) -> impl Iterator<Item = ClientId> + '_ {
