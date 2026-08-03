@@ -189,6 +189,13 @@ impl ConnectionCache {
         self.clients.remove(&client_id);
     }
 
+    fn clear(&mut self) {
+        self.clients.clear();
+        self.client_ids_scratch.clear();
+        self.client_id_map.clear();
+        self.replay_protection.clear();
+    }
+
     fn take_client_ids(&mut self) -> Vec<ClientId> {
         let mut client_ids = core::mem::take(&mut self.client_ids_scratch);
         client_ids.clear();
@@ -461,6 +468,23 @@ impl<Ctx> Server<Ctx> {
 
     pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
         self.cfg.connection_request_handler = handler;
+    }
+
+    /// Clears all connection and pending packet state so this server can be started again.
+    ///
+    /// Configuration, callback context, elapsed time, and packet sequence counters are preserved.
+    /// Keeping the counters monotonic avoids reusing cryptographic nonces with the same keys. The
+    /// challenge key is rotated so responses from before the reset cannot be accepted afterward.
+    ///
+    /// This does not notify or send disconnect packets to clients. Disconnect active clients before
+    /// resetting when a graceful shutdown is required.
+    pub fn reset(&mut self) {
+        self.challenge_key = crypto::generate_key();
+        self.conn_cache.clear();
+        self.token_entries.inner.clear();
+        self.send_queue.clear();
+        self.writer.reset();
+        self.client_errors.clear();
     }
 }
 
@@ -1123,7 +1147,74 @@ impl<Ctx> Server<Ctx> {
 mod tests {
     use super::*;
     use alloc::sync::Arc;
+    use bevy_app::App;
     use core::sync::atomic::{AtomicBool, Ordering};
+    use lightyear_connection::server::Stopped;
+
+    use crate::PRIVATE_KEY_BYTES;
+    use crate::server_plugin::{NetcodeConfig, NetcodeServer, NetcodeServerPlugin};
+
+    #[test]
+    fn stopped_resets_netcode_runtime_state() {
+        let mut app = App::new();
+        app.add_plugins(NetcodeServerPlugin);
+
+        let server = app
+            .world_mut()
+            .spawn(NetcodeServer::new(NetcodeConfig::default()))
+            .id();
+        let client = app.world_mut().spawn_empty().id();
+
+        {
+            let mut netcode = app.world_mut().get_mut::<NetcodeServer>(server).unwrap();
+            let inner = &mut netcode.inner;
+
+            // A connection request creates this state before the client is fully connected. The
+            // normal Stop path only disconnects Connected clients, so this entry used to survive
+            // server shutdown and keep its ID and entity mapping alive across a restart.
+            inner.conn_cache.add(
+                1,
+                client,
+                10,
+                [1; PRIVATE_KEY_BYTES],
+                [2; PRIVATE_KEY_BYTES],
+                [0; USER_DATA_BYTES],
+            );
+            inner.token_entries.inner.push(TokenEntry {
+                time: inner.time,
+                mac: [3; MAC_BYTES],
+                entity: client,
+            });
+            inner
+                .send_queue
+                .insert(client, vec![SendPayload::from_static(&[4])]);
+            inner.writer.extend_from_slice(&[5]);
+            inner
+                .client_errors
+                .push(Error::ClientIdInUse(id::PeerId::Netcode(1)));
+            inner
+                .cfg
+                .context
+                .connections
+                .push((1, client, [0; USER_DATA_BYTES]));
+            inner.cfg.context.disconnections.push((1, client));
+        }
+
+        app.world_mut().entity_mut(server).insert(Stopped);
+        app.world_mut().flush();
+
+        let netcode = app.world().get::<NetcodeServer>(server).unwrap();
+        let inner = &netcode.inner;
+        assert!(inner.conn_cache.clients.is_empty());
+        assert!(inner.conn_cache.client_id_map.is_empty());
+        assert!(inner.conn_cache.replay_protection.is_empty());
+        assert!(inner.token_entries.inner.is_empty());
+        assert!(inner.send_queue.is_empty());
+        assert!(inner.writer.is_empty());
+        assert!(inner.client_errors.is_empty());
+        assert!(inner.cfg.context.connections.is_empty());
+        assert!(inner.cfg.context.disconnections.is_empty());
+    }
 
     #[test]
     fn on_connect_callback_receives_user_data() {

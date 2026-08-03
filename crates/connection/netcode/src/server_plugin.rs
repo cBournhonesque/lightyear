@@ -114,6 +114,15 @@ impl NetcodeServer {
     pub fn set_connection_request_handler(&mut self, handler: Arc<dyn ConnectionRequestHandler>) {
         self.inner.set_connection_request_handler(handler);
     }
+
+    /// Clears the Netcode runtime state while preserving this server's configuration.
+    ///
+    /// This is invoked automatically when the server enters [`Stopped`].
+    pub fn reset(&mut self) {
+        self.inner.reset();
+        self.inner.cfg.context.connections.clear();
+        self.inner.cfg.context.disconnections.clear();
+    }
 }
 
 impl NetcodeServerPlugin {
@@ -320,6 +329,12 @@ impl NetcodeServerPlugin {
         }
     }
 
+    fn reset_on_stopped(trigger: On<Add, Stopped>, mut query: Query<&mut NetcodeServer>) {
+        if let Ok(mut server) = query.get_mut(trigger.entity) {
+            server.reset();
+        }
+    }
+
     fn stop(
         trigger: On<Stop>,
         mut commands: Commands,
@@ -392,5 +407,6 @@ impl Plugin for NetcodeServerPlugin {
 
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
+        app.add_observer(Self::reset_on_stopped);
     }
 }
