@@ -12,6 +12,7 @@ use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
+use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
 
 #[derive(Resource)]
