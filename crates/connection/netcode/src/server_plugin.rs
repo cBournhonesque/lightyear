@@ -16,6 +16,7 @@ use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
 use lightyear_link::{Link, LinkSystems, Unlink};
 use lightyear_transport::plugin::TransportSystems;
+use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
 pub struct NetcodeServerPlugin;
@@ -135,12 +136,11 @@ impl NetcodeServerPlugin {
         //  that the transports/links are all mutually exclusive...
         //  Maybe some unsafe Cloneble wrapper around the client_query?
         //  Or maybe store the clients into a Local<Vec<(&mut Transport, &mut Link)>>? so that we can iterate faster through them?
-        // we use Arc to tell the compiler that we know that the queries won't be used to access
-        // the same clients (because each Link is uniquely associated with a single server)
-        // This allow us to iterate in parallel over all servers
-        let client_query = Arc::new(client_query);
+        // Each Link is uniquely associated with one server, so parallel workers can safely share
+        // the query before taking their disjoint unsafe reborrows below.
+        let client_query = &client_query;
+        let server_query = adaptive_for_each_mut!(server_query);
         server_query
-            .par_iter_mut()
             // .iter_mut()
             .for_each(|(mut netcode_server, server)| {
                 // SAFETY: we know that each client is unique to a single server so we won't
@@ -223,13 +223,13 @@ impl NetcodeServerPlugin {
     ) {
         let delta = real_time.delta();
 
-        // we use Arc to tell the compiler that we know that the queries won't be used to access
-        // the same clients (because each Link is uniquely associated with a single server)
-        // This allow us to iterate in parallel over all servers
-        let link_query = Arc::new(link_query);
+        // Each Link is uniquely associated with one server, so parallel workers can safely share
+        // the query before taking their disjoint unsafe reborrows below.
+        let link_query = &link_query;
 
         // receive packets from the link and process them through the server
-        server_query.par_iter_mut().for_each(
+        let server_query = adaptive_for_each_mut!(server_query);
+        server_query.for_each(
             |(server_entity, mut netcode_server, mut server, stopping)| {
                 parallel_commands.command_scope(|mut c| {
                     // SAFETY: we know that each client is unique to a single server so we won't

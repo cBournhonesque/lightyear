@@ -19,10 +19,10 @@ use lightyear_serde::entity_map::ReceiveEntityMap;
 use lightyear_serde::reader::Reader;
 use lightyear_transport::channel::ChannelKind;
 use lightyear_transport::prelude::Transport;
+use lightyear_utils::adaptive_for_each_mut;
 use lightyear_utils::collections::HashMap;
 use lightyear_utils::ready_buffer::ReadyBuffer;
 
-use alloc::sync::Arc;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_utils::prelude::DebugName;
 use bytes::Bytes;
@@ -597,10 +597,11 @@ impl MessagePlugin {
         timeline_registry: Res<TimelineRegistry>,
         commands: ParallelCommands,
     ) {
-        // We use Arc to make the query Clone, since we know that we will only access MessageReceiver<M> components
-        // on potentially different entities in parallel (though the current loop isn't parallel)
-        let receiver_query = Arc::new(receiver_query);
-        transport_query.par_iter_mut().for_each(
+        // Each outer query item accesses receivers on a different entity, so workers can safely
+        // share the query before taking their disjoint unsafe reborrows below.
+        let receiver_query = &receiver_query;
+        let transport_query = adaptive_for_each_mut!(transport_query);
+        transport_query.for_each(
             |(
                 entity,
                 mut message_manager,

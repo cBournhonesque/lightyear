@@ -17,6 +17,7 @@ use lightyear_messages::prelude::AppMessageExt;
 use lightyear_messages::receive::MessageReceiver;
 use lightyear_messages::send::MessageSender;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings};
+use lightyear_utils::adaptive_for_each_mut;
 #[allow(unused_imports)]
 use tracing::{info, trace};
 
@@ -47,9 +48,8 @@ impl PingPlugin {
             (With<Connected>, Without<HostClient>),
         >,
     ) {
-        query
-            .par_iter_mut()
-            .for_each(|(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
+        adaptive_for_each_mut!(query).for_each(
+            |(mut link, mut m, mut ping_receiver, mut pong_receiver)| {
                 // update
                 m.update(&real_time);
 
@@ -65,7 +65,8 @@ impl PingPlugin {
 
                 link.stats.rtt = m.rtt();
                 link.stats.jitter = m.jitter();
-            })
+            },
+        )
     }
 
     /// Send pings/pongs to the remote
@@ -90,9 +91,8 @@ impl PingPlugin {
         //     return
         // };
         // let frame_time = now - frame_start;
-        query
-            .par_iter_mut()
-            .for_each(|(entity, mut m, mut ping_sender, mut pong_sender)| {
+        adaptive_for_each_mut!(query).for_each(
+            |(entity, mut m, mut ping_sender, mut pong_sender)| {
                 // send the pings
                 if let Some(ping) = m.maybe_prepare_ping(now) {
                     trace!(
@@ -129,7 +129,8 @@ impl PingPlugin {
                         // pong.overstep = fixed_time.overstep_fraction();
                         pong_sender.send::<PingChannel>(pong);
                     });
-            })
+            },
+        )
     }
 
     /// On connection, reset the PingManager.

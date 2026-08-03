@@ -25,6 +25,7 @@ use lightyear_core::time::Instant;
 use lightyear_link::{
     Link, LinkPlugin, LinkReceiveSystems, LinkStart, LinkSystems, Linked, Linking, Unlink, Unlinked,
 };
+use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
 
 /// Server-side UDP socket support.
@@ -143,26 +144,24 @@ impl UdpPlugin {
     }
 
     fn send(mut query: Query<(&mut Link, &mut UdpIo, &PeerAddr), With<Linked>>) {
-        query
-            .par_iter_mut()
-            .for_each(|(mut link, mut udp_io, remote_addr)| {
-                link.send.drain().for_each(|payload| {
-                    // B/s
-                    #[cfg(feature = "metrics")]
-                    metrics::gauge!("udp/send").increment(payload.len() as f64);
-                    udp_io
-                        .socket
-                        .as_mut()
-                        .unwrap()
-                        .send_to(payload.as_ref(), remote_addr.0)
-                        .inspect_err(|e| error!("Error sending UDP packet: {}", e))
-                        .ok();
-                });
-            })
+        adaptive_for_each_mut!(query).for_each(|(mut link, mut udp_io, remote_addr)| {
+            link.send.drain().for_each(|payload| {
+                // B/s
+                #[cfg(feature = "metrics")]
+                metrics::gauge!("udp/send").increment(payload.len() as f64);
+                udp_io
+                    .socket
+                    .as_mut()
+                    .unwrap()
+                    .send_to(payload.as_ref(), remote_addr.0)
+                    .inspect_err(|e| error!("Error sending UDP packet: {}", e))
+                    .ok();
+            });
+        })
     }
 
     fn receive(mut query: Query<(&mut Link, &mut UdpIo), With<Linked>>) {
-        query.par_iter_mut().for_each(|(mut link, mut udp_io)| {
+        adaptive_for_each_mut!(query).for_each(|(mut link, mut udp_io)| {
             // enable split borrows
             let udp_io = &mut *udp_io;
             udp_io.recv_buffers.reclaim_pending();

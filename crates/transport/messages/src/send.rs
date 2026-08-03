@@ -3,7 +3,6 @@ use crate::plugin::{MAX_TIMELINE_LAG_TICKS, MessagePlugin};
 use crate::registry::MessageMetricHandles;
 use crate::registry::{MessageError, MessageKind, MessageRegistry};
 use crate::{Message, MessageManager, MessageNetId};
-use alloc::sync::Arc;
 use alloc::vec::Vec;
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::{
@@ -25,6 +24,7 @@ use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_serde::writer::Writer;
 use lightyear_transport::channel::{Channel, ChannelKind};
 use lightyear_transport::prelude::{ChannelRegistry, Transport};
+use lightyear_utils::adaptive_for_each_mut;
 #[allow(unused_imports)]
 use tracing::{error, info, trace};
 
@@ -283,12 +283,11 @@ impl MessagePlugin {
         message_sender_query: Query<FilteredEntityMut>,
         registry: Res<MessageRegistry>,
     ) {
-        // We use Arc to make the query Clone, since we know that we will only access MessageSender<M> components
-        // on different entities
-        let message_sender_query = Arc::new(message_sender_query);
-        transport_query
-            .par_iter_mut()
-            .for_each(|(entity, transport, mut message_manager)| {
+        // Each outer query item accesses senders on a different entity, so workers can safely
+        // share the query before taking their disjoint unsafe reborrows below.
+        let message_sender_query = &message_sender_query;
+        adaptive_for_each_mut!(transport_query).for_each(
+            |(entity, transport, mut message_manager)| {
                 // SAFETY: we know that this won't lead to violating the aliasing rule
                 let mut message_sender_query = unsafe { message_sender_query.reborrow_unsafe() };
 
@@ -371,7 +370,8 @@ impl MessagePlugin {
                     })
                     .inspect_err(|e| error!("error sending trigger: {e:?}"))
                     .ok();
-            })
+            },
+        )
     }
 
     /// For the host-client, we take messages to send from the [`MessageSender<M>`] components
@@ -391,83 +391,79 @@ impl MessagePlugin {
         channel_registry: Res<ChannelRegistry>,
         timeline_registry: Res<TimelineRegistry>,
     ) {
-        // We use Arc to make the query Clone, since we know that we will only access MessageSender<M>/MessageReceiver<M> components
-        // on different entities
+        // Each outer query item accesses components on a different entity, so workers can safely
+        // share the query before taking their disjoint unsafe reborrows below.
         let tick = timeline.tick();
-        let message_components_query = Arc::new(message_components_query);
-        manager_query
-            .par_iter_mut()
-            .for_each(|(entity, mut message_manager)| {
-                // SAFETY: we know that this won't lead to violating the aliasing rule
-                let mut message_sender_query =
-                    unsafe { message_components_query.reborrow_unsafe() };
-                let mut message_receiver_query =
-                    unsafe { message_components_query.reborrow_unsafe() };
+        let message_components_query = &message_components_query;
+        adaptive_for_each_mut!(manager_query).for_each(|(entity, mut message_manager)| {
+            // SAFETY: we know that this won't lead to violating the aliasing rule
+            let mut message_sender_query = unsafe { message_components_query.reborrow_unsafe() };
+            let mut message_receiver_query = unsafe { message_components_query.reborrow_unsafe() };
 
-                // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
-                // enable split borrows
-                let message_manager = &mut *message_manager;
-                message_manager
-                    .send_messages
-                    .iter()
-                    .try_for_each(|(message_kind, sender_id)| {
-                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                        let message_sender = entity_mut
-                            .get_mut_by_id(*sender_id)
-                            .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
-                        let send_metadata = registry
-                            .send_metadata
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
-                        unsafe {
-                            (send_metadata.send_local_message_fn)(
-                                message_sender,
-                                &mut entity_mut,
-                                &commands,
-                                tick,
-                                &registry,
-                                &channel_registry,
-                                &timeline_registry,
-                            )?;
-                        }
-                        Ok::<_, MessageError>(())
-                    })
-                    .inspect_err(|e| error!("error sending message on host-client: {e:?}"))
-                    .ok();
+            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+            // enable split borrows
+            let message_manager = &mut *message_manager;
+            message_manager
+                .send_messages
+                .iter()
+                .try_for_each(|(message_kind, sender_id)| {
+                    let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                    let message_sender = entity_mut
+                        .get_mut_by_id(*sender_id)
+                        .ok_or(MessageError::MissingComponent(*sender_id))?;
+                    let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
+                    let send_metadata = registry
+                        .send_metadata
+                        .get(message_kind)
+                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                    // SAFETY: we know the message_sender corresponds to the correct `MessageSender<M>` type
+                    unsafe {
+                        (send_metadata.send_local_message_fn)(
+                            message_sender,
+                            &mut entity_mut,
+                            &commands,
+                            tick,
+                            &registry,
+                            &channel_registry,
+                            &timeline_registry,
+                        )?;
+                    }
+                    Ok::<_, MessageError>(())
+                })
+                .inspect_err(|e| error!("error sending message on host-client: {e:?}"))
+                .ok();
 
-                // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
-                // enable split borrows
-                message_manager
-                    .send_triggers
-                    .iter()
-                    .try_for_each(|(message_kind, sender_id)| {
-                        let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
-                        let message_sender = entity_mut
-                            .get_mut_by_id(*sender_id)
-                            .ok_or(MessageError::MissingComponent(*sender_id))?;
-                        let send_metadata = registry
-                            .send_trigger_metadata
-                            .get(message_kind)
-                            .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
-                        let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
-                        // SAFETY: sender and receiver callbacks come from the registry for this event type.
-                        unsafe {
-                            (send_metadata.send_local_trigger_fn)(
-                                message_sender,
-                                &mut entity_mut,
-                                &commands,
-                                tick,
-                                &registry,
-                                &channel_registry,
-                                &timeline_registry,
-                            )?;
-                        }
-                        Ok::<_, MessageError>(())
-                    })
-                    .inspect_err(|e| error!("error sending trigger on host-client: {e:?}"))
-                    .ok();
-            })
+            // TODO: allow sending from senders in parallel! The only issue is the mutable borrow of the entity mapper
+            // enable split borrows
+            message_manager
+                .send_triggers
+                .iter()
+                .try_for_each(|(message_kind, sender_id)| {
+                    let mut entity_mut = message_sender_query.get_mut(entity).unwrap();
+                    let message_sender = entity_mut
+                        .get_mut_by_id(*sender_id)
+                        .ok_or(MessageError::MissingComponent(*sender_id))?;
+                    let send_metadata = registry
+                        .send_trigger_metadata
+                        .get(message_kind)
+                        .ok_or(MessageError::UnrecognizedMessage(*message_kind))?;
+                    let mut entity_mut = message_receiver_query.get_mut(entity).unwrap();
+                    // SAFETY: sender and receiver callbacks come from the registry for this event type.
+                    unsafe {
+                        (send_metadata.send_local_trigger_fn)(
+                            message_sender,
+                            &mut entity_mut,
+                            &commands,
+                            tick,
+                            &registry,
+                            &channel_registry,
+                            &timeline_registry,
+                        )?;
+                    }
+                    Ok::<_, MessageError>(())
+                })
+                .inspect_err(|e| error!("error sending trigger on host-client: {e:?}"))
+                .ok();
+        })
     }
 }
