@@ -131,7 +131,7 @@ impl ToBytes for Bytes {
         Self: Sized,
     {
         let len = buffer.read_varint()? as usize;
-        let bytes = buffer.split_len(len);
+        let bytes = buffer.split_len(len)?;
         Ok(bytes)
     }
 }
@@ -277,6 +277,16 @@ mod tests {
         let mut reader = Reader::from(writer.to_bytes());
         let read = Bytes::from_bytes(&mut reader).unwrap();
         assert_eq!(a, read);
+    }
+
+    #[test]
+    fn test_deserialize_truncated_bytes_returns_error() {
+        let mut writer = Writer::default();
+        writer.write_varint(10).unwrap();
+        writer.extend_from_slice(&[7]);
+
+        let mut reader = Reader::from(writer.to_bytes());
+        assert!(Bytes::from_bytes(&mut reader).is_err());
     }
 
     #[test]
