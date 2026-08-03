@@ -6,6 +6,7 @@ use bevy_ecs::{
     entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
+use core::net::SocketAddr;
 use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
@@ -49,6 +50,13 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
+    /// Address that identifies this server in the private connect token's server-address list.
+    ///
+    /// When set, connection requests for tokens that do not contain this address are ignored.
+    /// This is usually the server's public address, but it can be an internal address supplied via
+    /// [`ConnectTokenBuilder::internal_addresses`](crate::ConnectTokenBuilder::internal_addresses).
+    /// Leave this as `None` for addressless transports. The default is `None`.
+    pub server_addr: Option<SocketAddr>,
     pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
@@ -60,6 +68,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
+            server_addr: None,
             connection_request_handler: None,
         }
     }
@@ -72,6 +81,12 @@ impl NetcodeConfig {
     }
     pub fn with_key(mut self, key: Key) -> Self {
         self.private_key = key;
+        self
+    }
+
+    /// Require incoming connection tokens to identify this server by `server_addr`.
+    pub fn with_server_addr(mut self, server_addr: SocketAddr) -> Self {
+        self.server_addr = Some(server_addr);
         self
     }
 
@@ -102,6 +117,9 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
+        if let Some(server_addr) = config.server_addr {
+            cfg = cfg.server_addr(server_addr);
+        }
         if let Some(handler) = config.connection_request_handler {
             cfg = cfg.connection_request_handler(handler);
         }
@@ -410,5 +428,18 @@ impl Plugin for NetcodeServerPlugin {
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
         app.add_observer(Self::reset_on_stopped);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn netcode_config_forwards_server_addr() {
+        let server_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+        let server = NetcodeServer::new(NetcodeConfig::default().with_server_addr(server_addr));
+
+        assert_eq!(server.inner.server_addr(), Some(server_addr));
     }
 }
