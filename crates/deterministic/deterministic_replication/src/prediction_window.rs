@@ -144,7 +144,7 @@ mod tests {
             let topology = if p2p {
                 NetworkTopology::P2P {
                     connected: [link].into_iter().collect(),
-                    declared: 1,
+                    declared_links: 1,
                 }
             } else {
                 NetworkTopology::Client(link)

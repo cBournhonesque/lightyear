@@ -676,13 +676,13 @@ where
             }
             NetworkTopology::P2P {
                 connected,
-                declared,
+                declared_links,
             } if DRIVING => {
                 // P2P Links can be declared before their connection handshake completes. Waiting
                 // for all declared Links lets a lobby establish its fixed roster up front without
                 // allowing the first connection to start input capture prematurely.
                 let all_declared_links_connected =
-                    is_synced || connected.len() == usize::from(*declared);
+                    is_synced || connected.len() == usize::from(*declared_links);
                 let mut all_initialized = !connected.is_empty() && all_declared_links_connected;
                 let mut sampled_any = false;
                 let mut limiting = None;
@@ -934,7 +934,7 @@ mod tests {
             .insert(IsSynced::<InputTimeline>::default());
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
             connected: Default::default(),
-            declared: 1,
+            declared_links: 1,
         };
         {
             let mut wait = app.world_mut().resource_mut::<PredictionWindowWait>();
@@ -1059,7 +1059,7 @@ mod tests {
         }
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
             connected: links[..2].iter().copied().collect(),
-            declared: 3,
+            declared_links: 3,
         };
 
         app.world_mut().run_schedule(PostUpdate);
@@ -1086,7 +1086,7 @@ mod tests {
         app.world_mut().entity_mut(links[2]).insert(Connected);
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
             connected: links.iter().copied().collect(),
-            declared: 3,
+            declared_links: 3,
         };
         app.world_mut().run_schedule(PostUpdate);
         assert!(
@@ -1281,7 +1281,7 @@ mod tests {
         // normally; the session owner is responsible for treating peer loss as fatal if required.
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
             connected: Default::default(),
-            declared: 3,
+            declared_links: 3,
         };
         app.world_mut().run_schedule(PostUpdate);
 
