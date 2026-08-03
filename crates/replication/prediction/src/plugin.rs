@@ -83,7 +83,7 @@ pub(crate) fn should_run(
     manager.is_some()
         && matches!(
             metadata.mode,
-            NetworkTopology::Client(_) | NetworkTopology::P2P(_)
+            NetworkTopology::Client(_) | NetworkTopology::P2P { .. }
         )
 }
 
@@ -362,8 +362,10 @@ mod tests {
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::Client(client);
         assert!(app.world_mut().run_system_once(should_run).unwrap());
 
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P(Default::default());
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
+            connected: Default::default(),
+            declared: 1,
+        };
         assert!(app.world_mut().run_system_once(should_run).unwrap());
 
         app.world_mut().resource_mut::<NetworkingMetadata>().mode =
