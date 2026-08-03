@@ -36,7 +36,8 @@ pub(crate) const MTU: usize = 1472;
 ///
 /// Insert this on a Lightyear server entity. A [`LocalAddr`] component is required before
 /// [`LinkStart`] is triggered; the plugin binds one socket to that address and creates child link
-/// entities for remote addresses as datagrams arrive.
+/// entities for remote addresses as datagrams arrive. After binding, [`LocalAddr`] is updated to
+/// the address reported by the socket, including the OS-assigned port when binding to port `0`.
 ///
 /// Each child link receives [`PeerAddr`] for its remote socket address and [`UdpLinkOfIO`] to mark
 /// it as owned by this UDP server transport.
@@ -100,16 +101,17 @@ impl ServerUdpPlugin {
     fn link(
         trigger: On<LinkStart>,
         mut query: Query<
-            (&mut ServerUdpIo, Option<&LocalAddr>),
+            (&mut ServerUdpIo, Option<&mut LocalAddr>),
             (Without<Linking>, Without<Linked>),
         >,
         mut commands: Commands,
     ) -> Result {
         if let Ok((mut udp_io, local_addr)) = query.get_mut(trigger.entity) {
-            let local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?.0;
-            info!("Server UDP socket bound to {}", local_addr);
-            let socket = std::net::UdpSocket::bind(local_addr)?;
+            let mut local_addr = local_addr.ok_or(UdpError::LocalAddrMissing)?;
+            let socket = std::net::UdpSocket::bind(local_addr.0)?;
             socket.set_nonblocking(true)?;
+            local_addr.0 = socket.local_addr()?;
+            info!("Server UDP socket bound to {}", local_addr.0);
             udp_io.socket = Some(socket);
             commands.entity(trigger.entity).insert(Linked);
         }
@@ -300,5 +302,31 @@ impl Plugin for ServerUdpPlugin {
         app.add_observer(Self::unlink);
         app.add_systems(PreUpdate, Self::receive.in_set(LinkSystems::Receive));
         app.add_systems(PostUpdate, Self::send.in_set(LinkSystems::Send));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::net::Ipv4Addr;
+
+    #[test]
+    fn link_updates_local_addr_with_os_assigned_port() {
+        let mut app = App::new();
+        app.add_plugins(ServerUdpPlugin);
+
+        let requested_addr = SocketAddr::new(Ipv4Addr::LOCALHOST.into(), 0);
+        let server = app
+            .world_mut()
+            .spawn((LocalAddr(requested_addr), ServerUdpIo::default()))
+            .id();
+
+        app.world_mut().trigger(LinkStart { entity: server });
+        app.world_mut().flush();
+
+        let bound_addr = app.world().get::<LocalAddr>(server).unwrap().0;
+        assert_eq!(bound_addr.ip(), requested_addr.ip());
+        assert_ne!(bound_addr.port(), 0);
+        assert!(app.world().get::<Linked>(server).is_some());
     }
 }
