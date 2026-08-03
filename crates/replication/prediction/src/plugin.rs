@@ -362,7 +362,7 @@ mod tests {
 
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
             connected: Default::default(),
-            declared: 1,
+            declared_links: 1,
         };
         assert!(app.world_mut().run_system_once(should_run).unwrap());
 
