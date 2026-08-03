@@ -126,7 +126,6 @@ pub(crate) mod std {
 #[cfg(not(feature = "std"))]
 pub(crate) mod no_std {
     use super::*;
-    use bincode::error::EncodeError;
     use core::cmp;
     #[derive(Debug)]
     pub struct Writer(BytesMut);
@@ -136,14 +135,6 @@ pub(crate) mod no_std {
             Self(value)
         }
     }
-
-    // impl bincode::Writer for Writer {
-    //     fn write_all(&mut self, buf: &[u8]) -> Result<(), EncodeError> {
-    //         let n = cmp::min(self.0.remaining_mut(), buf.len());
-    //         self.0.put_slice(&buf[..n]);
-    //         Ok(())
-    //     }
-    // }
 
     impl Write for Writer {
         fn write(&mut self, src: &[u8]) -> Result<usize> {
@@ -227,17 +218,6 @@ pub(crate) mod no_std {
         #[allow(clippy::wrong_self_convention)]
         pub fn to_bytes_mut(self) -> BytesMut {
             self.0
-        }
-    }
-
-    /// We need to provide our own implementation of bincode::enc::write::Writer.
-    /// We cannot use the SliceWriter because it supposes that the slice is immutable
-    impl bincode::enc::write::Writer for Writer {
-        #[inline(always)]
-        fn write(&mut self, bytes: &[u8]) -> core::result::Result<(), EncodeError> {
-            self.write_all(bytes)
-                .map_err(|_| EncodeError::Other("encode error"))?;
-            Ok(())
         }
     }
 }

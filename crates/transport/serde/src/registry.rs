@@ -1,4 +1,5 @@
 use crate::entity_map::{EntityMap, ReceiveEntityMap, SendEntityMap};
+use crate::postcard_utils;
 use crate::reader::Reader;
 use crate::writer::Writer;
 use crate::{SerializationError, ToBytes};
@@ -166,38 +167,18 @@ fn default_context_deserialize<C, M>(
     deserialize_fn(reader)
 }
 
-#[cfg(feature = "std")]
-/// Default serialize function using bincode
+/// Default serialize function using Postcard.
 fn default_serialize<M: Serialize>(
     message: &M,
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
-    let _ = bincode::serde::encode_into_std_write(message, buffer, bincode::config::standard())?;
+    postcard_utils::to_writer(message, buffer)?;
     Ok(())
 }
 
-#[cfg(not(feature = "std"))]
-/// Default serialize function using bincode
-fn default_serialize<M: Serialize>(
-    message: &M,
-    buffer: &mut Writer,
-) -> Result<(), SerializationError> {
-    bincode::serde::encode_into_writer(message, buffer, bincode::config::standard())?;
-    Ok(())
-}
-
-#[cfg(feature = "std")]
-/// Default deserialize function using bincode
+/// Default deserialize function using Postcard.
 fn default_deserialize<M: DeserializeOwned>(buffer: &mut Reader) -> Result<M, SerializationError> {
-    let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
-    Ok(data)
-}
-
-#[cfg(not(feature = "std"))]
-/// Default deserialize function using bincode
-fn default_deserialize<M: DeserializeOwned>(buffer: &mut Reader) -> Result<M, SerializationError> {
-    let data = bincode::serde::decode_from_reader(buffer, bincode::config::standard())?;
-    Ok(data)
+    Ok(postcard_utils::from_reader(buffer)?)
 }
 
 fn erased_clone<M: Clone>(message: &M) -> M {
