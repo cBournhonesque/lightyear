@@ -407,12 +407,12 @@ impl InputTimeline {
         let input_delay_ticks = match topology {
             NetworkTopology::Client(entity) => delay_for(*entity),
             NetworkTopology::HostClient { client, .. } => delay_for(*client),
-            NetworkTopology::P2P(entities) if !entities.is_empty() => entities
+            NetworkTopology::P2P { connected, .. } if !connected.is_empty() => connected
                 .iter()
                 .try_fold(0, |maximum, entity| Some(maximum.max(delay_for(*entity)?))),
             NetworkTopology::Undefined
             | NetworkTopology::Server(_)
-            | NetworkTopology::P2P(_)
+            | NetworkTopology::P2P { .. }
             | NetworkTopology::Invalid(_) => None,
         };
         let Some(input_delay_ticks) = input_delay_ticks else {
@@ -726,7 +726,10 @@ mod tests {
         let slow = app.world_mut().spawn(slow_link).id();
 
         let mut metadata = NetworkingMetadata::default();
-        metadata.mode = NetworkTopology::P2P([fast, slow].into_iter().collect());
+        metadata.mode = NetworkTopology::P2P {
+            connected: [fast, slow].into_iter().collect(),
+            declared: 2,
+        };
         app.insert_resource(metadata);
         app.insert_resource(TickDuration(Duration::from_millis(10)));
         let mut config =
