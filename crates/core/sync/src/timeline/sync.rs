@@ -1,5 +1,6 @@
 use crate::ping::manager::PingManager;
 use crate::plugin::SyncSystems;
+use crate::timeline::input::PredictionWindowWait;
 use bevy_app::{App, Last, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::resource::IsResource;
@@ -588,12 +589,32 @@ where
     /// Other topologies run at normal speed until their resource timeline is synchronized.
     fn update_virtual_time(
         metadata: Res<NetworkingMetadata>,
+        prediction_window_wait: Res<PredictionWindowWait>,
         timeline: Single<(&Synced, Has<IsSynced<Synced>>), With<IsResource>>,
         mut virtual_time: ResMut<Time<Virtual>>,
     ) {
         let (timeline, is_synced) = timeline.into_inner();
         match metadata.mode {
-            NetworkTopology::P2P(_) => {
+            NetworkTopology::Client(_) | NetworkTopology::P2P { .. }
+                if is_synced && prediction_window_wait.is_waiting() =>
+            {
+                // Keep the phase controller's desired speed on the timeline while preventing the
+                // next FixedMain run. Network receive and timeline observation continue in the
+                // variable schedules, so confirmed input can advance and release the wait.
+                virtual_time.set_relative_speed(0.0);
+                trace!(
+                    target: "lightyear_debug::sync",
+                    kind = "prediction_window_wait",
+                    schedule = "Last",
+                    sample_point = "Last",
+                    prediction_depth = prediction_window_wait.prediction_depth(),
+                    maximum_predicted_ticks = prediction_window_wait.maximum_predicted_ticks(),
+                    confirmed_tick = ?prediction_window_wait.confirmed_tick(),
+                    desired_relative_speed = timeline.relative_speed(),
+                    "paused virtual time at the deterministic prediction-window limit"
+                );
+            }
+            NetworkTopology::P2P { .. } => {
                 Self::apply_relative_speed(timeline, &mut virtual_time);
             }
             NetworkTopology::Client(_) | NetworkTopology::HostClient { .. } if is_synced => {
@@ -618,7 +639,6 @@ where
             (&Remote, &PingManager),
             (With<Client>, With<Connected>, Without<HostClient>),
         >,
-        declared_p2p_links: Query<(), (With<P2P>, With<Client>, Without<HostClient>)>,
         mut commands: Commands,
     ) {
         let (entity, mut synced, mut is_synced) = timeline.into_inner();
@@ -631,7 +651,7 @@ where
         if metadata.is_changed() {
             Self::reset_controller(&mut synced, 1.0);
             let preserve_running_p2p =
-                is_synced && matches!(&metadata.mode, NetworkTopology::P2P(_));
+                is_synced && matches!(&metadata.mode, NetworkTopology::P2P { .. });
             if is_synced && !preserve_running_p2p {
                 commands.entity(entity).remove::<IsSynced<Synced>>();
             }
@@ -654,16 +674,19 @@ where
                     &mut commands,
                 );
             }
-            NetworkTopology::P2P(links) if DRIVING => {
+            NetworkTopology::P2P {
+                connected,
+                declared,
+            } if DRIVING => {
                 // P2P Links can be declared before their connection handshake completes. Waiting
                 // for all declared Links lets a lobby establish its fixed roster up front without
                 // allowing the first connection to start input capture prematurely.
                 let all_declared_links_connected =
-                    is_synced || links.len() == declared_p2p_links.iter().count();
-                let mut all_initialized = !links.is_empty() && all_declared_links_connected;
+                    is_synced || connected.len() == usize::from(*declared);
+                let mut all_initialized = !connected.is_empty() && all_declared_links_connected;
                 let mut sampled_any = false;
                 let mut limiting = None;
-                for &link_entity in links {
+                for &link_entity in connected {
                     let Ok((remote, _ping_manager)) = remotes.get(link_entity) else {
                         all_initialized = false;
                         trace!(
@@ -800,6 +823,9 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
 
         app.register_required_components::<Synced, PingManager>();
         app.register_required_components::<Synced, Remote>();
+        if DRIVING {
+            app.init_resource::<PredictionWindowWait>();
+        }
         app.add_observer(Self::handle_connect);
         app.add_observer(Self::handle_host_client);
         app.add_observer(Self::handle_disconnect);
@@ -827,6 +853,9 @@ where
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
         app.init_resource::<Synced>();
         app.init_resource::<Synced::Config>();
+        if DRIVING {
+            app.init_resource::<PredictionWindowWait>();
+        }
 
         app.add_observer(Self::handle_connect);
         app.add_observer(Self::handle_host_client);
@@ -850,7 +879,8 @@ mod tests {
     use super::*;
     use crate::timeline::input::{InputTimeline, InputTimelineConfig};
     use alloc::vec::Vec;
-    use bevy_app::PostUpdate;
+    use bevy_app::{FixedUpdate, PostUpdate};
+    use bevy_time::TimeUpdateStrategy;
     use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_core::plugin::CorePlugins;
     use lightyear_core::tick::Tick;
@@ -876,6 +906,61 @@ mod tests {
         mut divergences: ResMut<RecordedDivergences>,
     ) {
         divergences.0.push(*trigger);
+    }
+
+    #[derive(Resource, Default)]
+    struct FixedRuns(u32);
+
+    #[test]
+    fn prediction_window_wait_stops_bevy_fixed_schedules() {
+        fn count_fixed_runs(mut runs: ResMut<FixedRuns>) {
+            runs.0 += 1;
+        }
+
+        let tick_duration = Duration::from_millis(10);
+        let mut app = App::new();
+        app.add_plugins((
+            CorePlugins { tick_duration },
+            SyncedTimelinePlugin::<InputTimeline, TestRemote, true, true>::default(),
+        ));
+        app.insert_resource(TimeUpdateStrategy::ManualDuration(tick_duration));
+        app.init_resource::<NetworkingMetadata>();
+        app.init_resource::<FixedRuns>();
+        app.add_systems(FixedUpdate, count_fixed_runs);
+        let timeline_id = app.world().component_id::<InputTimeline>().unwrap();
+        let timeline_entity = app.world().resource_entities().get(timeline_id).unwrap();
+        app.world_mut()
+            .entity_mut(timeline_entity)
+            .insert(IsSynced::<InputTimeline>::default());
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
+            connected: Default::default(),
+            declared: 1,
+        };
+        {
+            let mut wait = app.world_mut().resource_mut::<PredictionWindowWait>();
+            wait.update(Tick(0), None, 1);
+            wait.update(Tick(1), None, 1);
+        }
+
+        // The signal is applied in Last, after this frame's fixed loop has already run.
+        app.update();
+        let before_wait = app.world().resource::<FixedRuns>().0;
+        assert_eq!(
+            app.world().resource::<Time<Virtual>>().relative_speed(),
+            0.0
+        );
+
+        app.update();
+        assert_eq!(app.world().resource::<FixedRuns>().0, before_wait);
+
+        // Releasing the signal similarly takes effect for the following application frame.
+        app.world_mut()
+            .resource_mut::<PredictionWindowWait>()
+            .update(Tick(1), Some(Tick(1)), 1);
+        app.update();
+        assert_eq!(app.world().resource::<FixedRuns>().0, before_wait);
+        app.update();
+        assert!(app.world().resource::<FixedRuns>().0 > before_wait);
     }
 
     impl TimelineConfig for TestRemoteConfig {
@@ -972,8 +1057,10 @@ mod tests {
             }
             links.push(entity);
         }
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P(links[..2].iter().copied().collect());
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
+            connected: links[..2].iter().copied().collect(),
+            declared: 3,
+        };
 
         app.world_mut().run_schedule(PostUpdate);
 
@@ -997,8 +1084,10 @@ mod tests {
 
         // Connecting the final Link is still not enough until its remote timeline has initialized.
         app.world_mut().entity_mut(links[2]).insert(Connected);
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P(links.iter().copied().collect());
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
+            connected: links.iter().copied().collect(),
+            declared: 3,
+        };
         app.world_mut().run_schedule(PostUpdate);
         assert!(
             app.world()
@@ -1059,6 +1148,35 @@ mod tests {
             app.world()
                 .get::<IsSynced<InputTimeline>>(timeline_entity)
                 .is_some()
+        );
+
+        // Prediction-window exhaustion is a hard wait layered over the phase controller. It
+        // pauses virtual time without overwriting the slowdown that should be restored on resume.
+        {
+            let mut wait = app.world_mut().resource_mut::<PredictionWindowWait>();
+            wait.update(Tick(0), None, 4);
+            wait.update(Tick(4), None, 4);
+        }
+        app.world_mut().run_schedule(Last);
+        assert_eq!(
+            app.world().resource::<Time<Virtual>>().relative_speed(),
+            0.0
+        );
+        assert_eq!(
+            app.world().resource::<InputTimeline>().relative_speed(),
+            slowed_speed,
+            "hard waiting must preserve the phase controller's desired speed"
+        );
+
+        {
+            let mut wait = app.world_mut().resource_mut::<PredictionWindowWait>();
+            wait.update(Tick(4), Some(Tick(2)), 4);
+        }
+        app.world_mut().run_schedule(Last);
+        assert_eq!(
+            app.world().resource::<Time<Virtual>>().relative_speed(),
+            slowed_speed,
+            "recovering two confirmed ticks must resume at the phase-controller speed"
         );
 
         // Render frames without a new network observation must preserve both the controller state
@@ -1161,8 +1279,10 @@ mod tests {
         // A P2P roster change resets controller history but cannot revoke readiness or resynchronize
         // a running deterministic world. An empty connected set keeps application time advancing
         // normally; the session owner is responsible for treating peer loss as fatal if required.
-        app.world_mut().resource_mut::<NetworkingMetadata>().mode =
-            NetworkTopology::P2P(Default::default());
+        app.world_mut().resource_mut::<NetworkingMetadata>().mode = NetworkTopology::P2P {
+            connected: Default::default(),
+            declared: 3,
+        };
         app.world_mut().run_schedule(PostUpdate);
 
         let timeline = app.world().resource::<InputTimeline>();

@@ -42,13 +42,17 @@ pub mod prelude {
     };
     pub use crate::timeline::{
         DrivingTimeline,
-        input::{InputTimeline, InputTimelineConfig, SyncedInputTimeline},
+        input::{
+            InputTimeline, InputTimelineConfig, PREDICTION_WINDOW_HYSTERESIS_TICKS,
+            PredictionWindowWait, SyncedInputTimeline,
+        },
     };
 
     #[cfg(feature = "client")]
     pub mod client {
         pub use crate::timeline::input::{
-            InputDelayConfig, InputTimeline, InputTimelineConfig, SyncedInputTimeline,
+            InputDelayConfig, InputTimeline, InputTimelineConfig,
+            PREDICTION_WINDOW_HYSTERESIS_TICKS, PredictionWindowWait, SyncedInputTimeline,
         };
         pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
         pub use crate::timeline::sync::{IsSynced, P2PTimelineDiverged};
