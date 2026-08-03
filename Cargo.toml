@@ -128,7 +128,7 @@ parking_lot = "0.12.3"
 pastey = { version = "0.2.3", default-features = false }
 rand = "0.10"
 ringbuffer = "0.16"
-thiserror = "2.0.3"
+thiserror = { version = "2.0.3", default-features = false }
 seahash = "4.1.0"
 smallvec = { version = "1", features = ["union", "const_generics"] }
 variadics_please = "2.0.0"
@@ -158,7 +158,9 @@ test-log = { version = "0.2.17", default-features = false, features = [
   "trace",
   "color",
 ] }
-tracing = "0.1.40"
+tracing = { version = "0.1.40", default-features = false, features = [
+  "attributes",
+] }
 tracing-subscriber = { version = "0.3.20", features = [
   "registry",
   "env-filter",
