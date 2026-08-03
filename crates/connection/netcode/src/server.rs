@@ -537,7 +537,7 @@ impl<Ctx> Server<Ctx> {
         self.send_queue
             .entry(entity)
             .or_default()
-            .push(self.writer.split());
+            .push(self.writer.take_written());
         self.sequence += 1;
         Ok(())
     }
@@ -545,7 +545,7 @@ impl<Ctx> Server<Ctx> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, self.sequence, &key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
         self.sequence += 1;
         Ok(())
     }
@@ -564,7 +564,7 @@ impl<Ctx> Server<Ctx> {
         let mut buf = [0u8; MAX_PKT_BUF_SIZE];
         let size = packet.write(&mut buf, conn.sequence, &conn.send_key, self.protocol_id)?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -593,7 +593,7 @@ impl<Ctx> Server<Ctx> {
             self.protocol_id,
         )?;
         self.writer.extend_from_slice(&buf[..size]);
-        sender.push(self.writer.split());
+        sender.push(self.writer.take_written());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;
@@ -619,7 +619,7 @@ impl<Ctx> Server<Ctx> {
         self.send_queue
             .entry(entity)
             .or_default()
-            .push(self.writer.split());
+            .push(self.writer.take_written());
 
         conn.last_access_time = self.time;
         conn.last_send_time = self.time;

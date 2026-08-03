@@ -544,7 +544,7 @@ mod tests {
         registry
             .serialize(&message, &mut writer, &mut SendEntityMap::default())
             .unwrap();
-        let data = writer.to_bytes();
+        let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
@@ -566,7 +566,7 @@ mod tests {
         registry
             .serialize(&message, &mut writer, &mut SendEntityMap::default())
             .unwrap();
-        let data = writer.to_bytes();
+        let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry
@@ -602,7 +602,7 @@ mod tests {
         registry
             .serialize(&message, &mut writer, &mut entity_map)
             .unwrap();
-        let data = writer.to_bytes();
+        let data = writer.into_bytes();
 
         let mut reader = Reader::from(data);
         let read = registry

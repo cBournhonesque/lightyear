@@ -144,7 +144,7 @@ impl<M: Message> MessageSender<M> {
                         entity_map,
                     )?
                 };
-                let bytes = sender.writer.split();
+                let bytes = sender.writer.take_written();
                 #[cfg(feature = "metrics")]
                 metric_handles.record_send::<M>(bytes.len());
                 trace!(

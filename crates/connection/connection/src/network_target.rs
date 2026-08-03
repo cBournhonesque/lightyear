@@ -439,7 +439,7 @@ mod tests {
         let target = Target::AllExcept(vec![]);
         let mut writer = Writer::default();
         target.to_bytes(&mut writer).unwrap();
-        let mut reader = Reader::from(writer.to_bytes());
+        let mut reader = Reader::from(writer.into_bytes());
         let deserialized = Target::from_bytes(&mut reader).unwrap();
         assert_eq!(target, deserialized);
     }

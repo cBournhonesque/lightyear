@@ -74,7 +74,7 @@ impl<M: Event> EventSender<M> {
                     entity_map,
                 )?
             };
-            let bytes = sender.writer.split();
+            let bytes = sender.writer.take_written();
             trace!(
                 "Sending message of type {:?} with net_id {net_id:?} on channel {:?}",
                 DebugName::type_name::<M>(),

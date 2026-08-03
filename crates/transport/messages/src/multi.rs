@@ -46,7 +46,7 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                 &mut self.writer,
                 &mut SendEntityMap::default(),
             )?;
-            let bytes = self.writer.split();
+            let bytes = self.writer.take_written();
             let bytes_len = bytes.len();
             self.query
                 .iter_many_unique_mut(senders)
@@ -65,7 +65,7 @@ impl<'w, 's, F: QueryFilter> MultiMessageSender<'w, 's, F> {
                         // TODO: ideally we could do entity mapping without Mut!!!
                         &mut manager.entity_mapper.local_to_remote,
                     )?;
-                    let bytes = self.writer.split();
+                    let bytes = self.writer.take_written();
                     #[cfg(feature = "metrics")]
                     metric_handles.record_send::<M>(bytes.len());
                     transport.send_with_priority::<C>(bytes, priority)?;
