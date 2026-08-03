@@ -57,8 +57,13 @@ pub enum SerializationError {
     InvalidValue,
     #[error("Subtraction overflow")]
     SubtractionOverflow,
+    #[cfg(feature = "std")]
+    #[error(transparent)]
+    Bitcode(#[from] bitcode::Error),
+    #[cfg(not(feature = "std"))]
     #[error(transparent)]
     BincodeEncode(#[from] bincode::error::EncodeError),
+    #[cfg(not(feature = "std"))]
     #[error(transparent)]
     BincodeDecode(#[from] bincode::error::DecodeError),
 }

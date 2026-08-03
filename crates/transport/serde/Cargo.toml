@@ -10,7 +10,8 @@ repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
 default = ["std"]
-std = ["bincode/std", "bytes/std", "no_std_io2/std"]
+std = ["bitcode/std", "bytes/std", "no_std_io2/std"]
+no_std = ["dep:bincode"]
 
 [dependencies]
 # utils
@@ -20,8 +21,12 @@ tracing.workspace = true
 variadics_please.workspace = true
 
 # serde
-bincode.workspace = true
+bitcode.workspace = true
 serde.workspace = true
+bincode = { version = "2.0.1", default-features = false, optional = true, features = [
+  "serde",
+  "alloc",
+] }
 
 # bevy
 bevy_derive.workspace = true

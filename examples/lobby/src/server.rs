@@ -10,7 +10,7 @@ use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use core::time::Duration;
 
-use crate::automation::AutomationServerPlugin;
+// use crate::automation::AutomationServerPlugin;
 use crate::protocol::*;
 use crate::shared;
 use crate::shared::shared_movement_behaviour;
@@ -25,7 +25,7 @@ pub struct ExampleServerPlugin {
 
 impl Plugin for ExampleServerPlugin {
     fn build(&self, app: &mut App) {
-        app.add_plugins(AutomationServerPlugin);
+        // app.add_plugins(AutomationServerPlugin);
         // the server is using Rooms
         app.add_plugins(RoomPlugin);
         app.insert_resource(ReplicationMetadata::new(SEND_INTERVAL));

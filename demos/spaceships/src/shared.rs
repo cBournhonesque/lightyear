@@ -898,7 +898,7 @@ mod tests {
         let mut history = ConfirmedHistory::<Weapon>::default();
         history.insert(
             Tick(435),
-            Some(Weapon {
+            HistoryState::Updated(Weapon {
                 last_fire_tick: Tick(435),
                 cooldown: 12,
                 bullet_speed: 500.0,
@@ -921,7 +921,7 @@ mod tests {
         let mut history = ConfirmedHistory::<Weapon>::default();
         history.insert(
             Tick(383),
-            Some(Weapon {
+            HistoryState::Updated(Weapon {
                 last_fire_tick: Tick(383),
                 cooldown: 12,
                 bullet_speed: 500.0,

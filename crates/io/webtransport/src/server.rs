@@ -125,8 +125,11 @@ impl WebTransportServerPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use core::net::{Ipv4Addr, SocketAddr};
-    use std::{thread, time::Duration};
+    use core::{
+        net::{Ipv4Addr, SocketAddr},
+        time::Duration,
+    };
+    use std::thread;
 
     use lightyear_aeronet::AeronetLink;
     use lightyear_link::{LinkStart, Unlink, Unlinked};

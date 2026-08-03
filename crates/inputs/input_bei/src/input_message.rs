@@ -488,10 +488,7 @@ mod tests {
 
         // Should be no mismatch since the action matches our prediction
         assert_eq!(earliest_mismatch, None);
-        assert_eq!(
-            input_buffer.get_raw(Tick(6)),
-            &Compressed::Input(snapshot.clone())
-        );
+        assert_eq!(input_buffer.get_raw(Tick(6)), &Compressed::Input(snapshot));
         snapshot.decay_tick(Duration::default());
         assert_eq!(input_buffer.get(Tick(7)), Some(&snapshot));
         assert_eq!(input_buffer.get_raw(Tick(8)), &Compressed::Absent);

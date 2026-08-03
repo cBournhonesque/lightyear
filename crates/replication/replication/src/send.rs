@@ -787,126 +787,6 @@ fn update_replication_tick(
     );
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy_ecs::schedule::common_conditions::resource_changed;
-    use bevy_time::Time;
-    use core::time::Duration;
-
-    #[derive(Resource, Default)]
-    struct SendCount(usize);
-
-    fn count_sends(mut count: ResMut<SendCount>) {
-        count.0 += 1;
-    }
-
-    fn add_replication_tick_test_systems(app: &mut App) {
-        app.add_systems(
-            RunFixedMainLoop,
-            update_replication_tick.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
-        );
-        app.add_systems(
-            PostUpdate,
-            count_sends.run_if(resource_changed::<ServerTick>),
-        );
-    }
-
-    fn clear_send_state(app: &mut App) {
-        app.world_mut().run_schedule(PostUpdate);
-        app.world_mut().resource_mut::<SendCount>().0 = 0;
-        app.world_mut().clear_trackers();
-    }
-
-    #[test]
-    fn unchanged_timeline_does_not_trigger_send() {
-        let mut app = App::new();
-        app.init_resource::<Time>();
-        app.insert_resource(LocalTimeline::default());
-        app.insert_resource(ReplicationMetadata::default());
-        app.init_resource::<ServerTick>();
-        app.init_resource::<SendCount>();
-        add_replication_tick_test_systems(&mut app);
-        clear_send_state(&mut app);
-
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(Duration::from_millis(1));
-        app.world_mut().run_schedule(RunFixedMainLoop);
-        app.world_mut().run_schedule(PostUpdate);
-
-        assert_eq!(app.world().resource::<ServerTick>().get(), 0);
-        assert_eq!(app.world().resource::<SendCount>().0, 0);
-    }
-
-    #[test]
-    fn multiple_fixed_ticks_trigger_single_replication_tick_after_fixed_loop() {
-        let mut app = App::new();
-        app.init_resource::<Time>();
-        app.insert_resource(LocalTimeline::default());
-        app.insert_resource(ReplicationMetadata::default());
-        app.init_resource::<ServerTick>();
-        app.init_resource::<SendCount>();
-        add_replication_tick_test_systems(&mut app);
-        clear_send_state(&mut app);
-
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(2);
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(Duration::from_millis(1));
-        app.world_mut().run_schedule(RunFixedMainLoop);
-        app.world_mut().run_schedule(PostUpdate);
-
-        assert_eq!(app.world().resource::<ServerTick>().get(), 1);
-        assert_eq!(app.world().resource::<SendCount>().0, 1);
-    }
-
-    #[test]
-    fn elapsed_interval_on_no_fixed_frame_sends_on_next_fixed_frame() {
-        let mut app = App::new();
-        app.init_resource::<Time>();
-        app.insert_resource(LocalTimeline::default());
-        app.insert_resource(ReplicationMetadata::new(Duration::from_millis(10)));
-        app.init_resource::<ServerTick>();
-        app.init_resource::<SendCount>();
-        add_replication_tick_test_systems(&mut app);
-        clear_send_state(&mut app);
-
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(Duration::from_millis(10));
-        app.world_mut().run_schedule(RunFixedMainLoop);
-        app.world_mut().run_schedule(PostUpdate);
-
-        assert_eq!(app.world().resource::<ServerTick>().get(), 0);
-        assert_eq!(app.world().resource::<SendCount>().0, 0);
-
-        app.world_mut().clear_trackers();
-        app.world_mut()
-            .resource_mut::<LocalTimeline>()
-            .apply_delta(1);
-        app.world_mut()
-            .resource_mut::<Time>()
-            .advance_by(Duration::from_millis(1));
-        app.world_mut().run_schedule(RunFixedMainLoop);
-        app.world_mut().run_schedule(PostUpdate);
-
-        assert_eq!(app.world().resource::<ServerTick>().get(), 1);
-        assert_eq!(app.world().resource::<SendCount>().0, 1);
-    }
-
-    #[test]
-    fn gain_authority_without_existing_entry() {
-        let mut state = ReplicationState::default();
-        let sender = Entity::from_raw_u32(0).unwrap();
-
-        state.gain_authority(sender);
-        assert!(state.has_authority(sender));
-    }
-}
-
 pub struct SendPlugin;
 
 /// When a client becomes a host client after replicated entities already exist, backfill the
@@ -1109,5 +989,125 @@ impl Plugin for SendPlugin {
             // Note: app.replicate::<Interpolated>() is called in SharedComponentRegistrationPlugin
             app.init_resource::<InterpolatedBit>();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bevy_ecs::schedule::common_conditions::resource_changed;
+    use bevy_time::Time;
+    use core::time::Duration;
+
+    #[derive(Resource, Default)]
+    struct SendCount(usize);
+
+    fn count_sends(mut count: ResMut<SendCount>) {
+        count.0 += 1;
+    }
+
+    fn add_replication_tick_test_systems(app: &mut App) {
+        app.add_systems(
+            RunFixedMainLoop,
+            update_replication_tick.in_set(RunFixedMainLoopSystems::AfterFixedMainLoop),
+        );
+        app.add_systems(
+            PostUpdate,
+            count_sends.run_if(resource_changed::<ServerTick>),
+        );
+    }
+
+    fn clear_send_state(app: &mut App) {
+        app.world_mut().run_schedule(PostUpdate);
+        app.world_mut().resource_mut::<SendCount>().0 = 0;
+        app.world_mut().clear_trackers();
+    }
+
+    #[test]
+    fn unchanged_timeline_does_not_trigger_send() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationMetadata::default());
+        app.init_resource::<ServerTick>();
+        app.init_resource::<SendCount>();
+        add_replication_tick_test_systems(&mut app);
+        clear_send_state(&mut app);
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 0);
+        assert_eq!(app.world().resource::<SendCount>().0, 0);
+    }
+
+    #[test]
+    fn multiple_fixed_ticks_trigger_single_replication_tick_after_fixed_loop() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationMetadata::default());
+        app.init_resource::<ServerTick>();
+        app.init_resource::<SendCount>();
+        add_replication_tick_test_systems(&mut app);
+        clear_send_state(&mut app);
+
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(2);
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 1);
+        assert_eq!(app.world().resource::<SendCount>().0, 1);
+    }
+
+    #[test]
+    fn elapsed_interval_on_no_fixed_frame_sends_on_next_fixed_frame() {
+        let mut app = App::new();
+        app.init_resource::<Time>();
+        app.insert_resource(LocalTimeline::default());
+        app.insert_resource(ReplicationMetadata::new(Duration::from_millis(10)));
+        app.init_resource::<ServerTick>();
+        app.init_resource::<SendCount>();
+        add_replication_tick_test_systems(&mut app);
+        clear_send_state(&mut app);
+
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(10));
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 0);
+        assert_eq!(app.world().resource::<SendCount>().0, 0);
+
+        app.world_mut().clear_trackers();
+        app.world_mut()
+            .resource_mut::<LocalTimeline>()
+            .apply_delta(1);
+        app.world_mut()
+            .resource_mut::<Time>()
+            .advance_by(Duration::from_millis(1));
+        app.world_mut().run_schedule(RunFixedMainLoop);
+        app.world_mut().run_schedule(PostUpdate);
+
+        assert_eq!(app.world().resource::<ServerTick>().get(), 1);
+        assert_eq!(app.world().resource::<SendCount>().0, 1);
+    }
+
+    #[test]
+    fn gain_authority_without_existing_entry() {
+        let mut state = ReplicationState::default();
+        let sender = Entity::from_raw_u32(0).unwrap();
+
+        state.gain_authority(sender);
+        assert!(state.has_authority(sender));
     }
 }

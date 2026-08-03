@@ -167,12 +167,13 @@ fn default_context_deserialize<C, M>(
 }
 
 #[cfg(feature = "std")]
-/// Default serialize function using bincode
+/// Default serialize function using bitcode
 fn default_serialize<M: Serialize>(
     message: &M,
     buffer: &mut Writer,
 ) -> Result<(), SerializationError> {
-    let _ = bincode::serde::encode_into_std_write(message, buffer, bincode::config::standard())?;
+    let encoded = bitcode::serialize(message)?;
+    buffer.extend_from_slice(&encoded);
     Ok(())
 }
 
@@ -187,10 +188,10 @@ fn default_serialize<M: Serialize>(
 }
 
 #[cfg(feature = "std")]
-/// Default deserialize function using bincode
+/// Default deserialize function using bitcode
 fn default_deserialize<M: DeserializeOwned>(buffer: &mut Reader) -> Result<M, SerializationError> {
-    let data = bincode::serde::decode_from_std_read(buffer, bincode::config::standard())?;
-    Ok(data)
+    let encoded = buffer.split();
+    Ok(bitcode::deserialize(encoded.as_ref())?)
 }
 
 #[cfg(not(feature = "std"))]
