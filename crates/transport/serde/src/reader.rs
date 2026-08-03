@@ -106,7 +106,6 @@ pub(crate) mod std {
 pub(crate) mod no_std {
     use super::*;
     use alloc::vec::Vec;
-    use bincode::error::DecodeError;
 
     #[derive(Clone)]
     pub struct Reader(Cursor<Bytes>);
@@ -201,15 +200,6 @@ pub(crate) mod no_std {
         pub fn remaining(&self) -> usize {
             // copied from the Buf implementation for std::io::Cursor in tokio::bytes
             saturating_sub_usize_u64(self.len(), self.position())
-        }
-    }
-
-    /// We cannot decode into a Slice because the slice is not Extendable
-    impl bincode::de::read::Reader for Reader {
-        #[inline(always)]
-        fn read(&mut self, bytes: &mut [u8]) -> core::result::Result<(), DecodeError> {
-            self.read_exact(bytes)
-                .map_err(|_| DecodeError::Other("could not decode"))
         }
     }
 }

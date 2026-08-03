@@ -12,7 +12,7 @@
 #![no_std]
 
 extern crate alloc;
-#[cfg(feature = "std")]
+#[cfg(any(feature = "std", test))]
 extern crate std;
 
 use crate::reader::{ReadInteger, ReadVarInt, Reader};
@@ -25,6 +25,7 @@ use no_std_io2::io;
 
 /// Utilities for mapping entities during serialization and deserialization.
 pub mod entity_map;
+mod postcard_utils;
 /// Provides the [`Reader`] struct and traits for deserializing data from a byte stream.
 pub mod reader;
 /// Defines traits and structures for registering serializable types.
@@ -58,9 +59,7 @@ pub enum SerializationError {
     #[error("Subtraction overflow")]
     SubtractionOverflow,
     #[error(transparent)]
-    BincodeEncode(#[from] bincode::error::EncodeError),
-    #[error(transparent)]
-    BincodeDecode(#[from] bincode::error::DecodeError),
+    Postcard(#[from] postcard::Error),
 }
 
 /// Trait for types that can be serialized to and deserialized from a byte stream.

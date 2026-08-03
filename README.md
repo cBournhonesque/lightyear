@@ -55,7 +55,7 @@ Workspace crate sources live under `crates/`, grouped by role. Directory names d
     - WebSocket: available on both native and wasm!
     - Steam: use the SteamWorks SDK to send messages over the Steam network
 - Serialization
-    - *Lightyear* uses `bincode` as a default serializer, but you can provide your own serialization function
+    - *Lightyear* uses `postcard` as a default serializer, but you can provide your own serialization function
 - Message passing
     - *Lightyear* supports sending packets with different guarantees of ordering and reliability through the use of
       channels.
