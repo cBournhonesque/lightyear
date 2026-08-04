@@ -124,6 +124,27 @@ jobs:
           --out lcov
           -- --test-threads=1
 
+      - name: Crate unit tests
+        shell: bash
+        env:
+          CARGO_INCREMENTAL: 0
+        run: |
+          set -euo pipefail
+          package_args=()
+          while IFS= read -r package; do
+            case "$package" in
+              lightyear_tests|lightyear_avian2d|lightyear_avian3d) continue ;;
+            esac
+            package_args+=(-p "$package")
+          done < <(
+            cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.manifest_path | test("/crates/")) | .name' \
+              | sort -u
+          )
+          cargo test --locked --no-fail-fast --lib "${package_args[@]}"
+          cargo test --locked --no-fail-fast -p lightyear_avian2d --lib
+          cargo test --locked --no-fail-fast -p lightyear_avian3d --lib
+
       - name: Upload code coverage results
         if: github.actor != 'dependabot[bot]'
         uses: actions/upload-artifact@v7

@@ -143,6 +143,7 @@ pub unsafe fn get_component_unchecked<'w>(
 
 #[cfg(test)]
 mod tests {
+    use bevy_app::{App, TaskPoolPlugin};
     use bevy_ecs::prelude::*;
 
     #[derive(Component)]
@@ -150,22 +151,24 @@ mod tests {
 
     #[test]
     fn adaptive_iteration_supports_default_and_custom_thresholds() {
-        let mut world = World::new();
+        let mut app = App::new();
+        app.add_plugins(TaskPoolPlugin::default());
+        let world = app.world_mut();
         let first = world.spawn(Value(0)).id();
         let mut query_state = world.query::<&mut Value>();
 
         {
-            let mut query = query_state.query_mut(&mut world);
+            let mut query = query_state.query_mut(world);
             crate::adaptive_for_each_mut!(query, |mut value| value.0 += 1);
         }
 
         let second = world.spawn(Value(0)).id();
         {
-            let mut query = query_state.query_mut(&mut world);
+            let mut query = query_state.query_mut(world);
             crate::adaptive_for_each_mut!(query, 2, |mut value| value.0 += 1);
         }
         {
-            let mut query = query_state.query_mut(&mut world);
+            let mut query = query_state.query_mut(world);
             crate::adaptive_for_each_mut!(query, |mut value| value.0 += 1);
         }
 
