@@ -162,7 +162,11 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.init_resource::<InputTimeline>();
         app.init_resource::<InputTimelineConfig>();
         #[cfg(feature = "prediction")]
-        app.init_resource::<LastConfirmedInput>();
+        {
+            if !app.is_plugin_added::<LastConfirmedInputPlugin>() {
+                app.add_plugins(LastConfirmedInputPlugin);
+            }
+        }
 
         // SETS
 
@@ -267,6 +271,31 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // if the client tick is updated because of a desync, update the ticks in the input buffers
         app.add_observer(receive_tick_events::<S>);
     }
+}
+
+/// Installs application-global confirmed-input frontier bookkeeping.
+///
+/// A client application can register several input types. Installing this non-generic plugin once
+/// ensures their contributions are finalized only after every input type has updated the shared
+/// [`LastConfirmedInput`] resource.
+#[cfg(feature = "prediction")]
+struct LastConfirmedInputPlugin;
+
+#[cfg(feature = "prediction")]
+impl Plugin for LastConfirmedInputPlugin {
+    fn build(&self, app: &mut App) {
+        app.init_resource::<LastConfirmedInput>();
+        app.add_systems(
+            PostUpdate,
+            finalize_last_confirmed_input.after(InputSystems::UpdateRemoteInputTicks),
+        );
+    }
+}
+
+#[cfg(feature = "prediction")]
+/// Preserve the completed aggregate for next frame's rollback decision.
+fn finalize_last_confirmed_input(mut last_confirmed_input: ResMut<LastConfirmedInput>) {
+    last_confirmed_input.finalize_frame();
 }
 
 /// Cached input routing derived from [`NetworkingMetadata`].
@@ -1074,9 +1103,10 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         return;
     }
     let tick = timeline.tick();
-    // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
-    // we will just use the current tick as the last confirmed input tick
-    if input_config.is_lockstep() {
+    // Preserve the conventional lockstep behavior: input delay guarantees that the sole remote
+    // endpoint has supplied the current tick. P2P must inspect the actual global frontier because
+    // one slow peer can still be missing while the others are ready.
+    if input_config.is_lockstep() && !matches!(metadata.mode, NetworkTopology::P2P { .. }) {
         last_confirmed_input.tick.set_if_lower(tick);
         return;
     }
@@ -1084,16 +1114,19 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
 
     // find the earliest last_confirmed_tick for each client
     // The tracker was reset to a high tick, so the first real tick always becomes the minimum.
-    last_confirmed_input.received_for_all_clients = true;
+    let mut received_for_all_clients = true;
     predicted_query.iter().for_each(|buffer| {
         // if we received any messages, we update the LastConfirmedInput
         // (this is used to determine the last confirmed tick for each client)
         if let Some(end_tick) = buffer.last_remote_tick {
             last_confirmed_input.tick.set_if_lower(end_tick);
         } else {
-            last_confirmed_input.received_for_all_clients = false;
+            received_for_all_clients = false;
         }
     });
+    // Several generic input plugins contribute sequentially in the same set. The tracker is reset
+    // to true once in PreUpdate, so AND-ing preserves a missing stream reported by any input type.
+    last_confirmed_input.received_for_all_clients &= received_for_all_clients;
     trace!(
         target: "lightyear_debug::input",
         kind = "last_confirmed_input",

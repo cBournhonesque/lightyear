@@ -37,19 +37,25 @@ pub mod prelude {
     pub use crate::ping::manager::{PingConfig, PingManager};
     pub use crate::ping::message::{Ping, Pong};
     pub use crate::plugin::{SyncSystems, TimelineSyncPlugin};
-    pub use crate::timeline::sync::{IsSynced, SyncConfig, SyncedTimelinePlugin};
+    pub use crate::timeline::sync::{
+        IsSynced, P2PTimelineDiverged, SyncConfig, SyncedTimelinePlugin,
+    };
     pub use crate::timeline::{
         DrivingTimeline,
-        input::{InputTimeline, InputTimelineConfig, SyncedInputTimeline},
+        input::{
+            InputTimeline, InputTimelineConfig, PREDICTION_WINDOW_HYSTERESIS_TICKS,
+            PredictionWindowWait, SyncedInputTimeline,
+        },
     };
 
     #[cfg(feature = "client")]
     pub mod client {
         pub use crate::timeline::input::{
-            InputDelayConfig, InputTimeline, InputTimelineConfig, SyncedInputTimeline,
+            InputDelayConfig, InputTimeline, InputTimelineConfig,
+            PREDICTION_WINDOW_HYSTERESIS_TICKS, PredictionWindowWait, SyncedInputTimeline,
         };
         pub use crate::timeline::remote::{RemoteEstimate, RemoteTimeline};
-        pub use crate::timeline::sync::IsSynced;
+        pub use crate::timeline::sync::{IsSynced, P2PTimelineDiverged};
     }
 
     #[cfg(feature = "server")]
