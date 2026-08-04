@@ -15,6 +15,7 @@ std = ["bytes/std", "no_std_io2/std"]
 [dependencies]
 # utils
 bytes.workspace = true
+smallvec.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 variadics_please.workspace = true

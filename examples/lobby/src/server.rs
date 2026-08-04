@@ -306,7 +306,7 @@ mod lobby {
                             host: lobby.host,
                         },
                         server,
-                        &NetworkTarget::Only(lobby.players.clone()),
+                        &NetworkTarget::Only(lobby.players.clone().into()),
                     )?;
                 }
             }
