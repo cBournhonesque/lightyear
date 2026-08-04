@@ -9,3 +9,12 @@ use bevy_reflect::Reflect;
 #[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
 #[require(Client)]
 pub struct P2P;
+
+/// Certifies that this Link's [`RemoteId`](lightyear_core::id::RemoteId) was authenticated by its
+/// connection backend.
+///
+/// This marker does not perform authentication. Secure connection backends such as the future
+/// Iroh integration insert it only after cryptographically binding the Link to its remote public
+/// identity. Raw transports must not insert it merely because a configured `RemoteId` exists.
+#[derive(Component, Default, Debug, Clone, Copy, PartialEq, Eq, Reflect)]
+pub struct AuthenticatedPeerId;

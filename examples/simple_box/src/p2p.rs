@@ -11,7 +11,7 @@ use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_examples_common::p2p::{
-    input_target_for_peer, P2PGameplayStarted, P2PSettings, GAMEPLAY_START_TICK,
+    input_target_for_peer, insert_example_session, P2PGameplayStarted, P2PSettings,
 };
 
 /// Namespace for stable simple-box player hashes on the input wire.
@@ -21,6 +21,7 @@ pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
+        insert_example_session(app, PLAYER_INPUT_HASH_BASE);
         app.insert_resource(PredictionManager::default());
         app.add_plugins(
             lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin,
@@ -40,13 +41,12 @@ impl Plugin for ExampleP2PPlugin {
 /// the cross-world input identity; P2P deliberately does not depend on replication entity maps.
 fn spawn_fixed_roster(
     mut commands: Commands,
-    _synced: SyncedInputTimeline,
-    timeline: Res<LocalTimeline>,
+    session: Res<P2PSession>,
     started: Option<Res<P2PGameplayStarted>>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
-    if started.is_some() || timeline.tick().0 < GAMEPLAY_START_TICK {
+    if started.is_some() || !session.is_running() {
         return;
     }
     commands.insert_resource(P2PGameplayStarted);

@@ -9,6 +9,7 @@ members = [
   "crates/io/websocket",
   "crates/io/webtransport",
   "crates/connection/connection",
+  "crates/connection/p2p",
   "crates/connection/raw_connection",
   "crates/connection/netcode",
   "crates/connection/steam",
@@ -81,6 +82,7 @@ lightyear_avian3d = { path = "crates/integration/avian3d", version = "0.28.0", d
 ] }
 lightyear_netcode = { path = "crates/connection/netcode", version = "0.28.0", default-features = false }
 lightyear_connection = { path = "crates/connection/connection", version = "0.28.0", default-features = false }
+lightyear_p2p = { path = "crates/connection/p2p", version = "0.28.0", default-features = false }
 lightyear_core = { path = "crates/core/core", version = "0.28.0", default-features = false }
 lightyear_crossbeam = { path = "crates/io/crossbeam", version = "0.28.0", default-features = false }
 lightyear_deterministic_replication = { path = "crates/deterministic/deterministic_replication", version = "0.28.0", default-features = false }

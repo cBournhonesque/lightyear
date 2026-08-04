@@ -15,12 +15,8 @@ use crate::client_renderer::ExampleClientRendererPlugin;
 const MAX_P2P_PLAYERS: u8 = 4;
 pub(crate) const DEFAULT_P2P_BASE_PORT: u16 = 6000;
 
-/// Tick at which fixed-roster examples create their deterministic gameplay world.
-///
-/// Delaying creation gives every raw Link time to connect and lets the input timeline complete
-/// its one-time initial synchronization before any gameplay state is simulated. A future session
-/// handshake should replace this example convention with an agreed start epoch.
-pub const GAMEPLAY_START_TICK: u32 = 120;
+const EXAMPLE_SESSION_ID: u128 = 0x4c49_4748_5459_4541_525f_5032_5000_0001;
+const EXAMPLE_START_DELAY_TICKS: u16 = 120;
 
 /// Marker inserted after an example has created its fixed deterministic P2P world.
 #[derive(Resource, Default)]
@@ -80,6 +76,7 @@ pub(crate) fn configure_app(
 ) {
     validate_roster(peer_id, player_count);
     app.add_plugins(ClientPlugins { tick_duration });
+    app.add_plugins(P2PSessionPlugin);
     app.insert_resource(P2PSettings {
         local_peer_id: peer_id,
         player_count,
@@ -91,6 +88,27 @@ pub(crate) fn configure_app(
             "P2P Peer {peer_id}"
         )));
     }
+}
+
+/// Insert the raw-localhost session used by one deterministic example.
+///
+/// The example harness explicitly trusts configured raw-Link identities because localhost UDP
+/// does not authenticate them. Production P2P sessions keep the default requirement for
+/// [`AuthenticatedPeerId`].
+pub fn insert_example_session(app: &mut App, configuration: u64) {
+    let settings = *app.world().resource::<P2PSettings>();
+    let config = P2PSessionConfig::new(
+        P2PSessionId::from_u128(EXAMPLE_SESSION_ID),
+        settings.local_id(),
+        settings
+            .peer_ids()
+            .map(|peer| PeerId::Entity(u64::from(peer))),
+        P2PConfigFingerprint::from_u64(configuration),
+    )
+    .expect("the example CLI validated its fixed P2P roster")
+    .with_start_delay_ticks(EXAMPLE_START_DELAY_TICKS)
+    .with_identity_policy(P2PIdentityPolicy::TrustLinkIdentity);
+    app.insert_resource(P2PSession::new(config));
 }
 
 /// Spawn one directed raw UDP Link for every other member of the fixed roster.

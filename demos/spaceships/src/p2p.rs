@@ -11,7 +11,7 @@ use lightyear::prelude::input::leafwing::LeafwingBuffer;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
 use lightyear_examples_common::p2p::{
-    GAMEPLAY_START_TICK, P2PGameplayStarted, P2PSettings, input_target_for_peer,
+    P2PGameplayStarted, P2PSettings, input_target_for_peer, insert_example_session,
 };
 use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 use lightyear_frame_interpolation::FrameInterpolate;
@@ -26,6 +26,7 @@ pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
+        insert_example_session(app, PLAYER_INPUT_HASH_BASE);
         app.insert_resource(PredictionManager::default());
         app.add_plugins(DeterministicReplicationPlugin);
         app.add_systems(
@@ -41,13 +42,12 @@ impl Plugin for ExampleP2PPlugin {
 
 fn spawn_fixed_world(
     mut commands: Commands,
-    _synced: SyncedInputTimeline,
-    timeline: Res<LocalTimeline>,
+    session: Res<P2PSession>,
     started: Option<Res<P2PGameplayStarted>>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
-    if started.is_some() || timeline.tick().0 < GAMEPLAY_START_TICK {
+    if started.is_some() || !session.is_running() {
         return;
     }
     commands.insert_resource(P2PGameplayStarted);
