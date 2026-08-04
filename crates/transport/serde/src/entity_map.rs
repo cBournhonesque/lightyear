@@ -256,16 +256,16 @@ impl RemoteEntityMap {
 impl ToBytes for Entity {
     // see details in `to_bytes`
     fn bytes_len(&self) -> usize {
-        let mut index = self.index_u32() << 2;
+        let mut index = u64::from(self.index_u32()) << 2;
         let is_mapped = RemoteEntityMap::is_mapped(*self);
         let unmarked = RemoteEntityMap::mark_unmapped(*self);
 
         let generation = unmarked.generation();
         let is_first_generation = generation == EntityGeneration::FIRST;
-        index |= is_first_generation as u32;
-        index |= (is_mapped as u32) << 1;
+        index |= is_first_generation as u64;
+        index |= (is_mapped as u64) << 1;
 
-        let mut len = varint_len(index as u64);
+        let mut len = varint_len(index);
         if !is_first_generation {
             len += varint_len(generation.to_bits() as u64);
         }
@@ -281,17 +281,17 @@ impl ToBytes for Entity {
         // - bit 1: if the generation is EntityGeneration::FIRST or not
         // - bit 2: if the entity generation has been
         // we put these bits at the end (low bits) since we use var int encoding
-        let mut index = self.index_u32() << 2;
+        let mut index = u64::from(self.index_u32()) << 2;
         let is_mapped = RemoteEntityMap::is_mapped(*self);
         let unmarked = RemoteEntityMap::mark_unmapped(*self);
 
         // we will use a second bit to indicate if the entity is mapped or not
         let generation = unmarked.generation();
         let is_first_generation = generation == EntityGeneration::FIRST;
-        index |= is_first_generation as u32;
-        index |= (is_mapped as u32) << 1;
+        index |= is_first_generation as u64;
+        index |= (is_mapped as u64) << 1;
 
-        buffer.write_varint(index as u64)?;
+        buffer.write_varint(index)?;
         if !is_first_generation {
             buffer.write_varint(generation.to_bits() as u64)?;
         }
@@ -302,16 +302,17 @@ impl ToBytes for Entity {
     where
         Self: Sized,
     {
-        let index = buffer.read_varint()? as u32;
+        let index = buffer.read_varint()?;
         let is_first_generation = (index & 1) != 0;
         let is_mapped = (index & 2) != 0;
 
         let generation = if !is_first_generation {
-            buffer.read_varint()? as u32
+            u32::try_from(buffer.read_varint()?).map_err(|_| SerializationError::InvalidValue)?
         } else {
             0
         };
-        let row = unsafe { EntityIndex::from_raw_u32(index >> 2).unwrap_unchecked() };
+        let row = u32::try_from(index >> 2).map_err(|_| SerializationError::InvalidValue)?;
+        let row = EntityIndex::from_raw_u32(row).ok_or(SerializationError::InvalidValue)?;
         let generation = EntityGeneration::from_bits(generation);
         let entity = Entity::from_index_and_generation(row, generation);
         if is_mapped {
