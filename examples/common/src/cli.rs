@@ -233,6 +233,7 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
+                        server_addr: SERVER_ADDR,
                         transport: default_server_transport(SERVER_PORT),
                         // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,
@@ -258,6 +259,7 @@ impl Cli {
                     .world_mut()
                     .spawn(ExampleServer {
                         conditioner: Some(RecvLinkConditioner::new(conditioner.clone())),
+                        server_addr: SERVER_ADDR,
                         transport: default_server_transport(SERVER_PORT),
                         // transport: ServerTransports::WebSocket {
                         //     local_port: SERVER_PORT,

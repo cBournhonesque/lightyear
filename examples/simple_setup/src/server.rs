@@ -40,7 +40,7 @@ fn startup(mut commands: Commands, config: Res<ServerStartupConfig>) -> Result {
     }
     let server = commands
         .spawn((
-            NetcodeServer::new(server::NetcodeConfig::default().with_server_addr(SERVER_ADDR)),
+            NetcodeServer::new(server::NetcodeConfig::default()),
             LocalAddr(SERVER_ADDR),
             #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
             WebTransportServerIo {

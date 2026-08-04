@@ -94,7 +94,7 @@ a new entity will be spawned with the [`LinkOf`] component that will mark that [
 ```rust,ignore
 let server = commands
     .spawn((
-        NetcodeServer::new(NetcodeConfig::default().with_server_addr(SERVER_ADDR)),
+        NetcodeServer::new(NetcodeConfig::default()),
         LocalAddr(SERVER_ADDR),
         ServerUdpIo::default(),
     ))
@@ -103,10 +103,18 @@ commands.trigger_targets(Start, server);
 ```
 
 We need to add `NetcodeServer` because we need a connection layer. This will automatically insert the [`Server`] component.
-The configured server address is checked against incoming connection tokens; it may differ from
-the local bind address when the server is behind NAT.
+By default, it uses the server entity's [`LocalAddr`] to validate the private address list in
+incoming connection tokens. The transport updates [`LocalAddr`] after binding, so this also picks
+up an OS-assigned port when binding to port `0`.
 We also need to specify the [`LocalAddr`] component to define the local address of the server.
 The IO layer we choose is UDP, so we add the [`ServerUdpIo`] component to the entity.
+
+When the address in a token differs from the bind address—for example, when binding to `0.0.0.0`
+or running behind NAT—configure the token identity explicitly with
+`NetcodeConfig::default().with_server_addr(public_addr)`. Use an address from
+[`ConnectTokenBuilder::internal_addresses`](https://docs.rs/lightyear/latest/lightyear/netcode/struct.ConnectTokenBuilder.html#method.internal_addresses) instead when the backend puts separate internal
+identities in the private token. Multiple identities can be configured with
+`with_server_addresses`.
 
 Finally we trigger the [`Start`] trigger so that the server can start listening for incoming connections.
 
