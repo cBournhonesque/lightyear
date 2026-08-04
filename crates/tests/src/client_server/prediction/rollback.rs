@@ -22,6 +22,7 @@ use lightyear_prediction::manager::{LastConfirmedInput, RollbackMode, StateRollb
 use lightyear_prediction::prelude::*;
 use lightyear_prediction::rollback::{DeterministicPredicted, reset_input_rollback_tracker};
 use lightyear_replication::prelude::*;
+use lightyear_replication::prespawn::PreSpawnedReceiver;
 use test_log::test;
 
 fn setup() -> (ClientServerStepper, Entity) {
@@ -69,7 +70,7 @@ fn record_completed_mutate_tick(world: &mut World, replicon_tick: RepliconTick, 
 struct ObservedRollbackStart(Option<Tick>);
 
 fn record_rollback_start(
-    manager: Single<&PredictionManager>,
+    manager: Res<PredictionManager>,
     mut observed: ResMut<ObservedRollbackStart>,
 ) {
     if observed.0.is_none() {
@@ -897,10 +898,7 @@ fn test_missing_confirm_history_checkpoint_mapping_does_not_request_rollback() {
     #[derive(Resource, Default)]
     struct RollbackObserved(bool);
 
-    fn record_rollback(
-        manager: Single<&PredictionManager>,
-        mut observed: ResMut<RollbackObserved>,
-    ) {
+    fn record_rollback(manager: Res<PredictionManager>, mut observed: ResMut<RollbackObserved>) {
         observed.0 |= manager.get_rollback_start_tick().is_some();
     }
 
@@ -1164,10 +1162,10 @@ fn test_rollback_time_resource() {
     fn track_time(
         time: Res<Time>,
         mut time_tracker: ResMut<TimeTracker>,
-        rollback: Single<&PredictionManager>,
+        manager: Res<PredictionManager>,
     ) {
         time_tracker.snapshots.push(TimeSnapshot {
-            is_rollback: rollback.is_rollback(),
+            is_rollback: manager.is_rollback(),
             delta: time.delta(),
             elapsed: time.elapsed(),
         });
@@ -1229,8 +1227,9 @@ fn setup_stepper_for_input_rollback(
 ) -> (ClientServerStepper, Entity, Entity, Entity, Entity) {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(3));
 
-    let mut client_mut = stepper.client_mut(0);
-    let mut prediction_manager = client_mut.get_mut::<PredictionManager>().unwrap();
+    let mut prediction_manager = stepper.client_apps[0]
+        .world_mut()
+        .resource_mut::<PredictionManager>();
     prediction_manager.rollback_policy.input = mode;
     prediction_manager.rollback_policy.state = RollbackMode::Disabled;
 
@@ -1315,11 +1314,24 @@ fn setup_stepper_for_input_rollback(
     )
 }
 
-/// Test that we rollback from the last confirmed input when RollbackMode::Always for inputs
+/// Test that input-only prediction rolls back without any replication state on its client Link.
 #[test]
-fn test_input_rollback_always_mode() {
+fn test_input_rollback_always_mode_without_replication_receiver() {
     let (mut stepper, _, _, client_entity, _) =
         setup_stepper_for_input_rollback(RollbackMode::Always);
+
+    let client_link = stepper.client(0).id();
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_link)
+        .remove::<ReplicationReceiver>()
+        .remove::<PreSpawnedReceiver>();
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get::<PreSpawnedReceiver>(client_link)
+            .is_none()
+    );
 
     // build a steady state where have already received an input
     stepper.frame_step(2);
@@ -1333,7 +1345,7 @@ fn test_input_rollback_always_mode() {
     let check_rollback_start =
         move |timeline: Res<LocalTimeline>,
               last_confirmed_input: Res<LastConfirmedInput>,
-              manager: Single<&PredictionManager>| {
+              manager: Res<PredictionManager>| {
             let tick = timeline.tick();
             if tick == input_tick {
                 assert!(last_confirmed_input.received_input());
@@ -1387,13 +1399,13 @@ fn test_input_rollback_always_mode() {
 fn test_input_rollback_always_ignores_unset_last_confirmed_tick() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
     {
-        let mut client = stepper.client_mut(0);
         {
-            let mut prediction_manager = client.get_mut::<PredictionManager>().unwrap();
+            let mut prediction_manager = stepper.client_apps[0]
+                .world_mut()
+                .resource_mut::<PredictionManager>();
             prediction_manager.rollback_policy.input = RollbackMode::Always;
             prediction_manager.rollback_policy.state = RollbackMode::Disabled;
         }
-        drop(client);
         let last_confirmed_input = stepper.client_apps[0]
             .world()
             .resource::<LastConfirmedInput>();
@@ -1465,8 +1477,7 @@ fn test_input_rollback_check_mode_earliest_mismatch() {
     let input_tick = stepper.client_tick(1);
 
     let check_rollback_start =
-        move |timeline: Res<LocalTimeline>, manager: Single<&PredictionManager>| {
-            let manager = manager.into_inner();
+        move |timeline: Res<LocalTimeline>, manager: Res<PredictionManager>| {
             let tick = timeline.tick();
             if tick == input_tick {
                 assert!(manager.earliest_mismatch_input.has_mismatches());
@@ -1501,8 +1512,7 @@ fn test_no_rollback_without_input_mismatches() {
     let input_tick = stepper.client_tick(1);
 
     let check_rollback_start =
-        move |timeline: Res<LocalTimeline>, manager: Single<&PredictionManager>| {
-            let manager = manager.into_inner();
+        move |timeline: Res<LocalTimeline>, manager: Res<PredictionManager>| {
             let tick = timeline.tick();
             if tick == input_tick {
                 assert!(!manager.earliest_mismatch_input.has_mismatches());

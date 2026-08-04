@@ -276,7 +276,7 @@ fn test_input_broadcasting_prediction() {
     // check that during rollbacks, we fetch the input value from the input buffer even for remote inputs
     let check_input =
         move |timeline: Res<LocalTimeline>,
-              c: Single<(), With<Rollback>>,
+              _rollback: Res<Rollback>,
               q: Single<&ActionState<MyInput>, Without<InputMarker<MyInput>>>| {
             let tick = timeline.tick();
             info!(
@@ -307,11 +307,10 @@ fn test_input_broadcasting_prediction() {
 
     // trigger rollback for client 1
     let rollback_tick = client1_tick - 1;
-    stepper.client_mut(1).insert(Rollback::FromInputs);
-    stepper
-        .client_mut(1)
-        .get_mut::<PredictionManager>()
-        .unwrap()
+    stepper.client_apps[1].insert_resource(Rollback::FromInputs);
+    stepper.client_apps[1]
+        .world()
+        .resource::<PredictionManager>()
         .set_rollback_tick(rollback_tick);
     stepper.client_apps[1].update();
 }
