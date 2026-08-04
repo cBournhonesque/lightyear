@@ -37,6 +37,7 @@ std = [
   "lightyear_link/std",
   "lightyear_metrics?/std",
   "lightyear_messages/std",
+  "lightyear_p2p?/std",
   "lightyear_netcode?/std",
   "lightyear_prediction?/std",
   "lightyear_replication?/std",
@@ -93,8 +94,8 @@ deterministic = [
   "lightyear_avian2d?/deterministic",
   "lightyear_avian3d?/deterministic",
 ]
-## Enables transport-neutral peer-to-peer topology, synchronization, and input routing support.
-p2p = ["client"]
+## Enables peer-to-peer topology, synchronization, input routing, and fixed-roster sessions.
+p2p = ["client", "dep:lightyear_p2p"]
 ## Enables replicating entities between two peers
 replication = [
   "dep:lightyear_replication",
@@ -202,6 +203,7 @@ lightyear_netcode = { workspace = true, optional = true }
 lightyear_interpolation = { workspace = true, optional = true }
 lightyear_prediction = { workspace = true, optional = true }
 lightyear_messages.workspace = true
+lightyear_p2p = { workspace = true, optional = true }
 lightyear_metrics = { workspace = true, optional = true }
 lightyear_replication = { workspace = true, optional = true }
 lightyear_sync.workspace = true

@@ -13,7 +13,7 @@ use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
 use lightyear_examples_common::p2p::{
-    GAMEPLAY_START_TICK, P2PGameplayStarted, P2PSettings, input_target_for_peer,
+    P2PGameplayStarted, P2PSettings, input_target_for_peer, insert_example_session,
 };
 
 /// Namespace for stable deterministic-replication player hashes on the input wire.
@@ -23,6 +23,7 @@ pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
+        insert_example_session(app, PLAYER_INPUT_HASH_BASE);
         app.add_systems(
             FixedPreUpdate,
             spawn_fixed_world.before(InputSystems::BufferClientInputs),
@@ -33,17 +34,19 @@ impl Plugin for ExampleP2PPlugin {
 /// Start the complete deterministic world in stable order once timeline synchronization finishes.
 fn spawn_fixed_world(
     mut commands: Commands,
-    _synced: SyncedInputTimeline,
-    timeline: Res<LocalTimeline>,
+    session: Res<P2PSession>,
     mode: Res<CatchUpMode>,
     started: Option<Res<P2PGameplayStarted>>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
-    if started.is_some() || timeline.tick().0 < GAMEPLAY_START_TICK {
+    if started.is_some() || !session.is_running() {
         return;
     }
     commands.insert_resource(P2PGameplayStarted);
+    let start_tick = session
+        .start_tick()
+        .expect("a running P2P session has an agreed start tick");
 
     // P2P has no authoritative state source, so every peer starts from the same input-only world.
     debug_assert_eq!(*mode, CatchUpMode::InputOnly);
@@ -59,7 +62,7 @@ fn spawn_fixed_world(
         );
         commands.spawn((
             PlayerId(id),
-            PlayerActivationTick(Tick(GAMEPLAY_START_TICK)),
+            PlayerActivationTick(start_tick),
             shared::player_bundle(id),
             DeterministicPredicted {
                 skip_despawn: true,

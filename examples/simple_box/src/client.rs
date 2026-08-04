@@ -14,8 +14,6 @@ use lightyear::prelude::client::input::*;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
-#[cfg(feature = "p2p")]
-use lightyear_examples_common::p2p::P2PSettings;
 
 pub struct ExampleClientPlugin;
 
@@ -99,17 +97,11 @@ fn buffer_input(
 /// input arrives.
 fn player_movement(
     _input_timeline: SyncedInputTimeline,
-    timeline: Res<LocalTimeline>,
-    #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
     mut position_query: Query<
         (&mut PlayerPosition, &ActionState<Inputs>),
         Or<(With<Predicted>, With<DeterministicPredicted>)>,
     >,
 ) {
-    #[cfg(feature = "p2p")]
-    if p2p.is_some() && timeline.tick().0 < lightyear_examples_common::p2p::GAMEPLAY_START_TICK {
-        return;
-    }
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");
         // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.

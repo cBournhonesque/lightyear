@@ -28,8 +28,9 @@ P2P mode currently uses direct raw UDP Links on localhost and supports two throu
 Every peer pre-spawns the same player roster with stable `PreSpawned` hashes, simulates every
 player locally, and sends only its own tick-indexed inputs to the other peers. Each peer predicts
 missing remote inputs by repeating the latest known input, then rolls back and replays the complete
-deterministic world when corrected input arrives. The normal client/server and host-client modes
-remain available in the same example.
+deterministic world when corrected input arrives. Before gameplay, the peers validate the same
+ordered roster/configuration and acknowledge a shared future start tick. The normal client/server
+and host-client modes remain available in the same example.
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
