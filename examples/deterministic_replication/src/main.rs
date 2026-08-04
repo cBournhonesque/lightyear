@@ -89,15 +89,15 @@ fn add_input_delay(app: &mut App) {
                 max_rollback_ticks: 100,
             },
             ..default()
-        })
-        .insert(
-            InputTimelineConfig::default()
-                .with_sync_config(SyncConfig {
-                    jitter_margin: input_sync_margin_ticks(),
-                    ..default()
-                })
-                .with_input_delay(InputDelayConfig::fixed_input_delay(input_delay_ticks())),
-        );
+        });
+    app.insert_resource(
+        InputTimelineConfig::default()
+            .with_sync_config(SyncConfig {
+                jitter_margin: input_sync_margin_ticks(),
+                ..default()
+            })
+            .with_input_delay(InputDelayConfig::fixed_input_delay(input_delay_ticks())),
+    );
 }
 
 #[cfg(feature = "client")]

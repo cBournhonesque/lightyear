@@ -23,10 +23,12 @@ use core::hash::{Hash, Hasher};
 use lightyear_connection::client::Connected;
 use lightyear_connection::host::HostClient;
 use lightyear_core::prelude::{LocalTimeline, Tick};
+#[cfg(feature = "client")]
+use lightyear_core::timeline::SyncEvent;
+#[cfg(feature = "client")]
+use lightyear_sync::prelude::InputTimelineConfig;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
-#[cfg(feature = "client")]
-use {lightyear_core::prelude::SyncEvent, lightyear_sync::prelude::client::InputTimelineConfig};
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 

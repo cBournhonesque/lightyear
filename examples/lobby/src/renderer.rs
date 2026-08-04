@@ -6,8 +6,8 @@ use lightyear::connection::host::HostServer;
 use lightyear::interpolation::Interpolated;
 use lightyear::prediction::Predicted;
 use lightyear::prelude::{
-    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline,
-    InterpolationTimeline, IsSynced,
+    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InterpolationTimeline,
+    IsSynced, SyncedInputTimeline,
 };
 
 #[derive(Clone)]
@@ -37,12 +37,12 @@ struct VisualPlayerPosition {
 fn client_visuals_ready(
     client: &Query<(), With<Client>>,
     host_server: &Query<(), With<HostServer>>,
-    input_synced: &Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline_is_synced: bool,
     interpolation_synced: &Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
 ) -> bool {
     client.is_empty()
         || !host_server.is_empty()
-        || (!input_synced.is_empty() && !interpolation_synced.is_empty())
+        || (input_timeline_is_synced && !interpolation_synced.is_empty())
 }
 
 fn ensure_player_visual_positions(
@@ -57,10 +57,15 @@ fn ensure_player_visual_positions(
     >,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    input_synced: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    input_timeline: Option<SyncedInputTimeline>,
     interpolation_synced: Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
 ) {
-    if !client_visuals_ready(&client, &host_server, &input_synced, &interpolation_synced) {
+    if !client_visuals_ready(
+        &client,
+        &host_server,
+        input_timeline.is_some(),
+        &interpolation_synced,
+    ) {
         return;
     }
     for (entity, position) in &players {

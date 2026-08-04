@@ -654,8 +654,9 @@ fn test_prespawn_local_despawn_match() {
     let mut sync_config = SyncConfig::default();
     sync_config.max_error_margin = 0.5;
     stepper
-        .client_mut(0)
-        .insert(InputTimelineConfig::default().with_sync_config(sync_config));
+        .client_app()
+        .world_mut()
+        .insert_resource(InputTimelineConfig::default().with_sync_config(sync_config));
     stepper
         .client_mut(0)
         .get_mut::<Link>()

@@ -19,7 +19,7 @@ use tracing::info;
 fn test_buffer_inputs_with_delay() {
     let mut stepper = ClientServerStepper::from_config(StepperConfig::host_server());
 
-    stepper.host_client_mut().insert(
+    stepper.server_app.world_mut().insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
     );
 

@@ -60,6 +60,17 @@ fn unused_local_udp_addr() -> SocketAddr {
     socket.local_addr().unwrap()
 }
 
+/// Returns whether the global input timeline resource carries its synchronization marker.
+pub fn input_timeline_is_synced(world: &World) -> bool {
+    let Some(component_id) = world.component_id::<InputTimeline>() else {
+        return false;
+    };
+    let Some(entity) = world.resource_entities().get(component_id) else {
+        return false;
+    };
+    world.get::<IsSynced<InputTimeline>>(entity).is_some()
+}
+
 /// Stepper with:
 /// - n client in one 'client' App
 /// - 1 server in another App, with n ClientOf connected to each client
@@ -769,7 +780,7 @@ impl ClientServerStepper {
         let attempts = if self.io.uses_async_io() { 400 } else { 50 };
         for _ in 0..attempts {
             if (0..self.client_entities.len()).all(|client_id| {
-                self.client(client_id).contains::<IsSynced<InputTimeline>>()
+                input_timeline_is_synced(self.client_apps[client_id].world())
                     && self
                         .client(client_id)
                         .contains::<IsSynced<InterpolationTimeline>>()

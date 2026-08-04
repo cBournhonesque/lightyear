@@ -1,12 +1,17 @@
 use crate::ping::manager::PingManager;
 use crate::timeline::sync::{
-    SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
+    IsSynced, SyncAdjustment, SyncConfig, SyncContext, SyncTargetTimeline, SyncedTimeline,
 };
 
 use bevy_derive::{Deref, DerefMut};
+use bevy_ecs::change_detection::Tick as ChangeTick;
 use bevy_ecs::prelude::*;
+use bevy_ecs::query::FilteredAccessSet;
+use bevy_ecs::system::{ReadOnlySystemParam, SystemMeta, SystemParam, SystemParamValidationError};
+use bevy_ecs::world::unsafe_world_cell::UnsafeWorldCell;
 use bevy_reflect::Reflect;
-use core::time::Duration;
+use core::{marker::PhantomData, time::Duration};
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::tick::{Tick, TickDuration};
 use lightyear_core::time::{TickDelta, TickInstant};
 use lightyear_core::timeline::{NetworkTimeline, SyncEvent, Timeline, TimelineConfig};
@@ -15,8 +20,7 @@ use tracing::trace;
 
 /// Timeline that is used to make sure that Inputs from this peer will arrive on time
 /// on the remote peer
-#[derive(Debug, Component, Reflect)]
-#[require(InputTimeline)]
+#[derive(Debug, Resource, Reflect)]
 pub struct InputTimelineConfig {
     pub(crate) sync: SyncConfig,
     pub(crate) input_delay_config: InputDelayConfig,
@@ -46,65 +50,62 @@ impl InputTimelineConfig {
     pub fn is_lockstep(&self) -> bool {
         self.input_delay_config.is_lockstep()
     }
-
     /// Maximum number of ticks the local simulation is allowed to predict ahead.
     pub fn maximum_predicted_ticks(&self) -> u16 {
         self.input_delay_config.maximum_predicted_ticks
     }
 
-    /// Update the input delay based on the current RTT and tick duration
-    /// when there is a SyncEvent
+    /// Recompute input delay after the global input timeline snaps by whole ticks.
+    ///
+    /// The [`SyncEvent`] targets the input timeline's resource entity. Link statistics remain on
+    /// the topology-selected client Links and are deliberately selected independently of that
+    /// entity.
     pub(crate) fn recompute_input_delay_on_sync(
-        trigger: On<SyncEvent<InputTimelineConfig>>,
+        _trigger: On<SyncEvent<InputTimelineConfig>>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
+        metadata: Res<NetworkingMetadata>,
+        links: Query<&Link>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<InputTimeline>,
     ) {
-        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
-            let before = timeline.input_delay_ticks;
-            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
-                link.stats,
-                &config.sync,
-                tick_duration.0,
-            );
-            trace!(
-                "Recomputing input delay on sync event! Input delay ticks: {}",
-                timeline.input_delay_ticks
-            );
-            trace!(
-                target: "lightyear_debug::sync",
-                kind = "input_delay_recomputed_on_sync",
-                schedule = "PreUpdate",
-                sample_point = "PreUpdate",
-                entity = ?trigger.entity,
-                tick_delta = trigger.tick_delta,
-                input_delay_ticks_before = before,
-                input_delay_ticks_after = timeline.input_delay_ticks,
-                rtt_ms = link.stats.rtt.as_secs_f64() * 1000.0,
-                "sync event: recomputed input delay"
-            );
+        let before = timeline.input_delay();
+        if !timeline.recompute_input_delay(&config, &metadata.mode, &links, tick_duration.0) {
+            return;
         }
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "input_delay_recomputed_on_sync",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            input_delay_ticks_before = before,
+            input_delay_ticks_after = timeline.input_delay(),
+            topology = ?metadata.mode,
+            "sync event: recomputed global input delay"
+        );
     }
 
-    // TODO: we want to limit this when only the config updates, not the timeline itself!
-    //  disabling this for now
-    /// Update the input delay based on the current RTT and tick duration
-    /// when the InputDelayConfig is updated
+    /// Recompute input delay when the global configuration resource is inserted or replaced.
     pub(crate) fn recompute_input_delay_on_config_update(
-        trigger: On<Insert, InputTimelineConfig>,
+        _trigger: On<Insert, InputTimelineConfig>,
         tick_duration: Res<TickDuration>,
-        mut query: Query<(&Link, &mut InputTimeline, &InputTimelineConfig)>,
+        metadata: Res<NetworkingMetadata>,
+        links: Query<&Link>,
+        config: Res<InputTimelineConfig>,
+        mut timeline: ResMut<InputTimeline>,
     ) {
-        if let Ok((link, mut timeline, config)) = query.get_mut(trigger.entity) {
-            timeline.input_delay_ticks = config.input_delay_config.input_delay_ticks(
-                link.stats,
-                &config.sync,
-                tick_duration.0,
-            );
-            trace!(
-                "Recomputing input delay on config update! Input delay ticks: {}. Config: {:?}",
-                timeline.input_delay_ticks, config.input_delay_config
-            );
+        if !timeline.recompute_input_delay(&config, &metadata.mode, &links, tick_duration.0) {
+            // Configuration is commonly installed before a Client or HostClient connects. The
+            // configured minimum is topology-independent; the first SyncEvent will replace it
+            // with the latency-aware aggregate once the relevant Links are ready.
+            timeline.context.input_delay_ticks =
+                config.input_delay_config.minimum_input_delay_ticks;
         }
+        trace!(
+            input_delay_ticks = timeline.input_delay(),
+            config = ?config.input_delay_config,
+            topology = ?metadata.mode,
+            "recomputed global input delay after config update"
+        );
     }
 }
 
@@ -264,16 +265,163 @@ impl InputDelayConfig {
     }
 }
 
-/// Timeline that is used to keep track of when the client should buffer inputs.
+/// Application-global timeline used to decide which tick should receive locally buffered input.
 ///
-/// This timeline is synced with the server timeline, and is the main driving timeline:
+/// This timeline is synced with a remote target timeline, and is the main driving timeline:
 /// any speed adjustments applied to this timeline will also be applied to the `Time<Virtual>` timeline.
 /// (and will therefore affect how fast the FixedUpdate loop runs, and how ticks are incremented)
 ///
 /// This timeline is updated in PostUpdate; it CANNOT be used to get accurate `tick` in PreUpdate or Update;
 /// use `LocalTimeline` instead.
-#[derive(Component, Deref, DerefMut, Default, Debug, Reflect)]
+#[derive(Resource, Deref, DerefMut, Default, Debug, Reflect)]
 pub struct InputTimeline(pub Timeline<InputTimelineConfig>);
+
+/// Read-only access to the global [`InputTimeline`] after it has synchronized.
+///
+/// Systems using this parameter are skipped until [`IsSynced<InputTimeline>`] has been inserted on
+/// the resource entity. The timeline itself uses [`Res`]'s cached resource lookup; readiness is
+/// then checked directly on that entity instead of scanning for a unique matching component.
+pub struct SyncedInputTimeline<'w, 's> {
+    timeline: Res<'w, InputTimeline>,
+    marker: PhantomData<&'s ()>,
+}
+
+impl core::ops::Deref for SyncedInputTimeline<'_, '_> {
+    type Target = InputTimeline;
+
+    fn deref(&self) -> &Self::Target {
+        &self.timeline
+    }
+}
+
+type InputTimelineMarkerQuery<'w, 's> = Query<'w, 's, (), With<IsSynced<InputTimeline>>>;
+
+// SAFETY: Both delegated parameters are read-only. `Res<InputTimeline>` registers the timeline
+// resource access, while the marker query registers access to `IsSynced<InputTimeline>` before
+// `get_param` uses it to inspect the resource entity.
+unsafe impl SystemParam for SyncedInputTimeline<'_, '_> {
+    type State = (
+        <Res<'static, InputTimeline> as SystemParam>::State,
+        <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::State,
+    );
+    type Item<'world, 'state> = SyncedInputTimeline<'world, 'state>;
+
+    fn init_state(world: &mut World) -> Self::State {
+        (
+            <Res<'static, InputTimeline> as SystemParam>::init_state(world),
+            <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::init_state(world),
+        )
+    }
+
+    fn init_access(
+        state: &Self::State,
+        system_meta: &mut SystemMeta,
+        component_access_set: &mut FilteredAccessSet,
+        world: &mut World,
+    ) {
+        <Res<'static, InputTimeline> as SystemParam>::init_access(
+            &state.0,
+            system_meta,
+            component_access_set,
+            world,
+        );
+        <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::init_access(
+            &state.1,
+            system_meta,
+            component_access_set,
+            world,
+        );
+    }
+
+    #[inline]
+    unsafe fn get_param<'world, 'state>(
+        state: &'state mut Self::State,
+        system_meta: &SystemMeta,
+        world: UnsafeWorldCell<'world>,
+        change_tick: ChangeTick,
+    ) -> Result<Self::Item<'world, 'state>, SystemParamValidationError> {
+        // SAFETY: `init_access` delegated to `Res<InputTimeline>`, and the caller guarantees that
+        // this is the same World used by `init_state`.
+        let timeline = unsafe {
+            <Res<'static, InputTimeline> as SystemParam>::get_param(
+                &mut state.0,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        // SAFETY: The resource cache is metadata read through a read-only World cell. `state.0` is
+        // the cached ComponentId registered by `Res<InputTimeline>`.
+        let resource_entity = unsafe { world.resource_entities() }
+            .get(state.0)
+            .ok_or_else(|| {
+                SystemParamValidationError::invalid::<Self>(
+                    "InputTimeline resource entity does not exist",
+                )
+            })?;
+        // SAFETY: `init_access` delegated to the read-only marker query, and the caller guarantees
+        // that this is the same World used by `init_state`.
+        let marker_query = unsafe {
+            <InputTimelineMarkerQuery<'static, 'static> as SystemParam>::get_param(
+                &mut state.1,
+                system_meta,
+                world,
+                change_tick,
+            )
+        }?;
+        if marker_query.get(resource_entity).is_err() {
+            return Err(SystemParamValidationError::skipped::<Self>(
+                "InputTimeline is not synchronized",
+            ));
+        }
+        Ok(SyncedInputTimeline {
+            timeline,
+            marker: PhantomData,
+        })
+    }
+}
+
+// SAFETY: `SyncedInputTimeline` only delegates to read-only system parameters.
+unsafe impl ReadOnlySystemParam for SyncedInputTimeline<'_, '_> {}
+
+impl InputTimeline {
+    /// Recompute the global input delay from the Links selected by the current topology.
+    ///
+    /// Conventional modes use their sole client Link. P2P uses the maximum required delay across
+    /// all connected peer Links so that one tick-indexed local input stream is safe for every peer.
+    /// Returns `false` when the topology has no complete set of ready Link statistics.
+    pub(crate) fn recompute_input_delay(
+        &mut self,
+        config: &InputTimelineConfig,
+        topology: &NetworkTopology,
+        links: &Query<&Link>,
+        tick_duration: Duration,
+    ) -> bool {
+        let delay_for = |entity| {
+            links.get(entity).ok().map(|link| {
+                config
+                    .input_delay_config
+                    .input_delay_ticks(link.stats, &config.sync, tick_duration)
+            })
+        };
+        let input_delay_ticks = match topology {
+            NetworkTopology::Client(entity) => delay_for(*entity),
+            NetworkTopology::HostClient { client, .. } => delay_for(*client),
+            NetworkTopology::P2P { connected, .. } if !connected.is_empty() => connected
+                .iter()
+                .try_fold(0, |maximum, entity| Some(maximum.max(delay_for(*entity)?))),
+            NetworkTopology::Undefined
+            | NetworkTopology::Server(_)
+            | NetworkTopology::P2P { .. }
+            | NetworkTopology::Invalid(_) => None,
+        };
+        let Some(input_delay_ticks) = input_delay_ticks else {
+            return false;
+        };
+        self.context.input_delay_ticks = input_delay_ticks;
+        true
+    }
+}
 
 impl TimelineConfig for InputTimelineConfig {
     type Context = InputContext;
@@ -416,6 +564,7 @@ impl SyncedTimeline for InputTimeline {
 mod tests {
     use super::*;
     use crate::timeline::remote::RemoteTimeline;
+    use bevy_app::{App, Update};
     use bevy_utils::default;
     use lightyear_core::timeline::NetworkTimeline;
 
@@ -425,6 +574,38 @@ mod tests {
             error < 0.001,
             "expected {expected:?}, got {actual:?}, error {error}"
         );
+    }
+
+    #[derive(Resource, Default)]
+    struct SyncedParamRuns(u8);
+
+    #[test]
+    fn synced_input_timeline_checks_the_resource_entity_marker() {
+        fn require_synced_timeline(
+            _timeline: SyncedInputTimeline,
+            mut runs: ResMut<SyncedParamRuns>,
+        ) {
+            runs.0 += 1;
+        }
+
+        let mut app = App::new();
+        app.init_resource::<InputTimeline>();
+        app.init_resource::<SyncedParamRuns>();
+        app.add_systems(Update, require_synced_timeline);
+
+        // A marker on an arbitrary entity must not make the resource available as synchronized.
+        app.world_mut().spawn(IsSynced::<InputTimeline>::default());
+        app.update();
+        assert_eq!(app.world().resource::<SyncedParamRuns>().0, 0);
+
+        let timeline_id = app.world().component_id::<InputTimeline>().unwrap();
+        let timeline_entity = app.world().resource_entities().get(timeline_id).unwrap();
+        app.world_mut()
+            .entity_mut(timeline_entity)
+            .insert(IsSynced::<InputTimeline>::default());
+
+        app.update();
+        assert_eq!(app.world().resource::<SyncedParamRuns>().0, 1);
     }
 
     #[test]
@@ -532,6 +713,52 @@ mod tests {
              PreUpdate and advancing in FixedFirst, so the packet must contain \
              input for at least {required_input_tick:?} (= remote + 1).",
         );
+    }
+
+    #[test]
+    fn p2p_input_delay_uses_maximum_across_links() {
+        let mut app = App::new();
+        let mut fast_link = Link::default();
+        fast_link.stats.rtt = Duration::from_millis(10);
+        let fast = app.world_mut().spawn(fast_link).id();
+        let mut slow_link = Link::default();
+        slow_link.stats.rtt = Duration::from_millis(50);
+        let slow = app.world_mut().spawn(slow_link).id();
+
+        let mut metadata = NetworkingMetadata::default();
+        metadata.mode = NetworkTopology::P2P {
+            connected: [fast, slow].into_iter().collect(),
+            declared_links: 2,
+        };
+        app.insert_resource(metadata);
+        app.insert_resource(TickDuration(Duration::from_millis(10)));
+        let mut config =
+            InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced());
+        config.sync.jitter_multiple = 0;
+        config.sync.jitter_margin = 0.0;
+        app.insert_resource(config);
+        app.init_resource::<InputTimeline>();
+        app.add_systems(
+            Update,
+            |mut timeline: ResMut<InputTimeline>,
+             config: Res<InputTimelineConfig>,
+             metadata: Res<NetworkingMetadata>,
+             links: Query<&Link>,
+             tick_duration: Res<TickDuration>| {
+                assert!(timeline.recompute_input_delay(
+                    &config,
+                    &metadata.mode,
+                    &links,
+                    tick_duration.0,
+                ));
+            },
+        );
+
+        app.update();
+
+        // The 10ms Link needs one delayed tick, while the 50ms Link reaches the balanced
+        // configuration's three-tick pre-prediction cap. The global delay must satisfy both.
+        assert_eq!(app.world().resource::<InputTimeline>().input_delay(), 3);
     }
 
     #[test]

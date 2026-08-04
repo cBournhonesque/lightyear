@@ -17,8 +17,8 @@ use lightyear_core::time::TickInstant;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
-use lightyear_sync::prelude::InputTimeline;
 use lightyear_sync::prelude::IsSynced;
+use lightyear_sync::prelude::{InputTimelineConfig, SyncConfig};
 use test_log::test;
 use tracing::info;
 
@@ -615,8 +615,13 @@ fn test_late_join_client_gets_latest_state_for_existing_predicted_entity() {
 fn test_component_update_after_large_tick_jump() {
     for direction in active_replication_directions() {
         let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
-        // remove InputTimeline otherwise it will try to resync
-        stepper.client_mut(0).remove::<InputTimeline>();
+        // Pause further input-timeline sync attempts while both sides are moved manually.
+        stepper.client_app().world_mut().insert_resource(
+            InputTimelineConfig::default().with_sync_config(SyncConfig {
+                handshake_pings: u8::MAX,
+                ..Default::default()
+            }),
+        );
 
         let source_entity =
             spawn_on_source(&mut stepper, direction, (direction.replicate(), CompA(1.0)));

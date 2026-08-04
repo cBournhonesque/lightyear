@@ -77,8 +77,9 @@ use lightyear_messages::prelude::MessageSender;
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned};
 use lightyear_sync::plugin::SyncSystems;
+#[cfg(feature = "interpolation")]
 use lightyear_sync::prelude::client::IsSynced;
-use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
+use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, SyncedInputTimeline};
 use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
@@ -155,6 +156,14 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.init_resource::<SharedInputConfig>();
         app.insert_resource(self.config);
         app.init_resource::<MessageBuffer<S>>();
+        // Client input systems may be installed in a combined client/server app. Keep their
+        // global clock parameters available even when no client link is active; the
+        // SyncedInputTimeline parameter still gates systems that require synchronization.
+        app.init_resource::<InputTimeline>();
+        app.init_resource::<InputTimelineConfig>();
+        #[cfg(feature = "prediction")]
+        app.init_resource::<LastConfirmedInput>();
+
         // SETS
 
         // NOTE: this is subtle! We receive remote players messages after
@@ -279,14 +288,8 @@ fn buffer_action_state<S: ActionStateSequence>(
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    input_timeline: Single<
-        (Entity, &InputTimeline),
-        (
-            With<Client>,
-            With<IsSynced<InputTimeline>>,
-            Without<Rollback>,
-        ),
-    >,
+    input_timeline: SyncedInputTimeline,
+    client_entity: Single<Entity, (With<Client>, Without<Rollback>)>,
     mut action_state_query: Query<
         (
             Entity,
@@ -297,7 +300,7 @@ fn buffer_action_state<S: ActionStateSequence>(
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (client_entity, input_timeline) = input_timeline.into_inner();
+    let client_entity = *client_entity;
     let current_tick = local_timeline.tick();
     let tick = current_tick + input_timeline.input_delay() as i32;
     for (entity, action_state, mut input_buffer, controlled_by) in action_state_query.iter_mut() {
@@ -340,10 +343,9 @@ fn get_action_state<S: ActionStateSequence>(
     local_timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
-    sender: Query<
-        (&InputTimeline, &InputTimelineConfig, Has<Rollback>),
-        (With<Client>, Without<HostClient>),
-    >,
+    input_timeline: Res<InputTimeline>,
+    input_timeline_config: Res<InputTimelineConfig>,
+    client: Single<Has<Rollback>, (With<Client>, Without<HostClient>)>,
 
     // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -360,9 +362,7 @@ fn get_action_state<S: ActionStateSequence>(
         Allow<PredictionDisable>,
     >,
 ) {
-    let Ok((input_timeline, input_config, is_rollback)) = sender.single() else {
-        return;
-    };
+    let is_rollback = *client;
     let input_delay = input_timeline.input_delay() as i32;
     let tick = local_timeline.tick();
     if is_rollback && config.ignore_rollbacks {
@@ -422,7 +422,7 @@ fn get_action_state<S: ActionStateSequence>(
                 "restored action state from input buffer"
             );
         } else if !is_local && config.rebroadcast_inputs {
-            if input_config.is_lockstep() {
+            if input_timeline_config.is_lockstep() {
                 error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
             }
             // we are here if:
@@ -463,10 +463,8 @@ fn get_action_state<S: ActionStateSequence>(
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    sender: Query<
-        (Entity, &InputTimeline, Has<Rollback>),
-        (With<Client>, With<IsSynced<InputTimeline>>),
-    >,
+    input_timeline: SyncedInputTimeline,
+    client: Single<(Entity, Has<Rollback>), With<Client>>,
     mut action_state_query: Query<
         (
             Entity,
@@ -478,9 +476,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         (With<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let Ok((client_entity, input_timeline, is_rollback)) = sender.single() else {
-        return;
-    };
+    let (client_entity, is_rollback) = client.into_inner();
     let input_delay_ticks = input_timeline.input_delay() as i32;
     if is_rollback || input_delay_ticks == 0 {
         return;
@@ -526,17 +522,21 @@ fn clean_buffers<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
-    sender: Query<(), (With<Client>, With<InputTimeline>, Without<HostClient>)>,
-    prediction_manager: Option<Single<(&PredictionManager, &InputTimelineConfig), With<Client>>>,
+    _client: Single<(), (With<Client>, Without<HostClient>)>,
+    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
+    input_config: Res<InputTimelineConfig>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
     >,
 ) {
-    if sender.single().is_err() {
-        return;
-    }
-    let old_tick = timeline.tick() - input_history_depth(prediction_manager.as_deref().copied());
+    let old_tick = timeline.tick()
+        - input_history_depth(
+            prediction_manager
+                .as_deref()
+                .copied()
+                .map(|manager| (manager, input_config.as_ref())),
+        );
 
     // trace!(
     //     "popping all input buffers since old tick: {old_tick:?}",
@@ -590,17 +590,8 @@ fn prepare_input_message<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     timeline: Res<LocalTimeline>,
     input_config: Res<InputConfig<S::Action>>,
-    sender: Single<
-        (Entity, &InputTimeline, Has<HostClient>),
-        // the host-client doesn't need to send input messages since the ActionState is already on the entity
-        // unless we want to rebroadcast the HostClient inputs to other clients (in which
-        // case we prepare the input-message, which will be send_local to the server)
-        (
-            With<Client>,
-            With<IsSynced<InputTimeline>>,
-            Without<Rollback>,
-        ),
-    >,
+    input_timeline: SyncedInputTimeline,
+    client: Single<(Entity, Has<HostClient>), (With<Client>, Without<Rollback>)>,
     _channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
         (
@@ -614,6 +605,8 @@ fn prepare_input_message<S: ActionStateSequence>(
     real_time: Res<Time<Real>>,
     mut send_timer: Local<Option<Timer>>,
 ) {
+    let (client_entity, is_host_client) = client.into_inner();
+
     // Only prepare input every send-interval.
     if !input_config.send_interval.is_zero() {
         let timer = send_timer
@@ -624,7 +617,6 @@ fn prepare_input_message<S: ActionStateSequence>(
         }
     }
 
-    let (client_entity, input_timeline, is_host_client) = sender.into_inner();
     #[cfg(not(feature = "prediction"))]
     if is_host_client {
         // if there is not prediction, no need to rebroadcast inputs
@@ -751,18 +743,12 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     tick_duration: Res<TickDuration>,
     timeline: Res<LocalTimeline>,
     #[cfg(feature = "metrics")] mut input_metric_handles: ResMut<InputMetricHandles<S>>,
+    _input_timeline: SyncedInputTimeline,
+    last_confirmed_input: Res<LastConfirmedInput>,
     link: Single<
-        (
-            &mut MessageReceiver<InputMessage<S>>,
-            Option<&LastConfirmedInput>,
-            &PredictionManager,
-        ),
+        (&mut MessageReceiver<InputMessage<S>>, &PredictionManager),
         // the host-client won't receive input messages from the Server
-        (
-            With<Client>,
-            With<IsSynced<InputTimeline>>,
-            Without<HostClient>,
-        ),
+        (With<Client>, Without<HostClient>),
     >,
     mut predicted_query: Query<
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
@@ -770,7 +756,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     >,
     prespawned: Query<(Entity, &PreSpawned)>,
 ) {
-    let (mut receiver, last_confirmed_input, prediction_manager) = link.into_inner();
+    let (mut receiver, prediction_manager) = link.into_inner();
     let tick = timeline.tick();
     let mut received_relevant_input = false;
     receiver.receive().for_each(|message| {
@@ -912,9 +898,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         }
     });
 
-    if let Some(last_confirmed_input) = last_confirmed_input
-        && received_relevant_input
-    {
+    if received_relevant_input {
         last_confirmed_input
             .received_any_messages
             .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
@@ -929,16 +913,15 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
-    last_confirmed_input: Single<
-        (&mut LastConfirmedInput, &InputTimelineConfig),
-        (With<Client>, With<IsSynced<InputTimeline>>),
-    >,
+    _input_timeline: SyncedInputTimeline,
+    input_config: Res<InputTimelineConfig>,
+    _client: Single<(), With<Client>>,
+    mut last_confirmed_input: ResMut<LastConfirmedInput>,
     predicted_query: Query<
         &InputBuffer<S::Snapshot, S::Action>,
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    let (mut last_confirmed_input, input_config) = last_confirmed_input.into_inner();
     let tick = timeline.tick();
     // in lockstep mode, we don't need last confirmed input because we always have all inputs for a given tick.
     // we will just use the current tick as the last confirmed input tick
@@ -1060,18 +1043,12 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
 /// Drain the messages from the buffer and send them to the server
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
+    input_timeline: SyncedInputTimeline,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    sender: Single<
-        (&mut MessageSender<InputMessage<S>>, Has<HostClient>),
-        (With<Client>, With<IsSynced<InputTimeline>>),
-    >,
-    #[cfg(feature = "interpolation")] interpolation_query: Single<
-        (&InputTimeline, &InterpolationTimeline),
-        (
-            With<Client>,
-            With<IsSynced<InterpolationTimeline>>,
-            With<IsSynced<InputTimeline>>,
-        ),
+    sender: Single<(&mut MessageSender<InputMessage<S>>, Has<HostClient>), With<Client>>,
+    #[cfg(feature = "interpolation")] interpolation_timeline: Single<
+        &InterpolationTimeline,
+        (With<Client>, With<IsSynced<InterpolationTimeline>>),
     >,
 ) {
     let (mut sender, is_host_client) = sender.into_inner();
@@ -1105,8 +1082,6 @@ fn send_input_messages<S: ActionStateSequence>(
 
     #[cfg(feature = "interpolation")]
     let interpolation_delay = {
-        let (input_timeline, interpolation_timeline) = interpolation_query.into_inner();
-
         // NOTE: this can be negative because of input-delay!
         let mut delay = input_timeline.now() - interpolation_timeline.now();
         if delay.is_negative() {
@@ -1137,8 +1112,8 @@ fn send_input_messages<S: ActionStateSequence>(
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
 fn receive_tick_events<S: ActionStateSequence>(
     trigger: On<SyncEvent<InputTimelineConfig>>,
+    client_entity: Single<Entity, With<Client>>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
-    clients: Query<(), With<Client>>,
     mut input_buffer_query: Query<
         (
             &mut InputBuffer<S::Snapshot, S::Action>,
@@ -1147,12 +1122,10 @@ fn receive_tick_events<S: ActionStateSequence>(
         Allow<PredictionDisable>,
     >,
 ) {
-    if clients.get(trigger.entity).is_err() {
-        return;
-    }
+    let client_entity = *client_entity;
     let delta = trigger.tick_delta;
     for (mut input_buffer, controlled_by) in input_buffer_query.iter_mut() {
-        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != trigger.entity) {
+        if controlled_by.is_some_and(|controlled_by| controlled_by.owner != client_entity) {
             continue;
         }
         if let Some(start_tick) = input_buffer.start_tick {

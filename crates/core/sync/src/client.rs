@@ -1,9 +1,8 @@
 /*! Handles syncing the time between the client and the server
 */
 use crate::plugin::TimelineSyncPlugin;
-use crate::prelude::InputTimeline;
 use crate::prelude::client::RemoteTimeline;
-use crate::timeline::input::InputTimelineConfig;
+use crate::timeline::input::{InputTimeline, InputTimelineConfig};
 use crate::timeline::remote;
 use crate::timeline::sync::SyncedTimelinePlugin;
 use bevy_app::prelude::*;
@@ -48,14 +47,21 @@ impl Plugin for ClientPlugin {
             app.add_plugins(TimelineSyncPlugin);
         }
 
-        app.register_required_components::<Client, InputTimelineConfig>();
         app.register_required_components::<Client, RemoteTimeline>();
 
+        // The application has one driving input clock even when it has several network links.
+        app.add_plugins(SyncedTimelinePlugin::<
+            InputTimeline,
+            RemoteTimeline,
+            true,
+            true,
+        >::default());
+
+        // Register these after the resource-backed timeline plugin initializes its default
+        // configuration. `ClientPlugin` can be built before `CorePlugins` installs TickDuration,
+        // while every runtime configuration update, connection, and sync event happens after it.
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
-
-        // the client will use the Input timeline as the driving timeline
-        app.add_plugins(SyncedTimelinePlugin::<InputTimeline, RemoteTimeline, true>::default());
 
         // remote timeline
         app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
@@ -74,6 +80,7 @@ mod tests {
     use super::*;
     use bevy_time::{TimePlugin, TimeUpdateStrategy};
     use core::time::Duration;
+    use lightyear_connection::network_topology::NetworkingMetadata;
     use lightyear_core::plugin::CorePlugins;
     use lightyear_core::time::TickInstant;
     use lightyear_link::prelude::Linked;
@@ -86,6 +93,7 @@ mod tests {
             .insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_millis(
                 10,
             )));
+        app.init_resource::<NetworkingMetadata>();
         app.add_plugins((
             TimePlugin,
             CorePlugins {
