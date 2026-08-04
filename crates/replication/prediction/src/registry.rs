@@ -1,4 +1,4 @@
-use crate::manager::{PredictionResource, RollbackMode, StateRollbackMetadata};
+use crate::manager::{RollbackMode, StateRollbackMetadata};
 use crate::plugin::{add_non_networked_rollback_systems, add_prediction_systems};
 use crate::predicted_history::PredictionHistory;
 use crate::prelude::PredictionManager;
@@ -1407,9 +1407,8 @@ fn add_resolved_confirmed_to_history<C: SyncComponent>(
         let state_metadata =
             world.resource::<StateRollbackMetadata>() as *const StateRollbackMetadata;
         let current_tick = world.resource::<LocalTimeline>().tick();
-        let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
-            .get::<PredictionManager>(prediction_link)
+            .get_resource::<PredictionManager>()
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         (unsafe { &*registry }, should_check, current_tick, unsafe {
             &*state_metadata
@@ -1446,9 +1445,8 @@ fn remove_history<C: SyncComponent>(ctx: &mut RemoveCtx, entity: &mut DeferredEn
         let state_metadata =
             world.resource::<StateRollbackMetadata>() as *const StateRollbackMetadata;
         let current_tick = world.resource::<LocalTimeline>().tick();
-        let prediction_link = world.resource::<PredictionResource>().link_entity;
         let should_check = world
-            .get::<PredictionManager>(prediction_link)
+            .get_resource::<PredictionManager>()
             .is_some_and(|m| matches!(m.rollback_policy.state, RollbackMode::Check));
         // SAFETY: registry lives in the World and won't be moved/dropped during this function
         (
@@ -1507,6 +1505,7 @@ mod tests {
     use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::AppComponentExt;
+    use lightyear_sync::prelude::InputTimelineConfig;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -1533,6 +1532,8 @@ mod tests {
             },
         ));
         app.init_resource::<PredictionRegistry>();
+        app.init_resource::<PredictionManager>();
+        app.init_resource::<InputTimelineConfig>();
         app
     }
 
@@ -1665,7 +1666,7 @@ mod tests {
         app.add_plugins((StatesPlugin, RepliconPlugins, PredictionPlugin));
         app.insert_resource(LocalTimeline::default());
         app.insert_resource(ReplicationCheckpointMap::default());
-        app.world_mut().spawn(PredictionManager::default());
+        app.insert_resource(PredictionManager::default());
         app.world_mut().flush();
         app.component::<TestDiffComponent>()
             .replicate_diff()

@@ -44,6 +44,7 @@ fn main() {
         #[cfg(feature = "client")]
         Some(Mode::Client { .. }) => {
             app.add_plugins(ExampleClientPlugin);
+            enable_prediction(&mut app);
             add_input_delay(&mut app);
         }
         #[cfg(feature = "server")]
@@ -70,26 +71,27 @@ fn main() {
 }
 
 #[cfg(feature = "client")]
-fn add_input_delay(app: &mut App) {
-    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
-    use lightyear::prelude::{Client, PredictionManager, RollbackMode, RollbackPolicy, SyncConfig};
-    let client = app
-        .world_mut()
-        .query_filtered::<Entity, With<Client>>()
-        .single(app.world_mut())
-        .unwrap();
+fn enable_prediction(app: &mut App) {
+    use lightyear::prelude::{PredictionManager, RollbackMode, RollbackPolicy};
 
-    // set some input-delay since we are predicting all entities
-    app.world_mut()
-        .entity_mut(client)
-        .insert(PredictionManager {
-            rollback_policy: RollbackPolicy {
-                state: RollbackMode::Disabled,
-                input: RollbackMode::Check,
-                max_rollback_ticks: 100,
-            },
-            ..default()
-        });
+    app.insert_resource(PredictionManager {
+        rollback_policy: RollbackPolicy {
+            state: RollbackMode::Disabled,
+            input: RollbackMode::Check,
+            max_rollback_ticks: 100,
+        },
+        ..default()
+    });
+}
+
+#[cfg(feature = "client")]
+fn add_input_delay(app: &mut App) {
+    use lightyear::prelude::SyncConfig;
+    use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
+
+    // Set some input delay since a remote client predicts all deterministic entities. The
+    // host-client uses the same delayed input timeline but does not enable rollback for its
+    // authoritative in-process simulation.
     app.insert_resource(
         InputTimelineConfig::default()
             .with_sync_config(SyncConfig {

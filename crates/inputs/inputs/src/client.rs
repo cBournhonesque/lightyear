@@ -324,19 +324,6 @@ impl<'a> InputRoute<'a> {
             Self::P2P(_) => true,
         }
     }
-
-    #[inline]
-    fn any_link(self, mut predicate: impl FnMut(Entity) -> bool) -> bool {
-        match self {
-            Self::ClientServer { link, .. } => predicate(link),
-            Self::P2P(links) => links.iter().copied().any(predicate),
-        }
-    }
-}
-
-#[inline]
-fn route_is_in_rollback(route: InputRoute<'_>, rollbacks: &Query<(), With<Rollback>>) -> bool {
-    route.any_link(|link| rollbacks.contains(link))
 }
 
 // equivalent to &ActionState<S::Action>
@@ -360,7 +347,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     // 2. the HostServer client can have input delay
     input_timeline: SyncedInputTimeline,
     metadata: Res<NetworkingMetadata>,
-    rollbacks: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
     mut action_state_query: Query<
         (
             Entity,
@@ -374,7 +361,7 @@ fn buffer_action_state<S: ActionStateSequence>(
     let Some(route) = InputRoute::from_topology(&metadata.mode) else {
         return;
     };
-    if route_is_in_rollback(route, &rollbacks) {
+    if rollback.is_some() {
         return;
     }
     let current_tick = local_timeline.tick();
@@ -422,7 +409,7 @@ fn get_action_state<S: ActionStateSequence>(
     input_timeline: Res<InputTimeline>,
     input_timeline_config: Res<InputTimelineConfig>,
     metadata: Res<NetworkingMetadata>,
-    rollbacks: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
 
     // NOTE: we want to apply the Inputs for BOTH the local player and remote player
     // - local player: we need to get the input from the InputBuffer because of input delay
@@ -447,7 +434,7 @@ fn get_action_state<S: ActionStateSequence>(
     if route.is_host_client() {
         return;
     }
-    let is_rollback = route_is_in_rollback(route, &rollbacks);
+    let is_rollback = rollback.is_some();
     let input_delay = input_timeline.input_delay() as i32;
     let tick = local_timeline.tick();
     if is_rollback && config.ignore_rollbacks {
@@ -550,7 +537,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     input_timeline: SyncedInputTimeline,
     metadata: Res<NetworkingMetadata>,
-    rollbacks: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
     mut action_state_query: Query<
         (
             Entity,
@@ -565,7 +552,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
     let Some(route) = InputRoute::from_topology(&metadata.mode) else {
         return;
     };
-    let is_rollback = route_is_in_rollback(route, &rollbacks);
+    let is_rollback = rollback.is_some();
     let input_delay_ticks = input_timeline.input_delay() as i32;
     if is_rollback || input_delay_ticks == 0 {
         return;
@@ -612,7 +599,7 @@ fn clean_buffers<S: ActionStateSequence>(
     // NOTE: we skip this for host-client because the get_action_state system on the server
     //  also clears the buffers
     metadata: Res<NetworkingMetadata>,
-    prediction_managers: Query<&PredictionManager>,
+    prediction_manager: Option<Res<PredictionManager>>,
     input_config: Res<InputTimelineConfig>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
@@ -625,8 +612,12 @@ fn clean_buffers<S: ActionStateSequence>(
     if route.is_host_client() {
         return;
     }
-    let old_tick =
-        timeline.tick() - input_history_depth_for_route(route, &prediction_managers, &input_config);
+    let old_tick = timeline.tick()
+        - input_history_depth(
+            prediction_manager
+                .as_deref()
+                .map(|manager| (manager, input_config.as_ref())),
+        );
 
     // trace!(
     //     "popping all input buffers since old tick: {old_tick:?}",
@@ -650,30 +641,6 @@ fn input_history_depth(
         })
         .unwrap_or(0)
         .max(HISTORY_DEPTH)
-}
-
-fn input_history_depth_for_route(
-    route: InputRoute<'_>,
-    prediction_managers: &Query<&PredictionManager>,
-    input_config: &InputTimelineConfig,
-) -> u32 {
-    let mut history_depth = HISTORY_DEPTH;
-    match route {
-        InputRoute::ClientServer { link, .. } => {
-            if let Ok(manager) = prediction_managers.get(link) {
-                history_depth = input_history_depth(Some((manager, input_config)));
-            }
-        }
-        InputRoute::P2P(links) => {
-            for link in links {
-                if let Ok(manager) = prediction_managers.get(*link) {
-                    history_depth =
-                        history_depth.max(input_history_depth(Some((manager, input_config))));
-                }
-            }
-        }
-    }
-    history_depth
 }
 
 // TODO: is this actually necessary? The sync happens in PostUpdate,
@@ -706,7 +673,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
     input_timeline: SyncedInputTimeline,
     metadata: Res<NetworkingMetadata>,
-    rollbacks: Query<(), With<Rollback>>,
+    rollback: Option<Res<Rollback>>,
     _channel_registry: Res<ChannelRegistry>,
     input_buffer_query: Query<
         (
@@ -723,7 +690,7 @@ fn prepare_input_message<S: ActionStateSequence>(
     let Some(route) = InputRoute::from_topology(&metadata.mode) else {
         return;
     };
-    if route_is_in_rollback(route, &rollbacks) {
+    if rollback.is_some() {
         return;
     }
     let is_host_client = route.is_host_client();
@@ -867,8 +834,8 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     _input_timeline: SyncedInputTimeline,
     metadata: Res<NetworkingMetadata>,
     last_confirmed_input: Res<LastConfirmedInput>,
+    prediction_manager: Option<Res<PredictionManager>>,
     mut receivers: Query<&mut MessageReceiver<InputMessage<S>>>,
-    prediction_managers: Query<&PredictionManager>,
     mut predicted_query: Query<
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
         (Without<S::Marker>, Allow<PredictionDisable>),
@@ -882,10 +849,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     if route.is_host_client() {
         return;
     }
-    let Some(prediction_manager_link) = prediction_manager_link(route, &prediction_managers) else {
-        return;
-    };
-    let Ok(prediction_manager) = prediction_managers.get(prediction_manager_link) else {
+    let Some(prediction_manager) = prediction_manager else {
         return;
     };
     let tick = timeline.tick();
@@ -898,7 +862,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     &mut commands,
                     *tick_duration,
                     tick,
-                    prediction_manager,
+                    &prediction_manager,
                     &mut predicted_query,
                     &prespawned,
                     #[cfg(feature = "metrics")]
@@ -916,7 +880,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     &mut commands,
                     *tick_duration,
                     tick,
-                    prediction_manager,
+                    &prediction_manager,
                     &mut predicted_query,
                     &prespawned,
                     #[cfg(feature = "metrics")]
@@ -930,28 +894,6 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
         last_confirmed_input
             .received_any_messages
             .store(true, bevy_platform::sync::atomic::Ordering::Relaxed);
-    }
-}
-
-/// Return the sole prediction-manager Link selected by the cached route.
-///
-/// P2P temporarily keeps `PredictionManager` on one Link until it becomes a resource in PR 4. If
-/// zero or multiple routed Links contain a manager, input receive remains inactive rather than
-/// associating rollback state with an arbitrary peer.
-fn prediction_manager_link(
-    route: InputRoute<'_>,
-    prediction_managers: &Query<&PredictionManager>,
-) -> Option<Entity> {
-    match route {
-        InputRoute::ClientServer { link, .. } => prediction_managers.contains(link).then_some(link),
-        InputRoute::P2P(links) => {
-            let mut matches = links
-                .iter()
-                .copied()
-                .filter(|link| prediction_managers.contains(*link));
-            let first = matches.next()?;
-            matches.next().is_none().then_some(first)
-        }
     }
 }
 

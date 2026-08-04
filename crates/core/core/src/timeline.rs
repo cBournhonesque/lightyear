@@ -8,9 +8,8 @@ use bevy_ecs::entity::Entity;
 use bevy_ecs::event::{EntityEvent, Event};
 use bevy_ecs::prelude::{On, Resource};
 use bevy_ecs::ptr::Ptr;
-use bevy_ecs::query::With;
 use bevy_ecs::schedule::SystemSet;
-use bevy_ecs::system::{Query, ResMut};
+use bevy_ecs::system::{Res, ResMut};
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time};
 use core::any::TypeId;
@@ -349,10 +348,11 @@ impl<T: TimelineConfig> Clone for SyncEvent<T> {
 
 impl<T: TimelineConfig> Copy for SyncEvent<T> {}
 
-/// Marker component inserted on the Link if we are currently in rollback
+/// Application-global marker resource inserted while the simulation is being rolled back.
 ///
-/// This is in `lightyear_core` to avoid circular dependencies. Many other plugins behave differently during rollback
-#[derive(Component, Debug, Clone, Copy)]
+/// This is in `lightyear_core` to avoid circular dependencies. Many other plugins behave
+/// differently during rollback.
+#[derive(Resource, Debug, Clone, Copy)]
 pub enum Rollback {
     /// The rollback is initiated because we have received new Confirmed state from the server
     /// that doesn't match our prediction history.
@@ -364,6 +364,6 @@ pub enum Rollback {
 }
 
 /// Run condition to check if we are in rollback
-pub fn is_in_rollback(client: Query<(), With<Rollback>>) -> bool {
-    client.single().is_ok()
+pub fn is_in_rollback(rollback: Option<Res<Rollback>>) -> bool {
+    rollback.is_some()
 }

@@ -7,20 +7,10 @@ use crate::correction::CorrectionPolicy;
 use crate::rollback::RollbackState;
 use alloc::vec::Vec;
 use bevy_ecs::entity::EntityHash;
-use bevy_ecs::lifecycle::HookContext;
-use bevy_ecs::world::DeferredWorld;
 use core::ops::{Deref, DerefMut};
 use lightyear_core::prelude::Tick;
-use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_sync::prelude::InputTimelineConfig;
 use parking_lot::RwLock;
-
-#[derive(Resource)]
-pub struct PredictionResource {
-    // entity that holds the PredictionManager
-    // We use this to avoid having to run a mutable query in component hooks
-    pub(crate) link_entity: Entity,
-}
 
 type EntityHashMap<K, V> = bevy_platform::collections::HashMap<K, V, EntityHash>;
 
@@ -93,15 +83,14 @@ impl RollbackPolicy {
     }
 }
 
-/// Component that enables prediction and rollback for a local client.
+/// Application-global state that enables prediction and rollback.
 ///
 /// [`PredictionPlugin`](crate::prelude::PredictionPlugin) installs the prediction systems, but
-/// those systems only run for a connected, non-host [`Client`](lightyear_connection::client::Client)
-/// entity that also has `PredictionManager`. Add this to your client entity when it should create
-/// predicted entities, record prediction history, and perform rollback/reconciliation.
-#[derive(Component, Debug, Reflect)]
-#[component(on_insert = PredictionManager::on_insert)]
-#[require(PreSpawnedReceiver)]
+/// those systems only run when this resource is present and the cached network topology is a
+/// conventional client or P2P session. Insert one manager into the application when it should
+/// create predicted entities, record prediction history, and perform one global
+/// rollback/reconciliation pipeline.
+#[derive(Resource, Debug, Reflect)]
 pub struct PredictionManager {
     /// Configuration for how rollbacks are triggered
     pub rollback_policy: RollbackPolicy,
@@ -508,17 +497,6 @@ impl Default for PredictionManager {
             deterministic_despawn: Vec::default(),
             rollback: RwLock::new(RollbackState::Default),
         }
-    }
-}
-
-impl PredictionManager {
-    fn on_insert(mut deferred: DeferredWorld, context: HookContext) {
-        let entity = context.entity;
-        deferred.commands().queue(move |world: &mut World| {
-            world.insert_resource(PredictionResource {
-                link_entity: entity,
-            });
-        })
     }
 }
 

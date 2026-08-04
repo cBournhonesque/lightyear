@@ -221,8 +221,12 @@ impl TimelinePlugin {
         time: Res<Time<Virtual>>,
         tick_duration: Res<TickDuration>,
         // make sure to not update the timelines during Rollback
-        mut query: Query<&mut InterpolationTimeline, (With<Connected>, Without<Rollback>)>,
+        rollback: Option<Res<Rollback>>,
+        mut query: Query<&mut InterpolationTimeline, With<Connected>>,
     ) {
+        if rollback.is_some() {
+            return;
+        }
         let delta = time.delta();
         query.iter_mut().for_each(|mut t| {
             // make sure to account for the fact that Time<Virtual> is already updated from the Driving timeline

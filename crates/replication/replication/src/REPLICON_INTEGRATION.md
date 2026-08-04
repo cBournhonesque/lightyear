@@ -104,7 +104,7 @@ The `PreSpawnedReceiver::matches()` method exists but is never called. In the ol
 Rollback via `write_history` → `StateRollbackMetadata` → `check_rollback` is not triggering. Possible causes:
 
 - `PredictionManager.rollback_policy.state` may not be `RollbackMode::Check` — verify it's set correctly during test setup
-- `PredictionResource.link_entity` may point to the wrong entity
+- the application may not contain the global `PredictionManager` resource
 - `ServerMutateTicks.last_tick()` may not be advancing (replicon may not be calling `confirm()` in the test stepper's transport path)
 - `check_received_replication_messages` uses `ClientMessages.received_count()` which may not reflect messages received through the lightyear transport bridge
 
@@ -112,7 +112,7 @@ Rollback via `write_history` → `StateRollbackMetadata` → `check_rollback` is
 1. Add trace logging to `write_history` to confirm it's being called and `should_check` is true
 2. Check that `StateRollbackMetadata.should_rollback` is set after a server mutation
 3. Verify `ServerMutateTicks.last_tick()` advances when mutation messages arrive
-4. Check that the global `InputTimeline` resource is synced and the `check_rollback` system's `Single` query succeeds (entity has `Client + PredictionManager + !HostClient`)
+4. Check that the global `InputTimeline` resource is synced and the application contains its global `PredictionManager`
 
 **Ignored tests**: `test_rollback_time_resource`, `test_deterministic_predicted_skip_despawn`, `test_despawned_predicted_rollback`, `test_update_history` (also has tick timing issue)
 

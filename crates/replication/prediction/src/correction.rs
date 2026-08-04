@@ -780,7 +780,7 @@ pub(crate) fn add_visual_correction<
 >(
     time: Res<Time<Virtual>>,
     prediction: Res<PredictionRegistry>,
-    manager: Single<&PredictionManager>,
+    manager: Res<PredictionManager>,
     mut query: Query<(Entity, &mut C, &mut VisualCorrection<D>)>,
     mut commands: Commands,
 ) {
@@ -1014,7 +1014,7 @@ mod tests {
         app.init_resource::<PredictionRegistry>();
         app.insert_resource(Time::<Virtual>::default());
         app.component::<CorrectionA>().predict().add_correction();
-        app.world_mut().spawn(PredictionManager::default());
+        app.insert_resource(PredictionManager::default());
         let entity = app
             .world_mut()
             .spawn((
@@ -1193,8 +1193,8 @@ mod tests {
 
         let prediction_manager = PredictionManager::default();
         prediction_manager.set_rollback_tick(PREVIOUS_TICK);
-        app.world_mut()
-            .spawn((prediction_manager, Rollback::FromInputs));
+        app.insert_resource(prediction_manager);
+        app.insert_resource(Rollback::FromInputs);
 
         app.component::<CorrectionA>().predict();
         app.finish();
