@@ -27,6 +27,7 @@ client = [
 server = [
   "lightyear_connection/server",
   "lightyear_transport",
+  "aeronet_io",
   "rand",
   "bevy_ecs/std",
   "bevy_time",

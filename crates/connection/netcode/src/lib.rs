@@ -38,7 +38,8 @@
  The server should run as a part of the game loop, process incoming packets and send updates to the clients.
 
  To create a server:
-  * Provide the address you intend to bind to.
+  * Configure the address or addresses that identify this server in private connect tokens. The
+    high-level [`NetcodeServer`] follows its entity's transport `LocalAddr` by default.
   * Provide the protocol id - a `u64` that uniquely identifies your app.
   * Provide a private key - a `u8` array of length 32. If you don't have one, you can generate one with `netcode::generate_key()`.
   * Optionally provide a [`ServerConfig`] - a struct that allows you to customize the server's behavior.
@@ -68,7 +69,7 @@ pub use error::{Error, Result};
 #[cfg(feature = "server")]
 pub use server::{Callback, ConnectCallback, Server, ServerConfig};
 #[cfg(feature = "server")]
-pub use server_plugin::{NetcodeServer, TokenUserData};
+pub use server_plugin::{NetcodeServer, ServerAddressSource, TokenUserData};
 pub use token::{ConnectToken, ConnectTokenBuilder, InvalidTokenError};
 
 /// The client id from a connect token, must be unique for each client.
@@ -104,7 +105,7 @@ pub mod prelude {
     #[cfg(feature = "server")]
     pub mod server {
         pub use crate::server_plugin::{
-            NetcodeConfig, NetcodeServer, NetcodeServerPlugin, TokenUserData,
+            NetcodeConfig, NetcodeServer, NetcodeServerPlugin, ServerAddressSource, TokenUserData,
         };
     }
 }
