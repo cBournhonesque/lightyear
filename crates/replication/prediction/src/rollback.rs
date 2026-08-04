@@ -652,7 +652,7 @@ fn check_rollback(
                 if prediction_manager.is_rollback() {
                     debug!("Rollback was triggered by state, skipping input rollback checks");
                 } else if last_confirmed_input.received_input()
-                    && let Some(rollback_tick) = last_confirmed_input.get()
+                    && let Some(rollback_tick) = last_confirmed_input.previous_frame()
                 {
                     debug!(
                         ?last_confirmed_input,
@@ -815,7 +815,7 @@ fn check_rollback(
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
     _input_timeline: SyncedInputTimeline,
-    last_confirmed_input: Res<LastConfirmedInput>,
+    mut last_confirmed_input: ResMut<LastConfirmedInput>,
     prediction_manager: Option<Res<PredictionManager>>,
 ) {
     // Reset to u32::MAX so the next `set_if_lower` call always wins and we
@@ -827,6 +827,9 @@ pub fn reset_input_rollback_tracker(
     last_confirmed_input
         .received_any_messages
         .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    // Each generic input plugin ANDs its own readiness into this value in PostUpdate. Resetting
+    // once here makes the result independent of input-plugin execution order.
+    last_confirmed_input.received_for_all_clients = true;
     if let Some(prediction_manager) = prediction_manager {
         prediction_manager
             .earliest_mismatch_input

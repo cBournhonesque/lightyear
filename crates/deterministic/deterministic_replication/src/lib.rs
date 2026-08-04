@@ -37,6 +37,8 @@ pub mod late_join;
 /// Configuration mode for catch-up (state-based vs input-only).
 pub mod mode;
 mod plugin;
+#[cfg(feature = "client")]
+mod prediction_window;
 
 /// Commonly used items from the `lightyear_deterministic_replication` crate.
 pub mod prelude {

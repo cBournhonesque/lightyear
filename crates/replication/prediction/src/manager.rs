@@ -114,15 +114,20 @@ pub struct PredictionManager {
 /// application; it does not belong to any one network link.
 #[derive(Resource, Debug, Reflect)]
 pub struct LastConfirmedInput {
-    /// Updated via [`AtomicTick::set_if_lower`] to track the minimum last-confirmed tick
-    /// across all remote clients. Reset to a high value each frame by
+    /// Current frame's aggregate, updated via [`AtomicTick::set_if_lower`] to track the minimum
+    /// last-confirmed tick across all remote clients. Reset to a high value each frame by
     /// [`reset_input_rollback_tracker`] so the minimum is computed correctly.
     ///
     /// [`AtomicTick::set_if_lower`]: lightyear_core::tick::AtomicTick::set_if_lower
     /// [`reset_input_rollback_tracker`]: crate::rollback::reset_input_rollback_tracker
     pub tick: lightyear_core::tick::AtomicTick,
+    /// Completed aggregate from the previous frame.
+    ///
+    /// Rollback uses this explicitly so inputs received in the current frame are replayed from the
+    /// frontier that was known before those inputs arrived.
+    pub previous_frame_tick: Tick,
     pub received_any_messages: bevy_platform::sync::atomic::AtomicBool,
-    /// Set to true if we have received inputs from all remote clients.
+    /// Set to true if the current aggregate contains inputs from all remote clients.
     pub received_for_all_clients: bool,
 }
 
@@ -130,6 +135,7 @@ impl Default for LastConfirmedInput {
     fn default() -> Self {
         Self {
             tick: lightyear_core::tick::AtomicTick::new_max(),
+            previous_frame_tick: Tick(u32::MAX),
             received_any_messages: bevy_platform::sync::atomic::AtomicBool::new(false),
             received_for_all_clients: false,
         }
@@ -149,6 +155,19 @@ impl LastConfirmedInput {
             tick if tick == Tick(u32::MAX) => None,
             tick => Some(tick),
         }
+    }
+
+    /// Return the confirmed-input frontier completed during the previous frame.
+    pub fn previous_frame(&self) -> Option<Tick> {
+        match self.previous_frame_tick {
+            tick if tick == Tick(u32::MAX) => None,
+            tick => Some(tick),
+        }
+    }
+
+    /// Preserve the current aggregate for systems that must consume the previous frame's view.
+    pub fn finalize_frame(&mut self) {
+        self.previous_frame_tick = self.tick.get();
     }
 }
 
@@ -370,11 +389,17 @@ mod tests {
 
     #[test]
     fn last_confirmed_input_default_starts_unset() {
-        let last_confirmed_input = LastConfirmedInput::default();
+        let mut last_confirmed_input = LastConfirmedInput::default();
 
         assert_eq!(last_confirmed_input.tick.get(), Tick(u32::MAX));
         assert_eq!(last_confirmed_input.get(), None);
+        assert_eq!(last_confirmed_input.previous_frame(), None);
         assert!(!last_confirmed_input.received_input());
+
+        last_confirmed_input.tick.set_if_lower(Tick(12));
+        last_confirmed_input.received_for_all_clients = true;
+        last_confirmed_input.finalize_frame();
+        assert_eq!(last_confirmed_input.previous_frame(), Some(Tick(12)));
     }
 
     #[test]
