@@ -3,6 +3,10 @@
 //! Replication groups remain demonstrated by the conventional server mode. In P2P mode every peer
 //! creates the same snake roster locally and exchanges only deterministic inputs.
 
+extern crate alloc;
+
+use crate::protocol::*;
+use alloc::collections::VecDeque;
 use bevy::prelude::*;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::client::InputSystems;
@@ -14,10 +18,6 @@ use lightyear_examples_common::p2p::{
     input_target_for_peer, P2PGameplayStarted, P2PSettings, GAMEPLAY_START_TICK,
 };
 use lightyear_frame_interpolation::FrameInterpolate;
-use std::collections::VecDeque;
-
-use crate::protocol::*;
-
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4752_4F55_5000_0000;
 
 pub struct ExampleP2PPlugin;

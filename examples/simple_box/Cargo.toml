@@ -26,6 +26,7 @@ p2p = [
   "client",
   "udp",
   "lightyear/deterministic",
+  "lightyear/p2p",
   "lightyear_examples_common/p2p",
 ]
 webtransport = ["lightyear_examples_common/webtransport"]

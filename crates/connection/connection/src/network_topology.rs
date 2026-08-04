@@ -41,6 +41,33 @@ pub enum NetworkTopology {
     Invalid(NetworkTopologyError),
 }
 
+impl NetworkTopology {
+    /// Returns true for a connected conventional client.
+    pub fn is_client(&self) -> bool {
+        matches!(self, Self::Client(_))
+    }
+
+    /// Returns true for a started server, including the server side of a host-client app.
+    pub fn is_server(&self) -> bool {
+        matches!(self, Self::Server(_) | Self::HostClient { .. })
+    }
+
+    /// Returns true for a started server without a connected in-process client.
+    pub fn is_headless_server(&self) -> bool {
+        matches!(self, Self::Server(_))
+    }
+
+    /// Returns true for a ready in-process host-client app.
+    pub fn is_host_server(&self) -> bool {
+        matches!(self, Self::HostClient { .. })
+    }
+
+    /// Returns true when direct P2P Links have been declared.
+    pub fn is_p2p(&self) -> bool {
+        matches!(self, Self::P2P { .. })
+    }
+}
+
 /// Cached metadata describing the networking configuration of this Bevy application.
 ///
 /// [`crate::ConnectionPlugin`] maintains this resource from role and lifecycle components. Users
@@ -387,6 +414,47 @@ mod tests {
 
     fn mode(app: &App) -> &NetworkTopology {
         &app.world().resource::<NetworkingMetadata>().mode
+    }
+
+    fn role_predicates(topology: &NetworkTopology) -> (bool, bool, bool, bool, bool) {
+        (
+            topology.is_client(),
+            topology.is_server(),
+            topology.is_headless_server(),
+            topology.is_host_server(),
+            topology.is_p2p(),
+        )
+    }
+
+    #[test]
+    fn role_predicates_classify_the_cached_topology() {
+        let mut world = World::new();
+        let client = world.spawn_empty().id();
+        let server = world.spawn_empty().id();
+
+        assert_eq!(
+            role_predicates(&NetworkTopology::Undefined),
+            (false, false, false, false, false)
+        );
+        assert_eq!(
+            role_predicates(&NetworkTopology::Client(client)),
+            (true, false, false, false, false)
+        );
+        assert_eq!(
+            role_predicates(&NetworkTopology::Server(server)),
+            (false, true, true, false, false)
+        );
+        assert_eq!(
+            role_predicates(&NetworkTopology::HostClient { server, client }),
+            (false, true, false, true, false)
+        );
+        assert_eq!(
+            role_predicates(&NetworkTopology::P2P {
+                connected: SmallVec::new(),
+                declared_links: 1,
+            }),
+            (false, false, false, false, true)
+        );
     }
 
     #[test]

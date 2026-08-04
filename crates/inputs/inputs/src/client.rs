@@ -130,8 +130,8 @@ pub enum InputSystems {
 ///   them before it needs them.
 /// - **Redundancy**: each message includes the last N ticks of input to
 ///   recover from packet loss.
-/// - **Remote player prediction**: if `rebroadcast_inputs` is enabled,
-///   processes input messages received from the server for other players.
+/// - **Remote player prediction**: processes other players' inputs when a conventional server
+///   rebroadcasts them, or directly from every peer in a P2P topology.
 pub struct ClientInputPlugin<S: ActionStateSequence> {
     config: InputConfig<S::Action>,
 }
@@ -208,6 +208,9 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         // SYSTEMS
         #[cfg(feature = "prediction")]
         {
+            // The topology is a runtime choice. Conventional clients still return immediately
+            // when rebroadcasting is disabled, while P2P peers must always drain direct remote
+            // input messages even though their client/server rebroadcast option is false.
             // NOTE: we do NOT need to run this after RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the
             //  local leafwing `states` have been switched to the `fixed_update` state (see
             //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)

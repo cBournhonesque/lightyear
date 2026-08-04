@@ -25,6 +25,7 @@ server = [
   "lightyear_link",
   "lightyear_transport/server",
 ]
+p2p = ["client", "lightyear_connection/p2p", "lightyear_sync/p2p"]
 metrics = ["dep:metrics", "std"]
 prediction = []
 interpolation = ["dep:lightyear_interpolation"]

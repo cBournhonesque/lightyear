@@ -12,6 +12,7 @@ repository = "https://github.com/cBournhonesque/lightyear"
 default = []
 client = []
 server = []
+p2p = ["client"]
 
 [dependencies]
 # local crates

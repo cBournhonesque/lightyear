@@ -30,6 +30,12 @@ server = [
   "lightyear_sync/server",
   "lightyear_transport/server",
 ]
+p2p = [
+  "client",
+  "lightyear_connection/p2p",
+  "lightyear_inputs/p2p",
+  "lightyear_sync/p2p",
+]
 replication = []
 default = ["std", "client", "server"]
 

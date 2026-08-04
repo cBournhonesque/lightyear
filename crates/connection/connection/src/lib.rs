@@ -60,11 +60,11 @@ pub enum ConnectionSystems {
 pub mod prelude {
     pub use crate::ConnectionSystems;
     pub use crate::direction::NetworkDirection;
+    pub use crate::identity::{is_client, is_p2p};
     pub use crate::network_target::NetworkTarget;
     pub use crate::network_topology::{
         NetworkTopology, NetworkTopologyError, NetworkTopologySystems, NetworkingMetadata,
     };
-
     // we also export these types at the top level for easier access
     pub use crate::client::{
         Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
