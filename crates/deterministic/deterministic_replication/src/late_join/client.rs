@@ -258,12 +258,13 @@ pub(crate) fn trigger_snapshot_rollback(
     timeline: Res<LocalTimeline>,
     input_config: Res<InputTimelineConfig>,
     last_confirmed_input: Res<LastConfirmedInput>,
-    manager: Single<(Entity, &mut CatchUpManager, &PredictionManager), With<Client>>,
+    manager: Single<(Entity, &mut CatchUpManager), With<Client>>,
+    prediction_manager: Res<PredictionManager>,
     server_mutate_ticks: Res<ServerMutateTicks>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     mut commands: Commands,
 ) {
-    let (client_entity, mut manager, prediction_manager) = manager.into_inner();
+    let (client_entity, mut manager) = manager.into_inner();
     if manager.completed {
         return;
     }
@@ -324,12 +325,10 @@ pub(crate) fn trigger_snapshot_rollback(
 /// This is so that when CatchUpSnapshotReady is observed, the CatchUpGated components are already restored
 /// to their snapshot state.
 fn trigger_catch_up_snapshot_activation(
-    client: Query<(&Rollback, &CatchUpManager), With<Client>>,
+    rollback: Res<Rollback>,
+    manager: Single<&CatchUpManager, With<Client>>,
     mut commands: Commands,
 ) {
-    let Ok((rollback, manager)) = client.single() else {
-        return;
-    };
     if manager.completed || !matches!(*rollback, Rollback::FromState) {
         return;
     }
@@ -344,13 +343,11 @@ fn trigger_catch_up_snapshot_activation(
 }
 
 fn finish_catch_up_snapshot_activation(
-    mut client: Query<(&mut CatchUpManager, &mut PredictionManager), With<Client>>,
+    mut manager: Single<&mut CatchUpManager, With<Client>>,
+    mut prediction_manager: ResMut<PredictionManager>,
     gated: Query<Entity, With<CatchUpGated>>,
     mut commands: Commands,
 ) {
-    let Ok((mut manager, mut prediction_manager)) = client.single_mut() else {
-        return;
-    };
     if manager.completed || manager.activating_snapshot.is_none() {
         return;
     }

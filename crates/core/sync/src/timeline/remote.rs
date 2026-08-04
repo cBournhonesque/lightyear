@@ -252,8 +252,12 @@ pub(crate) fn update_remote_timeline(
 pub(crate) fn advance_remote_timeline(
     fixed_time: Res<Time<Real>>,
     tick_duration: Res<TickDuration>,
-    mut query: Query<&mut RemoteTimeline, (With<Linked>, Without<Rollback>)>,
+    rollback: Option<Res<Rollback>>,
+    mut query: Query<&mut RemoteTimeline, With<Linked>>,
 ) {
+    if rollback.is_some() {
+        return;
+    }
     let delta = fixed_time.delta();
     query.iter_mut().for_each(|mut t| {
         t.apply_duration(delta, tick_duration.0);

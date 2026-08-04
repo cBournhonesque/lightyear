@@ -18,7 +18,7 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::{Rollback, SyncEvent};
+use lightyear_core::timeline::SyncEvent;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::prelude::InputTimelineConfig;
@@ -93,14 +93,13 @@ impl<C> PredictionHistory<C> {
 ///
 /// This system only handles changes, removals are handled in `apply_component_removal`
 pub(crate) fn update_prediction_history<T: Component + Clone>(
-    manager: Single<&PredictionManager>,
+    manager: Res<PredictionManager>,
     input_config: Res<InputTimelineConfig>,
     mut query: Query<(Entity, Ref<T>, &mut PredictionHistory<T>)>,
     timeline: Res<LocalTimeline>,
 ) {
     // tick for which we will record the history (either the current client tick or the current rollback tick)
     let tick = timeline.tick();
-    let manager = manager.into_inner();
     let oldest_rollback_tick = tick
         - u32::from(
             manager
@@ -397,13 +396,16 @@ pub(crate) fn add_history_diff_receiver<C: SyncComponent + RepliconDiffable>(
 
 /// During rollback re-simulation, check if we have a confirmed value for this tick.
 /// If so, snap the component to the confirmed value instead of using the predicted value.
+///
+/// [`PredictionSystems::SnapToConfirmed`](crate::plugin::PredictionSystems::SnapToConfirmed) gates
+/// this system with [`is_in_rollback`](lightyear_core::timeline::is_in_rollback), so the global
+/// [`Rollback`](lightyear_core::timeline::Rollback) resource does not need to be fetched by every
+/// monomorphized component system.
 pub(crate) fn snap_to_confirmed_during_rollback<
     C: Component<Mutability = Mutable> + Clone + PartialEq + Debug,
 >(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
-    // Only run during rollback
-    rollback: Single<&Rollback>,
     mut query: Query<(Entity, Option<&mut C>, &ConfirmedHistory<C>), With<Predicted>>,
 ) {
     let tick = timeline.tick();
@@ -536,15 +538,14 @@ mod tests {
         let mut timeline = LocalTimeline::default();
         timeline.apply_delta(tick);
         app.insert_resource(timeline);
-        app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
-        app.world_mut().spawn(PredictionManager {
+        app.insert_resource(PredictionManager {
             rollback_policy: RollbackPolicy {
                 max_rollback_ticks,
                 ..Default::default()
             },
             ..Default::default()
         });
-        app.world_mut().flush();
+        app.insert_resource(InputTimelineConfig::default().with_input_delay(input_delay_config));
         app
     }
 

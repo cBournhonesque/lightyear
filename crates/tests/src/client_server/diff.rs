@@ -181,7 +181,7 @@ fn setup_prediction_receive_app() -> (App, bevy_replicon::shared::replication::r
     ));
     app.insert_resource(lightyear_core::prelude::LocalTimeline::default());
     app.insert_resource(ReplicationCheckpointMap::default());
-    app.world_mut().spawn(PredictionManager::default());
+    app.insert_resource(PredictionManager::default());
     app.world_mut().flush();
     app.component::<CompRepliconDiff>()
         .replicate_diff()

@@ -371,8 +371,8 @@ fn sample_pre_physics_state(
     players: Query<(Entity, &DetPlayerId)>,
     balls: Query<Entity, With<DetBallMarker>>,
     walls: Query<Entity, With<DetWallMarker>>,
-    rollback_markers: Query<&Rollback>,
-    prediction_managers: Query<&PredictionManager>,
+    rollback: Option<Res<Rollback>>,
+    prediction_manager: Option<Res<PredictionManager>>,
 ) {
     sample_physics_state(
         SampleStage::PrePhysics,
@@ -385,8 +385,8 @@ fn sample_pre_physics_state(
         players,
         balls,
         walls,
-        rollback_markers,
-        prediction_managers,
+        rollback,
+        prediction_manager,
     );
 }
 
@@ -403,8 +403,8 @@ fn sample_post_physics_state(
     players: Query<(Entity, &DetPlayerId)>,
     balls: Query<Entity, With<DetBallMarker>>,
     walls: Query<Entity, With<DetWallMarker>>,
-    rollback_markers: Query<&Rollback>,
-    prediction_managers: Query<&PredictionManager>,
+    rollback: Option<Res<Rollback>>,
+    prediction_manager: Option<Res<PredictionManager>>,
 ) {
     sample_physics_state(
         SampleStage::PostPhysics,
@@ -417,8 +417,8 @@ fn sample_post_physics_state(
         players,
         balls,
         walls,
-        rollback_markers,
-        prediction_managers,
+        rollback,
+        prediction_manager,
     );
 }
 
@@ -437,14 +437,13 @@ fn sample_physics_state(
     players: Query<(Entity, &DetPlayerId)>,
     balls: Query<Entity, With<DetBallMarker>>,
     walls: Query<Entity, With<DetWallMarker>>,
-    rollback_markers: Query<&Rollback>,
-    prediction_managers: Query<&PredictionManager>,
+    rollback: Option<Res<Rollback>>,
+    prediction_manager: Option<Res<PredictionManager>>,
 ) {
     let tick = timeline.tick();
-    let rollback = rollback_markers.iter().next().copied();
-    let rollback_start = prediction_managers
-        .iter()
-        .next()
+    let rollback = rollback.as_deref().copied();
+    let rollback_start = prediction_manager
+        .as_deref()
         .and_then(PredictionManager::get_rollback_start_tick);
     for (id, position, velocity) in &player_motion {
         motion_samples.0.push(StageMotionSample {
@@ -531,16 +530,15 @@ fn sample_positions(
     >,
     action_players: Query<(Entity, &DetPlayerId)>,
     action_buffers: Query<(&ActionOf<Player>, &DetBuffer)>,
-    rollback_markers: Query<&Rollback>,
-    prediction_managers: Query<&PredictionManager>,
+    rollback: Option<Res<Rollback>>,
+    prediction_manager: Option<Res<PredictionManager>>,
 ) {
     use bevy::ecs::relationship::Relationship;
 
     let tick = timeline.tick().0;
-    let rollback = rollback_markers.iter().next().copied();
-    let rollback_start = prediction_managers
-        .iter()
-        .next()
+    let rollback = rollback.as_deref().copied();
+    let rollback_start = prediction_manager
+        .as_deref()
         .and_then(PredictionManager::get_rollback_start_tick);
     execution_samples.0.push(ExecutionSample {
         tick: Tick(tick),

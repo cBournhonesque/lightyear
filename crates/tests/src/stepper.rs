@@ -442,6 +442,7 @@ impl ClientServerStepper {
             );
             return 0;
         }
+        client_app.insert_resource(PredictionManager::default());
         let mut client = client_app.world_mut().spawn((
             Client,
             // Send pings every frame, so that the Acks are sent every frame
@@ -452,7 +453,6 @@ impl ClientServerStepper {
             ReplicationReceiver,
             #[cfg(feature = "test_utils")]
             TestHelper::default(),
-            PredictionManager::default(),
         ));
         match self.io {
             IoType::Crossbeam => {
