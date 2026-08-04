@@ -65,16 +65,9 @@ fn main() {
 
 #[cfg(feature = "client")]
 fn add_input_delay(app: &mut App) {
-    let client = app
-        .world_mut()
-        .query_filtered::<Entity, With<Client>>()
-        .single(app.world_mut())
-        .unwrap();
-
     // Optionally add input delay for the locally predicted player.
-    // app.world_mut()
-    //     .entity_mut(client)
-    //     .insert(InputTimeline(Timeline::from(
-    //         Input::default().with_input_delay(InputDelayConfig::fixed_input_delay(10)),
-    //     )));
+    // app.insert_resource(
+    //     InputTimelineConfig::default()
+    //         .with_input_delay(InputDelayConfig::fixed_input_delay(10)),
+    // );
 }

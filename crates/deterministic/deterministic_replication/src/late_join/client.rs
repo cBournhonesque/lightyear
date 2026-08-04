@@ -18,7 +18,7 @@ use lightyear_prediction::prelude::{
 use lightyear_prediction::rollback::{CatchUpGated, DisableRollback};
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::prelude::ReplicationSystems;
-use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, IsSynced};
+use lightyear_sync::prelude::{InputTimelineConfig, SyncedInputTimeline};
 use tracing::{debug, info, warn};
 
 use super::{CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems};
@@ -142,23 +142,19 @@ fn catchup_snapshot_is_activating(manager: Option<Single<&CatchUpManager, With<C
 /// frame conservative is preferable to duplicating that input coverage logic.
 pub(crate) fn send_catchup_request(
     timeline: Res<LocalTimeline>,
+    _input_timeline: SyncedInputTimeline,
+    last_confirmed_input: Res<LastConfirmedInput>,
     client: Single<
         (
             Entity,
             &mut CatchUpManager,
-            &LastConfirmedInput,
             &mut MessageSender<CatchUpRequest>,
-            Has<IsSynced<InputTimeline>>,
         ),
         With<Client>,
     >,
     awaiting: Query<Entity, With<CatchUpGated>>,
 ) {
-    let (client_entity, mut manager, last_confirmed_input, mut sender, is_synced) =
-        client.into_inner();
-    if !is_synced {
-        return;
-    }
+    let (client_entity, mut manager, mut sender) = client.into_inner();
     if manager.completed {
         return;
     }
@@ -260,22 +256,14 @@ fn on_receive_catchup_gated(
 /// fully receive (by checking ServerMutateTicks)
 pub(crate) fn trigger_snapshot_rollback(
     timeline: Res<LocalTimeline>,
-    manager: Single<
-        (
-            Entity,
-            &mut CatchUpManager,
-            &LastConfirmedInput,
-            &PredictionManager,
-            &InputTimelineConfig,
-        ),
-        With<Client>,
-    >,
+    input_config: Res<InputTimelineConfig>,
+    last_confirmed_input: Res<LastConfirmedInput>,
+    manager: Single<(Entity, &mut CatchUpManager, &PredictionManager), With<Client>>,
     server_mutate_ticks: Res<ServerMutateTicks>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     mut commands: Commands,
 ) {
-    let (client_entity, mut manager, last_confirmed_input, prediction_manager, input_config) =
-        manager.into_inner();
+    let (client_entity, mut manager, prediction_manager) = manager.into_inner();
     if manager.completed {
         return;
     }
@@ -295,7 +283,7 @@ pub(crate) fn trigger_snapshot_rollback(
     let max_rollback_ticks = i32::from(
         prediction_manager
             .rollback_policy
-            .effective_max_rollback_ticks(input_config),
+            .effective_max_rollback_ticks(&input_config),
     );
     if rollback_delta > max_rollback_ticks {
         warn!(

@@ -2,12 +2,15 @@ use crate::ping::manager::PingManager;
 use crate::plugin::SyncSystems;
 use bevy_app::{App, Last, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
+use bevy_ecs::resource::IsResource;
 use bevy_reflect::Reflect;
 use bevy_time::{Fixed, Time, Virtual};
 use bevy_utils::prelude::DebugName;
 use core::time::Duration;
-use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::client::{Client, Connected, Disconnected};
 use lightyear_connection::host::HostClient;
+use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
+use lightyear_connection::p2p::P2P;
 use lightyear_core::prelude::{LocalTimeline, NetworkTimelinePlugin};
 use lightyear_core::tick::TickDuration;
 use lightyear_core::time::{Overstep, TickInstant};
@@ -205,217 +208,183 @@ impl SyncContext {
     }
 }
 
-/// Plugin to sync the Synced timeline to the Remote timeline
+/// Plugin to synchronize one timeline with a remote timeline.
 ///
-/// The const generic is used to indicate if the timeline is driving/updating the [`Time<Virtual>`] and [`LocalTimeline`].
-pub struct SyncedTimelinePlugin<Synced, Remote, const DRIVING: bool = false> {
+/// `DRIVING` indicates whether the synchronized timeline drives [`Time<Virtual>`] and
+/// [`LocalTimeline`]. `RESOURCE` selects whether the synchronized timeline and its configuration
+/// are application-global resources or components on each remote link.
+pub struct SyncedTimelinePlugin<
+    Synced,
+    Remote,
+    const DRIVING: bool = false,
+    const RESOURCE: bool = false,
+> {
     pub(crate) _marker: core::marker::PhantomData<(Synced, Remote)>,
 }
 
-impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
-    SyncedTimelinePlugin<Synced, Remote, DRIVING>
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool, const RESOURCE: bool>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING, RESOURCE>
 {
-    /// On connection, reset the Synced timeline.
-    pub(crate) fn handle_connect(
-        trigger: On<Add, Connected>,
-        local_timeline: Res<LocalTimeline>,
-        mut query: Query<&mut Synced>,
-    ) {
-        let local_tick = local_timeline.tick();
-        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
-            timeline.reset();
-            if DRIVING {
-                trace!("Set Driving timeline tick to LocalTimeline");
-                let delta = local_tick - timeline.tick();
-                timeline.apply_delta(delta.into());
-            }
+    /// Reset a timeline when its session starts and align a driving timeline with local time.
+    fn reset_timeline(timeline: &mut Synced, local_timeline: &LocalTimeline) {
+        timeline.reset();
+        if DRIVING {
+            trace!("Set Driving timeline tick to LocalTimeline");
+            let delta = local_timeline.tick() - timeline.tick();
+            timeline.apply_delta(delta.into());
         }
     }
 
-    /// For HostClient, we directly set IsSynced on connection (since there is no messages exchanged) and the
-    /// Synced timeline is always the same as the Remote timeline
-    pub(crate) fn handle_host_client(trigger: On<Add, HostClient>, mut commands: Commands) {
-        commands
-            .entity(trigger.entity)
-            .insert(IsSynced::<Synced>::default());
-    }
-
-    /// On disconnection, remove IsSynced.
-    pub(crate) fn handle_disconnect(trigger: On<Add, Disconnected>, mut commands: Commands) {
-        commands.entity(trigger.entity).remove::<IsSynced<Synced>>();
-    }
-
-    /// Synchronize the driving timeline's phase with the local simulation phase
-    /// derived from [`LocalTimeline`] and [`Time<Fixed>`].
-    ///
-    /// This runs once per frame before `sync_timelines` for driving timelines.
-    pub(crate) fn sync_from_local_timeline(
-        local_timeline: Res<LocalTimeline>,
-        fixed_time: Res<Time<Fixed>>,
-        mut query: Query<&mut Synced>,
+    /// Copy the application's current fixed-update phase into a driving timeline.
+    fn sync_from_local(
+        synced: &mut Synced,
+        local_timeline: &LocalTimeline,
+        fixed_time: &Time<Fixed>,
     ) {
         let local_tick = local_timeline.tick();
         let overstep = fixed_time.overstep_fraction();
-        query.iter_mut().for_each(|mut synced| {
-            // Desired phase: LocalTimeline.tick + Time<Fixed> overstep.
-            synced.set_now(TickInstant::from_tick_and_overstep(
-                local_tick,
-                Overstep::from_f32(overstep),
-            ));
-            trace!(
-                target: "lightyear_debug::timeline",
-                kind = "sync_from_local_timeline",
-                schedule = "PostUpdate",
-                sample_point = "PostUpdate",
-                timeline = ?DebugName::type_name::<Synced>(),
-                local_tick = local_tick.0,
-                timeline_tick = synced.tick().0,
-                overstep,
-                "driving timeline synced from LocalTimeline"
-            );
-        });
+        synced.set_now(TickInstant::from_tick_and_overstep(
+            local_tick,
+            Overstep::from_f32(overstep),
+        ));
+        trace!(
+            target: "lightyear_debug::timeline",
+            kind = "sync_from_local_timeline",
+            schedule = "PostUpdate",
+            sample_point = "PostUpdate",
+            timeline = ?DebugName::type_name::<Synced>(),
+            local_tick = local_tick.0,
+            timeline_tick = synced.tick().0,
+            overstep,
+            "driving timeline synced from LocalTimeline"
+        );
     }
 
-    pub(crate) fn update_virtual_time(
-        mut virtual_time: ResMut<Time<Virtual>>,
-        query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>, Without<HostClient>)>,
+    /// Apply a synchronized timeline's speed correction to Bevy virtual time.
+    fn apply_relative_speed(timeline: &Synced, virtual_time: &mut Time<Virtual>) {
+        trace!(
+            "Timeline {} sets the virtual time relative speed to {}",
+            DebugName::type_name::<Synced>(),
+            timeline.relative_speed()
+        );
+        trace!(
+            target: "lightyear_debug::sync",
+            kind = "relative_speed",
+            schedule = "Last",
+            sample_point = "Last",
+            timeline = ?DebugName::type_name::<Synced>(),
+            tick = timeline.tick().0,
+            relative_speed = timeline.relative_speed(),
+            "timeline relative speed applied to Virtual time"
+        );
+        // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
+        virtual_time.set_relative_speed(timeline.relative_speed());
+    }
+
+    /// Synchronize one timeline and emit a [`SyncEvent`] if it snaps by whole ticks.
+    fn sync_timeline(
+        entity: Entity,
+        sync_timeline: &mut Synced,
+        config: &Synced::Config,
+        main_timeline: &Remote,
+        ping_manager: &PingManager,
+        has_is_synced: bool,
+        tick_duration: &TickDuration,
+        commands: &mut Commands,
     ) {
-        if let Ok(timeline) = query.single() {
-            trace!(
-                "Timeline {} sets the virtual time relative speed to {}",
-                DebugName::type_name::<Synced>(),
-                timeline.relative_speed()
-            );
+        trace!(
+            ?entity,
+            ?has_is_synced,
+            "In SyncTimelines from {:?} to {:?}",
+            DebugName::type_name::<Synced>(),
+            DebugName::type_name::<Remote>()
+        );
+        // return early if the remote timeline hasn't received any packets
+        if !main_timeline.received_packet() {
             trace!(
                 target: "lightyear_debug::sync",
-                kind = "relative_speed",
-                schedule = "Last",
-                sample_point = "Last",
+                kind = "sync_skipped_no_packet",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                entity = ?entity,
                 timeline = ?DebugName::type_name::<Synced>(),
-                tick = timeline.tick().0,
-                relative_speed = timeline.relative_speed(),
-                "timeline relative speed applied to Virtual time"
+                remote_timeline = ?DebugName::type_name::<Remote>(),
+                timeline_tick = sync_timeline.tick().0,
+                "sync skipped because remote timeline received no packet"
             );
-            // TODO: be able to apply the speed_ratio on top of any speed ratio already applied by the user.
-            virtual_time.set_relative_speed(timeline.relative_speed());
+            return;
+        }
+        if !has_is_synced && sync_timeline.is_synced() {
+            debug!(
+                "Timeline {:?} is synced to {:?}",
+                DebugName::type_name::<Synced>(),
+                DebugName::type_name::<Remote>()
+            );
+            commands
+                .entity(entity)
+                .insert(IsSynced::<Synced>::default());
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "timeline_synced",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                entity = ?entity,
+                timeline = ?DebugName::type_name::<Synced>(),
+                remote_timeline = ?DebugName::type_name::<Remote>(),
+                timeline_tick = sync_timeline.tick().0,
+                "timeline marked synced"
+            );
+        }
+        let before_now = sync_timeline.now();
+        let remote_estimate = main_timeline.current_estimate();
+        if let Some(tick_delta) =
+            sync_timeline.sync(main_timeline, config, ping_manager, tick_duration.0)
+        {
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "sync_adjustment",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                entity = ?entity,
+                timeline = ?DebugName::type_name::<Synced>(),
+                remote_timeline = ?DebugName::type_name::<Remote>(),
+                timeline_tick = sync_timeline.tick().0,
+                remote_tick = main_timeline.tick().0,
+                before = ?before_now,
+                after = ?sync_timeline.now(),
+                remote_estimate = ?remote_estimate,
+                tick_delta,
+                relative_speed = sync_timeline.relative_speed(),
+                rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
+                jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
+                "timeline sync emitted SyncEvent"
+            );
+            // if it's the driving pipeline, also update the LocalTimeline in `handle_sync_event`
+            commands.trigger(SyncEvent::<Synced::Config>::new(entity, tick_delta));
+        } else {
+            trace!(
+                target: "lightyear_debug::sync",
+                kind = "sync_sample",
+                schedule = "PostUpdate",
+                sample_point = "PostUpdate",
+                entity = ?entity,
+                timeline = ?DebugName::type_name::<Synced>(),
+                remote_timeline = ?DebugName::type_name::<Remote>(),
+                timeline_tick = sync_timeline.tick().0,
+                remote_tick = main_timeline.tick().0,
+                before = ?before_now,
+                after = ?sync_timeline.now(),
+                remote_estimate = ?remote_estimate,
+                relative_speed = sync_timeline.relative_speed(),
+                rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
+                jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
+                "timeline sync sampled"
+            );
         }
     }
 
-    /// Sync timeline T to timeline [`RemoteTimeline`](super::remote::RemoteTimeline) by either
-    /// - speeding up/slowing down the timeline T to match timeline Remote
-    /// - emitting a [`SyncEvent<T>`]
-    pub(crate) fn sync_timelines(
-        tick_duration: Res<TickDuration>,
-        mut commands: Commands,
-        mut query: Query<
-            (
-                Entity,
-                &mut Synced,
-                &Synced::Config,
-                &Remote,
-                &PingManager,
-                Has<IsSynced<Synced>>,
-            ),
-            (With<Connected>, Without<HostClient>),
-        >,
-    ) {
-        // TODO: return early if we haven't received any remote packets? (nothing to sync to)
-        query.iter_mut().for_each(
-            |(entity, mut sync_timeline, config, main_timeline, ping_manager, has_is_synced)| {
-                trace!(
-                    ?entity,
-                    ?has_is_synced,
-                    "In SyncTimelines from {:?} to {:?}",
-                    DebugName::type_name::<Synced>(),
-                    DebugName::type_name::<Remote>()
-                );
-                // return early if the remote timeline hasn't received any packets
-                if !main_timeline.received_packet() {
-                    trace!(
-                        target: "lightyear_debug::sync",
-                        kind = "sync_skipped_no_packet",
-                        schedule = "PostUpdate",
-                        sample_point = "PostUpdate",
-                        entity = ?entity,
-                        timeline = ?DebugName::type_name::<Synced>(),
-                        remote_timeline = ?DebugName::type_name::<Remote>(),
-                        timeline_tick = sync_timeline.tick().0,
-                        "sync skipped because remote timeline received no packet"
-                    );
-                    return;
-                }
-                if !has_is_synced && sync_timeline.is_synced() {
-                    debug!(
-                        "Timeline {:?} is synced to {:?}",
-                        DebugName::type_name::<Synced>(),
-                        DebugName::type_name::<Remote>()
-                    );
-                    commands
-                        .entity(entity)
-                        .insert(IsSynced::<Synced>::default());
-                    trace!(
-                        target: "lightyear_debug::sync",
-                        kind = "timeline_synced",
-                        schedule = "PostUpdate",
-                        sample_point = "PostUpdate",
-                        entity = ?entity,
-                        timeline = ?DebugName::type_name::<Synced>(),
-                        remote_timeline = ?DebugName::type_name::<Remote>(),
-                        timeline_tick = sync_timeline.tick().0,
-                        "timeline marked synced"
-                    );
-                }
-                let before_now = sync_timeline.now();
-                let remote_estimate = main_timeline.current_estimate();
-                if let Some(tick_delta) =
-                    sync_timeline.sync(main_timeline, config, ping_manager, tick_duration.0)
-                {
-                    trace!(
-                        target: "lightyear_debug::sync",
-                        kind = "sync_adjustment",
-                        schedule = "PostUpdate",
-                        sample_point = "PostUpdate",
-                        entity = ?entity,
-                        timeline = ?DebugName::type_name::<Synced>(),
-                        remote_timeline = ?DebugName::type_name::<Remote>(),
-                        timeline_tick = sync_timeline.tick().0,
-                        remote_tick = main_timeline.tick().0,
-                        before = ?before_now,
-                        after = ?sync_timeline.now(),
-                        remote_estimate = ?remote_estimate,
-                        tick_delta,
-                        relative_speed = sync_timeline.relative_speed(),
-                        rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
-                        jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
-                        "timeline sync emitted SyncEvent"
-                    );
-                    // if it's the driving pipeline, also update the LocalTimeline in `handle_sync_event`
-                    commands.trigger(SyncEvent::<Synced::Config>::new(entity, tick_delta));
-                } else {
-                    trace!(
-                        target: "lightyear_debug::sync",
-                        kind = "sync_sample",
-                        schedule = "PostUpdate",
-                        sample_point = "PostUpdate",
-                        entity = ?entity,
-                        timeline = ?DebugName::type_name::<Synced>(),
-                        remote_timeline = ?DebugName::type_name::<Remote>(),
-                        timeline_tick = sync_timeline.tick().0,
-                        remote_tick = main_timeline.tick().0,
-                        before = ?before_now,
-                        after = ?sync_timeline.now(),
-                        remote_estimate = ?remote_estimate,
-                        relative_speed = sync_timeline.relative_speed(),
-                        rtt_ms = ping_manager.rtt().as_secs_f64() * 1000.0,
-                        jitter_ms = ping_manager.jitter().as_secs_f64() * 1000.0,
-                        "timeline sync sampled"
-                    );
-                }
-            },
-        )
-    }
-
-    pub(crate) fn handle_sync_event(
+    /// Apply a driving timeline's whole-tick correction to [`LocalTimeline`].
+    fn handle_sync_event(
         trigger: On<SyncEvent<Synced::Config>>,
         mut local_timeline: ResMut<LocalTimeline>,
     ) {
@@ -440,8 +409,185 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
     }
 }
 
-impl<Synced, Remote, const DRIVING: bool> Default
-    for SyncedTimelinePlugin<Synced, Remote, DRIVING>
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING, false>
+{
+    /// Reset a link-held synchronized timeline when that link connects.
+    fn handle_connect(
+        trigger: On<Add, Connected>,
+        local_timeline: Res<LocalTimeline>,
+        mut query: Query<&mut Synced>,
+    ) {
+        if let Ok(mut timeline) = query.get_mut(trigger.entity) {
+            Self::reset_timeline(&mut timeline, &local_timeline);
+        }
+    }
+
+    /// Mark a host-client's link-held timeline as synchronized without a handshake.
+    fn handle_host_client(trigger: On<Add, HostClient>, mut commands: Commands) {
+        commands
+            .entity(trigger.entity)
+            .insert(IsSynced::<Synced>::default());
+    }
+
+    /// Remove the synchronization marker from a disconnected link.
+    fn handle_disconnect(trigger: On<Add, Disconnected>, mut commands: Commands) {
+        commands.entity(trigger.entity).remove::<IsSynced<Synced>>();
+    }
+
+    /// Copy local fixed-update phase into every link-held driving timeline.
+    fn sync_from_local_timeline(
+        local_timeline: Res<LocalTimeline>,
+        fixed_time: Res<Time<Fixed>>,
+        mut query: Query<&mut Synced>,
+    ) {
+        query.iter_mut().for_each(|mut synced| {
+            Self::sync_from_local(&mut synced, &local_timeline, &fixed_time)
+        });
+    }
+
+    /// Apply the single connected, synchronized link timeline's relative speed.
+    fn update_virtual_time(
+        mut virtual_time: ResMut<Time<Virtual>>,
+        query: Query<&Synced, (With<IsSynced<Synced>>, With<Connected>, Without<HostClient>)>,
+    ) {
+        if let Ok(timeline) = query.single() {
+            Self::apply_relative_speed(timeline, &mut virtual_time);
+        }
+    }
+
+    /// Synchronize each link-held timeline with the remote timeline on the same link.
+    fn sync_timelines(
+        tick_duration: Res<TickDuration>,
+        mut commands: Commands,
+        mut query: Query<
+            (
+                Entity,
+                &mut Synced,
+                &Synced::Config,
+                &Remote,
+                &PingManager,
+                Has<IsSynced<Synced>>,
+            ),
+            (With<Connected>, Without<HostClient>),
+        >,
+    ) {
+        query.iter_mut().for_each(
+            |(entity, mut synced, config, remote, ping_manager, is_synced)| {
+                Self::sync_timeline(
+                    entity,
+                    &mut synced,
+                    config,
+                    remote,
+                    ping_manager,
+                    is_synced,
+                    &tick_duration,
+                    &mut commands,
+                );
+            },
+        );
+    }
+}
+
+impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool>
+    SyncedTimelinePlugin<Synced, Remote, DRIVING, true>
+where
+    Synced::Config: Resource,
+{
+    /// Reset the global synchronized timeline when its client link connects.
+    fn handle_connect(
+        trigger: On<Add, Connected>,
+        clients: Query<(), (With<Client>, Without<P2P>)>,
+        local_timeline: Res<LocalTimeline>,
+        mut timeline: Single<&mut Synced, With<IsResource>>,
+    ) {
+        if clients.get(trigger.entity).is_ok() {
+            Self::reset_timeline(&mut timeline, &local_timeline);
+        }
+    }
+
+    /// Mark the resource entity as synchronized for a host-client session.
+    fn handle_host_client(
+        trigger: On<Add, HostClient>,
+        clients: Query<(), (With<Client>, Without<P2P>)>,
+        timeline_entity: Single<Entity, (With<Synced>, With<IsResource>)>,
+        mut commands: Commands,
+    ) {
+        if clients.get(trigger.entity).is_ok() {
+            commands
+                .entity(*timeline_entity)
+                .insert(IsSynced::<Synced>::default());
+        }
+    }
+
+    /// Remove the synchronization marker from the resource entity when its client disconnects.
+    fn handle_disconnect(
+        trigger: On<Add, Disconnected>,
+        clients: Query<(), (With<Client>, Without<P2P>)>,
+        timeline_entity: Single<Entity, (With<Synced>, With<IsResource>)>,
+        mut commands: Commands,
+    ) {
+        if clients.get(trigger.entity).is_ok() {
+            commands
+                .entity(*timeline_entity)
+                .remove::<IsSynced<Synced>>();
+        }
+    }
+
+    /// Copy local fixed-update phase into the global driving timeline.
+    fn sync_from_local_timeline(
+        local_timeline: Res<LocalTimeline>,
+        fixed_time: Res<Time<Fixed>>,
+        mut timeline: Single<&mut Synced, With<IsResource>>,
+    ) {
+        Self::sync_from_local(&mut timeline, &local_timeline, &fixed_time);
+    }
+
+    /// Apply the synchronized resource timeline's relative speed to virtual time.
+    fn update_virtual_time(
+        timeline: Single<&Synced, (With<IsResource>, With<IsSynced<Synced>>)>,
+        mut virtual_time: ResMut<Time<Virtual>>,
+    ) {
+        Self::apply_relative_speed(&timeline, &mut virtual_time);
+    }
+
+    /// Synchronize the resource timeline with the conventional Client Link cached by the topology.
+    ///
+    /// P2P aggregation will provide a different remote-target policy while retaining the same
+    /// resource timeline and synchronization controller.
+    fn sync_timelines(
+        tick_duration: Res<TickDuration>,
+        metadata: Res<NetworkingMetadata>,
+        config: Res<Synced::Config>,
+        timeline: Single<(Entity, &mut Synced, Has<IsSynced<Synced>>), With<IsResource>>,
+        remotes: Query<
+            (&Remote, &PingManager),
+            (With<Client>, With<Connected>, Without<HostClient>),
+        >,
+        mut commands: Commands,
+    ) {
+        let NetworkTopology::Client(client) = &metadata.mode else {
+            return;
+        };
+        let Ok((remote, ping_manager)) = remotes.get(*client) else {
+            return;
+        };
+        let (entity, mut synced, is_synced) = timeline.into_inner();
+        Self::sync_timeline(
+            entity,
+            &mut synced,
+            &config,
+            remote,
+            ping_manager,
+            is_synced,
+            &tick_duration,
+            &mut commands,
+        );
+    }
+}
+
+impl<Synced, Remote, const DRIVING: bool, const RESOURCE: bool> Default
+    for SyncedTimelinePlugin<Synced, Remote, DRIVING, RESOURCE>
 {
     fn default() -> Self {
         Self {
@@ -451,7 +597,7 @@ impl<Synced, Remote, const DRIVING: bool> Default
 }
 
 impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Plugin
-    for SyncedTimelinePlugin<Synced, Remote, DRIVING>
+    for SyncedTimelinePlugin<Synced, Remote, DRIVING, false>
 {
     fn build(&self, app: &mut App) {
         app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
@@ -462,6 +608,33 @@ impl<Synced: SyncedTimeline, Remote: SyncTargetTimeline, const DRIVING: bool> Pl
         app.add_observer(Self::handle_host_client);
         app.add_observer(Self::handle_disconnect);
         // NOTE: we don't have to run this in PostUpdate, we could run this right after RunFixedMainLoop?
+        app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSystems::Sync));
+        if DRIVING {
+            app.add_systems(
+                PostUpdate,
+                Self::sync_from_local_timeline
+                    .in_set(SyncSystems::Sync)
+                    .before(Self::sync_timelines),
+            );
+            app.add_systems(Last, Self::update_virtual_time);
+            app.add_observer(Self::handle_sync_event);
+        }
+    }
+}
+
+impl<Synced: SyncedTimeline + Resource + Default, Remote: SyncTargetTimeline, const DRIVING: bool>
+    Plugin for SyncedTimelinePlugin<Synced, Remote, DRIVING, true>
+where
+    Synced::Config: Resource + Default,
+{
+    fn build(&self, app: &mut App) {
+        app.add_plugins(NetworkTimelinePlugin::<Synced>::default());
+        app.init_resource::<Synced>();
+        app.init_resource::<Synced::Config>();
+
+        app.add_observer(Self::handle_connect);
+        app.add_observer(Self::handle_host_client);
+        app.add_observer(Self::handle_disconnect);
         app.add_systems(PostUpdate, Self::sync_timelines.in_set(SyncSystems::Sync));
         if DRIVING {
             app.add_systems(

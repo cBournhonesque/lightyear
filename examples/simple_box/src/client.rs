@@ -34,8 +34,8 @@ impl Plugin for ExampleClientPlugin {
     }
 }
 
-fn configure_input_delay(client: Single<Entity, With<Client>>, mut commands: Commands) {
-    commands.entity(client.into_inner()).insert(
+fn configure_input_delay(mut commands: Commands) {
+    commands.insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::no_input_delay()),
     );
 }
@@ -92,13 +92,10 @@ fn buffer_input(
 ///
 /// If this example predicted remote entities, ownership would need to be checked before movement.
 fn player_movement(
-    synced_client: Query<(), (With<Client>, With<IsSynced<InputTimeline>>)>,
+    _input_timeline: SyncedInputTimeline,
     // timeline: Single<&LocalTimeline>,
     mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
 ) {
-    if synced_client.is_empty() {
-        return;
-    }
     // let tick = timeline.tick();
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");

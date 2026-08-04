@@ -12,11 +12,17 @@ use test_log::test;
 /// - the various components we expect are present
 #[test]
 fn test_setup_client_server() {
-    let stepper = ClientServerStepper::from_config(StepperConfig::single());
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
 
     // Check that the various components we expect are present
     assert!(stepper.client(0).contains::<PingManager>());
-    assert!(stepper.client(0).contains::<InputTimeline>());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .contains_resource::<InputTimeline>()
+    );
+    assert!(!stepper.client(0).contains::<InputTimeline>());
     assert!(stepper.client(0).contains::<RemoteTimeline>());
     assert!(stepper.client(0).contains::<InterpolationTimeline>());
     assert!(stepper.client(0).contains::<Transport>());

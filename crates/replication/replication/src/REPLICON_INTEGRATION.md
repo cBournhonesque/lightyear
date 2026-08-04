@@ -112,7 +112,7 @@ Rollback via `write_history` → `StateRollbackMetadata` → `check_rollback` is
 1. Add trace logging to `write_history` to confirm it's being called and `should_check` is true
 2. Check that `StateRollbackMetadata.should_rollback` is set after a server mutation
 3. Verify `ServerMutateTicks.last_tick()` advances when mutation messages arrive
-4. Check that the `check_rollback` system's `Single` query succeeds (entity has `PredictionManager + IsSynced<InputTimeline> + !HostClient`)
+4. Check that the global `InputTimeline` resource is synced and the `check_rollback` system's `Single` query succeeds (entity has `Client + PredictionManager + !HostClient`)
 
 **Ignored tests**: `test_rollback_time_resource`, `test_deterministic_predicted_skip_despawn`, `test_despawned_predicted_rollback`, `test_update_history` (also has tick timing issue)
 
