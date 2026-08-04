@@ -1,43 +1,38 @@
-//! Direct P2P setup for the simple-box deterministic simulation.
+//! Input-only P2P setup for the replication-groups example.
 //!
-//! Unlike the conventional mode, no server spawns or replicates players. Every peer creates the
-//! same fixed roster locally and only exchanges tick-indexed inputs.
+//! Replication groups remain demonstrated by the conventional server mode. In P2P mode every peer
+//! creates the same snake roster locally and exchanges only deterministic inputs.
 
-use crate::protocol::{Inputs, PlayerBundle};
 use bevy::prelude::*;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
+use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
 use lightyear_examples_common::p2p::{
     input_target_for_peer, P2PGameplayStarted, P2PSettings, GAMEPLAY_START_TICK,
 };
+use lightyear_frame_interpolation::FrameInterpolate;
+use std::collections::VecDeque;
 
-/// Namespace for stable simple-box player hashes on the input wire.
-const PLAYER_INPUT_HASH_BASE: u64 = 0x5349_4D50_4C45_0000;
+use crate::protocol::*;
+
+const PLAYER_INPUT_HASH_BASE: u64 = 0x4752_4F55_5000_0000;
 
 pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PredictionManager::default());
-        app.add_plugins(
-            lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin,
-        );
+        app.add_plugins(DeterministicReplicationPlugin);
         app.add_systems(
             FixedPreUpdate,
             spawn_fixed_roster.before(InputSystems::BufferClientInputs),
         );
-        crate::automation::add_p2p_debugging(app);
     }
 }
 
-/// Spawn one local deterministic copy of every player in stable roster order.
-///
-/// The local player receives [`InputMarker`], while remote players start with empty input buffers
-/// so prediction can begin before their first packet arrives. The explicit [`PreSpawned`] hash is
-/// the cross-world input identity; P2P deliberately does not depend on replication entity maps.
 fn spawn_fixed_roster(
     mut commands: Commands,
     _synced: SyncedInputTimeline,
@@ -51,31 +46,53 @@ fn spawn_fixed_roster(
     }
     commands.insert_resource(P2PGameplayStarted);
 
-    let spacing = 120.0;
+    let spacing = 180.0;
     let center = (f32::from(settings.player_count) - 1.0) * 0.5;
-
     for peer_id in settings.peer_ids() {
         let id = PeerId::Entity(u64::from(peer_id));
         let position = Vec2::new((f32::from(peer_id) - center) * spacing, 0.0);
-        let hash = PLAYER_INPUT_HASH_BASE | u64::from(peer_id);
-        let pre_spawned = input_target_for_peer(&settings, &links, peer_id, hash);
-
-        let entity = commands
+        let color = Color::hsl((f32::from(peer_id) * 0.23) % 1.0, 0.8, 0.5);
+        let target = input_target_for_peer(
+            &settings,
+            &links,
+            peer_id,
+            PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
+        );
+        let player = commands
             .spawn((
-                PlayerBundle::new(id, position),
+                PlayerId(id),
+                PlayerPosition(position),
+                PlayerColor(color),
                 DeterministicPredicted {
                     skip_despawn: true,
                     enable_rollback_after: 0,
                 },
-                pre_spawned,
+                target,
                 ActionState::<Inputs>::default(),
                 InputBuffer::<ActionState<Inputs>, Inputs>::default(),
+                FrameInterpolate,
+                Name::from("P2P Head"),
             ))
             .id();
         if peer_id == settings.local_peer_id {
             commands
-                .entity(entity)
+                .entity(player)
                 .insert(InputMarker::<Inputs>::default());
         }
+
+        let tail_length = 300.0;
+        let direction = Direction::Up;
+        let mut points = VecDeque::new();
+        points.push_front((direction.get_tail(position, tail_length), direction));
+        commands.spawn((
+            PlayerParent(player),
+            TailPoints(points),
+            TailLength(tail_length),
+            DeterministicPredicted {
+                skip_despawn: true,
+                enable_rollback_after: 0,
+            },
+            Name::from("P2P Tail"),
+        ));
     }
 }

@@ -6,7 +6,7 @@ edition = "2021"
 publish = false
 
 [features]
-default = ["client", "gui", "server", "netcode", "webtransport"]
+default = ["client", "gui", "server", "p2p", "netcode", "webtransport"]
 client = ["lightyear/client", "lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui2d"]
 server = [
@@ -16,6 +16,12 @@ server = [
   "lightyear_examples_common/server",
 ]
 netcode = ["lightyear_examples_common/netcode"]
+p2p = [
+  "client",
+  "udp",
+  "lightyear/deterministic",
+  "lightyear_examples_common/p2p",
+]
 webtransport = ["lightyear_examples_common/webtransport"]
 udp = ["lightyear_examples_common/udp", "lightyear/std", "lightyear/udp"]
 
@@ -39,6 +45,7 @@ lightyear_examples_common = { workspace = true, features = [
   "structured-debug",
 ] }
 lightyear_frame_interpolation.workspace = true
+lightyear_deterministic_replication.workspace = true
 lightyear_avian2d = { workspace = true, features = ["2d", "lag_compensation"] }
 
 leafwing-input-manager.workspace = true

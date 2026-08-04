@@ -9,11 +9,17 @@ edition.workspace = true
 publish = false
 
 [features]
-default = ["client", "gui", "server", "netcode", "webtransport"]
+default = ["client", "gui", "server", "p2p", "netcode", "webtransport"]
 client = ["lightyear/client", "lightyear_examples_common/client"]
 gui = ["lightyear_examples_common/gui2d", "bevy/bevy_post_process"]
 server = ["lightyear/server", "lightyear_examples_common/server"]
 netcode = ["lightyear_examples_common/netcode"]
+p2p = [
+  "client",
+  "udp",
+  "lightyear/deterministic",
+  "lightyear_examples_common/p2p",
+]
 webtransport = ["lightyear_examples_common/webtransport"]
 udp = [
   "lightyear_examples_common/udp",
@@ -31,6 +37,7 @@ lightyear = { workspace = true, features = [
   "avian2d",
 ] }
 lightyear_frame_interpolation.workspace = true
+lightyear_deterministic_replication.workspace = true
 lightyear_examples_common = { workspace = true, features = [
   "structured-debug",
 ] }

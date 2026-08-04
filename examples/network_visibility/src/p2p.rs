@@ -1,44 +1,41 @@
-//! Direct P2P setup for the simple-box deterministic simulation.
+//! Input-only P2P setup for the network-visibility example.
 //!
-//! Unlike the conventional mode, no server spawns or replicates players. Every peer creates the
-//! same fixed roster locally and only exchanges tick-indexed inputs.
+//! Interest management remains a server-side replication demonstration in conventional mode. The
+//! P2P mode creates the complete small scene on every peer and exercises only deterministic player
+//! input exchange.
 
-use crate::protocol::{Inputs, PlayerBundle};
 use bevy::prelude::*;
 use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
+use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
 use lightyear_examples_common::p2p::{
     input_target_for_peer, P2PGameplayStarted, P2PSettings, GAMEPLAY_START_TICK,
 };
 
-/// Namespace for stable simple-box player hashes on the input wire.
-const PLAYER_INPUT_HASH_BASE: u64 = 0x5349_4D50_4C45_0000;
+use crate::protocol::*;
+use crate::shared::color_from_id;
+
+const PLAYER_INPUT_HASH_BASE: u64 = 0x5649_5349_4200_0000;
+const GRID_SIZE: f32 = 200.0;
+const NUM_CIRCLES: i32 = 1;
 
 pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
         app.insert_resource(PredictionManager::default());
-        app.add_plugins(
-            lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin,
-        );
+        app.add_plugins(DeterministicReplicationPlugin);
         app.add_systems(
             FixedPreUpdate,
-            spawn_fixed_roster.before(InputSystems::BufferClientInputs),
+            spawn_fixed_world.before(InputSystems::BufferClientInputs),
         );
-        crate::automation::add_p2p_debugging(app);
     }
 }
 
-/// Spawn one local deterministic copy of every player in stable roster order.
-///
-/// The local player receives [`InputMarker`], while remote players start with empty input buffers
-/// so prediction can begin before their first packet arrives. The explicit [`PreSpawned`] hash is
-/// the cross-world input identity; P2P deliberately does not depend on replication entity maps.
-fn spawn_fixed_roster(
+fn spawn_fixed_world(
     mut commands: Commands,
     _synced: SyncedInputTimeline,
     timeline: Res<LocalTimeline>,
@@ -51,30 +48,42 @@ fn spawn_fixed_roster(
     }
     commands.insert_resource(P2PGameplayStarted);
 
-    let spacing = 120.0;
-    let center = (f32::from(settings.player_count) - 1.0) * 0.5;
+    for x in -NUM_CIRCLES..NUM_CIRCLES {
+        for y in -NUM_CIRCLES..NUM_CIRCLES {
+            commands.spawn((
+                Position(Vec2::new(x as f32 * GRID_SIZE, y as f32 * GRID_SIZE)),
+                CircleMarker,
+            ));
+        }
+    }
 
+    let spacing = 100.0;
+    let center = (f32::from(settings.player_count) - 1.0) * 0.5;
     for peer_id in settings.peer_ids() {
         let id = PeerId::Entity(u64::from(peer_id));
-        let position = Vec2::new((f32::from(peer_id) - center) * spacing, 0.0);
-        let hash = PLAYER_INPUT_HASH_BASE | u64::from(peer_id);
-        let pre_spawned = input_target_for_peer(&settings, &links, peer_id, hash);
-
-        let entity = commands
+        let target = input_target_for_peer(
+            &settings,
+            &links,
+            peer_id,
+            PLAYER_INPUT_HASH_BASE | u64::from(peer_id),
+        );
+        let player = commands
             .spawn((
-                PlayerBundle::new(id, position),
+                PlayerId(id),
+                Position(Vec2::new((f32::from(peer_id) - center) * spacing, 0.0)),
+                PlayerColor(color_from_id(id)),
                 DeterministicPredicted {
                     skip_despawn: true,
                     enable_rollback_after: 0,
                 },
-                pre_spawned,
+                target,
                 ActionState::<Inputs>::default(),
                 InputBuffer::<ActionState<Inputs>, Inputs>::default(),
             ))
             .id();
         if peer_id == settings.local_peer_id {
             commands
-                .entity(entity)
+                .entity(player)
                 .insert(InputMarker::<Inputs>::default());
         }
     }

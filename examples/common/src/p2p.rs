@@ -15,6 +15,17 @@ use crate::client_renderer::ExampleClientRendererPlugin;
 const MAX_P2P_PLAYERS: u8 = 4;
 pub(crate) const DEFAULT_P2P_BASE_PORT: u16 = 6000;
 
+/// Tick at which fixed-roster examples create their deterministic gameplay world.
+///
+/// Delaying creation gives every raw Link time to connect and lets the input timeline complete
+/// its one-time initial synchronization before any gameplay state is simulated. A future session
+/// handshake should replace this example convention with an agreed start epoch.
+pub const GAMEPLAY_START_TICK: u32 = 120;
+
+/// Marker inserted after an example has created its fixed deterministic P2P world.
+#[derive(Resource, Default)]
+pub struct P2PGameplayStarted;
+
 /// Fixed roster used by an example running in direct P2P mode.
 ///
 /// The initial example transport assigns compact numeric peer identities. Iroh can replace the
@@ -33,6 +44,30 @@ impl P2PSettings {
     pub fn local_id(&self) -> PeerId {
         PeerId::Entity(u64::from(self.local_peer_id))
     }
+}
+
+/// Build the stable input target shared by every peer for one roster member.
+///
+/// Remote targets are scoped to the Link that owns their input stream. The local target has no
+/// receiver because this app captures and originates its inputs.
+pub fn input_target_for_peer(
+    settings: &P2PSettings,
+    links: &Query<(Entity, &RemoteId), With<P2P>>,
+    peer_id: u8,
+    hash: u64,
+) -> PreSpawned {
+    let mut target = PreSpawned::new(hash);
+    if peer_id == settings.local_peer_id {
+        return target;
+    }
+
+    let remote_id = PeerId::Entity(u64::from(peer_id));
+    let owner_link = links
+        .iter()
+        .find_map(|(entity, id)| (id.0 == remote_id).then_some(entity))
+        .unwrap_or_else(|| panic!("missing P2P Link for roster peer {peer_id}"));
+    target = target.for_receiver(owner_link);
+    target
 }
 
 /// Add the client-side Lightyear plugins and roster state used by a direct P2P example.

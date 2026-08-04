@@ -104,7 +104,7 @@ fn player_movement(
     >,
 ) {
     #[cfg(feature = "p2p")]
-    if p2p.is_some() && timeline.tick().0 < crate::p2p::GAMEPLAY_START_TICK {
+    if p2p.is_some() && timeline.tick().0 < lightyear_examples_common::p2p::GAMEPLAY_START_TICK {
         return;
     }
     for (position, input) in position_query.iter_mut() {
