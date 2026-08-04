@@ -79,7 +79,7 @@ impl ExampleServer {
                         private_key,
                         ..Default::default()
                     }
-                    .with_server_addr(settings.server_addr),
+                    .with_expected_server_addr(settings.server_addr),
                 ));
             };
             match settings.transport {

@@ -111,10 +111,10 @@ The IO layer we choose is UDP, so we add the [`ServerUdpIo`] component to the en
 
 When the address in a token differs from the bind address—for example, when binding to `0.0.0.0`
 or running behind NAT—configure the token identity explicitly with
-`NetcodeConfig::default().with_server_addr(public_addr)`. Use an address from
+`NetcodeConfig::default().with_expected_server_addr(public_addr)`. Use an address from
 [`ConnectTokenBuilder::internal_addresses`](https://docs.rs/lightyear/latest/lightyear/netcode/struct.ConnectTokenBuilder.html#method.internal_addresses) instead when the backend puts separate internal
 identities in the private token. Multiple identities can be configured with
-`with_server_addresses`.
+`with_expected_server_addresses`.
 
 Finally we trigger the [`Start`] trigger so that the server can start listening for incoming connections.
 
