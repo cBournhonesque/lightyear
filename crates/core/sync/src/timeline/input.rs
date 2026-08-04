@@ -50,7 +50,8 @@ impl InputTimelineConfig {
     pub fn is_lockstep(&self) -> bool {
         self.input_delay_config.is_lockstep()
     }
-    /// Maximum number of ticks the local simulation is allowed to predict ahead.
+    /// Maximum number of ticks the local simulation may predict beyond confirmed remote input.
+    #[inline]
     pub fn maximum_predicted_ticks(&self) -> u16 {
         self.input_delay_config.maximum_predicted_ticks
     }
@@ -106,6 +107,122 @@ impl InputTimelineConfig {
             topology = ?metadata.mode,
             "recomputed global input delay after config update"
         );
+    }
+}
+
+/// Number of confirmed-input ticks that must be recovered before a prediction-window wait ends.
+///
+/// Waiting at the exact prediction limit and immediately resuming after one newly confirmed tick
+/// would alternate between running and waiting every fixed tick. Requiring two ticks of headroom
+/// lets the simulation make useful progress after it resumes.
+pub const PREDICTION_WINDOW_HYSTERESIS_TICKS: u16 = 2;
+
+/// Application-global signal that stops deterministic simulation at its safe prediction limit.
+///
+/// Deterministic replication updates this resource from the minimum confirmed-input frontier
+/// across all remote players and registered input types. The driving timeline synchronization
+/// system reads it when applying its speed to `Time<Virtual>`: while waiting, virtual time receives
+/// an effective relative speed of zero, but the timeline's phase-controller speed is preserved.
+///
+/// This signal is deliberately specific to confirmed-input availability. P2P phase lead continues
+/// to use the normal timeline slowdown controller and does not request a hard wait.
+#[derive(Resource, Debug, Clone, Copy, Reflect)]
+pub struct PredictionWindowWait {
+    waiting: bool,
+    origin_tick: Option<Tick>,
+    current_tick: Tick,
+    confirmed_tick: Option<Tick>,
+    prediction_depth: i32,
+    maximum_predicted_ticks: u16,
+}
+
+impl Default for PredictionWindowWait {
+    fn default() -> Self {
+        Self {
+            waiting: false,
+            origin_tick: None,
+            current_tick: Tick(0),
+            confirmed_tick: None,
+            prediction_depth: 0,
+            maximum_predicted_ticks: 0,
+        }
+    }
+}
+
+impl PredictionWindowWait {
+    /// Returns whether deterministic simulation must currently wait for remote input.
+    #[inline]
+    pub fn is_waiting(&self) -> bool {
+        self.waiting
+    }
+
+    /// Current local lead over the global confirmed-input frontier, in ticks.
+    ///
+    /// This can be negative when input delay has provided confirmed remote input for future ticks.
+    #[inline]
+    pub fn prediction_depth(&self) -> i32 {
+        self.prediction_depth
+    }
+
+    /// Latest global confirmed-input frontier used by the wait decision.
+    #[inline]
+    pub fn confirmed_tick(&self) -> Option<Tick> {
+        self.confirmed_tick
+    }
+
+    /// Effective prediction limit used by the wait decision.
+    #[inline]
+    pub fn maximum_predicted_ticks(&self) -> u16 {
+        self.maximum_predicted_ticks
+    }
+
+    /// Clear all state when there is no active deterministic input session.
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Update the wait decision from the current and globally confirmed input ticks.
+    ///
+    /// `maximum_predicted_ticks` must already account for the rollback-history bound. The method
+    /// starts waiting when another fixed tick would exceed that bound, and resumes only after
+    /// [`PREDICTION_WINDOW_HYSTERESIS_TICKS`] ticks of headroom have been recovered.
+    ///
+    /// Before any remote input exists, the first observed local tick becomes the session origin.
+    /// One initial fixed tick is allowed so the fixed input pipeline can capture and send its first
+    /// sample even for a zero-sized prediction window.
+    ///
+    /// Returns `true` when the waiting state changed.
+    pub fn update(
+        &mut self,
+        current_tick: Tick,
+        confirmed_tick: Option<Tick>,
+        maximum_predicted_ticks: u16,
+    ) -> bool {
+        let origin_tick = *self.origin_tick.get_or_insert(current_tick);
+        let frontier = confirmed_tick.unwrap_or(origin_tick);
+        let prediction_depth = current_tick - frontier;
+        let maximum = i32::from(maximum_predicted_ticks);
+        // A window smaller than the preferred hysteresis cannot require future input beyond the
+        // current tick: if every peer waited there, no one could capture that future input. Fall
+        // back to resuming at zero prediction depth for those small windows.
+        let resume_at =
+            i32::from(maximum_predicted_ticks.saturating_sub(PREDICTION_WINDOW_HYSTERESIS_TICKS));
+
+        let waiting = if confirmed_tick.is_none() && current_tick == origin_tick {
+            false
+        } else if self.waiting {
+            prediction_depth > resume_at
+        } else {
+            prediction_depth >= maximum
+        };
+        let changed = waiting != self.waiting;
+
+        self.waiting = waiting;
+        self.current_tick = current_tick;
+        self.confirmed_tick = confirmed_tick;
+        self.prediction_depth = prediction_depth;
+        self.maximum_predicted_ticks = maximum_predicted_ticks;
+        changed
     }
 }
 
@@ -508,7 +625,7 @@ impl SyncedTimeline for InputTimeline {
         let adjustment = if !self.is_synced {
             SyncAdjustment::Resync
         } else {
-            self.sync.speed_adjustment(&config.sync, error_ticks)
+            self.speed_adjustment(config, error_ticks)
         };
         trace!(
             ?now,
@@ -524,19 +641,25 @@ impl SyncedTimeline for InputTimeline {
             SyncAdjustment::Resync => {
                 return Some(self.resync(objective));
             }
-            SyncAdjustment::SpeedAdjust(ratio) => {
-                self.set_relative_speed(ratio);
-            }
-            SyncAdjustment::DoNothing => {
-                // within acceptable margins, gradually return to normal speed (1.0)
-                let current = self.relative_speed();
-                if (current - 1.0).abs() > 0.001 {
-                    let new_speed = current + (1.0 - current) * 0.1;
-                    self.set_relative_speed(new_speed);
-                }
-            }
+            SyncAdjustment::SpeedAdjust(_) | SyncAdjustment::DoNothing => {}
         }
         None
+    }
+
+    fn speed_adjustment(&mut self, config: &Self::Config, offset: f32) -> SyncAdjustment {
+        let adjustment = self.sync.speed_adjustment(&config.sync, offset);
+        match adjustment {
+            SyncAdjustment::SpeedAdjust(ratio) => self.set_relative_speed(ratio),
+            SyncAdjustment::DoNothing => {
+                // Within acceptable margins, gradually return to normal speed.
+                let current = self.relative_speed();
+                if (current - 1.0).abs() > 0.001 {
+                    self.set_relative_speed(current + (1.0 - current) * 0.1);
+                }
+            }
+            SyncAdjustment::Resync => {}
+        }
+        adjustment
     }
 
     fn is_synced(&self) -> bool {
@@ -553,6 +676,7 @@ impl SyncedTimeline for InputTimeline {
 
     fn reset(&mut self) {
         trace!("Resetting InputTimeline");
+        self.sync = SyncContext::default();
         self.is_synced = false;
         self.relative_speed = 1.0;
         self.now = Default::default();
@@ -578,6 +702,44 @@ mod tests {
 
     #[derive(Resource, Default)]
     struct SyncedParamRuns(u8);
+
+    #[test]
+    fn prediction_window_wait_uses_hysteresis() {
+        let mut wait = PredictionWindowWait::default();
+
+        assert!(!wait.update(Tick(100), None, 4));
+        assert!(!wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 0);
+
+        assert!(wait.update(Tick(104), None, 4));
+        assert!(wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 4);
+
+        // One newly confirmed tick is not enough to resume and immediately hit the limit again.
+        assert!(!wait.update(Tick(104), Some(Tick(101)), 4));
+        assert!(wait.is_waiting());
+
+        // Two ticks of recovered headroom release the wait.
+        assert!(wait.update(Tick(104), Some(Tick(102)), 4));
+        assert!(!wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 2);
+    }
+
+    #[test]
+    fn zero_prediction_window_can_bootstrap_then_wait_for_future_input() {
+        let mut wait = PredictionWindowWait::default();
+
+        // The first fixed tick is allowed to capture and send the initial local input sample.
+        assert!(!wait.update(Tick(20), None, 0));
+        assert!(wait.update(Tick(21), None, 0));
+        assert!(wait.is_waiting());
+
+        // A zero-sized window cannot require future input beyond the current tick, or every peer
+        // could wait forever. Confirming the current tick releases this degenerate case.
+        assert!(wait.update(Tick(21), Some(Tick(21)), 0));
+        assert!(!wait.is_waiting());
+        assert_eq!(wait.prediction_depth(), 0);
+    }
 
     #[test]
     fn synced_input_timeline_checks_the_resource_entity_marker() {
