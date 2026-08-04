@@ -1,4 +1,4 @@
-use alloc::{vec, vec::Vec};
+use alloc::vec::Vec;
 use bevy_ecs::entity::{Entity, EntityHashSet};
 use bevy_platform::collections::{HashMap, HashSet};
 use bevy_reflect::Reflect;
@@ -8,15 +8,30 @@ use lightyear_serde::reader::{ReadInteger, Reader};
 use lightyear_serde::writer::WriteInteger;
 use lightyear_serde::{SerializationError, ToBytes};
 use serde::{Deserialize, Serialize};
-use smallvec::SmallVec;
+use smallvec::{SmallVec, smallvec};
+
+// Four covers the common small-server case without making every Target excessively large.
+const INLINE_TARGET_CAPACITY: usize = 4;
+
+/// Client IDs stored by the multi-client [`Target`] variants.
+///
+/// Up to four IDs live directly inside the target, which is the common case. Larger targets spill
+/// to the heap while keeping the same contiguous-list behavior.
+pub type TargetList<T> = SmallVec<[T; INLINE_TARGET_CAPACITY]>;
 
 pub type NetworkTarget = Target<PeerId>;
 pub type EntityTarget = Target<Entity>;
 
 /// Reusable storage for resolving a [`NetworkTarget`] to connected entities.
+///
+/// `targets` is the final set returned to the caller. `requested` is scratch storage used to map
+/// the peer IDs in a larger [`NetworkTarget::Only`] to entities before intersecting them with the
+/// server's connected-client list. Keeping both sets here lets repeated sends reuse their capacity.
 #[derive(Default)]
 pub struct NetworkTargetResolver {
+    /// Final connected recipients for the current resolution.
     targets: EntityHashSet,
+    /// Mapped `Only` recipients before filtering out entities not connected to this server.
     requested: EntityHashSet,
 }
 
@@ -29,6 +44,8 @@ impl NetworkTargetResolver {
         clients: &[Entity],
         mapping: &HashMap<PeerId, Entity>,
     ) -> &EntityHashSet {
+        // Clearing preserves the allocated tables, so steady-state sends only rewrite their
+        // contents. Both sets must be cleared because a resolver is reused across target shapes.
         self.targets.clear();
         self.requested.clear();
 
@@ -41,6 +58,8 @@ impl NetworkTargetResolver {
                 }
             }
             NetworkTarget::AllExcept(peer_ids) => {
+                // Starting from all connected clients and removing exclusions writes the final
+                // answer directly, so this branch does not need the `requested` scratch set.
                 self.targets.extend(clients.iter().copied());
                 for peer_id in peer_ids {
                     if let Some(entity) = mapping.get(peer_id) {
@@ -56,11 +75,15 @@ impl NetworkTargetResolver {
                 }
             }
             NetworkTarget::Only(peer_ids) => {
-                if clients.len() <= 4 && peer_ids.len() <= 4 {
+                // For the common small-server case, mapping into an inline list and scanning it is
+                // cheaper than hashing and cannot allocate.
+                if clients.len() <= INLINE_TARGET_CAPACITY
+                    && peer_ids.len() <= INLINE_TARGET_CAPACITY
+                {
                     let requested = peer_ids
                         .iter()
                         .filter_map(|peer_id| mapping.get(peer_id).copied())
-                        .collect::<SmallVec<[Entity; 4]>>();
+                        .collect::<SmallVec<[Entity; INLINE_TARGET_CAPACITY]>>();
                     self.targets.extend(
                         clients
                             .iter()
@@ -69,6 +92,8 @@ impl NetworkTargetResolver {
                     );
                     return &self.targets;
                 }
+                // For larger lists, hash the mapped request once and scan connected clients once.
+                // This avoids the O(clients * requested) nested membership scan.
                 self.requested
                     .extend(peer_ids.iter().filter_map(|peer_id| mapping.get(peer_id)));
                 self.targets.extend(
@@ -106,7 +131,7 @@ impl NetworkTarget {
                 let entity_ids = client_ids
                     .iter()
                     .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
-                    .collect::<SmallVec<[Entity; 4]>>();
+                    .collect::<SmallVec<[Entity; INLINE_TARGET_CAPACITY]>>();
                 clients
                     .into_iter()
                     .filter(|e| !entity_ids.contains(e))
@@ -122,7 +147,7 @@ impl NetworkTarget {
                 let entity_ids = client_ids
                     .iter()
                     .map(|p| *mapping.get(p).unwrap_or(&Entity::PLACEHOLDER))
-                    .collect::<SmallVec<[Entity; 4]>>();
+                    .collect::<SmallVec<[Entity; INLINE_TARGET_CAPACITY]>>();
                 clients
                     .into_iter()
                     .filter(|e| entity_ids.contains(e))
@@ -141,13 +166,12 @@ pub enum Target<T> {
     None,
     /// Message sent to all clients except one
     AllExceptSingle(T),
-    // TODO: use small vec
     /// Message sent to all clients except for these
-    AllExcept(Vec<T>),
+    AllExcept(TargetList<T>),
     /// Message sent to all clients
     All,
     /// Message sent to only these
-    Only(Vec<T>),
+    Only(TargetList<T>),
     /// Message sent to only this one client
     Single(T),
 }
@@ -199,9 +223,9 @@ impl ToBytes for Target<PeerId> {
         match buffer.read_u8()? {
             0 => Ok(Target::None),
             1 => Ok(Target::AllExceptSingle(PeerId::from_bytes(buffer)?)),
-            2 => Ok(Target::AllExcept(Vec::<PeerId>::from_bytes(buffer)?)),
+            2 => Ok(Target::AllExcept(TargetList::<PeerId>::from_bytes(buffer)?)),
             3 => Ok(Target::All),
-            4 => Ok(Target::Only(Vec::<PeerId>::from_bytes(buffer)?)),
+            4 => Ok(Target::Only(TargetList::<PeerId>::from_bytes(buffer)?)),
             5 => Ok(Target::Single(PeerId::from_bytes(buffer)?)),
             _ => Err(SerializationError::InvalidPacketType),
         }
@@ -235,7 +259,7 @@ impl<T> FromIterator<T> for Target<T> {
         let Some(second) = iter.next() else {
             return Target::Single(first);
         };
-        let mut clients = Vec::with_capacity(iter.size_hint().0.saturating_add(2));
+        let mut clients = TargetList::with_capacity(iter.size_hint().0.saturating_add(2));
         clients.extend([first, second]);
         clients.extend(iter);
         Target::Only(clients)
@@ -243,7 +267,13 @@ impl<T> FromIterator<T> for Target<T> {
 }
 
 impl<T> From<Vec<T>> for Target<T> {
-    fn from(mut value: Vec<T>) -> Self {
+    fn from(value: Vec<T>) -> Self {
+        Target::from(TargetList::from_vec(value))
+    }
+}
+
+impl<T> From<TargetList<T>> for Target<T> {
+    fn from(mut value: TargetList<T>) -> Self {
         match value.len() {
             0 => Target::None,
             1 => Target::Single(value.pop().unwrap()),
@@ -252,6 +282,13 @@ impl<T> From<Vec<T>> for Target<T> {
     }
 }
 
+// The algebra has three performance tiers:
+// 1. Resolve All/None identities before touching target lists.
+// 2. Scan inline lists directly when either side has at most four IDs.
+// 3. Build one pre-sized membership set for larger list/list operations.
+//
+// This keeps common cases allocation-free without returning to the quadratic behavior of scanning
+// every large list against every other large list.
 impl<T: Eq + Hash + Copy> Target<T> {
     /// Returns true if the target is empty
     pub fn is_empty(&self) -> bool {
@@ -298,7 +335,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
             }
             Target::Single(existing) => {
                 if *existing != client_id {
-                    let mut included = Vec::with_capacity(capacity);
+                    let mut included = TargetList::with_capacity(capacity);
                     included.extend([*existing, client_id]);
                     *self = Target::Only(included);
                 }
@@ -316,7 +353,8 @@ impl<T: Eq + Hash + Copy> Target<T> {
         let Some(second) = iter.next() else {
             return Target::Single(first);
         };
-        let mut client_ids = Vec::with_capacity(iter.size_hint().1.unwrap_or(0).saturating_add(2));
+        let mut client_ids =
+            TargetList::with_capacity(iter.size_hint().1.unwrap_or(0).saturating_add(2));
         client_ids.extend([first, second]);
         client_ids.extend(iter);
         Self::deduplicate(&mut client_ids);
@@ -333,7 +371,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
         }
     }
 
-    fn all_except_from_vec(mut client_ids: Vec<T>) -> Self {
+    fn all_except_from_list(mut client_ids: TargetList<T>) -> Self {
         match client_ids.len() {
             0 => Target::All,
             1 => Target::AllExceptSingle(client_ids.pop().unwrap()),
@@ -382,8 +420,8 @@ impl<T: Eq + Hash + Copy> Target<T> {
     }
 
     /// Stable deduplication with an allocation-free path for the common small-client case.
-    fn deduplicate(client_ids: &mut Vec<T>) {
-        if client_ids.len() > 4 {
+    fn deduplicate(client_ids: &mut TargetList<T>) {
+        if client_ids.len() > INLINE_TARGET_CAPACITY {
             let mut seen = HashSet::with_capacity(client_ids.len());
             client_ids.retain(|client_id| seen.insert(*client_id));
             return;
@@ -399,8 +437,9 @@ impl<T: Eq + Hash + Copy> Target<T> {
     }
 
     /// Appends IDs while preserving order and uniqueness.
-    fn append_unique(client_ids: &mut Vec<T>, extra: &[T]) {
-        if client_ids.len() <= 4 || extra.len() <= 4 {
+    fn append_unique(client_ids: &mut TargetList<T>, extra: &[T]) {
+        if client_ids.len() <= INLINE_TARGET_CAPACITY || extra.len() <= INLINE_TARGET_CAPACITY {
+            // A few contiguous comparisons are cheaper than constructing a hash table.
             for client_id in extra {
                 if !client_ids.contains(client_id) {
                     client_ids.push(*client_id);
@@ -409,6 +448,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
             return;
         }
 
+        // Seed one set from the existing IDs, then use it for both deduplication and membership.
         let mut seen = HashSet::with_capacity(client_ids.len().saturating_add(extra.len()));
         client_ids.retain(|client_id| seen.insert(*client_id));
         client_ids.reserve(extra.len());
@@ -420,12 +460,13 @@ impl<T: Eq + Hash + Copy> Target<T> {
     }
 
     /// Retains either the IDs present in `other` or those absent from it.
-    fn retain_membership(client_ids: &mut Vec<T>, other: &[T], keep_present: bool) {
-        if client_ids.len() <= 4 || other.len() <= 4 {
+    fn retain_membership(client_ids: &mut TargetList<T>, other: &[T], keep_present: bool) {
+        if client_ids.len() <= INLINE_TARGET_CAPACITY || other.len() <= INLINE_TARGET_CAPACITY {
             client_ids.retain(|client_id| other.contains(client_id) == keep_present);
             return;
         }
 
+        // One lookup table changes the large-list path from O(left * right) to O(left + right).
         if keep_present {
             let mut remaining = HashSet::with_capacity(other.len());
             remaining.extend(other.iter().copied());
@@ -440,13 +481,13 @@ impl<T: Eq + Hash + Copy> Target<T> {
 
     /// Builds an inclusive target containing the unique IDs in `left` but not in `right`.
     fn only_difference(left: &[T], right: &[T]) -> Self {
-        if left.len() <= 4 || right.len() <= 4 {
+        if left.len() <= INLINE_TARGET_CAPACITY || right.len() <= INLINE_TARGET_CAPACITY {
             return Self::only_unique(left.iter().copied().filter(|id| !right.contains(id)));
         }
 
         let mut excluded_or_seen = HashSet::with_capacity(left.len().saturating_add(right.len()));
         excluded_or_seen.extend(right.iter().copied());
-        let mut result = Vec::with_capacity(left.len());
+        let mut result = TargetList::with_capacity(left.len());
         result.extend(
             left.iter()
                 .copied()
@@ -466,6 +507,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
 
     /// Compute the intersection of this target with another one (A ∩ B)
     pub(crate) fn intersection(&mut self, target: &Target<T>) {
+        // Handle algebraic identities before inspecting lists or allocating.
         if matches!(self, Target::None) || matches!(target, Target::All) {
             return;
         }
@@ -563,6 +605,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
 
     /// Compute the union of this target with another one (A U B)
     pub(crate) fn union(&mut self, target: &Target<T>) {
+        // Handle algebraic identities before inspecting lists or allocating.
         if matches!(self, Target::All) || matches!(target, Target::None) {
             return;
         }
@@ -656,7 +699,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
                 }
                 Target::Single(target_client_id) => {
                     if existing_client_id != target_client_id {
-                        *self = Target::Only(vec![*existing_client_id, *target_client_id]);
+                        *self = Target::Only(smallvec![*existing_client_id, *target_client_id]);
                     }
                 }
             },
@@ -669,6 +712,8 @@ impl<T: Eq + Hash + Copy> Target<T> {
 
     /// Compute the inverse of this target (¬A)
     pub(crate) fn inverse(&mut self) {
+        // Inversion only changes the meaning of the owned list, so move it between variants rather
+        // than cloning, deduplicating, or allocating.
         *self = match core::mem::take(self) {
             Target::All => Target::None,
             Target::AllExceptSingle(client_id) => Target::Single(client_id),
@@ -681,6 +726,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
 
     /// Compute the difference of this target with another one (A - B)
     pub(crate) fn exclude(&mut self, target: &Target<T>) {
+        // Handle algebraic identities before inspecting lists or allocating.
         if matches!(self, Target::None) || matches!(target, Target::None) {
             return;
         }
@@ -696,7 +742,7 @@ impl<T: Eq + Hash + Copy> Target<T> {
                     Target::AllExceptSingle(client_id) => Target::Single(*client_id),
                     Target::AllExcept(client_ids) => Target::from(client_ids.clone()),
                     Target::All => Target::None,
-                    Target::Only(client_ids) => Self::all_except_from_vec(client_ids.clone()),
+                    Target::Only(client_ids) => Self::all_except_from_list(client_ids.clone()),
                     Target::Single(client_id) => Target::AllExceptSingle(*client_id),
                 };
             }
@@ -779,16 +825,22 @@ impl<T: Eq + Hash + Copy> Target<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::vec;
     use lightyear_serde::writer::Writer;
 
     #[test]
     fn test_serde() {
-        let target = Target::AllExcept(vec![]);
-        let mut writer = Writer::default();
-        target.to_bytes(&mut writer).unwrap();
-        let mut reader = Reader::from(writer.into_bytes());
-        let deserialized = Target::from_bytes(&mut reader).unwrap();
-        assert_eq!(target, deserialized);
+        let targets = [
+            Target::AllExcept(smallvec![]),
+            Target::Only((0..=INLINE_TARGET_CAPACITY as u64).map(peer).collect()),
+        ];
+        for target in targets {
+            let mut writer = Writer::default();
+            target.to_bytes(&mut writer).unwrap();
+            let mut reader = Reader::from(writer.into_bytes());
+            let deserialized = Target::from_bytes(&mut reader).unwrap();
+            assert_eq!(target, deserialized);
+        }
     }
 
     fn peer(id: u64) -> PeerId {
@@ -813,7 +865,7 @@ mod tests {
         assert_entities(resolver.resolve(&Target::All, &clients, &mapping), &clients);
         assert_entities(
             resolver.resolve(
-                &Target::Only(vec![peer(1), peer(2), peer(3)]),
+                &Target::Only(smallvec![peer(1), peer(2), peer(3)]),
                 &clients,
                 &mapping,
             ),
@@ -821,7 +873,7 @@ mod tests {
         );
         assert_entities(
             resolver.resolve(
-                &Target::AllExcept(vec![peer(1), peer(2)]),
+                &Target::AllExcept(smallvec![peer(1), peer(2)]),
                 &clients,
                 &mapping,
             ),
@@ -836,14 +888,17 @@ mod tests {
             ("all", Target::All),
             ("single", Target::Single(peer(0))),
             ("all-except-single", Target::AllExceptSingle(peer(0))),
-            ("only-many", Target::Only(vec![peer(0), peer(1)])),
-            ("all-except-many", Target::AllExcept(vec![peer(0), peer(1)])),
-            ("only-empty", Target::Only(vec![])),
-            ("all-except-empty", Target::AllExcept(vec![])),
-            ("only-duplicate", Target::Only(vec![peer(0), peer(0)])),
+            ("only-many", Target::Only(smallvec![peer(0), peer(1)])),
+            (
+                "all-except-many",
+                Target::AllExcept(smallvec![peer(0), peer(1)]),
+            ),
+            ("only-empty", Target::Only(smallvec![])),
+            ("all-except-empty", Target::AllExcept(smallvec![])),
+            ("only-duplicate", Target::Only(smallvec![peer(0), peer(0)])),
             (
                 "all-except-duplicate",
-                Target::AllExcept(vec![peer(0), peer(0)]),
+                Target::AllExcept(smallvec![peer(0), peer(0)]),
             ),
         ]
     }
@@ -911,21 +966,24 @@ mod tests {
 
         let mut target = Target::Single(peer(0));
         target.extend([peer(0), peer(1), peer(1)]);
-        assert_eq!(target, Target::Only(vec![peer(0), peer(1)]));
+        assert_eq!(target, Target::Only(smallvec![peer(0), peer(1)]));
     }
 
     #[test]
-    fn operations_reuse_left_hand_vec_capacity() {
-        assert_reuses_left_hand_vec(Target::intersection, Target::Only(vec![peer(0), peer(2)]));
-        assert_reuses_left_hand_vec(Target::union, Target::Single(peer(3)));
-        assert_reuses_left_hand_vec(Target::exclude, Target::Single(peer(1)));
+    fn operations_reuse_left_hand_list_capacity() {
+        assert_reuses_left_hand_list(
+            Target::intersection,
+            Target::Only(smallvec![peer(0), peer(2)]),
+        );
+        assert_reuses_left_hand_list(Target::union, Target::Single(peer(3)));
+        assert_reuses_left_hand_list(Target::exclude, Target::Single(peer(1)));
     }
 
-    fn assert_reuses_left_hand_vec(
+    fn assert_reuses_left_hand_list(
         operation: fn(&mut NetworkTarget, &NetworkTarget),
         right: NetworkTarget,
     ) {
-        let mut client_ids = Vec::with_capacity(8);
+        let mut client_ids = TargetList::with_capacity(8);
         client_ids.extend([peer(0), peer(1), peer(2)]);
         let pointer = client_ids.as_ptr();
         let capacity = client_ids.capacity();
@@ -938,5 +996,18 @@ mod tests {
         };
         assert_eq!(client_ids.as_ptr(), pointer);
         assert_eq!(client_ids.capacity(), capacity);
+    }
+
+    #[test]
+    fn target_list_stores_four_clients_inline() {
+        let inline = (0..INLINE_TARGET_CAPACITY as u64)
+            .map(peer)
+            .collect::<TargetList<_>>();
+        assert!(!inline.spilled());
+
+        let spilled = (0..=INLINE_TARGET_CAPACITY as u64)
+            .map(peer)
+            .collect::<TargetList<_>>();
+        assert!(spilled.spilled());
     }
 }

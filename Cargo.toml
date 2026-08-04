@@ -130,7 +130,7 @@ rand = "0.10"
 ringbuffer = "0.16"
 thiserror = "2.0.3"
 seahash = "4.1.0"
-smallvec = { version = "1", features = ["union", "const_generics"] }
+smallvec = { version = "1", features = ["union", "const_generics", "serde"] }
 variadics_please = "2.0.0"
 
 # no_std
