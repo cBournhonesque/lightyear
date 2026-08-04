@@ -7,8 +7,8 @@ use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use lightyear::connection::host::HostServer;
 use lightyear::prelude::{
-    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InputTimeline, Interpolated,
-    IsSynced, LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server,
+    lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, Interpolated, IsSynced,
+    LocalTimeline, PreSpawned, Predicted, Replicate, Replicated, Server,
 };
 #[cfg(feature = "client")]
 use lightyear::prelude::{

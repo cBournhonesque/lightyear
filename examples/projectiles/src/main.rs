@@ -84,8 +84,8 @@ fn update_client(app: &mut App) {
         .unwrap();
 
     // we need to add a ReplicationSender to the client entity to replicate the Action entities to the server
-    app.world_mut().entity_mut(client).insert((
-        ReplicationSender,
+    app.world_mut().entity_mut(client).insert(ReplicationSender);
+    app.insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::balanced()),
-    ));
+    );
 }

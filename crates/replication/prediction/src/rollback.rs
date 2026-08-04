@@ -67,7 +67,7 @@ use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
-use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, IsSynced};
+use lightyear_sync::prelude::{InputTimelineConfig, SyncedInputTimeline};
 use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
 use lightyear_utils::timer_gauge;
@@ -227,6 +227,9 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
+            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)
@@ -358,17 +361,14 @@ fn check_rollback(
     // make sure to include disabled entities
     mut predicted_entities: Query<(&ConfirmHistory, FilteredEntityMut)>,
     timeline: Res<LocalTimeline>,
+    _input_timeline: SyncedInputTimeline,
+    input_config: Res<InputTimelineConfig>,
+    last_confirmed_input: Res<LastConfirmedInput>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     checkpoints: Res<ReplicationCheckpointMap>,
     receiver_query: Single<
-        (
-            Entity,
-            Option<&LastConfirmedInput>,
-            &mut PredictionManager,
-            &InputTimelineConfig,
-            &mut PreSpawnedReceiver,
-        ),
-        (With<IsSynced<InputTimeline>>, Without<HostClient>),
+        (Entity, &mut PredictionManager, &mut PreSpawnedReceiver),
+        (With<Client>, Without<HostClient>),
     >,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
@@ -380,18 +380,13 @@ fn check_rollback(
     #[cfg(feature = "metrics")]
     let _timer = timer_gauge!("prediction/rollback/check");
 
-    let (
-        manager_entity,
-        last_confirmed_input,
-        mut prediction_manager,
-        input_config,
-        mut prespawned_receiver,
-    ) = receiver_query.into_inner();
+    let (manager_entity, mut prediction_manager, mut prespawned_receiver) =
+        receiver_query.into_inner();
     let tick = timeline.tick();
     let received_state = state_metadata.received_messages_this_frame;
     let max_rollback_ticks = prediction_manager
         .rollback_policy
-        .effective_max_rollback_ticks(input_config);
+        .effective_max_rollback_ticks(&input_config);
 
     // The tick where ALL messages have been received (guaranteed complete information).
     // Explicit mismatch checks can exist before this is known, so don't return early.
@@ -669,8 +664,7 @@ fn check_rollback(
             RollbackMode::Always => {
                 if prediction_manager.is_rollback() {
                     debug!("Rollback was triggered by state, skipping input rollback checks");
-                } else if let Some(last_confirmed_input) = last_confirmed_input
-                    && last_confirmed_input.received_input()
+                } else if last_confirmed_input.received_input()
                     && let Some(rollback_tick) = last_confirmed_input.get()
                 {
                     debug!(
@@ -831,22 +825,20 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
-    client: Single<AnyOf<(&LastConfirmedInput, &PredictionManager)>, With<IsSynced<InputTimeline>>>,
+    _input_timeline: SyncedInputTimeline,
+    last_confirmed_input: Res<LastConfirmedInput>,
+    prediction_manager: Option<Single<&PredictionManager, With<Client>>>,
 ) {
-    let (last_confirmed_input, prediction_manager) = client.into_inner();
-
     // Reset to u32::MAX so the next `set_if_lower` call always wins and we
     // compute the true minimum across all remote clients for this frame.
-    if let Some(last_confirmed_input) = last_confirmed_input {
-        last_confirmed_input
-            .tick
-            .0
-            .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
-        last_confirmed_input
-            .received_any_messages
-            .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
-    }
-    if let Some(prediction_manager) = prediction_manager {
+    last_confirmed_input
+        .tick
+        .0
+        .store(u32::MAX, bevy_platform::sync::atomic::Ordering::Relaxed);
+    last_confirmed_input
+        .received_any_messages
+        .store(false, bevy_platform::sync::atomic::Ordering::Relaxed);
+    if let Some(prediction_manager) = prediction_manager.as_deref() {
         prediction_manager
             .earliest_mismatch_input
             .tick

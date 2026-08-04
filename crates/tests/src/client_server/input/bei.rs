@@ -447,7 +447,7 @@ fn test_buffer_inputs_with_delay() {
     let mut config = StepperConfig::single();
     config.init = false;
     let mut stepper = ClientServerStepper::from_config(config);
-    stepper.client_mut(0).insert(
+    stepper.client_app().world_mut().insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
     );
     stepper.init();
@@ -622,7 +622,7 @@ fn test_buffer_vec2_inputs_with_delay_preserves_buffered_action_value_dimension(
     let mut config = StepperConfig::single();
     config.init = false;
     let mut stepper = ClientServerStepper::from_config(config);
-    stepper.client_mut(0).insert(
+    stepper.client_app().world_mut().insert_resource(
         InputTimelineConfig::default().with_input_delay(InputDelayConfig::fixed_input_delay(1)),
     );
     stepper.init();
