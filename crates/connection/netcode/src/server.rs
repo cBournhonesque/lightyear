@@ -247,7 +247,7 @@ pub type ConnectCallback<Ctx> =
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
 /// * `keep_alive_send_rate` - The rate at which keep-alive packets will be sent to clients.
-/// * `server_addresses` - The server identities that may be present in incoming connection tokens.
+/// * `expected_server_addresses` - The server identities that may be present in incoming connection tokens.
 /// * `on_connect` - A callback that will be called when a client is connected to the server.
 /// * `on_disconnect` - A callback that will be called when a client is disconnected from the server.
 ///
@@ -261,7 +261,7 @@ pub type ConnectCallback<Ctx> =
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
 /// let cfg = ServerConfig::with_context(thread_safe_counter)
-///     .server_addr(addr)
+///     .expected_server_addr(addr)
 ///     .on_connect(|idx, _, _, ctx| {
 ///         let mut counter = ctx.lock().unwrap();
 ///         *counter += 1;
@@ -275,7 +275,7 @@ pub struct ServerConfig<Ctx> {
     token_expire_secs: i32,
     client_timeout_secs: i32,
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
-    server_addresses: Vec<SocketAddr>,
+    expected_server_addresses: Vec<SocketAddr>,
     pub(crate) context: Ctx,
     on_connect: Option<ConnectCallback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
@@ -289,7 +289,7 @@ impl Default for ServerConfig<()> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            server_addresses: Vec::new(),
+            expected_server_addresses: Vec::new(),
             context: (),
             on_connect: None,
             on_disconnect: None,
@@ -310,7 +310,7 @@ impl<Ctx> ServerConfig<Ctx> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            server_addresses: Vec::new(),
+            expected_server_addresses: Vec::new(),
             context: ctx,
             on_connect: None,
             on_disconnect: None,
@@ -345,8 +345,8 @@ impl<Ctx> ServerConfig<Ctx> {
     /// This replaces any previously configured addresses. The address may differ from the
     /// transport's bind address, such as when the server is behind NAT or binds to an unspecified
     /// IP.
-    pub fn server_addr(self, server_addr: SocketAddr) -> Self {
-        self.server_addresses([server_addr])
+    pub fn expected_server_addr(self, server_addr: SocketAddr) -> Self {
+        self.expected_server_addresses([server_addr])
     }
 
     /// Set the addresses that identify this server in private connect tokens.
@@ -355,11 +355,11 @@ impl<Ctx> ServerConfig<Ctx> {
     /// address. The identities should be stable and unique among servers that share a protocol ID
     /// and private key. Passing an empty iterator disables server-address validation and should be
     /// reserved for addressless transports.
-    pub fn server_addresses(
+    pub fn expected_server_addresses(
         mut self,
         server_addresses: impl IntoIterator<Item = SocketAddr>,
     ) -> Self {
-        self.server_addresses = server_addresses.into_iter().collect();
+        self.expected_server_addresses = server_addresses.into_iter().collect();
         self
     }
 
@@ -429,8 +429,8 @@ impl Server {
     ///
     /// The default configuration does not contain a server identity, so it cannot validate the
     /// private server-address list in incoming connect tokens. For socket-based transports, use
-    /// [`Server::with_config`] with [`ServerConfig::server_addr`] or
-    /// [`ServerConfig::server_addresses`].
+    /// [`Server::with_config`] with [`ServerConfig::expected_server_addr`] or
+    /// [`ServerConfig::expected_server_addresses`].
     pub fn new(protocol_id: u64, private_key: Key) -> Result<Self> {
         let server: Server<()> = Server {
             time: 0.0,
@@ -694,15 +694,15 @@ impl<Ctx> Server<Ctx> {
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
         let entity = entity_mut.id();
 
-        if !self.cfg.server_addresses.is_empty()
+        if !self.cfg.expected_server_addresses.is_empty()
             && !token
                 .server_addresses
                 .iter()
-                .any(|(_, token_addr)| self.cfg.server_addresses.contains(&token_addr))
+                .any(|(_, token_addr)| self.cfg.expected_server_addresses.contains(&token_addr))
         {
             info!(
                 token_addresses = ?token.server_addresses,
-                server_addresses = ?self.cfg.server_addresses,
+                expected_server_addresses = ?self.cfg.expected_server_addresses,
                 "server ignored connection request. server address not in connect token whitelist"
             );
             return Ok(());
@@ -1049,7 +1049,7 @@ impl<Ctx> Server<Ctx> {
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
     /// let server_addr = SocketAddr::from_str("127.0.0.1:40005").unwrap();
-    /// let config = ServerConfig::default().server_addr(server_addr);
+    /// let config = ServerConfig::default().expected_server_addr(server_addr);
     /// let mut server = Server::with_config(protocol_id, private_key, config).unwrap();
     ///
     /// let client_id = 123u64;
@@ -1162,43 +1162,46 @@ impl<Ctx> Server<Ctx> {
     /// Gets the addresses used to validate incoming connection tokens.
     ///
     /// An empty slice means server-address validation is disabled.
-    pub fn server_addresses(&self) -> &[SocketAddr] {
-        &self.cfg.server_addresses
+    pub fn expected_server_addresses(&self) -> &[SocketAddr] {
+        &self.cfg.expected_server_addresses
     }
 
     /// Replace the addresses used to validate incoming connection tokens.
     ///
     /// A request is accepted when its private token contains at least one configured address.
     /// Passing an empty iterator disables validation.
-    pub fn set_server_addresses(&mut self, server_addresses: impl IntoIterator<Item = SocketAddr>) {
+    pub fn set_expected_server_addresses(
+        &mut self,
+        server_addresses: impl IntoIterator<Item = SocketAddr>,
+    ) {
         let server_addresses = server_addresses.into_iter();
-        self.cfg.server_addresses.clear();
-        self.cfg.server_addresses.extend(server_addresses);
+        self.cfg.expected_server_addresses.clear();
+        self.cfg.expected_server_addresses.extend(server_addresses);
     }
 
     /// Replace the addresses used to validate incoming connection tokens with one address.
-    pub fn set_server_addr(&mut self, server_addr: SocketAddr) {
-        self.set_server_addresses([server_addr]);
+    pub fn set_expected_server_addr(&mut self, server_addr: SocketAddr) {
+        self.set_expected_server_addresses([server_addr]);
     }
 
     /// Disable server-address validation.
     ///
     /// This should be reserved for addressless transports.
-    pub fn clear_server_addresses(&mut self) {
-        self.cfg.server_addresses.clear();
+    pub fn clear_expected_server_addresses(&mut self) {
+        self.cfg.expected_server_addresses.clear();
     }
 
     /// Gets the first configured server identity, or `0.0.0.0:0` when none is configured.
     ///
     /// This does not report the address of the underlying transport. Prefer
-    /// [`Server::server_addresses`] for token-validation configuration and the transport's
+    /// [`Server::expected_server_addresses`] for token-validation configuration and the transport's
     /// `LocalAddr` component for its bound socket address.
     #[deprecated(
         since = "0.28.0",
-        note = "use Server::server_addresses or the transport's LocalAddr component"
+        note = "use Server::expected_server_addresses or the transport's LocalAddr component"
     )]
     pub fn local_addr(&self) -> SocketAddr {
-        self.server_addresses()
+        self.expected_server_addresses()
             .first()
             .copied()
             .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 0)))
@@ -1319,8 +1322,8 @@ mod tests {
         public_server_addresses: &[SocketAddr],
         internal_server_addresses: Option<&[SocketAddr]>,
     ) -> (Server, World, Entity) {
-        let config =
-            ServerConfig::default().server_addresses(configured_server_addresses.iter().copied());
+        let config = ServerConfig::default()
+            .expected_server_addresses(configured_server_addresses.iter().copied());
         let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
         let mut world = World::new();
         let client = world.spawn_empty().id();
