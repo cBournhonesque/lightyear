@@ -54,7 +54,7 @@ _example_demo_p2p_non_avian_pkgs_filter := '.packages[] | select((.manifest_path
 #
 # Args:
 #   release=true|false   Defaults to false.
-#   headless=true|false  Defaults to true for features=server or p2p, false otherwise.
+#   headless=true|false  Defaults to true for features=server, false otherwise.
 #   features=server|client|both|p2p  Defaults to both.
 build_examples *args:
     #!/usr/bin/env bash
@@ -86,7 +86,7 @@ build_examples *args:
         esac
     done
     if [ -z "$headless" ]; then
-        if [ "$feature_mode" = server ] || [ "$feature_mode" = p2p ]; then
+        if [ "$feature_mode" = server ]; then
             headless=true
         else
             headless=false
