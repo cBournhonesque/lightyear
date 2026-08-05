@@ -8,7 +8,6 @@ use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
-use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
 use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated, ChecksumPlugin};
 #[cfg(feature = "p2p")]
 use lightyear_examples_common::p2p::P2PSettings;
@@ -109,13 +108,7 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
-        if is_p2p {
-            // The current checksum sender targets one conventional server Link. P2P checksums
-            // will be enabled once the deterministic protocol supports all-to-all validation.
-            app.add_plugins(DeterministicReplicationPlugin);
-        } else {
-            app.add_plugins(ChecksumPlugin);
-        }
+        app.add_plugins(ChecksumPlugin);
 
         // Late-join catch-up: shared between client and server so it must
         // be registered before `cli.spawn_connections` adds the Client /
