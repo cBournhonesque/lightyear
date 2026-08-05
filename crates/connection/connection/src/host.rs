@@ -49,7 +49,8 @@ impl HostPlugin {
 
     /// A host-server client gets connected automatically to the server.
     ///
-    /// If the server is not started yet, the client remains [`Connecting`] until the server starts.
+    /// Starting the server link can be asynchronous, so the client may request a connection before
+    /// the server is [`Started`]. The client remains [`Connecting`] until the server starts.
     #[cfg(feature = "server")]
     fn connect(
         trigger: On<Connect>,
@@ -91,7 +92,6 @@ impl HostPlugin {
         trigger: On<Disconnect>,
         mut commands: Commands,
         query: Query<&LinkOf, (With<Client>, Or<(With<HostClient>, With<Connecting>)>)>,
-        server_query: Query<&HostServer>,
     ) {
         if let Ok(link_of) = query.get(trigger.entity) {
             info!(entity=?trigger.entity,"Disconnected host-client");
@@ -101,12 +101,7 @@ impl HostPlugin {
                 .insert(Disconnected {
                     reason: Some("Client trigger".to_string()),
                 });
-            if server_query
-                .get(link_of.server)
-                .is_ok_and(|host_server| host_server.client == trigger.entity)
-            {
-                commands.entity(link_of.server).remove::<HostServer>();
-            }
+            commands.entity(link_of.server).remove::<HostServer>();
         }
     }
 
@@ -142,6 +137,9 @@ impl HostPlugin {
             for client in server.collection() {
                 if let Ok((connected, connecting)) = client_query.get(*client) {
                     if connecting {
+                        // The client may have requested a connection before the server link was
+                        // ready. `connect` leaves that request pending until `Started` is added, so
+                        // retry it now that the server link is ready.
                         commands.trigger(Connect { entity: *client });
                     } else if connected {
                         commands
