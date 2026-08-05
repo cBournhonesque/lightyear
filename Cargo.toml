@@ -36,6 +36,7 @@ members = [
   "crates/tests",
   # internal
   "benches/*",
+  "certificates",
   "demos/*",
   "examples/*",
 ]
@@ -178,6 +179,7 @@ metrics-util = "0.20"
 aeronet_webtransport = { version = "0.21" }
 aeronet_websocket = { version = "0.21" }
 aeronet_steam = { version = "0.21" }
+wtransport = "0.6.1"
 aeronet_io = { version = "0.21" }
 # we don't need any tokio features, we use only use the tokio channels
 tokio = { version = "1.45", features = [
