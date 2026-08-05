@@ -94,9 +94,7 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables transport-neutral peer-to-peer topology, synchronization, and input routing support.
-p2p = [
-  "client",
-]
+p2p = ["client"]
 ## Enables replicating entities between two peers
 replication = [
   "dep:lightyear_replication",
