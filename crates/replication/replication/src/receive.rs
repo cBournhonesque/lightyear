@@ -22,10 +22,14 @@ pub use bevy_replicon::prelude::Remote as Replicated;
 /// entities). For normal server-to-client replication, only
 /// [`ReplicationSender`](crate::send::ReplicationSender) is required on the
 /// server side.
+///
+/// Removing this component ends the receiver's current replication epoch and cleans up received
+/// entities unless they are marked [`Persistent`].
 #[derive(Component, Default)]
 pub struct ReplicationReceiver;
 
-/// Prevents receiver-side entities from being despawned when the connection ends.
+/// Prevents receiver-side entities from being despawned when the connection ends or their
+/// [`ReplicationReceiver`] is removed.
 ///
 /// Add this marker to a received [`Replicated`] entity to preserve only that entity, or add it to
 /// the entity holding [`ReplicationReceiver`] to preserve every entity received through the

@@ -5,7 +5,7 @@ use crate::protocol::{
 };
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
-use bevy_replicon::prelude::Replicated as RepliconReplicated;
+use bevy_replicon::prelude::{Replicated as RepliconReplicated, RepliconTick};
 use lightyear::prelude::{ConfirmedHistory, InterpolationTimeline};
 use lightyear_connection::client::{Disconnected, DisconnectedReason};
 use lightyear_connection::network_target::NetworkTarget;
@@ -1448,6 +1448,133 @@ fn test_persistent_replication_receiver_preserves_entities_on_disconnect() {
             .get_entity(client_entity)
             .is_ok(),
         "Persistent receiver should preserve its replicated entities"
+    );
+}
+
+/// Removing `ReplicationReceiver` performs the same cleanup as disconnecting its link.
+#[test]
+fn test_removing_replication_receiver_cleans_up_replication_state() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let persistent_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    let session_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+
+    let persistent_client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(persistent_server_entity)
+        .expect("persistent entity should be replicated to the client");
+    let session_client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(session_server_entity)
+        .expect("session entity should be replicated to the client");
+    let checkpoint = RepliconTick::new(123);
+    let receiver = stepper.client_entities[0];
+    {
+        let world = stepper.client_apps[0].world_mut();
+        world
+            .entity_mut(persistent_client_entity)
+            .insert(Persistent);
+        world
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(checkpoint, Tick(456));
+        world.entity_mut(receiver).remove::<ReplicationReceiver>();
+        world.flush();
+    }
+
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(persistent_client_entity)
+            .is_ok(),
+        "Persistent replicated entity should survive receiver removal"
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(session_client_entity)
+            .is_err(),
+        "Non-persistent replicated entity should be despawned on receiver removal"
+    );
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .resource::<ReplicationCheckpointMap>()
+            .get(checkpoint),
+        None,
+        "Receiver removal should clear the checkpoint map"
+    );
+
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .resource::<bevy::prelude::State<bevy_replicon::prelude::ClientState>>()
+            .get(),
+        &bevy_replicon::prelude::ClientState::Disconnected,
+        "Removing ReplicationReceiver should reset Replicon's client state"
+    );
+}
+
+/// Receiver persistence remains observable while the receiver entity itself is being despawned.
+#[test]
+fn test_despawning_persistent_replication_receiver_preserves_entities() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be replicated to the client");
+    let checkpoint = RepliconTick::new(123);
+    let receiver = stepper.client_entities[0];
+    {
+        let world = stepper.client_apps[0].world_mut();
+        world
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(checkpoint, Tick(456));
+        world.entity_mut(receiver).insert(Persistent);
+        world.despawn(receiver);
+        world.flush();
+    }
+
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_ok(),
+        "Persistent receiver should preserve entities while it is despawned"
+    );
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .resource::<ReplicationCheckpointMap>()
+            .get(checkpoint),
+        None,
+        "Receiver despawn should clear the checkpoint map"
     );
 }
 
