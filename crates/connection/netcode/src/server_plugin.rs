@@ -1,12 +1,12 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES};
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
     entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
-use lightyear_connection::client::{Connected, Disconnected, Disconnecting};
+use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
 use lightyear_connection::prelude::{server::*, *};
@@ -14,7 +14,7 @@ use lightyear_connection::server::Stopping;
 use lightyear_connection::shared::ConnectionRequestHandler;
 use lightyear_core::id::{LocalId, PeerId, RemoteId};
 use lightyear_link::prelude::{LinkOf, Server};
-use lightyear_link::{Link, LinkSystems, Unlink};
+use lightyear_link::{Link, LinkSystems, Unlink, UnlinkReason};
 use lightyear_transport::plugin::TransportSystems;
 use lightyear_utils::adaptive_for_each_mut;
 use tracing::{error, info, trace};
@@ -307,14 +307,16 @@ impl NetcodeServerPlugin {
                             );
                             // first disconnect to trigger observers
                             c.entity(entity)
-                                .try_insert(Disconnected { reason: None })
+                                .try_insert(Disconnected {
+                                    reason: DisconnectedReason::ByPeer(None),
+                                })
                                 .despawn();
                         });
                     if stopping {
                         // after we sent disconnection packets, we can stop the server transport
                         c.trigger(Unlink {
                             entity: server_entity,
-                            reason: String::from("Server stopped"),
+                            reason: UnlinkReason::ServerStopped,
                         });
                         c.entity(server_entity).insert(Stopped);
                     }

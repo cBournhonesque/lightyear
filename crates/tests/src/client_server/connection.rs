@@ -28,7 +28,7 @@ mod disconnection_log_tests {
     use bevy::ecs::schedule::{Schedules, SingleThreadedExecutor};
     use core::sync::atomic::{AtomicUsize, Ordering};
     use lightyear_connection::server::Stop;
-    use lightyear_link::Unlinked;
+    use lightyear_link::{UnlinkReason, Unlinked};
     use tracing::{Event, Level, Subscriber};
     use tracing_subscriber::layer::Context;
     use tracing_subscriber::{Layer, prelude::*};
@@ -135,7 +135,9 @@ mod disconnection_log_tests {
                 .world_mut()
                 .entity_mut(server_client)
                 .insert(Unlinked {
-                    reason: "WebTransport connection timed out".to_string(),
+                    reason: UnlinkReason::TransportError(
+                        "WebTransport connection timed out".to_string(),
+                    ),
                 });
 
             // Netcode's default client timeout is three seconds. Simulated stepper time lets us

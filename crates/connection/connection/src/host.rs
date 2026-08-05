@@ -5,13 +5,11 @@
 //! - is a ClientOf of a Server
 //! - the Server is started
 
-#[cfg(feature = "server")]
-use alloc::string::ToString;
 use alloc::vec::Vec;
 
 #[cfg(feature = "server")]
 use crate::{
-    client::{Client, Connect, Connected, Disconnect, Disconnected},
+    client::{Client, Connect, Connected, Disconnect, Disconnected, DisconnectedReason},
     client_of::ClientOf,
     server::Started,
 };
@@ -96,7 +94,7 @@ impl HostPlugin {
                 .entity(trigger.entity)
                 .remove::<HostClient>()
                 .insert(Disconnected {
-                    reason: Some("Client trigger".to_string()),
+                    reason: DisconnectedReason::UserRequested(None),
                 });
             commands.entity(link_of.server).remove::<HostServer>();
         }

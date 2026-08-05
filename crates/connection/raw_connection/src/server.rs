@@ -1,5 +1,4 @@
 use aeronet_io::connection::PeerAddr;
-use alloc::string::ToString;
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::entity::UniqueEntitySlice;
 use bevy_ecs::prelude::*;
@@ -71,7 +70,7 @@ impl RawConnectionPlugin {
             trace!("RawClient Stop! Disconnecting all LinkOfs and triggering Unlink");
             commands.trigger(Unlink {
                 entity: trigger.entity,
-                reason: "Server stopped".to_string(),
+                reason: UnlinkReason::ServerStopped,
             });
             commands.entity(trigger.entity).insert(Stopping);
             // SAFETY: we know that the list of client entities are unique because it is a Relationship

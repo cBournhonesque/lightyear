@@ -112,7 +112,7 @@ mod tests {
     use std::{thread, time::Duration};
 
     use lightyear_aeronet::AeronetLink;
-    use lightyear_link::{LinkStart, Unlink, Unlinked};
+    use lightyear_link::{LinkStart, Unlink, UnlinkReason, Unlinked};
 
     fn server_config(addr: SocketAddr) -> ServerConfig {
         ServerConfig::builder()
@@ -158,7 +158,7 @@ mod tests {
 
         app.world_mut().trigger(Unlink {
             entity: server,
-            reason: "test shutdown".to_string(),
+            reason: UnlinkReason::UserRequested(Some("test shutdown".to_string())),
         });
         run_app_until(&mut app, |world| {
             world.get::<Unlinked>(server).is_some() && world.get::<AeronetLink>(server).is_none()

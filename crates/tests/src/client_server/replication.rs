@@ -7,6 +7,7 @@ use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
 use bevy_replicon::prelude::Replicated as RepliconReplicated;
 use lightyear::prelude::{ConfirmedHistory, InterpolationTimeline};
+use lightyear_connection::client::{Disconnected, DisconnectedReason};
 use lightyear_connection::network_target::NetworkTarget;
 use lightyear_core::interpolation::Interpolated;
 use lightyear_core::prediction::Predicted;
@@ -1301,7 +1302,9 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
         .server_app
         .world_mut()
         .entity_mut(client_of_1)
-        .insert(lightyear_connection::client::Disconnected { reason: None });
+        .insert(Disconnected {
+            reason: DisconnectedReason::Unknown,
+        });
     stepper.server_app.world_mut().flush();
 
     // Run a few frames to let the state transition happen
