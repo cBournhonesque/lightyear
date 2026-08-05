@@ -757,29 +757,24 @@ mod tests {
         let (retry_kind, retry_id) = registry.add_channel::<RetryChannel>(retry_settings);
         let (discard_kind, discard_id) = registry.add_channel::<DiscardChannel>(discard_settings);
 
-        let mut world = World::new();
+        let mut app = App::new();
+        app.add_plugins(bevy_app::TaskPoolPlugin::default());
+        let world = app.world_mut();
         world.insert_resource(registry);
         world.init_resource::<Time<Real>>();
         world.init_resource::<LocalTimeline>();
         let retry_entity =
-            spawn_transport::<RetryChannel>(&mut world, retry_settings, retry_kind, retry_id);
-        let discard_entity = spawn_transport::<DiscardChannel>(
-            &mut world,
-            discard_settings,
-            discard_kind,
-            discard_id,
-        );
+            spawn_transport::<RetryChannel>(world, retry_settings, retry_kind, retry_id);
+        let discard_entity =
+            spawn_transport::<DiscardChannel>(world, discard_settings, discard_kind, discard_id);
 
         world.run_system_once(TransportPlugin::buffer_send).unwrap();
 
         assert_eq!(world.get::<Link>(retry_entity).unwrap().send.len(), 1);
         assert_eq!(world.get::<Link>(discard_entity).unwrap().send.len(), 1);
+        assert_eq!(pending_candidates::<RetryChannel>(world, retry_entity), 1);
         assert_eq!(
-            pending_candidates::<RetryChannel>(&mut world, retry_entity),
-            1
-        );
-        assert_eq!(
-            pending_candidates::<DiscardChannel>(&mut world, discard_entity),
+            pending_candidates::<DiscardChannel>(world, discard_entity),
             0
         );
     }

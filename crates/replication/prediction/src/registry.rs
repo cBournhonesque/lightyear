@@ -1507,6 +1507,7 @@ mod tests {
     use lightyear_interpolation::prelude::{InterpolationRegistrationExt, InterpolationRegistry};
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::prelude::AppComponentExt;
+    use lightyear_sync::prelude::InputTimelineConfig;
     use serde::{Deserialize, Serialize};
 
     #[derive(Clone, PartialEq, Debug)]
@@ -1718,6 +1719,8 @@ mod tests {
         let mut app = prediction_app();
         app.insert_resource(LocalTimeline::default());
         app.insert_resource(LocalRollbackOnlyResource(42));
+        app.world_mut()
+            .spawn((PredictionManager::default(), InputTimelineConfig::default()));
 
         app.resource::<LocalRollbackOnlyResource>().local_rollback();
         app.world_mut()
@@ -1764,6 +1767,8 @@ mod tests {
     fn resource_builder_local_rollback_adds_history_to_late_resource() {
         let mut app = prediction_app();
         app.insert_resource(LocalTimeline::default());
+        app.world_mut()
+            .spawn((PredictionManager::default(), InputTimelineConfig::default()));
 
         app.resource::<LocalRollbackOnlyResource>().local_rollback();
         app.insert_resource(LocalRollbackOnlyResource(42));

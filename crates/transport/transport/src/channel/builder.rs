@@ -18,7 +18,7 @@ use bytes::Bytes;
 use core::marker::PhantomData;
 use core::time::Duration;
 use lightyear_core::prelude::{IntoMessageTimeline, TimelineKind};
-#[cfg(test)]
+#[cfg(all(test, feature = "compression_lz4"))]
 use lightyear_link::DEFAULT_MTU;
 use lightyear_link::Link;
 #[allow(unused_imports)]
