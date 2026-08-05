@@ -12,6 +12,8 @@ use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::{CatchUpGated, CatchUpMode};
 #[cfg(feature = "client")]
 use lightyear_examples_common::automation::{HeadlessInputPlugin, env_string, sync_pressed_keys};
+#[cfg(all(feature = "client", feature = "p2p"))]
+use lightyear_examples_common::p2p::P2PSettings;
 
 #[cfg(feature = "client")]
 use crate::protocol::{PlayerActions, PlayerActivationTick, PlayerId};
@@ -156,7 +158,9 @@ mod client {
         mode: Res<CatchUpMode>,
         timeline: Res<LocalTimeline>,
         input_timeline: Option<SyncedInputTimeline>,
-        client: Option<Single<&LocalId, With<Client>>>,
+        metadata: Res<NetworkingMetadata>,
+        local_ids: Query<&LocalId>,
+        #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
         players: Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -172,7 +176,14 @@ mod client {
             timeline.tick(),
             input_timeline
                 .is_some()
-                .then(|| client.as_deref().copied())
+                .then(|| {
+                    local_peer_id(
+                        &metadata,
+                        &local_ids,
+                        #[cfg(feature = "p2p")]
+                        p2p.as_deref(),
+                    )
+                })
                 .flatten(),
             &players,
             &settings,
@@ -207,7 +218,9 @@ mod client {
         mode: Res<CatchUpMode>,
         timeline: Res<LocalTimeline>,
         input_timeline: Option<SyncedInputTimeline>,
-        client: Option<Single<&LocalId, With<Client>>>,
+        metadata: Res<NetworkingMetadata>,
+        local_ids: Query<&LocalId>,
+        #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
         players: Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -221,7 +234,14 @@ mod client {
             timeline.tick(),
             input_timeline
                 .is_some()
-                .then(|| client.as_deref().copied())
+                .then(|| {
+                    local_peer_id(
+                        &metadata,
+                        &local_ids,
+                        #[cfg(feature = "p2p")]
+                        p2p.as_deref(),
+                    )
+                })
                 .flatten(),
             &players,
             &settings,
@@ -256,7 +276,7 @@ mod client {
     fn input_rebroadcast_ready(
         mode: &CatchUpMode,
         local_tick: Tick,
-        client: Option<&LocalId>,
+        local_id: Option<PeerId>,
         players: &Query<(
             &PlayerId,
             Option<&LeafwingBuffer<PlayerActions>>,
@@ -265,14 +285,14 @@ mod client {
         )>,
         settings: &AutomationSettings,
     ) -> bool {
-        let Some(local_id) = client else {
+        let Some(local_id) = local_id else {
             return false;
         };
         let mut count = 0;
         let mut local_can_move = false;
         for (player_id, buffer, activation_tick, awaiting_catchup) in players.iter() {
             count += 1;
-            if player_id.0 == local_id.0 {
+            if player_id.0 == local_id {
                 if awaiting_catchup {
                     return false;
                 }
@@ -296,6 +316,23 @@ mod client {
             }
         }
         count >= settings.min_players_before_move && local_can_move
+    }
+
+    fn local_peer_id(
+        metadata: &NetworkingMetadata,
+        local_ids: &Query<&LocalId>,
+        #[cfg(feature = "p2p")] p2p: Option<&P2PSettings>,
+    ) -> Option<PeerId> {
+        #[cfg(feature = "p2p")]
+        if let Some(p2p) = p2p {
+            return Some(p2p.local_id());
+        }
+        match metadata.mode {
+            NetworkTopology::Client(link) | NetworkTopology::HostClient { client: link, .. } => {
+                local_ids.get(link).ok().map(|id| id.0)
+            }
+            _ => None,
+        }
     }
 
     fn release_all(action_state: &mut ActionState<PlayerActions>) {
