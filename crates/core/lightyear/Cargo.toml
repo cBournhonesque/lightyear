@@ -95,7 +95,11 @@ deterministic = [
   "lightyear_avian3d?/deterministic",
 ]
 ## Enables peer-to-peer topology, synchronization, input routing, and deterministic sessions.
-p2p = ["client", "dep:lightyear_p2p"]
+p2p = [
+  "client",
+  "dep:lightyear_p2p",
+  "lightyear_deterministic_replication?/p2p",
+]
 ## Enables replicating entities between two peers
 replication = [
   "dep:lightyear_replication",
