@@ -21,7 +21,6 @@ server = [
   "lightyear_messages/server",
   "lightyear_transport/server",
 ]
-p2p = ["client", "lightyear_connection/p2p"]
 
 [dependencies]
 lightyear_utils.workspace = true

@@ -13,7 +13,6 @@ default = ["std"]
 std = []
 client = ["lightyear_inputs/client"]
 server = ["lightyear_inputs/server"]
-p2p = ["client", "lightyear_inputs/p2p", "lightyear_sync/p2p"]
 
 [dependencies]
 lightyear_inputs.workspace = true

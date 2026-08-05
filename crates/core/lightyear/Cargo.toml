@@ -96,13 +96,6 @@ deterministic = [
 ## Enables transport-neutral peer-to-peer topology, synchronization, and input routing support.
 p2p = [
   "client",
-  "lightyear_connection/p2p",
-  "lightyear_deterministic_replication?/p2p",
-  "lightyear_inputs?/p2p",
-  "lightyear_inputs_bei?/p2p",
-  "lightyear_inputs_leafwing?/p2p",
-  "lightyear_inputs_native?/p2p",
-  "lightyear_sync/p2p",
 ]
 ## Enables replicating entities between two peers
 replication = [

@@ -416,47 +416,6 @@ mod tests {
         &app.world().resource::<NetworkingMetadata>().mode
     }
 
-    fn role_predicates(topology: &NetworkTopology) -> (bool, bool, bool, bool, bool) {
-        (
-            topology.is_client(),
-            topology.is_server(),
-            topology.is_headless_server(),
-            topology.is_host_server(),
-            topology.is_p2p(),
-        )
-    }
-
-    #[test]
-    fn role_predicates_classify_the_cached_topology() {
-        let mut world = World::new();
-        let client = world.spawn_empty().id();
-        let server = world.spawn_empty().id();
-
-        assert_eq!(
-            role_predicates(&NetworkTopology::Undefined),
-            (false, false, false, false, false)
-        );
-        assert_eq!(
-            role_predicates(&NetworkTopology::Client(client)),
-            (true, false, false, false, false)
-        );
-        assert_eq!(
-            role_predicates(&NetworkTopology::Server(server)),
-            (false, true, true, false, false)
-        );
-        assert_eq!(
-            role_predicates(&NetworkTopology::HostClient { server, client }),
-            (false, true, false, true, false)
-        );
-        assert_eq!(
-            role_predicates(&NetworkTopology::P2P {
-                connected: SmallVec::new(),
-                declared_links: 1,
-            }),
-            (false, false, false, false, true)
-        );
-    }
-
     #[test]
     fn only_ready_client_and_server_entities_are_cached() {
         let mut app = test_app();
