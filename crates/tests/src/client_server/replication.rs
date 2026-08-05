@@ -1301,7 +1301,9 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
         .server_app
         .world_mut()
         .entity_mut(client_of_1)
-        .insert(lightyear_connection::client::Disconnected { reason: None });
+        .insert(lightyear_connection::client::Disconnected {
+            reason: lightyear_connection::client::DisconnectedReason::Unknown,
+        });
     stepper.server_app.world_mut().flush();
 
     // Run a few frames to let the state transition happen

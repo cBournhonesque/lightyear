@@ -531,7 +531,9 @@ impl ClientServerStepper {
         self.server_app
             .world_mut()
             .entity_mut(server_entity)
-            .insert(Disconnected { reason: None });
+            .insert(Disconnected {
+                reason: DisconnectedReason::Unknown,
+            });
         client_app.world_mut().flush();
         self.server_app.world_mut().flush();
         client_app.world_mut().despawn(client_entity);

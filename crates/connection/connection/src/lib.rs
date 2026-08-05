@@ -68,7 +68,7 @@ pub mod prelude {
     // we also export these types at the top level for easier access
     pub use crate::client::{
         Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
-        Disconnected, PeerMetadata,
+        Disconnected, DisconnectedReason, PeerMetadata,
     };
     pub use crate::p2p::P2P;
 
@@ -76,7 +76,7 @@ pub mod prelude {
     pub mod client {
         pub use crate::client::{
             Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
-            Disconnected,
+            Disconnected, DisconnectedReason,
         };
     }
 

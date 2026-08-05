@@ -4,19 +4,19 @@ use aeronet_steam::SessionConfig;
 use aeronet_steam::server::{
     ListenTarget, SessionRequest, SessionResponse, SteamNetServer, SteamNetServerClient,
 };
-use alloc::format;
+use alloc::{format, string::ToString};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 use bevy_ecs::relationship::RelationshipTarget;
 use lightyear_aeronet::server::ServerAeronetPlugin;
 use lightyear_aeronet::{AeronetLink, AeronetLinkOf, AeronetPlugin};
-use lightyear_connection::client::{Connected, Disconnected};
+use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason};
 use lightyear_connection::client_of::{ClientOf, SkipNetcode};
 use lightyear_connection::server::{Start, Started, Stop};
 use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_link::prelude::LinkOf;
 use lightyear_link::server::Server;
-use lightyear_link::{Link, LinkStart, Linked, Linking};
+use lightyear_link::{Link, LinkStart, Linked, Linking, UnlinkReason};
 use tracing::{info, trace};
 
 /// Enables starting a Steam server
@@ -210,12 +210,23 @@ impl SteamServerPlugin {
                 trigger,
                 link_of_entity.id()
             );
+            let unlink_reason = match &trigger.reason {
+                aeronet_io::connection::DisconnectReason::ByUser(reason) => {
+                    UnlinkReason::UserRequested((!reason.is_empty()).then(|| reason.to_string()))
+                }
+                aeronet_io::connection::DisconnectReason::ByPeer(reason) => {
+                    UnlinkReason::ByPeer(reason.to_string())
+                }
+                aeronet_io::connection::DisconnectReason::ByError(error) => {
+                    UnlinkReason::TransportError(format!("{error:?}"))
+                }
+            };
             link_of_entity
                 // to avoid warnings if we delete the Aeronet entity before the deletion trigger can run by aeronet
                 // Can remove if https://github.com/aecsocket/aeronet/pull/49 is merged
                 .remove::<AeronetLink>()
                 .insert(Disconnected {
-                    reason: Some(format!("Aeronet link disconnected: {trigger:?}")),
+                    reason: DisconnectedReason::LinkFailed(unlink_reason),
                 })
                 .try_despawn();
         }

@@ -7,14 +7,14 @@
 //! [`Server`](lightyear_link::server::Server). This module observes Aeronet open/close events and
 //! keeps the Lightyear lifecycle markers in sync.
 
-use alloc::format;
+use alloc::{format, string::ToString};
 use bevy_app::{App, Plugin};
 use bevy_ecs::prelude::*;
 
 use crate::AeronetLinkOf;
 use aeronet_io::server::{CloseReason, Closed, Server, ServerEndpoint};
 use lightyear_link::server::ServerLinkPlugin;
-use lightyear_link::{Linked, Linking, Unlinked};
+use lightyear_link::{Linked, Linking, UnlinkReason, Unlinked};
 use tracing::trace;
 
 /// Plugin that mirrors Aeronet server endpoint state into Lightyear server link state.
@@ -63,11 +63,9 @@ impl ServerAeronetPlugin {
             );
             let reason = match &trigger.reason {
                 CloseReason::ByUser(reason) => {
-                    format!("Closed by user: {reason}")
+                    UnlinkReason::UserRequested((!reason.is_empty()).then(|| reason.to_string()))
                 }
-                CloseReason::ByError(err) => {
-                    format!("Closed due to error: {err:?}")
-                }
+                CloseReason::ByError(err) => UnlinkReason::TransportError(format!("{err:?}")),
             };
             c.insert(Unlinked { reason });
         }

@@ -37,6 +37,7 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
 use bevy_ecs::world::DeferredWorld;
+use bevy_reflect::Reflect;
 use bytes::{Bytes, BytesMut};
 use core::time::Duration;
 use lightyear_core::time::Instant;
@@ -47,7 +48,7 @@ pub mod prelude {
     pub use crate::server::{LinkOf, Server};
     pub use crate::{
         DEFAULT_MTU, Link, LinkMtu, LinkStart, LinkStats, LinkSystems, Linked, Linking,
-        MtuTooSmall, RecvLinkConditioner, Unlink, Unlinked,
+        MtuTooSmall, RecvLinkConditioner, Unlink, UnlinkReason, Unlinked,
     };
 
     pub mod server {
@@ -352,6 +353,35 @@ pub struct LinkStart {
     pub entity: Entity,
 }
 
+/// Why a [`Link`] was unlinked via [`Unlink`] or [`Unlinked`].
+#[derive(Default, Debug, Clone, PartialEq, Eq, Reflect)]
+pub enum UnlinkReason {
+    /// The link has not yet been established.
+    #[default]
+    Initial,
+    /// The local user requested the unlink, optionally with additional context.
+    UserRequested(Option<String>),
+    /// The server stopped and closed its links.
+    ServerStopped,
+    /// The remote peer closed the link and supplied a reason.
+    ByPeer(String),
+    /// The transport encountered an error and can no longer communicate with the peer.
+    TransportError(String),
+}
+
+impl core::fmt::Display for UnlinkReason {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Initial => f.write_str("Not connected"),
+            Self::UserRequested(Some(reason)) => write!(f, "User requested: {reason}"),
+            Self::UserRequested(None) => f.write_str("User requested"),
+            Self::ServerStopped => f.write_str("Server stopped"),
+            Self::ByPeer(reason) => write!(f, "Disconnected by peer: {reason}"),
+            Self::TransportError(reason) => write!(f, "Transport error: {reason}"),
+        }
+    }
+}
+
 /// Entity event requesting that a transport terminate a [`Link`].
 ///
 /// [`LinkPlugin`] observes this event and inserts [`Unlinked`] with the provided reason. Concrete
@@ -361,8 +391,8 @@ pub struct Unlink {
     /// Entity that owns the [`Link`] to terminate.
     #[event_target]
     pub entity: Entity,
-    /// Human-readable reason propagated to [`Unlinked::reason`].
-    pub reason: String,
+    /// Structured reason propagated to [`Unlinked::reason`].
+    pub reason: UnlinkReason,
 }
 
 /// Marker component for a link whose transport connection is being established.
@@ -414,13 +444,13 @@ impl Linked {
 /// Marker component for a link that is not connected.
 ///
 /// Inserting this component updates [`Link::state`] to [`LinkState::Unlinked`] and removes
-/// [`Linked`] and [`Linking`]. The optional [`reason`](Self::reason) is intended for diagnostics
-/// and for transports that need to surface disconnect causes to application code.
+/// [`Linked`] and [`Linking`]. The [`reason`](Self::reason) is intended for diagnostics and for
+/// transports that need to surface disconnect causes to application code.
 #[derive(Component, Default, Debug)]
 #[component(on_insert = Unlinked::on_insert)]
 pub struct Unlinked {
-    /// Human-readable disconnect or initial-state reason.
-    pub reason: String,
+    /// Structured disconnect or initial-state reason.
+    pub reason: UnlinkReason,
 }
 
 impl Unlinked {
@@ -501,6 +531,7 @@ impl Plugin for LinkPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use alloc::string::ToString;
 
     #[test]
     fn immutable_receive_payload_reuses_unique_allocation() {
@@ -522,6 +553,28 @@ mod tests {
 
         assert_ne!(payload.as_ptr(), allocation);
         assert_eq!(payload.as_ref(), shared.as_ref());
+    }
+
+    #[test]
+    fn unlink_reason_display_includes_optional_context() {
+        assert_eq!(UnlinkReason::Initial.to_string(), "Not connected");
+        assert_eq!(
+            UnlinkReason::UserRequested(None).to_string(),
+            "User requested"
+        );
+        assert_eq!(
+            UnlinkReason::UserRequested(Some(String::from("switching servers"))).to_string(),
+            "User requested: switching servers"
+        );
+        assert_eq!(UnlinkReason::ServerStopped.to_string(), "Server stopped");
+        assert_eq!(
+            UnlinkReason::ByPeer(String::from("going away")).to_string(),
+            "Disconnected by peer: going away"
+        );
+        assert_eq!(
+            UnlinkReason::TransportError(String::from("socket closed")).to_string(),
+            "Transport error: socket closed"
+        );
     }
 
     #[test]
