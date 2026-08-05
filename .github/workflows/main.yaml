@@ -89,6 +89,9 @@ jobs:
       - name: Activate CI cargo config
         run: mv .cargo/config_ci.toml .cargo/config.toml
 
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
         with:
@@ -120,8 +123,58 @@ jobs:
               | jq -r '.packages[] | select(.manifest_path | test("/crates/")) | .name' \
               | sort -u
           )
-          cargo test --no-fail-fast --lib --tests "${package_args[@]}" -- --test-threads=1
-          cargo test --no-fail-fast -p lightyear_avian3d --lib
+          cargo test --locked --no-fail-fast --lib --tests "${package_args[@]}" -- --test-threads=1
+          cargo test --locked --no-fail-fast -p lightyear_avian3d --lib
 
       - name: Test doc
-        run: cargo test --workspace --doc --all-features --no-fail-fast
+        run: cargo test --locked --workspace --doc --all-features --no-fail-fast
+
+  coverage:
+    name: Coverage
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only -A mismatched_lifetime_syntaxes
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: llvm-tools-preview
+
+      - name: Activate CI cargo config
+        run: mv .cargo/config_ci.toml .cargo/config.toml
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: true
+          cache-workspace-crates: true
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
+
+      - name: Install Tarpaulin
+        run: cargo install --locked cargo-tarpaulin
+
+      - name: Generate code coverage
+        run: >
+          cargo tarpaulin --locked -p lightyear_tests
+          --engine llvm
+          --skip-clean
+          --out lcov
+          -- --test-threads=1
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v7
+        with:
+          files: lcov.info
+          token: ${{ secrets.CODECOV_TOKEN }}
