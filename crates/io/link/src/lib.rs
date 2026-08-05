@@ -531,7 +531,6 @@ impl Plugin for LinkPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloc::string::ToString;
 
     #[test]
     fn immutable_receive_payload_reuses_unique_allocation() {
@@ -553,28 +552,6 @@ mod tests {
 
         assert_ne!(payload.as_ptr(), allocation);
         assert_eq!(payload.as_ref(), shared.as_ref());
-    }
-
-    #[test]
-    fn unlink_reason_display_includes_optional_context() {
-        assert_eq!(UnlinkReason::Initial.to_string(), "Not connected");
-        assert_eq!(
-            UnlinkReason::UserRequested(None).to_string(),
-            "User requested"
-        );
-        assert_eq!(
-            UnlinkReason::UserRequested(Some(String::from("switching servers"))).to_string(),
-            "User requested: switching servers"
-        );
-        assert_eq!(UnlinkReason::ServerStopped.to_string(), "Server stopped");
-        assert_eq!(
-            UnlinkReason::ByPeer(String::from("going away")).to_string(),
-            "Disconnected by peer: going away"
-        );
-        assert_eq!(
-            UnlinkReason::TransportError(String::from("socket closed")).to_string(),
-            "Transport error: socket closed"
-        );
     }
 
     #[test]

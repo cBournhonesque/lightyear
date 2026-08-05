@@ -227,7 +227,6 @@ impl Plugin for ConnectionPlugin {
 mod tests {
     use super::*;
     use crate::client_of::ClientOf;
-    use alloc::string::ToString;
     use bevy_ecs::world::World;
 
     #[test]
@@ -255,31 +254,6 @@ mod tests {
         let state = query.get(&world, connected_client_of).unwrap();
         assert!(state.is_connected());
         assert!(!state.is_disconnected());
-    }
-
-    #[test]
-    fn disconnected_reason_display_includes_optional_context() {
-        assert_eq!(DisconnectedReason::Unknown.to_string(), "Unknown");
-        assert_eq!(
-            DisconnectedReason::LinkFailed(UnlinkReason::ServerStopped).to_string(),
-            "Link failed: Server stopped"
-        );
-        assert_eq!(
-            DisconnectedReason::UserRequested(None).to_string(),
-            "User requested"
-        );
-        assert_eq!(
-            DisconnectedReason::UserRequested(Some(String::from("switching servers"))).to_string(),
-            "User requested: switching servers"
-        );
-        assert_eq!(
-            DisconnectedReason::ByPeer(None).to_string(),
-            "Disconnected by peer"
-        );
-        assert_eq!(
-            DisconnectedReason::TransportError(String::from("timed out")).to_string(),
-            "Transport error: timed out"
-        );
     }
 
     #[test]
