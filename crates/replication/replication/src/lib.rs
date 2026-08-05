@@ -137,7 +137,7 @@ pub mod prelude {
     pub use crate::hierarchy::{DisableReplicateHierarchy, ReplicateLike};
     pub use crate::metadata::{ReplicationMetadata, SenderMetadata};
     pub use crate::prespawn::PreSpawned;
-    pub use crate::receive::ReplicationReceiver;
+    pub use crate::receive::{Persistent, ReplicationReceiver};
     pub use crate::send::{Replicate, ReplicatedFrom, ReplicationSender, ReplicationState};
 
     pub use crate::registry::ComponentRegistry;

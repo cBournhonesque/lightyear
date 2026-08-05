@@ -5,7 +5,7 @@ use crate::protocol::{
 };
 use crate::stepper::*;
 use bevy::prelude::{Bundle, Entity, Name, With, World};
-use bevy_replicon::prelude::Replicated as RepliconReplicated;
+use bevy_replicon::prelude::{Replicated as RepliconReplicated, RepliconTick};
 use lightyear::prelude::{ConfirmedHistory, InterpolationTimeline};
 use lightyear_connection::client::{Disconnected, DisconnectedReason};
 use lightyear_connection::network_target::NetworkTarget;
@@ -100,6 +100,28 @@ fn spawn_on_source<B: Bundle>(
     bundle: B,
 ) -> Entity {
     with_source_world(stepper, direction, |world| world.spawn(bundle).id())
+}
+
+fn disconnect_client_in_place(stepper: &mut ClientServerStepper, client_id: usize) {
+    use lightyear_connection::client::Disconnect;
+
+    let client_entity = stepper.client_entities[client_id];
+    stepper.client_apps[client_id]
+        .world_mut()
+        .trigger(Disconnect {
+            entity: client_entity,
+        });
+
+    let client_of_entity = stepper.client_of_entities[client_id];
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(client_of_entity)
+        .insert(Disconnected {
+            reason: DisconnectedReason::Unknown,
+        });
+    stepper.client_apps[client_id].world_mut().flush();
+    stepper.server_app.world_mut().flush();
 }
 
 #[test]
@@ -1214,6 +1236,36 @@ fn test_controlled_entity_despawned_on_server_when_client_disconnects() {
     );
 }
 
+/// `Lifetime::Persistent` keeps a controlled entity alive on the sender when its controller
+/// disconnects.
+#[test]
+fn test_controlled_entity_with_persistent_lifetime_survives_client_disconnect() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let client_of_1 = stepper.client_of(1).id();
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((
+            Replicate::to_clients(NetworkTarget::All),
+            ControlledBy {
+                owner: client_of_1,
+                lifetime: Lifetime::Persistent,
+            },
+        ))
+        .id();
+    stepper.frame_step(2);
+
+    // Disconnect and remove client 1's link entity.
+    stepper.disconnect_client();
+    stepper.frame_step(2);
+
+    assert!(
+        stepper.server_app.world().get_entity(server_entity).is_ok(),
+        "Entity with persistent lifetime should remain on the sender"
+    );
+}
+
 /// When a client disconnects, all replicated entities on that client should be despawned.
 #[test]
 fn test_replicated_entities_despawned_on_client_when_client_disconnects() {
@@ -1264,7 +1316,6 @@ fn test_replicated_entities_despawned_on_client_when_client_disconnects() {
 /// Instead, we manually trigger the disconnect on the client side and keep running it.
 #[test]
 fn test_all_replicated_despawned_on_disconnecting_client() {
-    use lightyear_connection::client::Disconnect;
     let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
 
     // server spawns an entity replicated to all clients
@@ -1292,20 +1343,7 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
     );
 
     // Manually trigger disconnect on client 1 without removing it from the stepper
-    let client_1_entity = stepper.client_entities[1];
-    stepper.client_apps[1].world_mut().trigger(Disconnect {
-        entity: client_1_entity,
-    });
-    // Also insert Disconnected on the server side for client_of 1
-    let client_of_1 = stepper.client_of_entities[1];
-    stepper
-        .server_app
-        .world_mut()
-        .entity_mut(client_of_1)
-        .insert(Disconnected {
-            reason: DisconnectedReason::Unknown,
-        });
-    stepper.server_app.world_mut().flush();
+    disconnect_client_in_place(&mut stepper, 1);
 
     // Run a few frames to let the state transition happen
     // We need to update client 1 manually since frame_step updates all clients
@@ -1318,6 +1356,296 @@ fn test_all_replicated_despawned_on_disconnecting_client() {
             .get_entity(client_entity_on_1)
             .is_err(),
         "Replicated entity should be despawned on client 1 after disconnect"
+    );
+}
+
+/// A `Persistent` marker on a received entity exempts only that entity from disconnect cleanup.
+#[test]
+fn test_persistent_replicated_entity_survives_client_disconnect() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let persistent_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    let session_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+
+    let persistent_client_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(persistent_server_entity)
+        .expect("persistent entity should be replicated to client 1");
+    let session_client_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(session_server_entity)
+        .expect("session entity should be replicated to client 1");
+    stepper.client_apps[1]
+        .world_mut()
+        .entity_mut(persistent_client_entity)
+        .insert(Persistent);
+
+    disconnect_client_in_place(&mut stepper, 1);
+    stepper.frame_step(3);
+
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get_entity(persistent_client_entity)
+            .is_ok(),
+        "Persistent replicated entity should survive disconnect"
+    );
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get_entity(session_client_entity)
+            .is_err(),
+        "Non-persistent replicated entity should be despawned on disconnect"
+    );
+}
+
+/// A `Persistent` marker on the receiver exempts all received entities from disconnect cleanup.
+#[test]
+fn test_persistent_replication_receiver_preserves_entities_on_disconnect() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::with_netcode_clients(2));
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(1)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be replicated to client 1");
+    let receiver = stepper.client_entities[1];
+    stepper.client_apps[1]
+        .world_mut()
+        .entity_mut(receiver)
+        .insert(Persistent);
+
+    disconnect_client_in_place(&mut stepper, 1);
+    stepper.frame_step(3);
+
+    assert!(
+        stepper.client_apps[1]
+            .world()
+            .get_entity(client_entity)
+            .is_ok(),
+        "Persistent receiver should preserve its replicated entities"
+    );
+}
+
+/// Removing `ReplicationReceiver` performs the same cleanup as disconnecting its link.
+#[test]
+fn test_removing_replication_receiver_cleans_up_replication_state() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let persistent_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    let session_server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+
+    let persistent_client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(persistent_server_entity)
+        .expect("persistent entity should be replicated to the client");
+    let session_client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(session_server_entity)
+        .expect("session entity should be replicated to the client");
+    let checkpoint = RepliconTick::new(123);
+    let receiver = stepper.client_entities[0];
+    {
+        let world = stepper.client_apps[0].world_mut();
+        world
+            .entity_mut(persistent_client_entity)
+            .insert(Persistent);
+        world
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(checkpoint, Tick(456));
+        world.entity_mut(receiver).remove::<ReplicationReceiver>();
+        world.flush();
+    }
+
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(persistent_client_entity)
+            .is_ok(),
+        "Persistent replicated entity should survive receiver removal"
+    );
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(session_client_entity)
+            .is_err(),
+        "Non-persistent replicated entity should be despawned on receiver removal"
+    );
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .resource::<ReplicationCheckpointMap>()
+            .get(checkpoint),
+        None,
+        "Receiver removal should clear the checkpoint map"
+    );
+
+    stepper.frame_step(2);
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .resource::<bevy::prelude::State<bevy_replicon::prelude::ClientState>>()
+            .get(),
+        &bevy_replicon::prelude::ClientState::Disconnected,
+        "Removing ReplicationReceiver should reset Replicon's client state"
+    );
+}
+
+/// Receiver persistence remains observable while the receiver entity itself is being despawned.
+#[test]
+fn test_despawning_persistent_replication_receiver_preserves_entities() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be replicated to the client");
+    let checkpoint = RepliconTick::new(123);
+    let receiver = stepper.client_entities[0];
+    {
+        let world = stepper.client_apps[0].world_mut();
+        world
+            .resource_mut::<ReplicationCheckpointMap>()
+            .record(checkpoint, Tick(456));
+        world.entity_mut(receiver).insert(Persistent);
+        world.despawn(receiver);
+        world.flush();
+    }
+
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_ok(),
+        "Persistent receiver should preserve entities while it is despawned"
+    );
+    assert_eq!(
+        stepper.client_apps[0]
+            .world()
+            .resource::<ReplicationCheckpointMap>()
+            .get(checkpoint),
+        None,
+        "Receiver despawn should clear the checkpoint map"
+    );
+}
+
+/// `Persistent` only controls disconnect cleanup; sender-replicated despawns still apply.
+#[test]
+fn test_persistent_replicated_entity_honors_remote_despawn() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be replicated to the client");
+    stepper.client_apps[0]
+        .world_mut()
+        .entity_mut(client_entity)
+        .insert(Persistent);
+
+    stepper.server_app.world_mut().despawn(server_entity);
+    stepper.frame_step(2);
+
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_err(),
+        "An explicitly replicated despawn should still despawn a persistent entity"
+    );
+}
+
+/// Removing Replicon's sender marker before despawning keeps the despawn local to the sender.
+#[test]
+fn test_sender_can_despawn_without_replicating_despawn() {
+    let mut stepper = ClientServerStepper::from_config(StepperConfig::single());
+
+    let server_entity = stepper
+        .server_app
+        .world_mut()
+        .spawn((Replicate::to_clients(NetworkTarget::All),))
+        .id();
+    stepper.frame_step(2);
+    let client_entity = stepper
+        .client(0)
+        .get::<MessageManager>()
+        .unwrap()
+        .entity_mapper
+        .get_local(server_entity)
+        .expect("entity should be replicated to the client");
+
+    stepper
+        .server_app
+        .world_mut()
+        .entity_mut(server_entity)
+        .remove::<RepliconReplicated>();
+    stepper.server_app.world_mut().despawn(server_entity);
+    stepper.frame_step(2);
+
+    assert!(
+        stepper.client_apps[0]
+            .world()
+            .get_entity(client_entity)
+            .is_ok(),
+        "Removing Replicated before despawning should suppress the remote despawn"
     );
 }
 
