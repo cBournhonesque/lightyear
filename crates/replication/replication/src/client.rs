@@ -17,6 +17,7 @@ use crate::ReplicationSystems;
 use crate::channels::RepliconChannelMap;
 use crate::checkpoint::ReplicationCheckpointMap;
 use crate::prelude::Replicated;
+use crate::receive::{Persistent, ReplicationReceiver};
 use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::debug;
@@ -175,16 +176,23 @@ fn send_client_packets(
     }
 }
 
-/// Despawn all replicated entities when the client disconnects.
+/// Despawn non-persistent replicated entities when the client disconnects.
 ///
 /// This matches the old `ReplicationReceivePlugin::handle_disconnection` behavior:
 /// all entities that were spawned from replication are despawned on disconnect.
 /// In the Replicon flow, received entities have `Remote`, which Lightyear exposes
-/// as its receiver-side `Replicated` marker.
+/// as its receiver-side `Replicated` marker. A [`Persistent`] marker on either a
+/// received entity or the [`ReplicationReceiver`] keeps the applicable entities alive.
 fn despawn_replicated_on_disconnect(
     mut commands: Commands,
-    replicated: Query<Entity, (With<Replicated>, Without<Replicate>)>,
+    persistent_receivers: Query<(), (With<ReplicationReceiver>, With<Persistent>)>,
+    replicated: Query<Entity, (With<Replicated>, Without<Replicate>, Without<Persistent>)>,
 ) {
+    if !persistent_receivers.is_empty() {
+        debug!("Keeping replicated entities because the replication receiver is persistent");
+        return;
+    }
+
     for entity in replicated.iter() {
         debug!("Despawning replicated entity {:?} on disconnect", entity);
         commands.entity(entity).try_despawn();

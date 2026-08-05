@@ -1,6 +1,7 @@
 use crate::ReplicationSystems;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::*;
+use bevy_reflect::Reflect;
 use bevy_replicon::client::ClientSystems;
 // TODO: add special rules so that entities with Predicted/Interpolation apply components differently
 
@@ -23,6 +24,18 @@ pub use bevy_replicon::prelude::Remote as Replicated;
 /// server side.
 #[derive(Component, Default)]
 pub struct ReplicationReceiver;
+
+/// Prevents receiver-side entities from being despawned when the connection ends.
+///
+/// Add this marker to a received [`Replicated`] entity to preserve only that entity, or add it to
+/// the entity holding [`ReplicationReceiver`] to preserve every entity received through the
+/// receiver.
+///
+/// This only affects disconnect cleanup. A despawn explicitly replicated by the sender will still
+/// despawn the entity.
+#[derive(Component, Clone, Copy, Debug, Default, PartialEq, Eq, Reflect)]
+#[reflect(Component)]
+pub struct Persistent;
 
 pub struct ReceivePlugin;
 impl Plugin for ReceivePlugin {
