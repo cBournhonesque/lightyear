@@ -32,7 +32,7 @@ use lightyear_core::id::{PeerId, RemoteId};
 use lightyear_serde::registry::ErasedSerializeFns;
 use lightyear_transport::packet::message::MessageId;
 use lightyear_transport::prelude::ChannelRegistry;
-use tracing::{error, trace};
+use tracing::{error, trace, warn};
 
 use core::any::Any;
 
@@ -446,7 +446,13 @@ impl<M: Message> MessageReceiver<M> {
     pub(crate) unsafe fn clear_typed(receiver: MutUntyped) {
         // SAFETY: we know the type of the receiver is MessageReceiver<M>
         let mut receiver = unsafe { receiver.with_type::<Self>() };
-        receiver.ready_mut().clear();
+        if receiver.has_messages() {
+            warn!(
+                "Unhandled messages {:?}. Clearing to avoid accumulating messages...",
+                DebugName::type_name::<M>()
+            );
+            receiver.ready_mut().clear();
+        }
     }
 
     pub(crate) unsafe fn release_timeline_typed(
