@@ -169,9 +169,8 @@ pub(crate) fn handle_disconnection(
         "Disconnected ({})",
         disconnected
             .get(trigger.entity)
-            .map(|d| d.1.reason.as_ref())
-            .unwrap_or(None)
-            .unwrap_or(&"Unknown".to_string())
+            .map(|(_, disconnected)| disconnected.reason.to_string())
+            .unwrap_or_else(|_| "Unknown".to_string())
     )));
     for entity in debug_text.iter() {
         commands.entity(entity).despawn();

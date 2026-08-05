@@ -361,6 +361,7 @@ fn infer_standard_topology(client: Option<ReadyClient>, server: Option<Entity>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::client::DisconnectedReason;
     use crate::client::PeerMetadata;
     use alloc::vec::Vec;
     use bevy_ecs::change_detection::DetectChanges;
@@ -403,7 +404,7 @@ mod tests {
         assert_eq!(mode(&app), &NetworkTopology::Client(client));
 
         app.world_mut().entity_mut(client).insert(Disconnected {
-            reason: Some("test".into()),
+            reason: DisconnectedReason::UserRequested(Some("test".into())),
         });
         app.update();
         assert_eq!(mode(&app), &NetworkTopology::Undefined);
@@ -483,7 +484,7 @@ mod tests {
         );
 
         app.world_mut().entity_mut(first).insert(Disconnected {
-            reason: Some("test".into()),
+            reason: DisconnectedReason::UserRequested(Some("test".into())),
         });
         app.update();
         assert_eq!(

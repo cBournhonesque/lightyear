@@ -1,4 +1,4 @@
-use crate::client::{Disconnected, Disconnecting, PeerMetadata};
+use crate::client::{Disconnected, DisconnectedReason, Disconnecting, PeerMetadata};
 use crate::client_of::ClientOf;
 use bevy_app::{App, Last, Plugin};
 use bevy_ecs::lifecycle::HookContext;
@@ -149,7 +149,9 @@ impl ConnectionPlugin {
             // Set to Disconnected before despawning to trigger observers
             commands
                 .entity(entity)
-                .insert(Disconnected { reason: None })
+                .insert(Disconnected {
+                    reason: DisconnectedReason::UserRequested(None),
+                })
                 .despawn();
         }
     }

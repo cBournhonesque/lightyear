@@ -5,8 +5,10 @@
 //! each child link entity to point back to the server. Transport crates can use this to keep the
 //! server endpoint independent from the concrete links used for each connected peer.
 
-use crate::{Link, LinkPlugin, Linked, Linking, RecvLinkConditioner, Unlink, Unlinked};
-use alloc::{format, string::String, vec::Vec};
+use crate::{
+    Link, LinkPlugin, Linked, Linking, RecvLinkConditioner, Unlink, UnlinkReason, Unlinked,
+};
+use alloc::{format, vec::Vec};
 use bevy_app::{App, Plugin};
 use bevy_ecs::lifecycle::HookContext;
 use bevy_ecs::prelude::*;
@@ -60,7 +62,7 @@ impl Server {
         {
             trace!("Inserting Unlinked because Server was added");
             world.commands().entity(context.entity).insert(Unlinked {
-                reason: String::new(),
+                reason: UnlinkReason::Initial,
             });
         };
     }
@@ -271,7 +273,7 @@ mod tests {
             .id();
 
         app.world_mut().entity_mut(server).insert(Unlinked {
-            reason: alloc::string::String::from("server stopped"),
+            reason: UnlinkReason::ServerStopped,
         });
         app.update();
 

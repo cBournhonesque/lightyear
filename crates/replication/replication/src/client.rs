@@ -17,6 +17,7 @@ use crate::ReplicationSystems;
 use crate::channels::RepliconChannelMap;
 use crate::checkpoint::ReplicationCheckpointMap;
 use crate::prelude::Replicated;
+use crate::receive::{Persistent, ReplicationReceiver};
 use crate::send::Replicate;
 use lightyear_messages::plugin::MessageSystems;
 use tracing::debug;
@@ -67,16 +68,9 @@ impl Plugin for RepliconClientPlugin {
                 .after(ServerSystems::Receive),
         );
 
-        // Despawn all replicated entities when the client disconnects.
-        // bevy_replicon's reset only clears the entity map; lightyear must
-        // clean up the actual entities.
-        app.add_systems(
-            OnExit(ClientState::Connected),
-            (
-                clear_checkpoint_map_on_disconnect,
-                despawn_replicated_on_disconnect.after(ClientSystems::Reset),
-            ),
-        );
+        // bevy_replicon's reset only clears the entity map; lightyear must clean up the actual
+        // entities when their receiver disconnects or is removed.
+        app.add_observer(on_replication_disconnect);
 
         app.configure_sets(
             PreUpdate,
@@ -95,7 +89,22 @@ impl Plugin for RepliconClientPlugin {
 fn sync_checkpoint_last_confirmed_tick(
     server_mutate_ticks: Res<ServerMutateTicks>,
     mut checkpoints: ResMut<ReplicationCheckpointMap>,
+    connected_receivers: Query<
+        (),
+        (
+            With<Connected>,
+            With<Client>,
+            With<ReplicationReceiver>,
+            Without<HostClient>,
+        ),
+    >,
 ) {
+    // Receiver cleanup clears the checkpoint map before Replicon's state transition resets its
+    // mutate ticks. Do not compare those two resources during that short transition window.
+    if connected_receivers.is_empty() {
+        return;
+    }
+
     let Some(replicon_tick) = server_mutate_ticks.last_confirmed_tick() else {
         return;
     };
@@ -114,19 +123,23 @@ fn sync_checkpoint_last_confirmed_tick(
     }
 }
 
-fn clear_checkpoint_map_on_disconnect(mut checkpoints: ResMut<ReplicationCheckpointMap>) {
-    checkpoints.clear();
-}
-
 /// Sync replicon's `ClientState` with lightyear lifecycle.
 ///
-/// Sets `Connected` only for real remote clients.
+/// Sets `Connected` only for real remote clients that can receive replication.
 ///
 /// Host-clients intentionally keep Replicon's `ClientState` disconnected so the app behaves like
 /// a listen server: replication receive stays disabled and host-local client behavior is emulated
 /// directly in the shared world instead.
 fn sync_client_state(
-    connected: Query<(), (With<Connected>, With<Client>, Without<HostClient>)>,
+    connected: Query<
+        (),
+        (
+            With<Connected>,
+            With<Client>,
+            With<ReplicationReceiver>,
+            Without<HostClient>,
+        ),
+    >,
     state: Res<State<ClientState>>,
     mut next_state: ResMut<NextState<ClientState>>,
 ) {
@@ -144,7 +157,7 @@ fn sync_client_state(
 fn receive_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,
-    mut transports: Query<&mut Transport, With<Client>>,
+    mut transports: Query<&mut Transport, (With<Client>, With<ReplicationReceiver>)>,
 ) {
     for mut transport in transports.iter_mut() {
         for (idx, &(_, channel_id)) in channel_map.server_channels.iter().enumerate() {
@@ -163,7 +176,7 @@ fn receive_client_packets(
 fn send_client_packets(
     channel_map: Res<RepliconChannelMap>,
     mut client_messages: ResMut<ClientMessages>,
-    mut transports: Query<&mut Transport, With<Client>>,
+    mut transports: Query<&mut Transport, (With<Client>, With<ReplicationReceiver>)>,
 ) {
     for (channel_idx, message) in client_messages.drain_sent() {
         let (channel_kind, _) = channel_map.client_channels[channel_idx];
@@ -175,16 +188,41 @@ fn send_client_packets(
     }
 }
 
-/// Despawn all replicated entities when the client disconnects.
+/// Cleans up receiver-side replication state when a receiver disconnects or is removed.
 ///
-/// This matches the old `ReplicationReceivePlugin::handle_disconnection` behavior:
-/// all entities that were spawned from replication are despawned on disconnect.
-/// In the Replicon flow, received entities have `Remote`, which Lightyear exposes
-/// as its receiver-side `Replicated` marker.
-fn despawn_replicated_on_disconnect(
+/// Watching `Remove` for both [`Connected`] and [`ReplicationReceiver`] handles disconnection,
+/// explicit receiver removal, and receiver entity despawn with a single observer. Lifecycle
+/// `Remove` observers run before the components disappear, so receiver-local [`Persistent`] can
+/// still be read here.
+fn on_replication_disconnect(
+    trigger: On<Remove, (Connected, ReplicationReceiver)>,
     mut commands: Commands,
-    replicated: Query<Entity, (With<Replicated>, Without<Replicate>)>,
+    receivers: Query<
+        Has<Persistent>,
+        (
+            With<Connected>,
+            With<Client>,
+            With<ReplicationReceiver>,
+            Without<HostClient>,
+        ),
+    >,
+    replicated: Query<Entity, (With<Replicated>, Without<Replicate>, Without<Persistent>)>,
+    mut checkpoints: ResMut<ReplicationCheckpointMap>,
 ) {
+    // The tuple observer runs when either component is removed. Only clean up a connection that
+    // had both components immediately before this removal, and do not clean up twice if its
+    // receiver entity is later despawned.
+    let Ok(receiver_is_persistent) = receivers.get(trigger.entity) else {
+        return;
+    };
+
+    checkpoints.clear();
+
+    if receiver_is_persistent {
+        debug!("Keeping replicated entities because the replication receiver is persistent");
+        return;
+    }
+
     for entity in replicated.iter() {
         debug!("Despawning replicated entity {:?} on disconnect", entity);
         commands.entity(entity).try_despawn();
