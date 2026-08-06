@@ -73,7 +73,13 @@ fn add_visual_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
     trigger: On<Add, Position>,
-    query: Query<Entity, (With<Predicted>, Without<FloorMarker>)>,
+    query: Query<
+        Entity,
+        (
+            Or<(With<Predicted>, With<DeterministicPredicted>)>,
+            Without<FloorMarker>,
+        ),
+    >,
     clients: Query<(), With<Client>>,
     mut commands: Commands,
 ) {
@@ -93,7 +99,12 @@ fn add_character_cosmetics(
     character_query: Query<
         (Entity, &ColorComponent),
         (
-            Or<(Added<Predicted>, Added<Replicate>, Added<Interpolated>)>,
+            Or<(
+                Added<Predicted>,
+                Added<Replicate>,
+                Added<Interpolated>,
+                Added<DeterministicPredicted>,
+            )>,
             With<CharacterMarker>,
         ),
     >,
@@ -120,7 +131,11 @@ fn add_character_child_cosmetics(
         (),
         (
             With<CharacterMarker>,
-            Or<(With<Predicted>, With<Replicate>)>,
+            Or<(
+                With<Predicted>,
+                With<Replicate>,
+                With<DeterministicPredicted>,
+            )>,
         ),
     >,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -140,22 +155,30 @@ fn add_character_child_cosmetics(
 fn add_projectile_cosmetics(
     mut commands: Commands,
     character_query: Query<
-        Entity,
+        (Entity, Has<RigidBody>),
         (
-            Or<(Added<Predicted>, Added<Replicate>)>,
+            Or<(
+                Added<Predicted>,
+                Added<Replicate>,
+                Added<DeterministicPredicted>,
+            )>,
             With<ProjectileMarker>,
         ),
     >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {
-    for entity in &character_query {
+    for (entity, has_physics) in &character_query {
         info!(?entity, "Adding cosmetics to projectile {:?}", entity);
         commands.entity(entity).insert((
             Mesh3d(meshes.add(Sphere::new(PROJECTILE_RADIUS))),
             MeshMaterial3d(materials.add(Color::from(MAGENTA))),
-            ProjectilePhysicsBundle::default(),
         ));
+        if !has_physics {
+            commands
+                .entity(entity)
+                .insert(ProjectilePhysicsBundle::default());
+        }
     }
 }
 
@@ -181,7 +204,17 @@ fn add_floor_cosmetics(
 /// see the predicted block and not the confirmed block.
 fn add_block_cosmetics(
     mut commands: Commands,
-    floor_query: Query<Entity, (Or<(Added<Predicted>, Added<Replicate>)>, With<BlockMarker>)>,
+    floor_query: Query<
+        Entity,
+        (
+            Or<(
+                Added<Predicted>,
+                Added<Replicate>,
+                Added<DeterministicPredicted>,
+            )>,
+            With<BlockMarker>,
+        ),
+    >,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
 ) {

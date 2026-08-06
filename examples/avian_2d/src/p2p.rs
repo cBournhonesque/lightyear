@@ -20,6 +20,9 @@ use crate::shared::color_from_id;
 
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4156_3244_0000_0000;
 
+#[derive(Component)]
+struct PendingLocalInput(Tick);
+
 pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
@@ -29,6 +32,10 @@ impl Plugin for ExampleP2PPlugin {
         app.add_systems(
             FixedPreUpdate,
             spawn_fixed_world.before(InputSystems::BufferClientInputs),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            enable_local_input.after(PredictionSystems::UpdateHistory),
         );
     }
 }
@@ -88,7 +95,26 @@ fn spawn_fixed_world(
             ))
             .id();
         if peer_id == settings.local_peer_id {
-            commands.entity(player).insert(player_input_map());
+            commands
+                .entity(player)
+                .insert(PendingLocalInput(timeline.tick()));
         }
+    }
+}
+
+/// Enable local input after the initial Avian rollback state has been recorded.
+fn enable_local_input(
+    mut commands: Commands,
+    timeline: Res<LocalTimeline>,
+    local_players: Query<(Entity, &PendingLocalInput)>,
+) {
+    for (entity, pending) in &local_players {
+        if timeline.tick() <= pending.0 {
+            continue;
+        }
+        commands
+            .entity(entity)
+            .insert(player_input_map())
+            .remove::<PendingLocalInput>();
     }
 }

@@ -25,6 +25,10 @@ const PROJECTILE_LIFETIME_TICKS: i32 = 120;
 #[derive(Component)]
 struct DespawnAt(Tick);
 
+/// Marks the local character until its input map can be enabled after the first physics snapshot.
+#[derive(Component)]
+struct PendingLocalInput(Tick);
+
 pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
@@ -34,6 +38,10 @@ impl Plugin for ExampleP2PPlugin {
         app.add_systems(
             FixedPreUpdate,
             spawn_fixed_world.before(InputSystems::BufferClientInputs),
+        );
+        app.add_systems(
+            FixedPostUpdate,
+            enable_local_input.after(PredictionSystems::UpdateHistory),
         );
         app.add_systems(FixedUpdate, (shoot, despawn_projectiles));
     }
@@ -95,8 +103,34 @@ fn spawn_fixed_world(
             ))
             .id();
         if peer_id == settings.local_peer_id {
-            commands.entity(character).insert(character_input_map());
+            commands
+                .entity(character)
+                .insert(PendingLocalInput(timeline.tick()));
         }
+    }
+}
+
+/// Enable input capture only after Avian and Lightyear have recorded the world's initial state.
+///
+/// The fixed world and its collider-tree proxies are created together at
+/// [`GAMEPLAY_START_TICK`]. Enabling input in the same tick would allow a late first input to roll
+/// back before the first complete physics snapshot, leaving live colliders paired with an empty
+/// restored collider tree. Waiting one complete warm-up tick makes the earliest possible input
+/// rollback target a world snapshot from after initialization. It also lets the per-collider
+/// rollback histories installed by Avian's observers record their initial proxy state.
+fn enable_local_input(
+    mut commands: Commands,
+    timeline: Res<LocalTimeline>,
+    local_characters: Query<(Entity, &PendingLocalInput)>,
+) {
+    for (entity, pending) in &local_characters {
+        if timeline.tick() <= pending.0 {
+            continue;
+        }
+        commands
+            .entity(entity)
+            .insert(character_input_map())
+            .remove::<PendingLocalInput>();
     }
 }
 
