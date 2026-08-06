@@ -6,10 +6,9 @@ quota.
 
 To not starve lower priority entities, their priority is accumulated over time, so that they can eventually be sent.
 
-In this example, rows have static priority marker components. The server writes Replicon's `PriorityMap`
-for each connected client: the center row is low priority, the next rows are medium priority, and the
-outer rows are high priority. `PriorityMap` only affects component mutations, so initial spawns are still
-sent immediately.
+In this example, the server assigns Replicon's `ReplicatePriority` to each prop: the center row is low
+priority, the next rows are medium priority, and the outer rows are high priority. Replication priority
+only affects component mutations, so initial spawns are still sent immediately.
 
 You can find more information in
 the [book](https://github.com/cBournhonesque/lightyear/blob/main/book/src/concepts/advanced_replication/bandwidth_management.md)
