@@ -33,6 +33,29 @@ pub(crate) fn add_p2p_debugging(app: &mut App) {
     if std::env::var_os("LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS").is_some() {
         app.add_systems(Update, log_p2p_positions);
     }
+    if let Some(tick) = std::env::var("LIGHTYEAR_SIMPLE_BOX_EXIT_AFTER_TICK")
+        .ok()
+        .and_then(|value| value.parse::<u32>().ok())
+    {
+        app.insert_resource(ExitAfterTick(Tick(tick)));
+        app.add_systems(Update, exit_after_tick);
+    }
+}
+
+/// Optional deterministic endpoint for multi-process example automation.
+#[cfg(feature = "p2p")]
+#[derive(Resource)]
+struct ExitAfterTick(Tick);
+
+#[cfg(feature = "p2p")]
+fn exit_after_tick(
+    timeline: Res<LocalTimeline>,
+    exit_tick: Res<ExitAfterTick>,
+    mut exit: MessageWriter<AppExit>,
+) {
+    if timeline.tick() >= exit_tick.0 {
+        exit.write(AppExit::Success);
+    }
 }
 
 /// Periodically log P2P connection state and deterministic player positions.

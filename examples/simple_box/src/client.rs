@@ -2,8 +2,8 @@
 //! The client will be responsible for:
 //! - connecting to the server at Startup
 //! - sending inputs to the server
-//! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
-//!   predicted entity and the server entity)
+//! - applying inputs to predicted entities. In client/server mode this is the locally controlled
+//!   player; in P2P mode every peer predicts the complete deterministic roster.
 
 use crate::automation::{self, AutomationClientPlugin};
 use crate::protocol::*;
@@ -91,9 +91,12 @@ fn buffer_input(
     }
 }
 
-/// Applies local movement only to predicted entities owned by this client.
+/// Apply movement to every entity simulated by this client.
 ///
-/// If this example predicted remote entities, ownership would need to be checked before movement.
+/// Conventional clients only have a [`Predicted`] copy of their locally controlled player. P2P
+/// peers instead give every roster member [`DeterministicPredicted`]: the local player uses captured
+/// input, while remote players repeat their latest known input and trigger rollback when corrected
+/// input arrives.
 fn player_movement(
     _input_timeline: SyncedInputTimeline,
     timeline: Res<LocalTimeline>,
