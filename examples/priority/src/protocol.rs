@@ -32,15 +32,6 @@ pub enum Shape {
     Square,
 }
 
-#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
-pub struct LowPriority;
-
-#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
-pub struct MediumPriority;
-
-#[derive(Component, Deserialize, Serialize, Clone, Copy, Debug, PartialEq)]
-pub struct HighPriority;
-
 // Channels
 
 pub struct Channel1;
@@ -76,10 +67,6 @@ impl Plugin for ProtocolPlugin {
             .add_linear_interpolation();
 
         app.component::<PlayerColor>().replicate();
-
-        app.component::<LowPriority>().replicate_once();
-        app.component::<MediumPriority>().replicate_once();
-        app.component::<HighPriority>().replicate_once();
 
         app.component::<Shape>().replicate();
     }
