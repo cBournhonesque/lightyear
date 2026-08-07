@@ -19,7 +19,7 @@ use bevy_ecs::world::DeferredWorld;
 use bevy_reflect::Reflect;
 #[allow(unused_imports)]
 use bevy_replicon::prelude::{
-    AppRuleExt, FilterScope, Replicated, SingleComponent, VisibilityFilter,
+    AppRuleExt, FilterScope, Replicated, ScopeLifetime, SingleComponent, VisibilityFilter,
 };
 use bevy_replicon::server::ServerSystems;
 use bevy_replicon::server::server_tick::ServerTick;
@@ -330,7 +330,11 @@ impl FromWorld for ReplicateBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<Entity>(world, &mut registry)
+                filter_registry.register_scope::<Entity>(
+                    world,
+                    &mut registry,
+                    ScopeLifetime::WhileVisible,
+                )
             })
         });
         Self(bit)
@@ -410,8 +414,11 @@ mod prediction {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry
-                        .register_scope::<SingleComponent<Predicted>>(world, &mut registry)
+                    filter_registry.register_scope::<SingleComponent<Predicted>>(
+                        world,
+                        &mut registry,
+                        ScopeLifetime::WhileVisible,
+                    )
                 })
             });
             Self(bit)
@@ -481,8 +488,11 @@ mod interpolation {
         fn from_world(world: &mut World) -> Self {
             let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
                 world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                    filter_registry
-                        .register_scope::<SingleComponent<Interpolated>>(world, &mut registry)
+                    filter_registry.register_scope::<SingleComponent<Interpolated>>(
+                        world,
+                        &mut registry,
+                        ScopeLifetime::WhileVisible,
+                    )
                 })
             });
             Self(bit)
