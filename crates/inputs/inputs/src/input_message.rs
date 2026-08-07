@@ -28,11 +28,18 @@ pub enum InputTarget {
     /// The input is for a predicted or confirmed entity.
     /// When sending from client to server, entity mapping is applied.
     /// (Also when rebroadcast from server to client)
+    ///
+    /// This target is not valid for direct P2P input because input-only P2P Links do not have a
+    /// replication stream that can populate their entity maps. Use [`InputTarget::PreSpawned`]
+    /// for P2P targets.
     Entity(Entity),
     /// The input is for a prespawned entity.
     /// We want the client to be able to send inputs for a prespawned entity before it gets matched with a server entity.
     /// To achieve this, the client sends the PreSpawned hash and the server will map it to the correct server entity.
     /// When rebroadcasting from server to other client, we rebroadcast it as a normal Entity?
+    ///
+    /// Direct P2P input also uses this stable hash because every peer has its own local ECS entity
+    /// and no authoritative replication stream exists to establish an entity map.
     PreSpawned(u64),
 }
 

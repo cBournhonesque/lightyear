@@ -13,6 +13,8 @@
 
 #[cfg(feature = "client")]
 use crate::client::ExampleClientPlugin;
+#[cfg(feature = "p2p")]
+use crate::p2p::ExampleP2PPlugin;
 #[cfg(feature = "server")]
 use crate::server::ExampleServerPlugin;
 use crate::shared::SharedPlugin;
@@ -26,6 +28,8 @@ mod automation;
 #[cfg(feature = "client")]
 mod client;
 mod debug;
+#[cfg(feature = "p2p")]
+mod p2p;
 mod protocol;
 #[cfg(feature = "gui")]
 mod renderer;
@@ -46,9 +50,13 @@ fn main() {
     cli.spawn_connections(&mut app);
 
     match cli.mode {
-        #[cfg(feature = "client")]
+        #[cfg(all(feature = "client", any(not(feature = "p2p"), feature = "netcode")))]
         Some(Mode::Client { .. }) => {
             app.add_plugins(ExampleClientPlugin);
+        }
+        #[cfg(feature = "p2p")]
+        Some(Mode::P2P { .. }) => {
+            app.add_plugins((ExampleClientPlugin, ExampleP2PPlugin));
         }
         #[cfg(feature = "server")]
         Some(Mode::Server) => {

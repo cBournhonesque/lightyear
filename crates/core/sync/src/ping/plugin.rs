@@ -133,10 +133,23 @@ impl PingPlugin {
         )
     }
 
-    /// On connection, reset the PingManager.
-    pub(crate) fn handle_connect(trigger: On<Add, Connected>, mut query: Query<&mut PingManager>) {
+    /// On connection, reset the PingManager and restore its typed receivers.
+    ///
+    /// Disconnection cleanup removes typed receivers so stale messages cannot cross connection
+    /// epochs. They are normally recreated lazily by inbound traffic, but two symmetric raw P2P
+    /// clients would otherwise both wait for the other side to send the first ping. Restoring the
+    /// two protocol-internal receivers here lets either side initiate synchronization.
+    pub(crate) fn handle_connect(
+        trigger: On<Add, Connected>,
+        mut query: Query<&mut PingManager>,
+        mut commands: Commands,
+    ) {
         if let Ok(mut manager) = query.get_mut(trigger.entity) {
             manager.reset();
+            commands
+                .entity(trigger.entity)
+                .insert_if_new(MessageReceiver::<Ping>::default())
+                .insert_if_new(MessageReceiver::<Pong>::default());
         }
     }
 }
@@ -189,6 +202,7 @@ impl Plugin for PingPlugin {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lightyear_core::id::{PeerId, RemoteId};
     use lightyear_transport::plugin::PacketAcked;
 
     #[test]
@@ -213,5 +227,26 @@ mod tests {
         assert_eq!(manager.pongs_recv, 0);
         assert_eq!(manager.latency_samples_recv(), 0);
         assert_eq!(manager.rtt(), Duration::ZERO);
+    }
+
+    #[test]
+    fn connecting_restores_ping_receivers() {
+        let mut app = App::new();
+        app.add_plugins(PingPlugin);
+
+        let entity = app
+            .world_mut()
+            .spawn((RemoteId(PeerId::Server), PingManager::default()))
+            .id();
+        app.world_mut()
+            .entity_mut(entity)
+            .remove::<(MessageReceiver<Ping>, MessageReceiver<Pong>)>();
+
+        app.world_mut().entity_mut(entity).insert(Connected);
+        app.world_mut().flush();
+
+        let entity = app.world().entity(entity);
+        assert!(entity.contains::<MessageReceiver<Ping>>());
+        assert!(entity.contains::<MessageReceiver<Pong>>());
     }
 }

@@ -8,6 +8,8 @@ use crate::automation::AutomationClientPlugin;
 use crate::protocol::*;
 use crate::shared::color_from_id;
 use lightyear_deterministic_replication::prelude::CatchUpSnapshotReady;
+#[cfg(feature = "p2p")]
+use lightyear_examples_common::p2p::P2PSettings;
 
 pub struct ExampleClientPlugin;
 
@@ -34,16 +36,27 @@ struct InputMapAdded;
 /// input and the server can't rebroadcast it to other peers.
 fn add_input_map_after_sync(
     _input_timeline: SyncedInputTimeline,
-    client: Option<Single<&LocalId, With<Client>>>,
+    metadata: Res<NetworkingMetadata>,
+    local_ids: Query<&LocalId>,
+    #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
     mut commands: Commands,
     players: Query<(Entity, &PlayerId), (Without<InputMapAdded>, Without<InputMap<PlayerActions>>)>,
 ) {
-    let Some(client) = client else {
+    #[cfg(feature = "p2p")]
+    let p2p_id = p2p.as_deref().map(P2PSettings::local_id);
+    #[cfg(not(feature = "p2p"))]
+    let p2p_id = None;
+    let local_id = p2p_id.or_else(|| match metadata.mode {
+        NetworkTopology::Client(link) | NetworkTopology::HostClient { client: link, .. } => {
+            local_ids.get(link).ok().map(|id| id.0)
+        }
+        _ => None,
+    });
+    let Some(local_id) = local_id else {
         return;
     };
-    let local_id = client.into_inner();
     for (entity, player_id) in players.iter() {
-        if local_id.0 == player_id.0 {
+        if local_id == player_id.0 {
             info!("Client: adding InputMap to local player {:?}", player_id.0);
             commands.entity(entity).insert((
                 InputMap::new([

@@ -42,6 +42,14 @@ your client will rollback to position the bullet correctly.
 - Run the server without a gui: `cargo run --no-default-features --features=server`
 - Run the client and server in "HostClient" mode, where the server is also a client (there is only one App): `cargo run host-client`
 
+### P2P mode
+
+The demo can also run as a deterministic input-only game with no server. Start peer 0 with
+`cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+and peer 1 with the same command using `--peer-id 1`. Every peer predicts the complete physics
+world, spawns the same bullets from the shared input stream, and applies collision and score
+changes deterministically.
+
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server`.
 You can modify the file `assets/settings.ron` to modify some networking settings.

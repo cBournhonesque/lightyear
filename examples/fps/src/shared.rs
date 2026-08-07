@@ -15,12 +15,20 @@ pub const BOT_RADIUS: f32 = 15.0;
 pub(crate) const BOT_MOVE_SPEED: f32 = 1.0;
 const BULLET_MOVE_SPEED: f32 = 300.0;
 const MAP_LIMIT: f32 = 2000.0;
+const P2P_BULLET_LIFETIME_TICKS: i32 = 120;
 
 #[derive(Clone)]
 pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "p2p")]
+        let rollback_resources = app
+            .world()
+            .contains_resource::<lightyear_examples_common::p2p::P2PSettings>();
+        #[cfg(not(feature = "p2p"))]
+        let rollback_resources = false;
+
         app.add_plugins(ProtocolPlugin);
         crate::debug::register_debug_systems(app);
 
@@ -33,6 +41,7 @@ impl Plugin for SharedPlugin {
             },
             // This example keeps custom physics-component rules in its protocol.
             register_physics_components: false,
+            rollback_resources,
             ..default()
         });
 
@@ -41,7 +50,13 @@ impl Plugin for SharedPlugin {
         // Physics-based systems that can roll back must run in FixedUpdate.
         app.add_systems(
             FixedUpdate,
-            (predicted_bot_movement, player_movement, shoot_bullet).chain(),
+            (
+                predicted_bot_movement,
+                player_movement,
+                shoot_bullet,
+                despawn_p2p_bullets,
+            )
+                .chain(),
         );
         // both client and server need physics
         // (the client also needs the physics plugin to be able to compute predicted bullet hits)
@@ -126,18 +141,28 @@ fn player_movement(
             &ActionState<PlayerActions>,
             &PlayerId,
             Has<Predicted>,
+            Has<DeterministicPredicted>,
         ),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
+        (
+            Or<(
+                With<Predicted>,
+                With<Replicate>,
+                With<DeterministicPredicted>,
+            )>,
+            With<PlayerMarker>,
+        ),
     >,
 ) {
     let has_client = !client.is_empty();
     let is_host_server = !host_server.is_empty();
     let client_is_synced = input_timeline.is_some();
-    for (position, rotation, action_state, player_id, is_predicted) in player_query.iter_mut() {
+    for (position, rotation, action_state, player_id, is_predicted, is_deterministic) in
+        player_query.iter_mut()
+    {
         if should_skip_client_side_entity(
             has_client,
             is_host_server,
-            is_predicted,
+            is_predicted || is_deterministic,
             client_is_synced,
         ) {
             continue;
@@ -168,6 +193,7 @@ pub(crate) fn shoot_bullet(
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
     input_timeline: Option<SyncedInputTimeline>,
+    metadata: Res<NetworkingMetadata>,
     mut query: Query<
         (
             &PlayerId,
@@ -178,21 +204,39 @@ pub(crate) fn shoot_bullet(
             &LeafwingBuffer<PlayerActions>,
             Option<&ControlledBy>,
             Has<Predicted>,
+            Has<DeterministicPredicted>,
         ),
-        (Or<(With<Predicted>, With<Replicate>)>, With<PlayerMarker>),
+        (
+            Or<(
+                With<Predicted>,
+                With<Replicate>,
+                With<DeterministicPredicted>,
+            )>,
+            With<PlayerMarker>,
+        ),
     >,
 ) {
     let tick = timeline.tick();
     let has_client = !client.is_empty();
     let is_host_server = !host_server.is_empty();
     let client_is_synced = input_timeline.is_some();
-    for (id, position, rotation, color, action, input_buffer, controlled_by, is_predicted) in
-        query.iter_mut()
+    let is_p2p = matches!(metadata.mode, NetworkTopology::P2P { .. });
+    for (
+        id,
+        position,
+        rotation,
+        color,
+        action,
+        input_buffer,
+        controlled_by,
+        is_predicted,
+        is_deterministic,
+    ) in query.iter_mut()
     {
         if should_skip_client_side_entity(
             has_client,
             is_host_server,
-            is_predicted,
+            is_predicted || is_deterministic,
             client_is_synced,
         ) {
             continue;
@@ -238,6 +282,14 @@ pub(crate) fn shoot_bullet(
                         controlled_by,
                     ))
                     .id()
+            } else if is_p2p {
+                commands
+                    .spawn((
+                        bullet_bundle,
+                        PreSpawned::new(prespawn_hash),
+                        DeterministicPredicted::default(),
+                    ))
+                    .id()
             } else {
                 commands
                     .spawn((bullet_bundle, PreSpawned::new(prespawn_hash)))
@@ -245,9 +297,19 @@ pub(crate) fn shoot_bullet(
             };
             #[cfg(not(feature = "server"))]
             let bullet_entity = {
-                commands
-                    .spawn((bullet_bundle, PreSpawned::new(prespawn_hash)))
-                    .id()
+                if is_p2p {
+                    commands
+                        .spawn((
+                            bullet_bundle,
+                            PreSpawned::new(prespawn_hash),
+                            DeterministicPredicted::default(),
+                        ))
+                        .id()
+                } else {
+                    commands
+                        .spawn((bullet_bundle, PreSpawned::new(prespawn_hash)))
+                        .id()
+                }
             };
             lightyear_debug_event!(
                 DebugCategory::Prediction,
@@ -280,6 +342,20 @@ fn shoot_pressed_this_tick(input_buffer: &LeafwingBuffer<PlayerActions>, tick: T
         .get(tick - 1)
         .is_some_and(|snapshot| snapshot.0.pressed(&PlayerActions::Shoot));
     current_pressed && !previous_pressed
+}
+
+/// Despawn input-only P2P bullets on a deterministic tick boundary.
+fn despawn_p2p_bullets(
+    mut commands: Commands,
+    timeline: Res<LocalTimeline>,
+    bullets: Query<(Entity, &BulletMarker), With<DeterministicPredicted>>,
+) {
+    let tick = timeline.tick();
+    for (entity, bullet) in &bullets {
+        if tick - bullet.fire_tick >= P2P_BULLET_LIFETIME_TICKS {
+            commands.entity(entity).prediction_despawn();
+        }
+    }
 }
 
 #[derive(Component)]

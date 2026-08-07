@@ -13,6 +13,7 @@ use bevy::prelude::*;
 #[cfg(feature = "server")]
 use lightyear::connection::host::HostServer;
 use lightyear::input::bei::prelude::{Action, ActionOf, Actions, Bindings, Cardinal, Fire};
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::*;
 
@@ -43,7 +44,10 @@ fn player_movement(
     trigger: On<Fire<Movement>>,
     _input_timeline: SyncedInputTimeline,
     #[cfg(feature = "server")] host_server: Query<(), With<HostServer>>,
-    mut position_query: Query<&mut PlayerPosition, With<Predicted>>,
+    mut position_query: Query<
+        &mut PlayerPosition,
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
     #[cfg(feature = "server")]
     if !host_server.is_empty() {

@@ -41,6 +41,33 @@ pub enum NetworkTopology {
     Invalid(NetworkTopologyError),
 }
 
+impl NetworkTopology {
+    /// Returns true for a connected conventional client.
+    pub fn is_client(&self) -> bool {
+        matches!(self, Self::Client(_))
+    }
+
+    /// Returns true for a started server, including the server side of a host-client app.
+    pub fn is_server(&self) -> bool {
+        matches!(self, Self::Server(_) | Self::HostClient { .. })
+    }
+
+    /// Returns true for a started server without a connected in-process client.
+    pub fn is_headless_server(&self) -> bool {
+        matches!(self, Self::Server(_))
+    }
+
+    /// Returns true for a ready in-process host-client app.
+    pub fn is_host_server(&self) -> bool {
+        matches!(self, Self::HostClient { .. })
+    }
+
+    /// Returns true when direct P2P Links have been declared.
+    pub fn is_p2p(&self) -> bool {
+        matches!(self, Self::P2P { .. })
+    }
+}
+
 /// Cached metadata describing the networking configuration of this Bevy application.
 ///
 /// [`crate::ConnectionPlugin`] maintains this resource from role and lifecycle components. Users

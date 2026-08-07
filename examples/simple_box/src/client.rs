@@ -2,17 +2,20 @@
 //! The client will be responsible for:
 //! - connecting to the server at Startup
 //! - sending inputs to the server
-//! - applying inputs to the locally predicted player (for prediction to work, inputs have to be applied to both the
-//!   predicted entity and the server entity)
+//! - applying inputs to predicted entities. In client/server mode this is the locally controlled
+//!   player; in P2P mode every peer predicts the complete deterministic roster.
 
 use crate::automation::{self, AutomationClientPlugin};
 use crate::protocol::*;
 use crate::shared;
 use bevy::prelude::*;
+use lightyear::prediction::rollback::DeterministicPredicted;
 use lightyear::prelude::client::input::*;
 use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 use lightyear::prelude::input::native::*;
 use lightyear::prelude::*;
+#[cfg(feature = "p2p")]
+use lightyear_examples_common::p2p::P2PSettings;
 
 pub struct ExampleClientPlugin;
 
@@ -88,15 +91,25 @@ fn buffer_input(
     }
 }
 
-/// Applies local movement only to predicted entities owned by this client.
+/// Apply movement to every entity simulated by this client.
 ///
-/// If this example predicted remote entities, ownership would need to be checked before movement.
+/// Conventional clients only have a [`Predicted`] copy of their locally controlled player. P2P
+/// peers instead give every roster member [`DeterministicPredicted`]: the local player uses captured
+/// input, while remote players repeat their latest known input and trigger rollback when corrected
+/// input arrives.
 fn player_movement(
     _input_timeline: SyncedInputTimeline,
-    // timeline: Single<&LocalTimeline>,
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    timeline: Res<LocalTimeline>,
+    #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
-    // let tick = timeline.tick();
+    #[cfg(feature = "p2p")]
+    if p2p.is_some() && timeline.tick().0 < lightyear_examples_common::p2p::GAMEPLAY_START_TICK {
+        return;
+    }
     for (position, input) in position_query.iter_mut() {
         // trace!(?tick, ?position, ?input, "client");
         // Pass Mut<PlayerPosition> directly so change detection only fires when movement changes it.
@@ -105,7 +118,18 @@ fn player_movement(
 }
 
 /// System to receive messages on the client
-pub(crate) fn receive_message1(mut receiver: Single<&mut MessageReceiver<Message1>>) {
+pub(crate) fn receive_message1(
+    metadata: Res<NetworkingMetadata>,
+    mut receivers: Query<&mut MessageReceiver<Message1>>,
+) {
+    let link = match &metadata.mode {
+        NetworkTopology::Client(link) => *link,
+        NetworkTopology::HostClient { client, .. } => *client,
+        _ => return,
+    };
+    let Ok(mut receiver) = receivers.get_mut(link) else {
+        return;
+    };
     for message in receiver.receive() {
         info!("Received message: {:?}", message);
     }

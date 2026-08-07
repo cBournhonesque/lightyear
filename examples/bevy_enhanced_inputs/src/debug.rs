@@ -72,10 +72,18 @@ pub(crate) mod client {
 
     pub(crate) fn mark_debug_players(
         mut commands: Commands,
-        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
+        query: Query<
+            (
+                Entity,
+                Has<Predicted>,
+                Has<Interpolated>,
+                Has<DeterministicPredicted>,
+            ),
+            Added<PlayerId>,
+        >,
     ) {
-        for (entity, predicted, interpolated) in &query {
-            if predicted || interpolated {
+        for (entity, predicted, interpolated, deterministic) in &query {
+            if predicted || interpolated || deterministic {
                 commands.entity(entity).insert(
                     LightyearDebug::component_at::<PlayerPosition>([DebugSamplePoint::Update])
                         .with_component_at::<PlayerId>([DebugSamplePoint::Update]),

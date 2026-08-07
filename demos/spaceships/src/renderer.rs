@@ -76,7 +76,14 @@ fn add_frame_interpolation_components(
     // We use Position because it's added by avian later, and when it's added
     // we know that Predicted is already present on the entity
     trigger: On<Add, Position>,
-    q: Query<Entity, (Without<Wall>, With<Predicted>, Without<FrameInterpolate>)>,
+    q: Query<
+        Entity,
+        (
+            Without<Wall>,
+            Or<(With<Predicted>, With<DeterministicPredicted>)>,
+            Without<FrameInterpolate>,
+        ),
+    >,
     mut commands: Commands,
 ) {
     if !q.contains(trigger.entity) {
@@ -383,7 +390,10 @@ fn insert_bullet_mesh(
             Without<BulletVisualAttached>,
         ),
     >,
-    players: Query<(&Player, &Position, Option<&Rotation>), With<Predicted>>,
+    players: Query<
+        (&Player, &Position, Option<&Rotation>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,

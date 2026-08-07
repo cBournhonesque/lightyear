@@ -13,4 +13,7 @@ pub mod server;
 #[cfg(feature = "gui")]
 pub mod renderer;
 
+#[cfg(feature = "p2p")]
+pub mod p2p;
+
 pub mod shared;
