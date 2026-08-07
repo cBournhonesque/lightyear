@@ -25,6 +25,7 @@ world.lose_visibility(entity, client);
 use bevy_app::prelude::*;
 use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
+use bevy_replicon::prelude::ScopeLifetime;
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
@@ -42,7 +43,11 @@ impl FromWorld for VisibilityBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry.register_scope::<Entity>(world, &mut registry)
+                filter_registry.register_scope::<Entity>(
+                    world,
+                    &mut registry,
+                    ScopeLifetime::WhileVisible,
+                )
             })
         });
         Self(bit)

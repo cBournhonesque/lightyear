@@ -5,7 +5,7 @@ use bevy_derive::Deref;
 use bevy_ecs::prelude::*;
 use bevy_reflect::Reflect;
 use bevy_replicon::bytes::Bytes;
-use bevy_replicon::prelude::{RuleFns, SingleComponent};
+use bevy_replicon::prelude::{RuleFns, ScopeLifetime, SingleComponent};
 use bevy_replicon::server::visibility::client_visibility::ClientVisibility;
 use bevy_replicon::server::visibility::filters_mask::FilterBit;
 use bevy_replicon::server::visibility::registry::FilterRegistry;
@@ -181,8 +181,11 @@ impl FromWorld for ControlBit {
     fn from_world(world: &mut World) -> Self {
         let bit = world.resource_scope(|world, mut filter_registry: Mut<FilterRegistry>| {
             world.resource_scope(|world, mut registry: Mut<ReplicationRegistry>| {
-                filter_registry
-                    .register_scope::<SingleComponent<ControlledSend>>(world, &mut registry)
+                filter_registry.register_scope::<SingleComponent<ControlledSend>>(
+                    world,
+                    &mut registry,
+                    ScopeLifetime::WhileVisible,
+                )
             })
         });
         Self(bit)
