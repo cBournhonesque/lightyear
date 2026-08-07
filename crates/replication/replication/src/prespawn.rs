@@ -282,8 +282,11 @@ pub struct PreSpawned {
     pub user_salt: Option<u64>,
 
     // TODO: what if we want the Prespawned to only be for a given sender? or a subset of senders?
-    /// Receiver entity that is prespawning this entity.
-    /// If None, then we will use the entity that has a [`PreSpawnedReceiver`].
+    /// Receiver Link that owns this remote entity.
+    ///
+    /// Replication uses this to select a specific [`PreSpawnedReceiver`]. Direct P2P input uses
+    /// it to ensure that a stable input-target hash is accepted only from the Link for that peer.
+    /// If None, replication will use the entity that has a [`PreSpawnedReceiver`].
     pub receiver: Option<Entity>,
 }
 

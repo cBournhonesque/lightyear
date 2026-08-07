@@ -8,7 +8,10 @@ use leafwing_input_manager::prelude::*;
 use lightyear::input::config::InputConfig;
 use lightyear::prelude::input::leafwing;
 use lightyear::prelude::*;
+use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
 use lightyear_deterministic_replication::prelude::{AppCatchUpExt, CatchUpGated, ChecksumPlugin};
+#[cfg(feature = "p2p")]
+use lightyear_examples_common::p2p::P2PSettings;
 use serde::{Deserialize, Serialize};
 
 pub const BALL_SIZE: f32 = 15.0;
@@ -94,6 +97,11 @@ pub(crate) struct ProtocolPlugin;
 
 impl Plugin for ProtocolPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "p2p")]
+        let is_p2p = app.world().contains_resource::<P2PSettings>();
+        #[cfg(not(feature = "p2p"))]
+        let is_p2p = false;
+
         // inputs
         app.add_plugins(leafwing::InputPlugin::<PlayerActions> {
             config: InputConfig {
@@ -101,7 +109,13 @@ impl Plugin for ProtocolPlugin {
                 ..default()
             },
         });
-        app.add_plugins(ChecksumPlugin);
+        if is_p2p {
+            // The current checksum sender targets one conventional server Link. P2P checksums
+            // will be enabled once the deterministic protocol supports all-to-all validation.
+            app.add_plugins(DeterministicReplicationPlugin);
+        } else {
+            app.add_plugins(ChecksumPlugin);
+        }
 
         // Late-join catch-up: shared between client and server so it must
         // be registered before `cli.spawn_connections` adds the Client /
@@ -109,12 +123,14 @@ impl Plugin for ProtocolPlugin {
         // would fail because the archetype already exists). Registered in
         // ProtocolPlugin (loaded by SharedPlugin) so it runs before the
         // CLI spawns the networking entities.
-        app.add_plugins(lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin);
-        app.register_catchup_filter::<
-            (Position, Rotation, LinearVelocity, AngularVelocity),
-            leafwing::LeafwingSequence<PlayerActions>,
-        >();
-        register_avian_catchup_resources(app, false);
+        if !is_p2p {
+            app.add_plugins(lightyear_deterministic_replication::prelude::LateJoinCatchUpPlugin);
+            app.register_catchup_filter::<
+                (Position, Rotation, LinearVelocity, AngularVelocity),
+                leafwing::LeafwingSequence<PlayerActions>,
+            >();
+            register_avian_catchup_resources(app, false);
+        }
 
         // components
         app.component::<PlayerId>().replicate();

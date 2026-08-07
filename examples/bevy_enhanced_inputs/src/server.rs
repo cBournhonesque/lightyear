@@ -54,17 +54,13 @@ pub(crate) fn handle_connected(
         return;
     };
     let client_id = client_id.0;
-    // Generate pseudo random color from client id.
-    let h = (((client_id.to_bits().wrapping_mul(30)) % 360) as f32) / 360.0;
-    let s = 0.8;
-    let l = 0.5;
-    let color = Color::hsl(h, s, l);
+    let color = shared::color_from_id(client_id);
     let player_entity = commands
         .spawn((
             // Add the context component on the server; it will be replicated to the client
             Player,
             PlayerId(client_id),
-            PlayerPosition(initial_player_position(client_id)),
+            PlayerPosition(shared::initial_player_position(client_id)),
             PlayerColor(color),
             // we replicate the Player entity to all clients that are connected to this server
             Replicate::to_clients(NetworkTarget::All),
@@ -81,11 +77,6 @@ pub(crate) fn handle_connected(
         player_entity, client_id
     );
     spawn_action_entities(&mut commands, player_entity);
-}
-
-fn initial_player_position(client_id: PeerId) -> Vec2 {
-    let slot = (client_id.to_bits() % 6) as f32;
-    Vec2::new((slot - 2.5) * 90.0, 0.0)
 }
 
 /// Spawn the BEI action entities for a player.

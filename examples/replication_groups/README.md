@@ -25,6 +25,14 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/e7625286-a167-4f50-aa
 - Run the server without a gui: `cargo run --no-default-features --features=server -- server`
 - Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
 
+### P2P mode
+
+The snake simulation can also run as a deterministic input-only game with no server. Start peer 0
+with `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+and peer 1 with the same command using `--peer-id 1`. Every peer creates the same heads and tails
+locally. Replication groups themselves remain a feature of the conventional client/server mode;
+the P2P mode performs no entity replication.
+
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
 

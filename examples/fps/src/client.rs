@@ -64,7 +64,10 @@ fn strip_interpolated_bullet_local_physics(
 fn suppress_shoot_until_synced(
     host_server: Query<(), With<HostServer>>,
     input_timeline: Option<SyncedInputTimeline>,
-    mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
+    mut action_state_query: Query<
+        &mut ActionState<PlayerActions>,
+        Or<(With<Predicted>, With<InputMap<PlayerActions>>)>,
+    >,
 ) {
     if !host_server.is_empty() || input_timeline.is_some() {
         return;
@@ -78,7 +81,10 @@ fn suppress_shoot_until_synced(
 fn update_cursor_state_from_window(
     window: Option<Single<&Window>>,
     q_camera: Query<(&Camera, &GlobalTransform)>,
-    mut action_state_query: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
+    mut action_state_query: Query<
+        &mut ActionState<PlayerActions>,
+        Or<(With<Predicted>, With<InputMap<PlayerActions>>)>,
+    >,
 ) {
     if automation_aim_target_enabled() {
         return;
@@ -144,13 +150,17 @@ pub(crate) fn handle_controlled_spawn(
     if player_query.get(entity).is_err() {
         return;
     };
-    commands.entity(entity).insert(InputMap::new([
+    commands.entity(entity).insert(player_input_map());
+}
+
+pub(crate) fn player_input_map() -> InputMap<PlayerActions> {
+    InputMap::new([
         (PlayerActions::Up, KeyCode::KeyW),
         (PlayerActions::Down, KeyCode::KeyS),
         (PlayerActions::Left, KeyCode::KeyA),
         (PlayerActions::Right, KeyCode::KeyD),
         (PlayerActions::Shoot, KeyCode::Space),
-    ]));
+    ])
 }
 
 pub(crate) fn handle_interpolated_spawn(

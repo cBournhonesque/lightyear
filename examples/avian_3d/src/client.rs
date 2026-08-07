@@ -34,7 +34,7 @@ fn handle_character_actions(
     spatial_query: SpatialQuery,
     mut query: Query<
         (Entity, &ComputedMass, &ActionState<CharacterAction>, Forces),
-        With<Predicted>,
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
     >,
     // In host-server mode, the server portion is already applying the
     // character actions and so we don't want to apply the character
@@ -84,13 +84,15 @@ fn handle_controlled_character(
         return;
     };
     info!("Adding InputMap to controlled character {entity:?}");
-    commands.entity(entity).insert(
-        InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
-            .with(CharacterAction::Jump, GamepadButton::South)
-            .with(CharacterAction::Shoot, KeyCode::KeyQ)
-            .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
-            .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd()),
-    );
+    commands.entity(entity).insert(character_input_map());
+}
+
+pub(crate) fn character_input_map() -> InputMap<CharacterAction> {
+    InputMap::new([(CharacterAction::Jump, KeyCode::Space)])
+        .with(CharacterAction::Jump, GamepadButton::South)
+        .with(CharacterAction::Shoot, KeyCode::KeyQ)
+        .with_dual_axis(CharacterAction::Move, GamepadStick::LEFT)
+        .with_dual_axis(CharacterAction::Move, VirtualDPad::wasd())
 }
 
 /// Add physics to floors that are newly replicated. The query checks for

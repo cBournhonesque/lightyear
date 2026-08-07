@@ -37,9 +37,14 @@ clippy_examples:
     cargo clippy -p simple_box --all-features -- -D warnings --no-deps
     # cargo clippy -p simple_setup --all-features -- -D warnings --no-deps
 
+# Run two conditioned simple-box peers and verify remote prediction rollback plus convergence.
+simple_box_p2p_smoke:
+    bash examples/simple_box/p2p_smoke.sh
+
 # jq filters shared by the example/demo build recipe.
 _example_demo_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup")) | .name'
 _example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.manifest_path | test("/examples/launcher/") | not) and (.name != "simple_setup") and (.name != "projectiles")) | .name'
+_example_demo_p2p_non_avian_pkgs_filter := '.packages[] | select((.manifest_path | test("/(examples|demos)/")) and (.manifest_path | test("/examples/common/") | not) and (.features | has("p2p")) and (.name != "avian_2d") and (.name != "avian_3d")) | .name'
 # simple_setup is excluded from explicit feature builds because it has no client/server/gui feature gates.
 
 # Build all examples/demos.
@@ -49,15 +54,16 @@ _example_demo_non_projectiles_pkgs_filter := '.packages[] | select((.manifest_pa
 #   just build_examples features=server
 #   just build_examples features=client headless=true
 #   just build_examples release=true features=both
+#   just build_examples features=p2p
 #
 # Args:
 #   release=true|false   Defaults to false.
 #   headless=true|false  Defaults to true for features=server, false otherwise.
-#   features=server|client|both  Defaults to both.
+#   features=server|client|both|p2p  Defaults to both.
 build_examples *args:
     #!/usr/bin/env bash
     set -euo pipefail
-    usage='usage: just build_examples [release=true|false] [headless=true|false] [features=server|client|both]'
+    usage='usage: just build_examples [release=true|false] [headless=true|false] [features=server|client|both|p2p]'
     release=false
     headless=""
     feature_mode=both
@@ -69,7 +75,7 @@ build_examples *args:
             headless=true|headless=false)
                 headless="${arg#headless=}"
                 ;;
-            features=server|features=client|features=both)
+            features=server|features=client|features=both|features=p2p)
                 feature_mode="${arg#features=}"
                 ;;
             -h|--help|help)
@@ -104,6 +110,7 @@ build_examples *args:
             both) target_dir="target/headless${release_suffix}" ;;
             client) target_dir="target/headless-client${release_suffix}" ;;
             server) target_dir="target/headless-server${release_suffix}" ;;
+            p2p) target_dir="target/headless-p2p${release_suffix}" ;;
         esac
     elif [ "$feature_mode" = server ]; then
         target_dir="target/server-only${release_suffix}"
@@ -116,19 +123,26 @@ build_examples *args:
         both:true) cargo_features="client,server,netcode,webtransport" ;;
         client:true) cargo_features="client,netcode,webtransport" ;;
         server:true) cargo_features="server,netcode,webtransport" ;;
+        p2p:true) cargo_features="p2p" ;;
         both:false) cargo_features="client,gui,server,netcode,webtransport" ;;
         client:false) cargo_features="client,gui,netcode,webtransport" ;;
         server:false) cargo_features="server,gui,netcode,webtransport" ;;
+        p2p:false) cargo_features="p2p,gui" ;;
     esac
 
-    if [ "$headless" = true ]; then
+    if [ "$feature_mode" = p2p ]; then
+        projectiles_features=""
+    elif [ "$headless" = true ]; then
         projectiles_features="client,server,netcode,webtransport"
     else
         projectiles_features="client,gui,server,netcode,webtransport"
     fi
 
     echo "Building examples: release=$release headless=$headless features=$feature_mode cargo_features=$cargo_features"
-    if [ "$projectiles_features" = "$cargo_features" ]; then
+    if [ "$feature_mode" = p2p ]; then
+        # Keep Avian 2D and 3D out of the same Cargo feature-unification graph.
+        pkgs_filter='{{ _example_demo_p2p_non_avian_pkgs_filter }}'
+    elif [ "$projectiles_features" = "$cargo_features" ]; then
         pkgs_filter='{{ _example_demo_pkgs_filter }}'
     else
         pkgs_filter='{{ _example_demo_non_projectiles_pkgs_filter }}'
@@ -138,7 +152,11 @@ build_examples *args:
         package_args+=(-p "$pkg")
     done < <(cargo metadata --no-deps --format-version 1 | jq -r "$pkgs_filter" | sort)
     "${cargo_build[@]}" --no-default-features --features="$cargo_features" "${package_args[@]}"
-    if [ "$projectiles_features" != "$cargo_features" ]; then
+    if [ "$feature_mode" = p2p ]; then
+        "${cargo_build[@]}" --no-default-features --features="$cargo_features" -p avian_2d
+        "${cargo_build[@]}" --no-default-features --features="$cargo_features" -p avian_3d
+    fi
+    if [ -n "$projectiles_features" ] && [ "$projectiles_features" != "$cargo_features" ]; then
         "${cargo_build[@]}" --no-default-features --features="$projectiles_features" -p projectiles
     fi
 
@@ -185,6 +203,7 @@ lightyear:
     # cargo clippy -p lightyear --no-default-features -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std client" -- -D warnings --no-deps
+    cargo clippy -p lightyear --no-default-features --features="std p2p" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std server" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std replication" -- -D warnings --no-deps
     cargo clippy -p lightyear --no-default-features --features="std prediction" -- -D warnings --no-deps
@@ -214,6 +233,7 @@ lightyear:
     # cargo clippy -p lightyear --tests --no-default-features -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std client" -- -D warnings --no-deps
+    cargo clippy -p lightyear --tests --no-default-features --features="std p2p" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std server" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std replication" -- -D warnings --no-deps
     cargo clippy -p lightyear --tests --no-default-features --features="std prediction" -- -D warnings --no-deps

@@ -130,8 +130,8 @@ pub enum InputSystems {
 ///   them before it needs them.
 /// - **Redundancy**: each message includes the last N ticks of input to
 ///   recover from packet loss.
-/// - **Remote player prediction**: if `rebroadcast_inputs` is enabled,
-///   processes input messages received from the server for other players.
+/// - **Remote player prediction**: processes other players' inputs when a conventional server
+///   rebroadcasts them, or directly from every peer in a P2P topology.
 pub struct ClientInputPlugin<S: ActionStateSequence> {
     config: InputConfig<S::Action>,
 }
@@ -207,7 +207,10 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
 
         // SYSTEMS
         #[cfg(feature = "prediction")]
-        if self.config.rebroadcast_inputs {
+        {
+            // The topology is a runtime choice. Conventional clients still return immediately
+            // when rebroadcasting is disabled, while P2P peers must always drain direct remote
+            // input messages even though their client/server rebroadcast option is false.
             // NOTE: we do NOT need to run this after RunFixedMainLoopSystems::BeforeFixedMainLoop to ensure that the
             //  local leafwing `states` have been switched to the `fixed_update` state (see
             //  https://github.com/Leafwing-Studios/leafwing-input-manager/blob/v0.16/src/plugin.rs#L170)
@@ -343,6 +346,11 @@ impl<'a> InputRoute<'a> {
     }
 
     #[inline]
+    fn requires_prespawned_targets(self) -> bool {
+        matches!(self, Self::P2P(_))
+    }
+
+    #[inline]
     fn accepts_local_target(self, controlled_by: Option<&ControlledBy>) -> bool {
         match self {
             Self::ClientServer { link, .. } => {
@@ -353,6 +361,37 @@ impl<'a> InputRoute<'a> {
             Self::P2P(_) => true,
         }
     }
+}
+
+/// Select the wire identity for one locally controlled input entity.
+///
+/// Conventional client/server links can use their replication-populated entity map. P2P has no
+/// authoritative replication stream to populate those per-Link maps, so every target must use a
+/// stable [`PreSpawned`] hash that the other peers can resolve in their own worlds.
+fn input_target(
+    route: InputRoute<'_>,
+    entity: Entity,
+    pre_spawned: Option<&PreSpawned>,
+) -> InputTarget {
+    if let Some(hash) = pre_spawned.and_then(|pre_spawned| pre_spawned.hash) {
+        debug!(?hash, ?entity, "Sending input for prespawned entity");
+        return InputTarget::PreSpawned(hash);
+    }
+    assert!(
+        !route.requires_prespawned_targets(),
+        "P2P input target {entity:?} must have a PreSpawned component with a resolved hash"
+    );
+    InputTarget::Entity(entity)
+}
+
+#[inline]
+fn matches_prespawned_target(
+    hash: u64,
+    p2p_link: Option<Entity>,
+    pre_spawned: &PreSpawned,
+) -> bool {
+    pre_spawned.hash.is_some_and(|candidate| candidate == hash)
+        && p2p_link.is_none_or(|link| pre_spawned.receiver == Some(link))
 }
 
 // equivalent to &ActionState<S::Action>
@@ -522,7 +561,7 @@ fn get_action_state<S: ActionStateSequence>(
                 input_buffer = %*input_buffer,
                 "restored action state from input buffer"
             );
-        } else if !is_local && config.rebroadcast_inputs {
+        } else if !is_local && (config.rebroadcast_inputs || matches!(route, InputRoute::P2P(_))) {
             if input_timeline_config.is_lockstep() {
                 error!("We are in lockstep mode but didn't receive an input for tick {tick:?}!");
             }
@@ -786,14 +825,7 @@ fn prepare_input_message<S: ActionStateSequence>(
             input_buffer
         );
 
-        let target = if let Some(prespawned) = pre_spawned
-            && let Some(hash) = prespawned.hash
-        {
-            debug!(?hash, ?entity, "Sending input for prespawned entity");
-            InputTarget::PreSpawned(hash)
-        } else {
-            InputTarget::Entity(entity)
-        };
+        let target = input_target(route, entity, pre_spawned);
 
         if let Some(state_sequence) = S::build_from_input_buffer(input_buffer, num_ticks, tick) {
             trace!(
@@ -859,6 +891,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     tick_duration: Res<TickDuration>,
     timeline: Res<LocalTimeline>,
+    input_config: Res<InputConfig<S::Action>>,
     #[cfg(feature = "metrics")] mut input_metric_handles: ResMut<InputMetricHandles<S>>,
     _input_timeline: SyncedInputTimeline,
     metadata: Res<NetworkingMetadata>,
@@ -878,6 +911,11 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
     if route.is_host_client() {
         return;
     }
+    // Conventional clients only receive other players' inputs when the server is configured to
+    // rebroadcast them. Direct P2P peers always exchange remote inputs with each other.
+    if matches!(route, InputRoute::ClientServer { .. }) && !input_config.rebroadcast_inputs {
+        return;
+    }
     let Some(prediction_manager) = prediction_manager else {
         return;
     };
@@ -891,6 +929,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     &mut commands,
                     *tick_duration,
                     tick,
+                    None,
                     &prediction_manager,
                     &mut predicted_query,
                     &prespawned,
@@ -909,6 +948,7 @@ fn receive_remote_player_input_messages<S: ActionStateSequence>(
                     &mut commands,
                     *tick_duration,
                     tick,
+                    Some(*link),
                     &prediction_manager,
                     &mut predicted_query,
                     &prespawned,
@@ -932,6 +972,7 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
     commands: &mut Commands,
     tick_duration: TickDuration,
     tick: Tick,
+    p2p_link: Option<Entity>,
     prediction_manager: &PredictionManager,
     predicted_query: &mut Query<
         Option<&mut InputBuffer<S::Snapshot, S::Action>>,
@@ -958,13 +999,19 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
         );
         for target_data in message.inputs {
             let Some(entity) = (match target_data.target {
+                InputTarget::Entity(entity) if p2p_link.is_none() => Some(entity),
                 InputTarget::Entity(entity) => {
-                    Some(entity)
+                    error!(
+                        ?entity,
+                        end_tick = ?message.end_tick,
+                        "ignored P2P input target without a PreSpawned hash"
+                    );
+                    None
                 }
                 InputTarget::PreSpawned(hash) => {
-                    prespawned
-                        .iter()
-                        .find_map(|(e, p)| p.hash.is_some_and(|h| h == hash).then_some(e))
+                    prespawned.iter().find_map(|(entity, pre_spawned)| {
+                        matches_prespawned_target(hash, p2p_link, pre_spawned).then_some(entity)
+                    })
                 }
             }) else {
                 if message.rebroadcast {
@@ -972,6 +1019,12 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
                         target = ?target_data.target,
                         end_tick = ?message.end_tick,
                         "ignored stale remote player input message for unmapped entity"
+                    );
+                } else if let Some(link) = p2p_link {
+                    warn!(
+                        ?link,
+                        target = ?target_data.target,
+                        "could not find a PreSpawned P2P input target owned by the sending Link"
                     );
                 } else {
                     warn!("Could not find entity in entity_map for remote player input message {:?}", target_data.target);
@@ -1091,6 +1144,7 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
 fn update_last_confirmed_input<S: ActionStateSequence>(
     timeline: Res<LocalTimeline>,
     _input_timeline: SyncedInputTimeline,
+    action_config: Res<InputConfig<S::Action>>,
     input_config: Res<InputTimelineConfig>,
     metadata: Res<NetworkingMetadata>,
     mut last_confirmed_input: ResMut<LastConfirmedInput>,
@@ -1099,7 +1153,10 @@ fn update_last_confirmed_input<S: ActionStateSequence>(
         (Without<S::Marker>, Allow<PredictionDisable>),
     >,
 ) {
-    if InputRoute::from_topology(&metadata.mode).is_none() {
+    let Some(route) = InputRoute::from_topology(&metadata.mode) else {
+        return;
+    };
+    if matches!(route, InputRoute::ClientServer { .. }) && !action_config.rebroadcast_inputs {
         return;
     }
     let tick = timeline.tick();
@@ -1420,6 +1477,70 @@ mod tests {
         assert!(p2p_route.accepts_local_target(Some(&owned_by_client)));
         assert!(p2p_route.accepts_local_target(Some(&owned_by_other)));
     }
+
+    #[test]
+    fn p2p_input_targets_use_prespawned_hashes() {
+        let mut world = World::new();
+        let link = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
+        let topology = NetworkTopology::P2P {
+            connected: [link].into_iter().collect(),
+            declared_links: 1,
+        };
+        let route = InputRoute::from_topology(&topology).unwrap();
+        let prespawned = PreSpawned::new(0xCAFE);
+
+        assert_eq!(
+            input_target(route, target, Some(&prespawned)),
+            InputTarget::PreSpawned(0xCAFE)
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must have a PreSpawned component with a resolved hash")]
+    fn p2p_input_targets_reject_unmapped_entities() {
+        let mut world = World::new();
+        let link = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
+        let topology = NetworkTopology::P2P {
+            connected: [link].into_iter().collect(),
+            declared_links: 1,
+        };
+        let route = InputRoute::from_topology(&topology).unwrap();
+
+        let _ = input_target(route, target, None);
+    }
+
+    #[test]
+    fn client_server_input_targets_still_allow_entities() {
+        let mut world = World::new();
+        let link = world.spawn_empty().id();
+        let target = world.spawn_empty().id();
+        let topology = NetworkTopology::Client(link);
+        let route = InputRoute::from_topology(&topology).unwrap();
+
+        assert_eq!(
+            input_target(route, target, None),
+            InputTarget::Entity(target)
+        );
+    }
+
+    #[test]
+    fn p2p_input_targets_are_scoped_to_the_sending_link() {
+        let mut world = World::new();
+        let owner = world.spawn_empty().id();
+        let other = world.spawn_empty().id();
+        let pre_spawned = PreSpawned::new(0xCAFE).for_receiver(owner);
+
+        assert!(matches_prespawned_target(0xCAFE, Some(owner), &pre_spawned));
+        assert!(!matches_prespawned_target(
+            0xCAFE,
+            Some(other),
+            &pre_spawned
+        ));
+        assert!(matches_prespawned_target(0xCAFE, None, &pre_spawned));
+    }
+
     #[test]
     fn input_history_depth_covers_prediction_rollback_window() {
         assert_eq!(input_history_depth(None), HISTORY_DEPTH);

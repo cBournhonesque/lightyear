@@ -8,6 +8,8 @@ use lightyear::prediction::rollback::{CatchUpGated, DeterministicPredicted};
 use lightyear::prelude::*;
 use lightyear_avian2d::plugin::AvianReplicationMode;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
+#[cfg(feature = "p2p")]
+use lightyear_examples_common::p2p::P2PSettings;
 use lightyear_frame_interpolation::{FrameInterpolate, FrameInterpolationPlugin};
 
 const MAX_VELOCITY: f32 = 200.0;
@@ -22,9 +24,16 @@ pub struct SharedPlugin;
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ProtocolPlugin);
-        app.insert_resource(catch_up_mode_from_env());
+        let is_p2p = is_p2p(app);
+        app.insert_resource(if is_p2p {
+            CatchUpMode::InputOnly
+        } else {
+            catch_up_mode_from_env()
+        });
         // bundles
-        app.add_systems(Startup, init);
+        if !is_p2p {
+            app.add_systems(Startup, init);
+        }
 
         // Visual correction uses the same history and scheduling as frame
         // interpolation, so install it in shared code for both GUI and headless
@@ -64,6 +73,17 @@ impl Plugin for SharedPlugin {
         app.add_systems(FixedUpdate, player_movement);
 
         crate::debug::register_debug_systems(app);
+    }
+}
+
+fn is_p2p(app: &App) -> bool {
+    #[cfg(feature = "p2p")]
+    {
+        app.world().contains_resource::<P2PSettings>()
+    }
+    #[cfg(not(feature = "p2p"))]
+    {
+        false
     }
 }
 
@@ -115,7 +135,16 @@ pub(crate) fn init(
     let is_server = server.is_some();
     let is_client = client.is_some();
 
-    spawn_ball(&mut commands, &mode, is_server, is_client);
+    spawn_world(&mut commands, &mode, is_server, is_client);
+}
+
+pub(crate) fn spawn_world(
+    commands: &mut Commands,
+    mode: &CatchUpMode,
+    is_server: bool,
+    is_client: bool,
+) {
+    spawn_ball(commands, mode, is_server, is_client);
     commands.spawn(WallBundle::new(
         Vec2::new(-WALL_SIZE, -WALL_SIZE),
         Vec2::new(-WALL_SIZE, WALL_SIZE),

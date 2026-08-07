@@ -53,8 +53,10 @@ pub(crate) fn buffer_input(
 }
 
 pub(crate) fn movement(
-    // TODO: maybe make prediction mode a separate component!!!
-    mut position_query: Query<(&mut Position, &ActionState<Inputs>), With<Predicted>>,
+    mut position_query: Query<
+        (&mut Position, &ActionState<Inputs>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);

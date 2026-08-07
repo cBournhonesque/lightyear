@@ -233,6 +233,12 @@ impl TimelinePlugin {
         if rollback.is_some() {
             return;
         }
+        // A deterministic prediction-window wait pauses `Time<Virtual>` so FixedUpdate cannot
+        // advance beyond the rollback window. Its delta is already zero in that state; avoid
+        // dividing by the zero relative speed while reconstructing the unscaled frame delta.
+        if time.relative_speed() == 0.0 {
+            return;
+        }
         let delta = time.delta();
         query.iter_mut().for_each(|mut t| {
             // make sure to account for the fact that Time<Virtual> is already updated from the Driving timeline
@@ -254,5 +260,46 @@ impl Plugin for TimelinePlugin {
             Self::advance_timeline.in_set(TimelineSystems::Advance),
         );
         app.add_observer(Self::receive_sender_metadata);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lightyear_core::id::{PeerId, RemoteId};
+
+    #[test]
+    fn paused_virtual_time_does_not_advance_interpolation_timeline() {
+        let mut app = App::new();
+        let mut virtual_time = Time::<Virtual>::default();
+        virtual_time.set_relative_speed(0.0);
+        app.insert_resource(virtual_time);
+        app.insert_resource(TickDuration(Duration::from_millis(16)));
+        app.add_systems(PreUpdate, TimelinePlugin::advance_timeline);
+
+        let entity = app
+            .world_mut()
+            .spawn((
+                InterpolationTimeline::default(),
+                RemoteId(PeerId::Server),
+                Connected,
+            ))
+            .id();
+        let before = app
+            .world()
+            .entity(entity)
+            .get::<InterpolationTimeline>()
+            .unwrap()
+            .now();
+
+        app.update();
+
+        let after = app
+            .world()
+            .entity(entity)
+            .get::<InterpolationTimeline>()
+            .unwrap()
+            .now();
+        assert_eq!(after, before);
     }
 }

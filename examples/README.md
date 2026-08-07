@@ -8,7 +8,7 @@ The top level `Cargo.toml` workspace defines the deps that examples can use and 
 ## Easy
 
 - `simple_setup`: minimal example that just shows how to create the lightyear client and server plugins
-- `simple_box`: example that showcases how to send inputs from client to server, and how to add client-prediction and interpolation
+- `simple_box`: example that showcases client/server prediction and interpolation, plus an optional deterministic input-only P2P mode
 - `bevy_enhanced_input`: example that shows how to integrate lightyear with the `bevy_enhanced_input` crate to handle inputs.
 
 ## Medium

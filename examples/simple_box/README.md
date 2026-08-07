@@ -18,12 +18,27 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 - Run a headless client without a gui: `cargo run --no-default-features --features=client,netcode,webtransport -- client -c 1`
 - Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
 
+The same example can run as a deterministic, input-only P2P game with no server or authoritative
+simulation. Start one process for each member of the fixed roster:
+
+- Peer 0: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+- Peer 1: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 1 --player-count 2`
+
+P2P mode currently uses direct raw UDP Links on localhost and supports two through four players.
+Every peer pre-spawns the same player roster with stable `PreSpawned` hashes, simulates every
+player locally, and sends only its own tick-indexed inputs to the other peers. Each peer predicts
+missing remote inputs by repeating the latest known input, then rolls back and replays the complete
+deterministic world when corrected input arrives. The normal client/server and host-client modes
+remain available in the same example.
+
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
 
-For automated headless verification, you can set `LIGHTYEAR_SIMPLE_BOX_AUTOMOVE=right` on one client and
-`LIGHTYEAR_SIMPLE_BOX_LOG_POSITIONS=1` on another client to confirm from logs that the interpolated remote player
-keeps receiving `PlayerPosition` updates.
+Run `just simple_box_p2p_smoke` for a two-process headless check that remote inputs cause rollback
+and both peers converge to identical player positions at the same tick.
+
+The smoke test leaves its normal and structured logs in the temporary directory printed on
+success or failure.
 
 ### Testing in wasm with webtransport
 

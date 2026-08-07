@@ -69,7 +69,10 @@ fn player_movement(
             &mut LinearVelocity,
             &ActionState<PlayerActions>,
         ),
-        (With<Predicted>, With<PlayerId>),
+        (
+            Or<(With<Predicted>, With<DeterministicPredicted>)>,
+            With<PlayerId>,
+        ),
     >,
 ) {
     let tick = timeline.tick();
@@ -119,12 +122,16 @@ fn handle_controlled_spawn(
     if player_query.get(trigger.entity).is_err() {
         return;
     };
-    commands.entity(trigger.entity).insert(InputMap::new([
+    commands.entity(trigger.entity).insert(player_input_map());
+}
+
+pub(crate) fn player_input_map() -> InputMap<PlayerActions> {
+    InputMap::new([
         (PlayerActions::Up, KeyCode::KeyW),
         (PlayerActions::Down, KeyCode::KeyS),
         (PlayerActions::Left, KeyCode::KeyA),
         (PlayerActions::Right, KeyCode::KeyD),
-    ]));
+    ])
 }
 
 // Lower the saturation on interpolated entities so they are visually distinct.

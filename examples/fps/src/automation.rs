@@ -1,7 +1,7 @@
 use avian2d::prelude::Position;
 use bevy::prelude::*;
 use leafwing_input_manager::plugin::InputManagerSystem;
-use leafwing_input_manager::prelude::ActionState;
+use leafwing_input_manager::prelude::{ActionState, InputMap};
 use lightyear::input::client::InputSystems;
 use lightyear::prelude::*;
 use lightyear_examples_common::automation::{
@@ -129,7 +129,10 @@ mod client {
             (Entity, &Transform, Has<PredictedBot>, Has<InterpolatedBot>),
             Or<(With<PredictedBot>, With<InterpolatedBot>)>,
         >,
-        mut actions: Query<&mut ActionState<PlayerActions>, With<Predicted>>,
+        mut actions: Query<
+            &mut ActionState<PlayerActions>,
+            Or<(With<Predicted>, With<InputMap<PlayerActions>>)>,
+        >,
         mut previous_target: Local<Option<(Entity, AimTarget, Vec2)>>,
     ) {
         let target = bots.iter().find_map(

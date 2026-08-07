@@ -72,7 +72,10 @@ pub(crate) fn buffer_input(
 //
 // If this example predicted remote entities, ownership would need to be checked before movement.
 fn movement(
-    mut position_query: Query<(&mut PlayerPosition, &ActionState<Inputs>), With<Predicted>>,
+    mut position_query: Query<
+        (&mut PlayerPosition, &ActionState<Inputs>),
+        Or<(With<Predicted>, With<DeterministicPredicted>)>,
+    >,
 ) {
     for (position, input) in position_query.iter_mut() {
         shared_movement_behaviour(position, input);
