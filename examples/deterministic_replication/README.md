@@ -20,6 +20,16 @@
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode (without gui) by running `cargo run --no-default-features --features=server,webtransport,netcode`.
 
+### P2P mode
+
+The example can also run as a fixed deterministic P2P mesh. Every peer creates the same Avian
+world locally and exchanges only player inputs; there is no server or authoritative simulation.
+
+- Peer 0: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+- Peer 1: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 1 --player-count 2`
+
+P2P mode uses input-only catch-up because there is no authoritative state source.
+
 ### Testing in wasm with webtransport
 
 NOTE: I am using the [bevy cli](https://github.com/TheBevyFlock/bevy_cli) to build and serve the wasm example.

@@ -129,18 +129,22 @@ fn handle_controlled_player(
             return;
         }
         info!("Own player is now controlled, adding inputmap {entity:?} {player:?}");
-        commands.entity(entity).insert(InputMap::new([
-            (PlayerActions::Up, KeyCode::ArrowUp),
-            (PlayerActions::Down, KeyCode::ArrowDown),
-            (PlayerActions::Left, KeyCode::ArrowLeft),
-            (PlayerActions::Right, KeyCode::ArrowRight),
-            (PlayerActions::Up, KeyCode::KeyW),
-            (PlayerActions::Down, KeyCode::KeyS),
-            (PlayerActions::Left, KeyCode::KeyA),
-            (PlayerActions::Right, KeyCode::KeyD),
-            (PlayerActions::Fire, KeyCode::Space),
-        ]));
+        commands.entity(entity).insert(player_input_map());
     }
+}
+
+pub(crate) fn player_input_map() -> InputMap<PlayerActions> {
+    InputMap::new([
+        (PlayerActions::Up, KeyCode::ArrowUp),
+        (PlayerActions::Down, KeyCode::ArrowDown),
+        (PlayerActions::Left, KeyCode::ArrowLeft),
+        (PlayerActions::Right, KeyCode::ArrowRight),
+        (PlayerActions::Up, KeyCode::KeyW),
+        (PlayerActions::Down, KeyCode::KeyS),
+        (PlayerActions::Left, KeyCode::KeyA),
+        (PlayerActions::Right, KeyCode::KeyD),
+        (PlayerActions::Fire, KeyCode::Space),
+    ])
 }
 
 #[cfg(feature = "gui")]

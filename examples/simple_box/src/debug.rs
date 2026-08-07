@@ -10,24 +10,39 @@ pub(crate) mod client {
 
     pub(crate) fn mark_debug_player_entities(
         mut commands: Commands,
-        query: Query<(Entity, Has<Predicted>, Has<Interpolated>), Added<PlayerId>>,
+        query: Query<
+            (
+                Entity,
+                Has<Predicted>,
+                Has<Interpolated>,
+                Has<DeterministicPredicted>,
+            ),
+            Added<PlayerId>,
+        >,
     ) {
-        for (entity, predicted, interpolated) in query.iter() {
-            if predicted || interpolated {
+        for (entity, predicted, interpolated, deterministic) in query.iter() {
+            if predicted || interpolated || deterministic {
                 let input_sample_points = [
                     DebugSamplePoint::FixedPreUpdate,
                     DebugSamplePoint::FixedUpdate,
                 ];
                 commands.entity(entity).insert(
-                    LightyearDebug::component_at::<PlayerPosition>([
+                    LightyearDebug::component_structured_at::<PlayerPosition>([
+                        DebugSamplePoint::FixedUpdate,
                         DebugSamplePoint::Update,
                         DebugSamplePoint::PostUpdate,
                     ])
+                    .with_component_structured_at::<PlayerId>([DebugSamplePoint::FixedUpdate])
                     .with_component_at::<Predicted>([
                         DebugSamplePoint::Update,
                         DebugSamplePoint::PostUpdate,
                     ])
                     .with_component_at::<Interpolated>([
+                        DebugSamplePoint::Update,
+                        DebugSamplePoint::PostUpdate,
+                    ])
+                    .with_component_at::<DeterministicPredicted>([
+                        DebugSamplePoint::FixedUpdate,
                         DebugSamplePoint::Update,
                         DebugSamplePoint::PostUpdate,
                     ])

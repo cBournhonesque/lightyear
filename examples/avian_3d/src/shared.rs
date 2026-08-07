@@ -144,6 +144,13 @@ pub struct SharedPlugin;
 
 impl Plugin for SharedPlugin {
     fn build(&self, app: &mut App) {
+        #[cfg(feature = "p2p")]
+        let rollback_resources = app
+            .world()
+            .contains_resource::<lightyear_examples_common::p2p::P2PSettings>();
+        #[cfg(not(feature = "p2p"))]
+        let rollback_resources = false;
+
         app.add_plugins(ProtocolPlugin);
         app.add_observer(spawn_character_child_collider);
 
@@ -152,6 +159,7 @@ impl Plugin for SharedPlugin {
             replication_mode: AvianReplicationMode::Position {
                 sync_to_transform: false,
             },
+            rollback_resources,
             ..default()
         });
         app.add_plugins(

@@ -26,15 +26,17 @@ impl RawConnectionPlugin {
     /// For RawClients, Linked implies Connected
     fn on_linked(
         trigger: On<Add, Linked>,
-        query: Query<&LocalAddr, With<RawClient>>,
+        query: Query<(&LocalAddr, Option<&LocalId>, Option<&RemoteId>), With<RawClient>>,
         mut commands: Commands,
     ) {
-        if let Ok(local_addr) = query.get(trigger.entity) {
+        if let Ok((local_addr, local_id, remote_id)) = query.get(trigger.entity) {
             trace!("RawClient Linked! Adding Connected");
             commands.entity(trigger.entity).insert((
                 Connected,
-                LocalId(PeerId::Raw(local_addr.0)),
-                RemoteId(PeerId::Server),
+                local_id
+                    .copied()
+                    .unwrap_or(LocalId(PeerId::Raw(local_addr.0))),
+                remote_id.copied().unwrap_or(RemoteId(PeerId::Server)),
             ));
         }
     }
@@ -70,5 +72,35 @@ impl Plugin for RawConnectionPlugin {
         );
         app.add_observer(Self::on_linked);
         app.add_observer(Self::on_disconnect);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn raw_client_preserves_preconfigured_peer_ids() {
+        let mut app = App::new();
+        app.add_plugins(RawConnectionPlugin);
+        let local_id = LocalId(PeerId::Entity(1));
+        let remote_id = RemoteId(PeerId::Entity(2));
+        let entity = app
+            .world_mut()
+            .spawn((
+                RawClient,
+                LocalAddr("127.0.0.1:10001".parse().unwrap()),
+                local_id,
+                remote_id,
+            ))
+            .id();
+
+        app.world_mut().entity_mut(entity).insert(Linked);
+        app.world_mut().flush();
+
+        let entity = app.world().entity(entity);
+        assert!(entity.contains::<Connected>());
+        assert_eq!(entity.get::<LocalId>(), Some(&local_id));
+        assert_eq!(entity.get::<RemoteId>(), Some(&remote_id));
     }
 }

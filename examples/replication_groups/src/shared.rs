@@ -30,10 +30,21 @@ pub(crate) fn shared_movement_behaviour(mut position: Mut<PlayerPosition>, input
 // Updates predicted tail points when the head moves. Interpolated tails are updated during
 // interpolation, and confirmed tails are replicated from the server.
 pub(crate) fn shared_tail_behaviour(
-    player_position: Query<Ref<PlayerPosition>, Or<(With<Predicted>, With<Replicate>)>>,
+    player_position: Query<
+        Ref<PlayerPosition>,
+        Or<(
+            With<Predicted>,
+            With<Replicate>,
+            With<DeterministicPredicted>,
+        )>,
+    >,
     mut tails: Query<
         (&mut TailPoints, &PlayerParent, &TailLength),
-        Or<(With<Predicted>, With<ReplicateLike>)>,
+        Or<(
+            With<Predicted>,
+            With<ReplicateLike>,
+            With<DeterministicPredicted>,
+        )>,
     >,
 ) {
     for (mut points, parent, length) in tails.iter_mut() {
