@@ -5,7 +5,7 @@ authors.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Fixed-roster peer-to-peer session agreement for Lightyear"
+description = "Deterministic peer-to-peer session lifecycle for Lightyear"
 repository = "https://github.com/cBournhonesque/lightyear"
 
 [features]
@@ -25,11 +25,8 @@ lightyear_transport = { workspace = true, features = ["client"] }
 
 bevy_app.workspace = true
 bevy_ecs.workspace = true
-bevy_time.workspace = true
-
 serde.workspace = true
 smallvec = { workspace = true, features = ["serde"] }
-thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

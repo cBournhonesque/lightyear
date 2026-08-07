@@ -9,14 +9,11 @@ use crate::protocol::*;
 use alloc::collections::VecDeque;
 use bevy::prelude::*;
 use lightyear::prediction::rollback::DeterministicPredicted;
-use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::input::native::{ActionState, InputMarker};
 use lightyear::prelude::input::InputBuffer;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
-use lightyear_examples_common::p2p::{
-    input_target_for_peer, insert_example_session, P2PGameplayStarted, P2PSettings,
-};
+use lightyear_examples_common::p2p::{input_target_for_peer, P2PSettings};
 use lightyear_frame_interpolation::FrameInterpolate;
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4752_4F55_5000_0000;
 
@@ -24,28 +21,18 @@ pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
-        insert_example_session(app, PLAYER_INPUT_HASH_BASE);
         app.insert_resource(PredictionManager::default());
         app.add_plugins(DeterministicReplicationPlugin);
-        app.add_systems(
-            FixedPreUpdate,
-            spawn_fixed_roster.before(InputSystems::BufferClientInputs),
-        );
+        app.add_observer(spawn_fixed_roster);
     }
 }
 
 fn spawn_fixed_roster(
+    _trigger: On<P2PStarted>,
     mut commands: Commands,
-    session: Res<P2PSession>,
-    started: Option<Res<P2PGameplayStarted>>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
-    if started.is_some() || !session.is_running() {
-        return;
-    }
-    commands.insert_resource(P2PGameplayStarted);
-
     let spacing = 180.0;
     let center = (f32::from(settings.player_count) - 1.0) * 0.5;
     for peer_id in settings.peer_ids() {

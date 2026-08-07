@@ -12,12 +12,9 @@ use lightyear::input::bei::prelude::{
     Action, ActionOf, BEIBuffer, Bindings, Cardinal, InputMarker,
 };
 use lightyear::prediction::rollback::DeterministicPredicted;
-use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::DeterministicReplicationPlugin;
-use lightyear_examples_common::p2p::{
-    input_target_for_peer, insert_example_session, P2PGameplayStarted, P2PSettings,
-};
+use lightyear_examples_common::p2p::{input_target_for_peer, P2PSettings};
 
 /// Namespace for stable BEI action hashes on the input wire.
 const MOVEMENT_INPUT_HASH_BASE: u64 = 0x4245_495F_4D4F_0000;
@@ -26,28 +23,18 @@ pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
-        insert_example_session(app, MOVEMENT_INPUT_HASH_BASE);
         app.insert_resource(PredictionManager::default());
         app.add_plugins(DeterministicReplicationPlugin);
-        app.add_systems(
-            FixedPreUpdate,
-            spawn_fixed_roster.before(InputSystems::BufferClientInputs),
-        );
+        app.add_observer(spawn_fixed_roster);
     }
 }
 
 fn spawn_fixed_roster(
+    _trigger: On<P2PStarted>,
     mut commands: Commands,
-    session: Res<P2PSession>,
-    started: Option<Res<P2PGameplayStarted>>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
-    if started.is_some() || !session.is_running() {
-        return;
-    }
-    commands.insert_resource(P2PGameplayStarted);
-
     for peer_id in settings.peer_ids() {
         let id = PeerId::Entity(u64::from(peer_id));
         let player = commands
