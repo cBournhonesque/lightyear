@@ -1314,23 +1314,16 @@ fn setup_stepper_for_input_rollback(
     )
 }
 
-/// Test that input-only prediction rolls back without any replication state on its client Link.
+/// Test that input-only prediction rolls back with application-global prespawn state.
 #[test]
-fn test_input_rollback_always_mode_without_replication_receiver() {
+fn test_input_rollback_always_mode_with_global_prespawn_state() {
     let (mut stepper, _, _, client_entity, _) =
         setup_stepper_for_input_rollback(RollbackMode::Always);
 
-    let client_link = stepper.client(0).id();
-    stepper.client_apps[0]
-        .world_mut()
-        .entity_mut(client_link)
-        .remove::<ReplicationReceiver>()
-        .remove::<PreSpawnedReceiver>();
     assert!(
         stepper.client_apps[0]
             .world()
-            .get::<PreSpawnedReceiver>(client_link)
-            .is_none()
+            .contains_resource::<PreSpawnedReceiver>()
     );
 
     // build a steady state where have already received an input

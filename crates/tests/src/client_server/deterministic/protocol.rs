@@ -458,13 +458,5 @@ fn add_frame_interpolation(
     }
 }
 
-/// Deterministic hash for a client's action entity (so client + server
-/// can independently spawn matching PreSpawned pairs).
-pub fn action_prespawn_hash(peer: PeerId) -> u64 {
-    peer.to_bits()
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(0xDEAD_BEEF)
-}
-
 /// Re-export BEIBuffer for tests that need to check readiness.
 pub type DetBuffer = BEIBuffer<Player>;

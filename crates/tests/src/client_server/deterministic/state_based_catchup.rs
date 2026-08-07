@@ -17,7 +17,7 @@ use crate::client_server::deterministic::protocol::{
     DetWallMarker, Player,
 };
 use crate::client_server::deterministic::stepper::{
-    DetStepper, spawn_local_action_on_client, spawn_player_on_server,
+    DetStepper, configure_local_action_on_client, local_movement_action, spawn_player_on_server,
 };
 use approx::assert_relative_eq;
 use avian2d::prelude::*;
@@ -603,34 +603,26 @@ fn motion_sample_at(world: &World, subject: MotionSubject, tick: Tick) -> Motion
         })
 }
 
-fn wait_for_client_mapping(
+fn configure_local_action_after_mapping(
     stepper: &mut DetStepper,
     client_id: usize,
-    server_entity: Entity,
-) -> Entity {
+    server_player: Entity,
+) {
     for _ in 0..120 {
-        if let Some(local) = stepper
+        if let Some(local_player) = stepper
             .client(client_id)
             .get::<MessageManager>()
             .unwrap()
             .entity_mapper
-            .get_local(server_entity)
+            .get_local(server_player)
+            && local_movement_action(&stepper.client_apps[client_id], local_player).is_some()
         {
-            return local;
+            configure_local_action_on_client(stepper.client_app(client_id), local_player);
+            return;
         }
         stepper.frame_step(1);
     }
-    panic!("client {client_id} did not receive server entity {server_entity:?}");
-}
-
-fn spawn_local_action_after_mapping(
-    stepper: &mut DetStepper,
-    client_id: usize,
-    server_player: Entity,
-    peer: PeerId,
-) {
-    let local_player = wait_for_client_mapping(stepper, client_id, server_player);
-    spawn_local_action_on_client(stepper.client_app(client_id), local_player, peer);
+    panic!("client {client_id} did not receive the action for player {server_player:?}");
 }
 
 fn despawn_server_player_and_action(stepper: &mut DetStepper, player: Entity) {
@@ -1306,10 +1298,8 @@ fn test_state_based_catchup_two_clients() {
     // `DetPlayerId` + `Player` component.
     stepper.frame_step(15);
 
-    // On each client, find the local player entity and spawn the matching
-    // local action entity (`PreSpawned` same hash as on server).
+    // On each client, attach local input to its replicated server-owned action.
     for client_id in 0..2 {
-        let peer = PeerId::Netcode(client_id as u64);
         let server_player = match client_id {
             0 => server_player_a,
             1 => server_player_b,
@@ -1322,7 +1312,7 @@ fn test_state_based_catchup_two_clients() {
             .entity_mapper
             .get_local(server_player)
             .expect("client should have received its own player by now");
-        spawn_local_action_on_client(stepper.client_app(client_id), local_player, peer);
+        configure_local_action_on_client(stepper.client_app(client_id), local_player);
     }
 
     // Let catch-up + forced rollback + sustained random motion happen.
@@ -1415,7 +1405,7 @@ fn test_state_based_catchup_late_join_after_movement() {
     let peer_b = PeerId::Netcode(1);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+    configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
 
     // Client 0 moves and collides with the deterministic ball/walls before
     // client 1 exists.
@@ -1424,7 +1414,7 @@ fn test_state_based_catchup_late_join_after_movement() {
     stepper.connect_single(1);
     let server_player_b =
         spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+    configure_local_action_after_mapping(&mut stepper, 1, server_player_b);
 
     // Let client 1 receive the state snapshot, activate physics, roll back,
     // and replay from the catch-up tick while both clients keep sending input.
@@ -1459,7 +1449,7 @@ fn test_state_based_catchup_late_join_while_first_client_holds_input() {
     let peer_b = PeerId::Netcode(1);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+    configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
 
     // Client 0 is holding right before client 1 joins, and keeps holding it
     // through the catch-up snapshot and forced rollback.
@@ -1468,7 +1458,7 @@ fn test_state_based_catchup_late_join_while_first_client_holds_input() {
     stepper.connect_single(1);
     let server_player_b =
         spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+    configure_local_action_after_mapping(&mut stepper, 1, server_player_b);
 
     stepper.frame_step(220);
 
@@ -1501,7 +1491,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     let peer_b = PeerId::Netcode(1);
     let server_player_a =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
+    configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
 
     // Client 0 moves and collides before the second client appears.
     stepper.frame_step(140);
@@ -1509,7 +1499,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     stepper.connect_single(1);
     let server_player_b =
         spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+    configure_local_action_after_mapping(&mut stepper, 1, server_player_b);
 
     // Continue with both clients driving random inputs, then disconnect
     // client 1 and remove its server-owned deterministic entities.
@@ -1529,7 +1519,7 @@ fn test_state_based_catchup_late_join_reconnect_after_movement() {
     stepper.connect_single(reconnected);
     let server_player_b_reconnect =
         spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, reconnected, server_player_b_reconnect, peer_b);
+    configure_local_action_after_mapping(&mut stepper, reconnected, server_player_b_reconnect);
 
     stepper.frame_step(220);
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
@@ -1565,8 +1555,8 @@ fn test_state_based_catchup_reconnect_after_all_clients_disconnect() {
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
     let server_player_b =
         spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
-    spawn_local_action_after_mapping(&mut stepper, 0, server_player_a, peer_a);
-    spawn_local_action_after_mapping(&mut stepper, 1, server_player_b, peer_b);
+    configure_local_action_after_mapping(&mut stepper, 0, server_player_a);
+    configure_local_action_after_mapping(&mut stepper, 1, server_player_b);
 
     stepper.frame_step(200);
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
@@ -1593,12 +1583,7 @@ fn test_state_based_catchup_reconnect_after_all_clients_disconnect() {
 
     let server_player_a_reconnect =
         spawn_player_on_server(&mut stepper.server_app, peer_a, Vec2::new(-20.0, 0.0), true);
-    spawn_local_action_after_mapping(
-        &mut stepper,
-        reconnected_a,
-        server_player_a_reconnect,
-        peer_a,
-    );
+    configure_local_action_after_mapping(&mut stepper, reconnected_a, server_player_a_reconnect);
     stepper.frame_step(120);
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a]);
     assert_clean_stepper_ball_entities(&mut stepper);
@@ -1610,12 +1595,7 @@ fn test_state_based_catchup_reconnect_after_all_clients_disconnect() {
     stepper.connect_single(reconnected_b);
     let server_player_b_reconnect =
         spawn_player_on_server(&mut stepper.server_app, peer_b, Vec2::new(20.0, 0.0), true);
-    spawn_local_action_after_mapping(
-        &mut stepper,
-        reconnected_b,
-        server_player_b_reconnect,
-        peer_b,
-    );
+    configure_local_action_after_mapping(&mut stepper, reconnected_b, server_player_b_reconnect);
 
     stepper.frame_step(220);
     assert_clean_stepper_player_entities(&mut stepper, &[peer_a, peer_b]);
