@@ -16,7 +16,7 @@ use crate::client_server::deterministic::protocol::{
     DetPlayerId, DetProtocolPlugin, Player,
 };
 use crate::client_server::deterministic::stepper::{
-    DetStepper, spawn_local_action_on_client, spawn_player_on_server,
+    DetStepper, configure_local_action_on_client, spawn_player_on_server,
 };
 use approx::assert_relative_eq;
 use avian2d::collision::contact_types::ContactGraph;
@@ -452,9 +452,8 @@ fn test_input_only_two_clients() {
         );
     }
 
-    // On each client, spawn the matching local action entity (PreSpawned).
+    // On each client, attach local input to its replicated server-owned action.
     for client_id in 0..2 {
-        let peer = PeerId::Netcode(client_id as u64);
         let server_player = match client_id {
             0 => server_player_a,
             1 => server_player_b,
@@ -467,7 +466,7 @@ fn test_input_only_two_clients() {
             .entity_mapper
             .get_local(server_player)
             .expect("client should have received its own player by now");
-        spawn_local_action_on_client(stepper.client_app(client_id), local_player, peer);
+        configure_local_action_on_client(stepper.client_app(client_id), local_player);
     }
 
     // Warmup (50 ticks of zero input) + random-input exchange phase.
@@ -597,7 +596,6 @@ fn test_input_only_islands_many_colliders_small_box() {
     stepper.frame_step(15);
 
     for client_id in 0..2 {
-        let peer = PeerId::Netcode(client_id as u64);
         let server_player = match client_id {
             0 => server_player_a,
             1 => server_player_b,
@@ -610,7 +608,7 @@ fn test_input_only_islands_many_colliders_small_box() {
             .entity_mapper
             .get_local(server_player)
             .expect("client should have received its own player by now");
-        spawn_local_action_on_client(stepper.client_app(client_id), local_player, peer);
+        configure_local_action_on_client(stepper.client_app(client_id), local_player);
     }
 
     stepper.frame_step(200);

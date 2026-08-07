@@ -22,7 +22,8 @@ use bevy_ecs::prelude::*;
 use bevy_replicon::shared::replication::diff::Diffable as RepliconDiffable;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
 use lightyear_core::prelude::{ConfirmedHistory, is_in_rollback};
-use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSystems};
+use lightyear_replication::prelude::ReplicationSystems;
+#[cfg(test)]
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 
 /// Plugin that installs client-side prediction systems.
@@ -201,10 +202,6 @@ impl Plugin for PredictionPlugin {
             app.init_resource::<LastConfirmedInput>();
         }
 
-        // State rollback keeps prespawn matching state on the authoritative receiver Link. This
-        // remains Link-scoped even though the rollback decision and manager are application-global.
-        app.register_required_components::<ReplicationReceiver, PreSpawnedReceiver>();
-
         // Custom entity disabling
         let rollback_disable_id = app
             .world_mut()
@@ -311,14 +308,11 @@ mod tests {
     }
 
     #[test]
-    fn prespawn_state_is_required_by_replication_receiver() {
+    fn prespawn_state_is_application_global() {
         let mut app = App::new();
         app.add_plugins(PredictionPlugin);
 
-        let receiver = app.world_mut().spawn(ReplicationReceiver).id();
-        app.world_mut().flush();
-
-        assert!(app.world().get::<PreSpawnedReceiver>(receiver).is_some());
+        assert!(app.world().contains_resource::<PreSpawnedReceiver>());
     }
 
     #[derive(Resource, Default)]

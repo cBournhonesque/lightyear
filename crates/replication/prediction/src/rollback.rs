@@ -123,6 +123,7 @@ impl Plugin for RollbackPlugin {
         // rollback decision system to operate on remote inputs.
         app.init_resource::<ComponentRegistry>();
         app.init_resource::<ReplicationCheckpointMap>();
+        app.init_resource::<PreSpawnedReceiver>();
 
         // SETS
         app.configure_sets(
@@ -360,7 +361,7 @@ fn check_rollback(
     mut prediction_manager: ResMut<PredictionManager>,
     mut state_metadata: ResMut<StateRollbackMetadata>,
     checkpoints: Res<ReplicationCheckpointMap>,
-    mut prespawned_receivers: Query<&mut PreSpawnedReceiver>,
+    mut prespawned_receiver: ResMut<PreSpawnedReceiver>,
     component_registry: Res<ComponentRegistry>,
     prediction_registry: Res<PredictionRegistry>,
     awaiting_catchup: Query<(), (With<CatchUpGated>, With<ConfirmHistory>)>,
@@ -727,19 +728,17 @@ fn check_rollback(
             })
             .collect::<Vec<_>>();
         // If the prespawned entity didn't exist at the rollback tick, despawn it
-        if let Ok(mut prespawned_receiver) = prespawned_receivers.single_mut() {
-            prespawned_receiver.despawn_prespawned_after_with(
-                rollback_tick + 1,
-                |entity| {
-                    protected_prespawn_entities.contains(&entity)
-                        || (forced_rollback_requested
-                            && deterministic_predicted
-                                .get(entity)
-                                .is_ok_and(|predicted| predicted.skip_despawn))
-                },
-                &mut commands,
-            );
-        }
+        prespawned_receiver.despawn_prespawned_after_with(
+            rollback_tick + 1,
+            |entity| {
+                protected_prespawn_entities.contains(&entity)
+                    || (forced_rollback_requested
+                        && deterministic_predicted
+                            .get(entity)
+                            .is_ok_and(|predicted| predicted.skip_despawn))
+            },
+            &mut commands,
+        );
 
         // If the deterministic predicted entity didn't exist at the rollback tick, despawn it
         // We can drain everything because:

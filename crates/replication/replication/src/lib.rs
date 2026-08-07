@@ -68,6 +68,10 @@
 //! [`PreSpawned`] allows both client and server to spawn the same entity
 //! independently, then match them via a deterministic hash. This enables
 //! zero-latency predicted spawns (e.g. bullets, projectiles).
+//! Sender-side [`PreSpawned::for_client`] scopes the matching signature to one
+//! remote client without changing the entity's replication visibility.
+//! Rollback and timeout bookkeeping lives in the world-global
+//! [`prespawn::PreSpawnedReceiver`] resource.
 //!
 //! [`Replicate`]: crate::send::Replicate
 //! [`ReplicationTarget<()>`]: crate::send::ReplicationTarget
