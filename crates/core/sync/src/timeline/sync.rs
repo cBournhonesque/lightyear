@@ -629,7 +629,7 @@ where
     /// Conventional client/server mode uses one remote Link and may snap by whole ticks. P2P mode
     /// reads the already-smoothed estimate on every currently connected P2P Link, selects the
     /// largest local lead, and feeds that aggregate error into the common speed controller once.
-    /// Fixed-roster agreement and gameplay start readiness belong to the P2P session layer.
+    /// Deterministic gameplay start readiness belongs to the P2P session layer.
     fn sync_timelines(
         tick_duration: Res<TickDuration>,
         metadata: Res<NetworkingMetadata>,

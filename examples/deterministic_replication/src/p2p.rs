@@ -9,12 +9,9 @@ use bevy::prelude::*;
 use leafwing_input_manager::prelude::ActionState;
 use lightyear::input::leafwing::prelude::LeafwingBuffer;
 use lightyear::prediction::rollback::DeterministicPredicted;
-use lightyear::prelude::input::client::InputSystems;
 use lightyear::prelude::*;
 use lightyear_deterministic_replication::prelude::CatchUpMode;
-use lightyear_examples_common::p2p::{
-    P2PGameplayStarted, P2PSettings, input_target_for_peer, insert_example_session,
-};
+use lightyear_examples_common::p2p::{P2PSettings, input_target_for_peer};
 
 /// Namespace for stable deterministic-replication player hashes on the input wire.
 const PLAYER_INPUT_HASH_BASE: u64 = 0x4445_5445_524D_0000;
@@ -23,30 +20,19 @@ pub struct ExampleP2PPlugin;
 
 impl Plugin for ExampleP2PPlugin {
     fn build(&self, app: &mut App) {
-        insert_example_session(app, PLAYER_INPUT_HASH_BASE);
-        app.add_systems(
-            FixedPreUpdate,
-            spawn_fixed_world.before(InputSystems::BufferClientInputs),
-        );
+        app.add_observer(spawn_fixed_world);
     }
 }
 
 /// Start the complete deterministic world in stable order once timeline synchronization finishes.
 fn spawn_fixed_world(
+    trigger: On<P2PStarted>,
     mut commands: Commands,
-    session: Res<P2PSession>,
     mode: Res<CatchUpMode>,
-    started: Option<Res<P2PGameplayStarted>>,
     settings: Res<P2PSettings>,
     links: Query<(Entity, &RemoteId), With<P2P>>,
 ) {
-    if started.is_some() || !session.is_running() {
-        return;
-    }
-    commands.insert_resource(P2PGameplayStarted);
-    let start_tick = session
-        .start_tick()
-        .expect("a running P2P session has an agreed start tick");
+    let start_tick = trigger.start_tick;
 
     // P2P has no authoritative state source, so every peer starts from the same input-only world.
     debug_assert_eq!(*mode, CatchUpMode::InputOnly);

@@ -70,7 +70,7 @@ pub mod prelude {
         Client, ClientState, Connect, Connected, Connecting, ConnectionError, Disconnect,
         Disconnected, DisconnectedReason, PeerMetadata,
     };
-    pub use crate::p2p::{AuthenticatedPeerId, P2P};
+    pub use crate::p2p::P2P;
 
     #[cfg(feature = "client")]
     pub mod client {
