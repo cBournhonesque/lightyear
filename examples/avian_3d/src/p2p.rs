@@ -100,12 +100,12 @@ fn spawn_fixed_world(
 
 /// Enable input capture only after Avian and Lightyear have recorded the world's initial state.
 ///
-/// The fixed world and its collider-tree proxies are created together at
-/// [`GAMEPLAY_START_TICK`]. Enabling input in the same tick would allow a late first input to roll
-/// back before the first complete physics snapshot, leaving live colliders paired with an empty
-/// restored collider tree. Waiting one complete warm-up tick makes the earliest possible input
-/// rollback target a world snapshot from after initialization. It also lets the per-collider
-/// rollback histories installed by Avian's observers record their initial proxy state.
+/// The fixed world and its collider-tree proxies are created together when [`P2PStarted`] is
+/// triggered. Enabling input in the same tick would allow a late first input to roll back before
+/// the first complete physics snapshot, leaving live colliders paired with an empty restored
+/// collider tree. Waiting one complete warm-up tick makes the earliest possible input rollback
+/// target a world snapshot from after initialization. It also lets the per-collider rollback
+/// histories installed by Avian's observers record their initial proxy state.
 fn enable_local_input(
     mut commands: Commands,
     timeline: Res<LocalTimeline>,
