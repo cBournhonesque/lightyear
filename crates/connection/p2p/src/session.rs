@@ -5,7 +5,7 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::network_topology::NetworkTopologySystems;
 use lightyear_connection::p2p::P2P;
 use lightyear_core::prelude::{LocalTimeline, Tick};
-use lightyear_link::prelude::Unlink;
+use lightyear_link::prelude::{Unlink, UnlinkReason};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
 use lightyear_sync::prelude::SyncedInputTimeline;
@@ -497,7 +497,7 @@ fn stop_session(
         for entity in &links {
             commands.trigger(Unlink {
                 entity,
-                reason: "P2P session stopped".into(),
+                reason: UnlinkReason::UserRequested(Some("P2P session stopped".into())),
             });
         }
     }
