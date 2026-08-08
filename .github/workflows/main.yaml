@@ -96,6 +96,9 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+          # A failing test run still produces reusable build artifacts. Saving
+          # them keeps subsequent main/PR runs from starting with a cold cache.
+          cache-on-failure: true
           # This workspace contains many internal library crates that can be
           # reused when a change only touches part of Lightyear.
           cache-workspace-crates: true
@@ -125,6 +128,37 @@ jobs:
           )
           cargo test --locked --no-fail-fast --lib --tests "${package_args[@]}" -- --test-threads=1
           cargo test --locked --no-fail-fast -p lightyear_avian3d --lib
+
+  doc-tests:
+    name: Doc test
+    runs-on: ubuntu-latest
+    env:
+      RUSTFLAGS: --deny warnings -C debuginfo=line-tables-only -A mismatched_lifetime_syntaxes
+    steps:
+      - name: Clone repo
+        uses: actions/checkout@v7
+
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Activate CI cargo config
+        run: mv .cargo/config_ci.toml .cargo/config.toml
+
+      - name: Generate lockfile
+        run: cargo generate-lockfile
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+          cache-on-failure: true
+          cache-workspace-crates: true
+
+      - name: Install Linux dependencies
+        uses: ./.github/actions/install-linux-deps
+        with:
+          wayland: true
+          xkb: true
 
       - name: Test doc
         run: cargo test --locked --workspace --doc --all-features --no-fail-fast
