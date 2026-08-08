@@ -1,13 +1,17 @@
+#[cfg(feature = "server")]
+use crate::hit_detection::server_rewound::LagCompensatedSilhouette;
+use crate::hit_detection::{HitImpact, HitPolicy};
 use crate::protocol::*;
-use crate::shared::direction_only::BulletOf;
+use crate::representation::RepresentationKind;
+use crate::shared::PLAYER_SIZE;
+use crate::timeline::TimelinePolicy;
+use crate::trajectory::{TrajectoryKind, hitscan::HitscanVisual};
 use avian2d::prelude::*;
 use bevy::color::palettes::basic::{GREEN, RED};
 use bevy::color::palettes::css::BLUE;
-use bevy::ecs::query::QueryFilter;
 use bevy::prelude::*;
 use bevy_enhanced_input::action::{Action, mock::ActionMock};
-use bevy_enhanced_input::prelude::{ActionValue, Actions};
-use lightyear::input::bei::prelude::InputMarker;
+use bevy_enhanced_input::prelude::ActionValue;
 use lightyear::interpolation::Interpolated;
 use lightyear::prelude::*;
 use lightyear_avian2d::prelude::AabbEnvelopeHolder;
@@ -23,8 +27,7 @@ impl Plugin for ExampleRendererPlugin {
         app.add_observer(add_bullet_visuals);
         app.add_systems(Update, add_player_visuals);
         app.add_observer(add_hitscan_visual);
-        app.add_observer(add_physics_projectile_visuals);
-        app.add_observer(add_homing_missile_visuals);
+        app.add_systems(PostUpdate, draw_hit_impacts);
 
         if !app.is_plugin_added::<FrameInterpolationPlugin>() {
             app.add_plugins(FrameInterpolationPlugin);
@@ -51,21 +54,41 @@ impl Plugin for ExampleRendererPlugin {
                 // mock the action before BEI evaluates it. BEI evaluated actions mocks in FixedPreUpdate
                 update_cursor_state_from_window,
             );
-            app.add_systems(
-                Update,
-                (
-                    display_score,
-                    render_hitscan_lines,
-                    display_info,
-                    sync_active_mode_visibility.after(add_player_visuals),
-                ),
-            );
+            app.add_systems(Update, (display_score, render_hitscan_lines, display_info));
         }
 
         #[cfg(feature = "server")]
         {
-            app.add_systems(PostUpdate, draw_aabb_envelope);
+            app.add_systems(
+                PostUpdate,
+                (draw_aabb_envelope, draw_lag_compensated_silhouettes),
+            );
         }
+    }
+}
+
+/// Draw a bright cross at the exact collision point.
+///
+/// `HitImpact` exists only in the app that performed the query, so this also
+/// makes hit authority immediately visible without adding network messages.
+fn draw_hit_impacts(impacts: Query<&HitImpact>, mut gizmos: Gizmos) {
+    const CROSS_HALF_SIZE: f32 = 10.0;
+
+    for impact in &impacts {
+        let normal = impact.normal.try_normalize().unwrap_or(Vec2::Y);
+        let tangent = Vec2::new(-normal.y, normal.x);
+        let cross_color = Color::srgb(1.0, 0.15, 0.1);
+
+        gizmos.line_2d(
+            impact.position - tangent * CROSS_HALF_SIZE,
+            impact.position + tangent * CROSS_HALF_SIZE,
+            cross_color,
+        );
+        gizmos.line_2d(
+            impact.position - normal * CROSS_HALF_SIZE,
+            impact.position + normal * CROSS_HALF_SIZE,
+            cross_color,
+        );
     }
 }
 
@@ -112,14 +135,14 @@ fn init(mut commands: Commands) {
             .with_children(|parent| {
                 parent.spawn((
                     Text::new("Score: 0"),
-                    TextFont::from_font_size(30.0),
+                    TextFont::from_font_size(24.0),
                     TextColor(Color::WHITE.with_alpha(0.75)),
                     ScoreText,
                 ));
 
                 parent.spawn((
                     Text::new("Waiting for mode information"),
-                    TextFont::from_font_size(20.0),
+                    TextFont::from_font_size(16.0),
                     TextColor(Color::WHITE.with_alpha(0.85)),
                     Node {
                         width: Val::Px(440.0),
@@ -140,19 +163,26 @@ struct ModeText;
 #[cfg(feature = "client")]
 fn display_score(
     mut score_text: Query<&mut Text, With<ScoreText>>,
-    active_mode: Query<&GameReplicationMode, With<ClientContext>>,
-    scores: Query<(&Score, &GameReplicationMode), (With<PlayerMarker>, With<Controlled>)>,
+    clients: Query<&LocalId, With<Client>>,
+    scores: Query<(&PlayerId, &Score), With<PlayerMarker>>,
 ) {
     let Ok(mut text) = score_text.single_mut() else {
         return;
     };
-    let Ok(active_mode) = active_mode.single() else {
-        text.0 = "Score: 0".to_string();
+    let Ok(local_id) = clients.single() else {
         return;
     };
-    if let Some((score, _)) = scores.iter().find(|(_, mode)| *mode == active_mode) {
-        text.0 = format!("Score: {}", score.0);
-    }
+
+    // Score is server-owned replicated state. The predicted player copy can
+    // retain an old value, while its confirmed/interpolated counterpart has
+    // the latest value. Match by stable PlayerId and choose the greatest copy;
+    // scores only increase in this example.
+    let score = scores
+        .iter()
+        .filter_map(|(player_id, score)| (player_id.0 == local_id.0).then_some(score.0))
+        .max()
+        .unwrap_or(0);
+    text.0 = format!("Score: {score}");
 }
 
 #[cfg(feature = "client")]
@@ -160,9 +190,10 @@ fn display_info(
     mut mode_text: Query<&mut Text, With<ModeText>>,
     mode_query: Query<
         (
-            &ProjectileReplicationMode,
-            &GameReplicationMode,
-            &WeaponType,
+            &TrajectoryKind,
+            &RepresentationKind,
+            &HitPolicy,
+            &TimelinePolicy,
         ),
         With<ClientContext>,
     >,
@@ -170,71 +201,32 @@ fn display_info(
     let Ok(mut mode_text) = mode_text.single_mut() else {
         return;
     };
-    let Ok((projectile_mode, replication_mode, weapon_type)) = mode_query.single() else {
+    let Ok((trajectory, representation, hit_policy, timeline)) = mode_query.single() else {
         mode_text.0 = "Waiting for mode information".to_string();
         return;
     };
     mode_text.0 = format!(
-        "Weapon: {}\nProjectile Mode: {}\nReplication Mode: {}\nPress Q to cycle weapons\nPress E to cycle projectiles\nPress R to cycle replication\nPress Space to shoot",
-        weapon_type.name(),
-        projectile_mode.name(),
-        replication_mode.name(),
+        "Trajectory: {}\nRepresentation: {}\nHit policy: {}\nTimeline: {}\nQ: trajectory  E: representation\nR: hit policy  T: timeline\nSpace: shoot",
+        trajectory.name(),
+        representation.name(),
+        hit_policy.name(),
+        timeline.name(),
     );
 }
 
-fn is_active_mode(mode: Option<&GameReplicationMode>, active_mode: &GameReplicationMode) -> bool {
-    mode.is_some_and(|mode| mode == active_mode)
-}
-
 #[cfg(feature = "client")]
-fn render_hitscan_lines(
-    active_mode: Query<&GameReplicationMode, With<ClientContext>>,
-    shooters: Query<&GameReplicationMode, With<PlayerMarker>>,
-    query: Query<(&HitscanVisual, &ColorComponent, &BulletMarker)>,
-    mut gizmos: Gizmos,
-) {
-    let Ok(active_mode) = active_mode.single() else {
-        return;
-    };
-    for (visual, color, marker) in query.iter() {
-        if !is_active_mode(shooters.get(marker.shooter).ok(), active_mode) {
-            continue;
-        }
-        let progress = visual.lifetime / visual.max_lifetime;
+fn render_hitscan_lines(query: Query<(&HitscanVisual, &ColorComponent)>, mut gizmos: Gizmos) {
+    for (visual, color) in query.iter() {
+        // A state-entity trace stays alive long enough for owner prespawn
+        // matching, but it should not remain visually bright for that entire
+        // network lifetime.
+        let fade_lifetime = visual
+            .max_lifetime
+            .min(crate::trajectory::hitscan::LOCAL_VISUAL_LIFETIME);
+        let progress = visual.lifetime / fade_lifetime;
         let alpha = (1.0 - progress).max(0.0);
         let line_color = color.0.with_alpha(alpha);
         gizmos.line_2d(visual.start, visual.end, line_color);
-    }
-}
-
-#[cfg(feature = "client")]
-fn sync_active_mode_visibility(
-    active_mode: Query<&GameReplicationMode, With<ClientContext>>,
-    shooters: Query<&GameReplicationMode, With<PlayerMarker>>,
-    mut players: Query<
-        (&GameReplicationMode, &mut Visibility),
-        (With<PlayerMarker>, With<PlayerId>, Without<BulletMarker>),
-    >,
-    mut projectiles: Query<(&BulletMarker, &mut Visibility), Without<PlayerMarker>>,
-) {
-    let Ok(active_mode) = active_mode.single() else {
-        return;
-    };
-
-    for (mode, mut visibility) in &mut players {
-        *visibility = if mode == active_mode {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
-    }
-
-    for (marker, mut visibility) in &mut projectiles {
-        *visibility = if is_active_mode(shooters.get(marker.shooter).ok(), active_mode) {
-            Visibility::Visible
-        } else {
-            Visibility::Hidden
-        };
     }
 }
 
@@ -249,13 +241,39 @@ fn draw_aabb_envelope(query: Query<&ColliderAabb, With<AabbEnvelopeHolder>>, mut
     })
 }
 
+/// Draw the exact historical target pose used by a successful rewound query.
+///
+/// The yellow rectangle outline is the sampled collider. The faint line points
+/// to the target's current authoritative position, making the amount and
+/// direction of rewind immediately visible in the server window.
+#[cfg(feature = "server")]
+fn draw_lag_compensated_silhouettes(
+    silhouettes: Query<&LagCompensatedSilhouette>,
+    current_positions: Query<&Position>,
+    mut gizmos: Gizmos,
+) {
+    for silhouette in &silhouettes {
+        let color = Color::srgb(1.0, 0.82, 0.1);
+        gizmos.rect_2d(
+            Isometry2d::new(silhouette.position, Rot2::radians(silhouette.rotation)),
+            Vec2::splat(PLAYER_SIZE),
+            color,
+        );
+
+        if let Ok(current) = current_positions.get(silhouette.target)
+            && current.0 != silhouette.position
+        {
+            gizmos.line_2d(silhouette.position, current.0, color.with_alpha(0.35));
+        }
+    }
+}
+
 /// Add visuals to newly spawned players
 fn add_player_visuals(
     mut query: Query<
         (
             Entity,
             Has<Predicted>,
-            Has<DeterministicPredicted>,
             Has<PreSpawned>,
             Has<Interpolated>,
             Has<Bot>,
@@ -275,9 +293,7 @@ fn add_player_visuals(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    for (entity, is_predicted, is_det_predicted, prespawned, interpolated, is_bot, mut color) in
-        &mut query
-    {
+    for (entity, is_predicted, prespawned, interpolated, is_bot, mut color) in &mut query {
         let mut visual_color = color.0;
         if interpolated {
             let hsva = Hsva {
@@ -287,7 +303,7 @@ fn add_player_visuals(
             color.0 = Color::from(hsva);
             visual_color = color.0;
         }
-        if is_predicted || is_det_predicted || prespawned {
+        if is_predicted || prespawned {
             let hsva = Hsva {
                 saturation: 0.4,
                 ..Hsva::from(color.0)
@@ -296,12 +312,12 @@ fn add_player_visuals(
             visual_color = color.0;
             commands.entity(entity).insert(FrameInterpolate);
         }
-        let size = if is_bot {
+        if is_bot {
             visual_color = Color::srgb(1.0, 0.85, 0.1);
-            PLAYER_SIZE * 1.2
-        } else {
-            PLAYER_SIZE
-        };
+        }
+        // Keep the mesh the same size as the collision rectangle. The old bot
+        // mesh was 20% larger, which made exact edge impacts look inset.
+        let size = PLAYER_SIZE;
         commands.entity(entity).insert((
             Visibility::default(),
             Mesh2d(meshes.add(Mesh::from(Rectangle::from_length(size)))),
@@ -317,7 +333,6 @@ fn add_player_visuals(
             "projectiles_player_visual_added",
             entity = ?entity,
             is_predicted = is_predicted,
-            is_deterministic_predicted = is_det_predicted,
             is_prespawned = prespawned,
             is_interpolated = interpolated,
             is_bot = is_bot,
@@ -382,66 +397,5 @@ fn add_hitscan_visual(
         commands
             .entity(trigger.entity)
             .insert((Visibility::default(), Name::new("HitscanLine")));
-    }
-}
-
-/// Add visuals to physics projectiles (same as bullets but with different color)
-fn add_physics_projectile_visuals(
-    trigger: On<Add, PhysicsProjectile>,
-    query: Query<(&ColorComponent, Has<Interpolated>), With<BulletMarker>>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    if let Ok((color, interpolated)) = query.get(trigger.entity) {
-        // Make physics projectiles slightly larger and more orange
-        let physics_color = Color::srgb(1.0, 0.5, 0.0); // Orange color for physics projectiles
-
-        commands.entity(trigger.entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(Circle {
-                radius: BULLET_SIZE * 1.2, // Slightly larger
-            }))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: physics_color,
-                ..Default::default()
-            })),
-        ));
-        if !interpolated {
-            commands.entity(trigger.entity).insert(FrameInterpolate);
-        }
-    }
-}
-
-/// Add visuals to homing missiles (triangle shape)
-fn add_homing_missile_visuals(
-    trigger: On<Add, HomingMissile>,
-    query: Query<(&ColorComponent, Has<Interpolated>), With<BulletMarker>>,
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    if let Ok((color, interpolated)) = query.get(trigger.entity) {
-        // Make homing missiles red and triangle-shaped
-        let missile_color = Color::srgb(1.0, 0.0, 0.0); // Red color for missiles
-
-        // Create a triangle mesh for the missile
-        let triangle = Triangle2d::new(
-            Vec2::new(0.0, BULLET_SIZE * 2.0),     // Top point
-            Vec2::new(-BULLET_SIZE, -BULLET_SIZE), // Bottom left
-            Vec2::new(BULLET_SIZE, -BULLET_SIZE),  // Bottom right
-        );
-
-        commands.entity(trigger.entity).insert((
-            Visibility::default(),
-            Mesh2d(meshes.add(Mesh::from(triangle))),
-            MeshMaterial2d(materials.add(ColorMaterial {
-                color: missile_color,
-                ..Default::default()
-            })),
-        ));
-        if !interpolated {
-            commands.entity(trigger.entity).insert(FrameInterpolate);
-        }
     }
 }

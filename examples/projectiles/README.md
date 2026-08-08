@@ -1,132 +1,90 @@
 # Projectiles Example
 
-https://github.com/user-attachments/assets/6705ed0e-bde4-4fc7-8b01-1a99f6cd748e
+This example is a small client/server test bed for projectile networking. It deliberately separates four decisions that are often bundled together:
 
+1. **Trajectory** — what path does the shot follow?
+2. **Representation** — what projectile data is sent over the network?
+3. **Hit policy** — where and when is a hit decided?
+4. **Timeline** — which entities are predicted or interpolated on clients?
 
-## Objective
+There is one arena and one player per connected peer. Changing any axis destroys the current players and projectiles, then rebuilds the arena. This makes each test start from a known state and avoids hiding behavior behind room-based interest management.
 
-This example explores the various tradeoffs between different approaches to replicating projectiles for a FPS game.
-It can be time-consuming to test all these approaches; this should provide a convenient way to explore these approaches.
+## Controls
 
-On the right is the server, which spawns 6 differents entities for each player. We use interest management via Rooms to make sure that clients only receive updates about entities that correspond to one of the 6 modes:
-- **AllPredicted**: entity is predicted by all players, hit detection is done server-side with no lag compensation. This should favor the target since the shooter has an imperfect view of their 
-position. This also allows testing that remote entity prediction works well with BEI, which is now the case.
-- **ClientPredicted (No lag Comp)**: the 'default' setting of predicting the client and interpolating other players. Hit detection is done server-side; since there is no lag compensation, even if you 
-  seemingly hit the target on the client's screen it won't be registered as a hit on the server because the client has a delayed view of other clients
-- **ClientPredicted (Lag Comp)**: same as above but this time we use lag compensation on the server. The white boxes on the server are the collider occupied by each player in the last few frames. If 
-  the projectile collides with that (broad-phase), we check if there was an actual collision on the client's screen using the narrow-phase lag compensation query. It's interesting to see how the boxes grow after any diagonal movement, but I think that's expected (it's just for broad-detection)
-- **ClientSideHitDetection**: same as above, but hit detection is done on the client. This should give good results + saves a lot of server-CPU (since server doesn't need to do any hit-detection), 
-  but cheaters are free to send fake 'I hit that target' packets
-- **AllInterpolated**: this time the local client is also interpolated, so each of their movement will be felt after a delay. That's a tradeoff to make in exchange for having all entities in the same 
-  timeline, which removes the need for lag compensation. Note that interpolation seems somewhat clunky because we interpolate between infrequent states without having a full view of the history of each component. I'm planning of maybe adding a mode where the full history of the component is replicated, for better interpolation.
-- **OnlyInputsReplicated**: this time the server does basically nothing except acting as a proxy that exchanges inputs between players. The simulation should be deterministic and run on each client.
-  If there is enough input-delay (for example in lockstep), each client has a perfect view of other clients and there is 0 prediction. Otherwise the client has to predict other players, which can make things tricky. How do we handle mispredicting that a target was shot? How do we handle receiving a late input telling us that a remote client shot a bullet?
-  
+- `WASD` — move
+- Mouse — aim
+- `Space` — shoot
+- `Q` — cycle trajectory
+- `E` — cycle network representation
+- `R` — cycle hit policy
+- `T` — cycle client timeline
 
-The example also uses a fake 'bot' client that acts exactly like another client but runs in a headless app and communicates with the server using crossbeam channels. This is useful for testing to be able to see how remote clients work without having to manually spawn 2 clients.
+The four selected values are displayed on screen and replicated by the server.
 
-## Features
+## Axes
 
-This example showcases several features that can be useful for building a multiplayer FPS, including different weapon types, projectile replication strategies, and networking approaches.
+### Trajectory
 
-**Controls:**
-- `Q` - Cycle through weapon types
-- `E` - Cycle through projectile replication modes
-- `R` - Cycle through game replication modes
-- `Space` - Shoot current weapon
-  
-### Weapon Types
+- **Hitscan** — an instantaneous ray cast with a short-lived visual trace.
+- **Linear** — a projectile moving at a fixed speed in a straight line.
 
-The example now supports multiple weapon types that you can cycle through:
+Trajectory code lives in `src/trajectory/`.
 
-1. **Hitscan** - Instant hit
-2. **Linear Projectile** - Simple projectile with constant velocity
-3. **Shotgun** - Multiple pellets with spread
-4. **Physics Projectile** - Projectile with physics interactions (bouncing, deceleration)
-5. **Homing Missile** - Projectile that tracks nearest target
+### Network representation
 
-### Projectile Replication Methods
+- **State entity** — replicate the projectile entity and its current position. This works for trajectories whose state may change, but sends ongoing state updates.
+- **Fire-data entity** — replicate only the firing tick, origin, direction, and trajectory. Each peer reconstructs the projectile locally and fast-forwards it to account for network delay. This saves bandwidth, but requires a deterministic trajectory that can be reconstructed from its initial state.
+- **Shot buffer** — replicate a fixed 32-slot ring on the player instead of one network entity per shot. Each record contains a monotonic sequence and sparse fire data; peers consume records once and create local projectiles. Replicon diffs send only the changed slot, and authoritative linear impacts update the record's finish tick.
 
-Three different approaches to replicating projectiles:
+Representation code lives in `src/representation/`.
 
-1. **Full Entity Replication** - Traditional approach where the entire projectile entity is replicated with regular updates. Best for unpredictable trajectories like bouncing or homing projectiles.
+### Hit policy
 
-2. **Direction-Only Replication** - Only the initial spawn parameters (position, direction, speed) are replicated. The client simulates the rest of the trajectory locally. Perfect for linear projectiles where the path is predictable.
+- **Server current** — the server tests against current authoritative target positions. It is simple and cheat-resistant, but an interpolated target seen by a client is older than the server target.
+- **Server rewound** — the server uses the firing client's interpolation delay and Lightyear/Avian lag compensation to test historical target positions. This better matches the shooter's view, at additional server CPU and history cost.
+- **Client reported** — the firing client performs the test and sends a hit claim to the server. This is responsive and cheap for the server, but intentionally trusts the client and is therefore insecure.
 
-3. **Ring Buffer Replication** - Projectile spawn information is stored in a ring buffer on the Weapon component. The buffer contains spawn tick, position, and direction for efficient batched replication.
+Hit-policy code lives in `src/hit_detection/`.
 
+### Client timeline
 
-### Game Replication Modes (Rooms)
+- **Owner predicted** — each client predicts its own player and interpolates remote players. This is the usual responsive-client setup and is the main case for server rewind.
+- **All predicted** — clients predict every player. Everyone is presented near the current server timeline, but prediction errors for remote players must be corrected.
+- **All interpolated** — clients interpolate every player, including the locally controlled one. The entities share a consistent delayed timeline, at the cost of local input latency.
 
-Six different networking approaches using lightyear's room system:
+Timeline code lives in `src/timeline/`.
 
-1. **All Predicted** (Room 0) - All entities predicted, server handles hit detection. Favors the target since the shooter might be mispredicting enemy positions.
+The axes are intentionally independent. Some combinations are mainly educational—for example, server rewind is generally unnecessary when every relevant entity is already presented in the same timeline.
 
-2. **Client Predicted (No Lag Comp)** (Room 1) - Client predicted, enemies interpolated, no lag compensation. Shooter must lead targets (Quake-style gameplay).
+## Firing and hit detection
 
-3. **Client Predicted (Lag Comp)** (Room 2) - Client predicted, enemies interpolated, with lag compensation. Server rewinds enemy positions to validate hits from the client's perspective. Favors the shooter.
+A predicted owner creates the shot immediately. The server independently validates firing cadence. For `StateEntity`, the owner projectile and server projectile use the same deterministic `PreSpawned` signature. For `FireDataEntity`, the fire-data network entity is matched and owns a non-networked local visual child. `ShotBuffer` instead predicts a write to the player's replicated ring; no per-shot network entity or prespawn matching is involved. Its sequence is ring bookkeeping, not a dedicated shot-identity entity.
 
-4. **Client-Side Hit Detection** (Room 3) - Client predicted, enemies interpolated. Hits computed on client and sent to server. Very cheap for server but vulnerable to cheating.
+Linear hit detection uses a swept query from the projectile's previous position to its current position, so a fast projectile cannot pass through a target between simulation ticks. Hitscan uses the same direction immediately.
 
-5. **All Interpolated** (Room 4) - Everything in interpolated timeline. User actions have built-in delay but everything is consistent (client and enemies are in the same interpolated timeline).
+Projectile lifetime is expressed in fixed ticks. Reconstructed projectiles use the local simulation tick for authoritative/predicted entities and the interpolation tick for interpolated entities. A successful hit also leaves a short-lived local red cross at the exact impact point in whichever app performed collision detection.
 
-6. **Only Inputs Replicated** (Room 5) - Only inputs are replicated, otherwise only the clients are running the simulation, which needs to be perfectly deterministic. Most bandwidth efficient.
+Client-reported hit detection casts the player rectangle directly against the player poses rendered by that client. It does not add those render-only replicas to Avian's physics world, which keeps client rollback and arena resets independent of collision-debug state.
 
+Players move through Avian `LinearVelocity`, rather than editing `Position` while reporting zero velocity. Predicted players receive frame interpolation between fixed ticks; remote interpolated players use the replicated positions and matching velocities to interpolate continuously between the server's 100 ms snapshots.
 
-### Technical Implementation
+For server rewind, Lightyear's `LagCompensationSpatialQuery` evaluates target colliders at the historical time corresponding to the firing client's view. A GUI server draws every successful sampled collider pose briefly in yellow, with a faint line to the target's current authoritative position. This shows the exact narrow-phase pose that produced the hit, rather than only the broad-phase history envelope. Useful background:
 
-#### Prespawning
+- [Valve: Lag Compensation](https://developer.valvesoftware.com/wiki/Lag_Compensation)
+- [Gabriel Gambetta: Lag Compensation](https://gabrielgambetta.com/lag-compensation.html)
 
-When you have a player-controlled predicted entity (the predicted `Player` in this example),
-it can be useful to be able to spawn objects (here `Bullets`) directly in the predicted timeline.
+## Running
 
-You can achieve this by having a system that runs both on the client and server and spawns the same entity. The entity should have the `PreSpawnedPlayerObject`. That entity will be spawned
-immediately on the client in the predicted timeline. When the server spawns the entity, it will try replicating it to the client. There will be a matching step where that server entity will try to
-match with a prespawned client entity (using the spawn `Tick` and the entity's `Archetype`). After the matching is done, the bullet becomes a normal `Predicted` entity.
+- Server with a window: `cargo run -p projectiles -- --headless=false server`
+- Client with id 1: `cargo run -p projectiles -- client -c 1`
+- Host client: `cargo run -p projectiles -- host-client -c 0`
+- Headless server with the built-in bot client: `cargo run -p projectiles --no-default-features --features=server,client,webtransport,netcode -- server`
+- Headless server without the bot: `cargo run -p projectiles --no-default-features --features=server,webtransport,netcode -- server`
 
-#### Hit Detection
+The built-in bot is a normal headless client connected through local channels. It starts above the primary player facing down, strafes horizontally without rotating, and fires every two seconds. The primary player starts below it facing up; additional players use nearby horizontal lanes. The bot's nested app, pacing, and input behavior live in `src/bot.rs`; `server.rs` only wires it into the server.
 
-Handling bullet hits can be tricky because the client is in the Predicted timeline but they shoot at enemies that are in the Interpolated timeline (so a bit in the past). There's 2 ways to solve
-this:
-- add Prediction to the target. This is only possible if the enemy movements can be predicted (with extrapolation, or because they move in a deterministic manner). In that case the player and the
-  target are in the same timeline
-- use Lag Compensation
+The initial axes can also be selected with `LIGHTYEAR_INITIAL_TRAJECTORY`, `LIGHTYEAR_INITIAL_REPRESENTATION`, `LIGHTYEAR_INITIAL_HIT_POLICY`, and `LIGHTYEAR_INITIAL_TIMELINE`.
 
-Here are a couple resources on lag compensation:
-- https://developer.valvesoftware.com/wiki/Lag_Compensation
-- https://gabrielgambetta.com/lag-compensation.html
+### WebTransport/Wasm
 
-The idea is that the server will adjust the hit detection by taking into account the interpolation delay of the client to simulate the hit from the point of view of the client. This works by
-storing a history buffer of the past few positions of each enemy so that the hit-detection can rewind those enemies in the past to see if it was a hit.
-
-This can easily be achieved in `lightyear` in combination with `avian` by using the `LagCompensationSpatialQuery`.
-
-In this example, the green enemy on the left is interpolated on the client and hits are detected via lag compensation. The blue enemy on the right is predicted on the client and hits are detected normally.
-
-#### Room-based Interest Management
-
-The example uses lightyear's room system to implement different replication strategies. Each replication mode corresponds to a different room, and players can switch between rooms to experience different networking behaviors.
-
-
-
-
-## Running an example
-
-- Run the server with a GUI: `cargo run -- --headless=false server`
-- Run client with id 1: `cargo run -- client -c 1`
-
-[//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
-- Run the server without a gui, but with the built-in fake bot client: `cargo run --no-default-features --features=server,client,webtransport,netcode -- server`
-- Run the client and server in "HostClient" mode, where the client also acts as server (both are in the same App) : `cargo run -- host-client -c 0`
-
-You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
-For example you can run the server in headless mode without the fake bot by running `cargo run --no-default-features --features=server,webtransport,netcode`.
-
-### Testing in wasm with webtransport
-
-NOTE: I am using the [bevy cli](https://github.com/TheBevyFlock/bevy_cli) to build and serve the wasm example.
-
-To test the example in wasm, you can run the following commands: `bevy run web`
-
-The repo includes a pre-generated self-signed WebTransport certificate and digest, so you do not need to run the certificate generator for the usual local workflow while that certificate is valid. If it expires, or if you want to replace it, generate a new temporary self-signed certificate with:
-- `cargo run -p generate_certificate` (writes `certificates/cert.pem`, `certificates/key.pem`, and `certificates/digest.txt`; rebuild wasm clients after regenerating so they embed the new digest)
+Run `bevy run web`. The repository includes a pre-generated development certificate and digest. If it expires, regenerate it with `cargo run -p generate_certificate`, then rebuild the Wasm client so the new digest is embedded.

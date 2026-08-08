@@ -2,10 +2,11 @@ use avian2d::prelude::*;
 use bevy::prelude::*;
 use lightyear::prelude::*;
 
-use crate::protocol::{
-    Bot, BulletMarker, ClientContext, GameReplicationMode, HitscanVisual, PlayerId, PlayerMarker,
-    ProjectileReplicationMode, Score,
-};
+use crate::hit_detection::HitPolicy;
+use crate::protocol::{Bot, BulletMarker, ClientContext, PlayerId, PlayerMarker, Score};
+use crate::representation::RepresentationKind;
+use crate::timeline::TimelinePolicy;
+use crate::trajectory::{TrajectoryKind, hitscan::HitscanVisual};
 
 pub(crate) fn register_debug_systems(app: &mut App) {
     app.add_systems(FixedLast, emit_fixed_last_players);
@@ -124,8 +125,10 @@ pub(crate) mod client {
     ) {
         for entity in &modes {
             commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
-                    .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
+                LightyearDebug::component_at::<TrajectoryKind>([DebugSamplePoint::Update])
+                    .with_component_at::<RepresentationKind>([DebugSamplePoint::Update])
+                    .with_component_at::<HitPolicy>([DebugSamplePoint::Update])
+                    .with_component_at::<TimelinePolicy>([DebugSamplePoint::Update]),
             );
         }
     }
@@ -167,8 +170,10 @@ pub(crate) mod server {
     ) {
         for entity in &modes {
             commands.entity(entity).try_insert(
-                LightyearDebug::component_at::<GameReplicationMode>([DebugSamplePoint::Update])
-                    .with_component_at::<ProjectileReplicationMode>([DebugSamplePoint::Update]),
+                LightyearDebug::component_at::<TrajectoryKind>([DebugSamplePoint::Update])
+                    .with_component_at::<RepresentationKind>([DebugSamplePoint::Update])
+                    .with_component_at::<HitPolicy>([DebugSamplePoint::Update])
+                    .with_component_at::<TimelinePolicy>([DebugSamplePoint::Update]),
             );
         }
     }

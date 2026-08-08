@@ -4,7 +4,7 @@ use core::cell::RefCell;
 use super::history::{AabbEnvelopeHolder, LagCompensationHistory};
 use bevy_ecs::prelude::*;
 use bevy_ecs::system::SystemParam;
-use lightyear_core::prelude::LocalTimeline;
+use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_interpolation::plugin::InterpolationDelay;
 use lightyear_link::prelude::Server;
 #[allow(unused_imports)]
@@ -19,6 +19,28 @@ use {
     avian3d::{math::*, prelude::*},
     bevy_math::Dir3 as Dir,
 };
+
+/// A lag-compensated ray hit together with the historical pose used for the
+/// narrow-phase collision test.
+///
+/// The regular [`RayHitData`] identifies what was hit and where along the ray
+/// it was hit. The additional fields make the rewind observable: debug tools
+/// can draw the collider at the exact interpolated pose that produced the hit
+/// instead of guessing from the current server transform.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct LagCompensationRayHit {
+    /// The result of testing the ray against the historical collider.
+    pub hit: RayHitData,
+    /// The first history tick used to interpolate the collider pose.
+    pub interpolation_tick: Tick,
+    /// The interpolation fraction between `interpolation_tick` and the next
+    /// history tick.
+    pub interpolation_overstep: Scalar,
+    /// The collider position used by the narrow-phase query.
+    pub position: Position,
+    /// The collider rotation used by the narrow-phase query.
+    pub rotation: Rotation,
+}
 
 /// A system parameter for performing [spatial queries](spatial_query) while doing
 /// lag compensation.
@@ -53,7 +75,29 @@ impl LagCompensationSpatialQuery<'_, '_> {
         solid: bool,
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
-        self.cast_ray_predicate(
+        self.cast_ray_with_sample(
+            interpolation_delay,
+            origin,
+            direction,
+            max_distance,
+            solid,
+            filter,
+        )
+        .map(|result| result.hit)
+    }
+
+    /// Like [`Self::cast_ray`], but also returns the exact historical collider
+    /// pose used for the successful narrow-phase test.
+    pub fn cast_ray_with_sample(
+        &self,
+        interpolation_delay: InterpolationDelay,
+        origin: Vector,
+        direction: Dir,
+        max_distance: Scalar,
+        solid: bool,
+        filter: &mut SpatialQueryFilter,
+    ) -> Option<LagCompensationRayHit> {
+        self.cast_ray_predicate_with_sample(
             interpolation_delay,
             origin,
             direction,
@@ -77,10 +121,35 @@ impl LagCompensationSpatialQuery<'_, '_> {
         predicate: &dyn Fn(Entity) -> bool,
         filter: &mut SpatialQueryFilter,
     ) -> Option<RayHitData> {
+        self.cast_ray_predicate_with_sample(
+            interpolation_delay,
+            origin,
+            direction,
+            max_distance,
+            solid,
+            predicate,
+            filter,
+        )
+        .map(|result| result.hit)
+    }
+
+    /// Like [`Self::cast_ray_predicate`], but also returns the exact historical
+    /// collider pose used for the successful narrow-phase test.
+    #[allow(clippy::too_many_arguments)]
+    pub fn cast_ray_predicate_with_sample(
+        &self,
+        interpolation_delay: InterpolationDelay,
+        origin: Vector,
+        direction: Dir,
+        max_distance: Scalar,
+        solid: bool,
+        predicate: &dyn Fn(Entity) -> bool,
+        filter: &mut SpatialQueryFilter,
+    ) -> Option<LagCompensationRayHit> {
         // 1): check if the ray hits the aabb envelope
         let tick = self.timeline.tick();
         // we use interior mutability because the predicate must be a `dyn Fn`
-        let exact_hit_data: RefCell<Option<RayHitData>> = RefCell::new(None);
+        let exact_hit_data: RefCell<Option<LagCompensationRayHit>> = RefCell::new(None);
         self.spatial_query.cast_ray_predicate(
             origin,
             direction,
@@ -169,10 +238,16 @@ impl LagCompensationSpatialQuery<'_, '_> {
                         ?parent,
                         "LagCompensation RayHit!"
                     );
-                    *exact_hit_data.borrow_mut() = Some(RayHitData {
-                        entity: parent,
-                        distance,
-                        normal,
+                    *exact_hit_data.borrow_mut() = Some(LagCompensationRayHit {
+                        hit: RayHitData {
+                            entity: parent,
+                            distance,
+                            normal,
+                        },
+                        interpolation_tick,
+                        interpolation_overstep,
+                        position: Position(interpolated_position),
+                        rotation: interpolated_rotation,
                     });
                     return true;
                 }

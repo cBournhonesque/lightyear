@@ -5,6 +5,8 @@ use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_time::{Real, Time};
 use core::time::Duration;
+#[cfg(feature = "client")]
+use lightyear_connection::client::Client;
 use lightyear_connection::client::Connected;
 use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::host::HostClient;
@@ -178,8 +180,12 @@ impl Plugin for PingPlugin {
         // We used to have Client -> LocalTimelineSync -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
         // but it is not possible anymore since we also have a Transport -> PingManager dependency and cyclic dependencies are not allowed anymore.
         //
-        // So we removed Transport -> PingManager dependency and hope that PingManager will always be added to entities that have a Transport...
+        // So we removed the Transport -> PingManager dependency. The ping protocol instead owns
+        // the requirement for the two connection-entity types on which it runs.
         // app.register_required_components::<Transport, PingManager>();
+
+        #[cfg(feature = "client")]
+        app.register_required_components::<Client, PingManager>();
 
         #[cfg(feature = "server")]
         app.register_required_components::<lightyear_connection::prelude::server::ClientOf, PingManager>();
