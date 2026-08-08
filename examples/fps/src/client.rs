@@ -63,7 +63,7 @@ fn strip_interpolated_bullet_local_physics(
 
 fn suppress_shoot_until_synced(
     host_server: Query<(), With<HostServer>>,
-    input_timeline: Option<SyncedInputTimeline>,
+    input_timeline: Option<SyncedLocalTimeline>,
     mut action_state_query: Query<
         &mut ActionState<PlayerActions>,
         Or<(With<Predicted>, With<InputMap<PlayerActions>>)>,

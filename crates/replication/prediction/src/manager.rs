@@ -60,7 +60,7 @@ impl Default for RollbackPolicy {
 }
 
 impl RollbackPolicy {
-    /// Maximum rollback depth after applying the input timeline's prediction limit.
+    /// Maximum rollback depth after applying the input timing configuration's prediction limit.
     ///
     /// A non-zero `maximum_predicted_ticks` bounds how far ahead the local simulation can be, so
     /// rollback state older than that cannot be needed. Zero denotes lockstep and does not cap

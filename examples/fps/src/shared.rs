@@ -133,7 +133,7 @@ fn player_movement(
     timeline: Res<LocalTimeline>,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    input_timeline: Option<SyncedInputTimeline>,
+    input_timeline: Option<SyncedLocalTimeline>,
     mut player_query: Query<
         (
             &mut Position,
@@ -192,7 +192,7 @@ pub(crate) fn shoot_bullet(
     timeline: Res<LocalTimeline>,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    input_timeline: Option<SyncedInputTimeline>,
+    input_timeline: Option<SyncedLocalTimeline>,
     metadata: Res<NetworkingMetadata>,
     mut query: Query<
         (

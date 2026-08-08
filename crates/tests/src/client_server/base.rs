@@ -20,11 +20,17 @@ fn test_setup_client_server() {
         stepper
             .client_app()
             .world()
-            .contains_resource::<InputTimeline>()
+            .contains_resource::<LocalTimelineSync>()
     );
-    assert!(!stepper.client(0).contains::<InputTimeline>());
+    assert!(!stepper.client(0).contains::<LocalTimelineSync>());
     assert!(stepper.client(0).contains::<RemoteTimeline>());
-    assert!(stepper.client(0).contains::<InterpolationTimeline>());
+    assert!(
+        stepper
+            .client_app()
+            .world()
+            .contains_resource::<InterpolationTimeline>()
+    );
+    assert!(!stepper.client(0).contains::<InterpolationTimeline>());
     assert!(stepper.client(0).contains::<Transport>());
     assert!(stepper.client(0).contains::<MessageManager>());
     assert!(stepper.client(0).contains::<MessageSender<StringMessage>>());
@@ -69,7 +75,7 @@ fn test_setup_client_server() {
 #[cfg(all(feature = "webtransport", not(target_family = "wasm")))]
 #[test]
 fn test_setup_netcode_webtransport_client_server() {
-    let stepper =
+    let mut stepper =
         ClientServerStepper::from_config(StepperConfig::single().with_io(IoType::WebTransport));
 
     assert_ne!(stepper.server_addr.port(), 0);
@@ -85,12 +91,10 @@ fn test_setup_netcode_webtransport_client_server() {
     assert!(stepper.client(0).contains::<WebTransportClientIo>());
     assert!(stepper.client(0).contains::<Connected>());
     assert!(stepper.client_of(0).contains::<Connected>());
-    assert!(stepper.client(0).contains::<IsSynced<InputTimeline>>());
-    assert!(
-        stepper
-            .client(0)
-            .contains::<IsSynced<InterpolationTimeline>>()
-    );
+    assert!(input_timeline_is_synced(stepper.client_app().world()));
+    assert!(interpolation_timeline_is_synced(
+        stepper.client_app().world()
+    ));
 }
 
 #[test]

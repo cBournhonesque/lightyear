@@ -59,6 +59,8 @@ use bevy_app::{
 };
 use bevy_ecs::entity::{MapEntities, UniqueEntitySlice};
 use bevy_ecs::prelude::*;
+#[cfg(feature = "interpolation")]
+use bevy_time::Fixed;
 use bevy_time::{Real, Time, Timer, TimerMode};
 use bevy_utils::prelude::DebugName;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
@@ -77,9 +79,7 @@ use lightyear_messages::prelude::MessageSender;
 use lightyear_prediction::prelude::*;
 use lightyear_replication::prelude::{ControlledBy, PreSpawned};
 use lightyear_sync::plugin::SyncSystems;
-#[cfg(feature = "interpolation")]
-use lightyear_sync::prelude::client::IsSynced;
-use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, SyncedInputTimeline};
+use lightyear_sync::prelude::{InputTimelineConfig, LocalTimelineSync, SyncedLocalTimeline};
 use lightyear_transport::prelude::ChannelRegistry;
 #[allow(unused_imports)]
 use tracing::{debug, error, info, trace, warn};
@@ -158,8 +158,8 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
         app.init_resource::<MessageBuffer<S>>();
         // Client input systems may be installed in a combined client/server app. Keep their
         // global clock parameters available even when no client link is active; the
-        // SyncedInputTimeline parameter still gates systems that require synchronization.
-        app.init_resource::<InputTimeline>();
+        // SyncedLocalTimeline parameter still gates systems that require synchronization.
+        app.init_resource::<LocalTimelineSync>();
         app.init_resource::<InputTimelineConfig>();
         #[cfg(feature = "prediction")]
         {
@@ -196,7 +196,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             ((
                 InputSystems::PrepareInputMessage,
                 SyncSystems::Sync,
-                // run after SyncSet to make sure that the TickEvents are handled
+                // Run after synchronization so local timeline shifts have been handled.
                 // and that the interpolation_delay injected in the message are correct
                 InputSystems::SendInputMessage,
                 InputSystems::CleanUp,
@@ -272,7 +272,7 @@ impl<S: ActionStateSequence + MapEntities> Plugin for ClientInputPlugin<S> {
             ),
         );
         // if the client tick is updated because of a desync, update the ticks in the input buffers
-        app.add_observer(receive_tick_events::<S>);
+        app.add_observer(receive_local_timeline_shift::<S>);
     }
 }
 
@@ -408,12 +408,11 @@ fn matches_prespawned_target(
 /// inputs that would not arrive on time in the server (i.e. the server would simulate tick T
 /// before receiving the input for tick T).
 fn buffer_action_state<S: ActionStateSequence>(
-    local_timeline: Res<LocalTimeline>,
     #[cfg(feature = "metrics")] metric_handles: Res<InputMetricHandles<S>>,
     // we buffer inputs even for the Host-Server so that
     // 1. the HostServer client can broadcast inputs to other clients
     // 2. the HostServer client can have input delay
-    input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     rollback: Option<Res<Rollback>>,
     mut action_state_query: Query<
@@ -432,8 +431,8 @@ fn buffer_action_state<S: ActionStateSequence>(
     if rollback.is_some() {
         return;
     }
-    let current_tick = local_timeline.tick();
-    let tick = current_tick + input_timeline.input_delay() as i32;
+    let current_tick = timeline.current_tick();
+    let tick = current_tick + timeline.input_delay() as i32;
     for (entity, action_state, mut input_buffer, controlled_by) in action_state_query.iter_mut() {
         if !route.accepts_local_target(controlled_by) {
             continue;
@@ -474,7 +473,7 @@ fn get_action_state<S: ActionStateSequence>(
     local_timeline: Res<LocalTimeline>,
     // NOTE: we skip this for host-client because a similar system does the same thing
     //  in the server, and also clears the buffers
-    input_timeline: Res<InputTimeline>,
+    input_timeline: Res<LocalTimelineSync>,
     input_timeline_config: Res<InputTimelineConfig>,
     metadata: Res<NetworkingMetadata>,
     rollback: Option<Res<Rollback>>,
@@ -602,8 +601,7 @@ fn get_action_state<S: ActionStateSequence>(
 /// At the start of the frame, restore the ActionState to the latest-action state in buffer
 /// (e.g. the delayed action state) because all inputs (i.e. diffs) are applied to the delayed action-state.
 fn get_delayed_action_state<S: ActionStateSequence>(
-    timeline: Res<LocalTimeline>,
-    input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     rollback: Option<Res<Rollback>>,
     mut action_state_query: Query<
@@ -621,7 +619,7 @@ fn get_delayed_action_state<S: ActionStateSequence>(
         return;
     };
     let is_rollback = rollback.is_some();
-    let input_delay_ticks = input_timeline.input_delay() as i32;
+    let input_delay_ticks = timeline.input_delay() as i32;
     if is_rollback || input_delay_ticks == 0 {
         return;
     }
@@ -733,13 +731,13 @@ impl<A> Default for MessageBuffer<A> {
 /// Take the input buffer, and prepare the input message to send to the server.
 ///
 /// This runs once per frame in PostUpdate. It needs to run before SyncSet::Sync, because we buffer
-/// the input in a MessageBuffer, and if a SyncEvent triggers, we want to adjust the ticks from the InputMessages.
+/// the input in a MessageBuffer, and if a `LocalTimelineShift` triggers, we want to adjust the
+/// ticks from the `InputMessage`s.
 fn prepare_input_message<S: ActionStateSequence>(
     mut message_buffer: ResMut<MessageBuffer<S>>,
     tick_duration: Res<TickDuration>,
-    timeline: Res<LocalTimeline>,
     input_config: Res<InputConfig<S::Action>>,
-    input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     rollback: Option<Res<Rollback>>,
     _channel_registry: Res<ChannelRegistry>,
@@ -787,8 +785,8 @@ fn prepare_input_message<S: ActionStateSequence>(
     }
 
     // we send a message from the latest tick that we have available, which is the delayed tick
-    let current_tick = timeline.tick();
-    let tick = current_tick + input_timeline.input_delay() as i32;
+    let current_tick = timeline.current_tick();
+    let tick = current_tick + timeline.input_delay() as i32;
     // TODO: the number of messages should be in SharedConfig
     trace!(delayed_tick = ?tick, ?current_tick, "prepare_input_message");
     trace!(
@@ -890,10 +888,9 @@ fn prepare_input_message<S: ActionStateSequence>(
 fn receive_remote_player_input_messages<S: ActionStateSequence>(
     mut commands: Commands,
     tick_duration: Res<TickDuration>,
-    timeline: Res<LocalTimeline>,
+    timeline: SyncedLocalTimeline,
     input_config: Res<InputConfig<S::Action>>,
     #[cfg(feature = "metrics")] mut input_metric_handles: ResMut<InputMetricHandles<S>>,
-    _input_timeline: SyncedInputTimeline,
     metadata: Res<NetworkingMetadata>,
     last_confirmed_input: Res<LastConfirmedInput>,
     prediction_manager: Option<Res<PredictionManager>>,
@@ -1142,8 +1139,7 @@ fn receive_remote_player_input_messages_from_receiver<S: ActionStateSequence>(
 /// For example if the last confirmed input was at tick 10, and we received an InputMessage with end_tick 14, we want to rollback to tick 10
 /// (and not to tick 14) because we need to potentially re-apply inputs for ticks 11, 12, 13, 14.
 fn update_last_confirmed_input<S: ActionStateSequence>(
-    timeline: Res<LocalTimeline>,
-    _input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     action_config: Res<InputConfig<S::Action>>,
     input_config: Res<InputTimelineConfig>,
     metadata: Res<NetworkingMetadata>,
@@ -1291,15 +1287,13 @@ fn update_buffer_from_remote_player_message<S: ActionStateSequence>(
 )]
 fn send_input_messages<S: ActionStateSequence>(
     input_config: Res<InputConfig<S::Action>>,
-    input_timeline: SyncedInputTimeline,
+    _local_timeline: SyncedLocalTimeline,
+    #[cfg(feature = "interpolation")] fixed_time: Res<Time<Fixed>>,
     metadata: Res<NetworkingMetadata>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut senders: Query<&mut MessageSender<InputMessage<S>>>,
     mut multi_sender: MultiMessageSender,
-    #[cfg(feature = "interpolation")] interpolation_timelines: Query<
-        &InterpolationTimeline,
-        With<IsSynced<InterpolationTimeline>>,
-    >,
+    #[cfg(feature = "interpolation")] interpolation_timeline: Res<InterpolationTimeline>,
 ) {
     // An inactive topology retains the buffered messages, matching the old `Single<Client>`
     // parameter's skip-on-no-match behavior across disconnect/reconnect boundaries.
@@ -1337,12 +1331,12 @@ fn send_input_messages<S: ActionStateSequence>(
 
     #[cfg(feature = "interpolation")]
     let interpolation_delay = match route {
-        InputRoute::ClientServer { link, .. } => {
-            let Ok(interpolation_timeline) = interpolation_timelines.get(link) else {
+        InputRoute::ClientServer { .. } => {
+            if !interpolation_timeline.is_synced() {
                 return;
-            };
+            }
             // NOTE: this can be negative because of input-delay!
-            let mut delay = input_timeline.now() - interpolation_timeline.now();
+            let mut delay = _local_timeline.instant(&fixed_time) - interpolation_timeline.now();
             if delay.is_negative() {
                 delay = TickDelta::from(Tick(0));
             }
@@ -1409,21 +1403,21 @@ fn unique_p2p_links(links: &[Entity]) -> Option<&UniqueEntitySlice> {
 }
 
 /// In case the client tick changes suddenly, we also update the InputBuffer accordingly
-fn receive_tick_events<S: ActionStateSequence>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+fn receive_local_timeline_shift<S: ActionStateSequence>(
+    trigger: On<LocalTimelineShift>,
     mut message_buffer: ResMut<MessageBuffer<S>>,
     mut input_buffer_query: Query<
         &mut InputBuffer<S::Snapshot, S::Action>,
         Allow<PredictionDisable>,
     >,
 ) {
-    let delta = trigger.tick_delta;
+    let delta = trigger.delta;
     for mut input_buffer in input_buffer_query.iter_mut() {
         let had_start_tick = input_buffer.start_tick.is_some();
         shift_input_buffer_ticks(&mut input_buffer, delta);
         if had_start_tick {
             debug!(
-                "Receive tick snap event {:?}. Updating input buffer start_tick to {:?}!",
+                "Receive local timeline shift {:?}. Updating input buffer start_tick to {:?}!",
                 trigger.event(),
                 input_buffer.start_tick
             );

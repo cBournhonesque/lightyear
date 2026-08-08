@@ -17,7 +17,6 @@ use lightyear_core::time::TickInstant;
 use lightyear_messages::MessageManager;
 use lightyear_replication::control::{ControlledBy, ControlledByRemote};
 use lightyear_replication::prelude::*;
-use lightyear_sync::prelude::IsSynced;
 use lightyear_sync::prelude::{InputTimelineConfig, SyncConfig};
 use test_log::test;
 use tracing::info;
@@ -476,11 +475,8 @@ fn test_bundle_interpolation_applies_tuple_function() {
     let entity = {
         let app = stepper.client_app();
         let world = app.world_mut();
-        let mut timelines = world
-            .query_filtered::<&mut InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>();
-        timelines
-            .single_mut(world)
-            .unwrap()
+        world
+            .resource_mut::<InterpolationTimeline>()
             .set_now(TickInstant::from(Tick(15)));
 
         world

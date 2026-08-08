@@ -1304,7 +1304,7 @@ pub(crate) mod direction_only {
     pub(crate) fn handle_projectile_spawn(
         mut commands: Commands,
         timeline: Res<LocalTimeline>,
-        interpolation_timeline: Query<&InterpolationTimeline>,
+        interpolation_timeline: Option<Res<InterpolationTimeline>>,
         tick_duration: Res<TickDuration>,
         spawn_query: Query<
             (Entity, &ProjectileSpawn, Has<Interpolated>),
@@ -1313,7 +1313,9 @@ pub(crate) mod direction_only {
         >,
     ) {
         let current_tick = timeline.tick();
-        let interpolated_timeline = interpolation_timeline.iter().next().map(|t| t.tick());
+        let interpolated_timeline = interpolation_timeline
+            .filter(|timeline| timeline.is_synced())
+            .map(|timeline| timeline.tick());
         spawn_query
             .iter()
             .for_each(|(entity, spawn_info, interpolated)| {

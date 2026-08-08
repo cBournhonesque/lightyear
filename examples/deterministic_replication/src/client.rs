@@ -31,11 +31,11 @@ impl Plugin for ExampleClientPlugin {
 struct InputMapAdded;
 
 /// Add an `InputMap` to the local player's replicated entity as soon as the
-/// input timeline is synced. This is what lets the local client start
+/// local timeline is synced. This is what lets the local client start
 /// sending input messages — without it, the client never broadcasts any
 /// input and the server can't rebroadcast it to other peers.
 fn add_input_map_after_sync(
-    _input_timeline: SyncedInputTimeline,
+    _input_timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     local_ids: Query<&LocalId>,
     #[cfg(feature = "p2p")] p2p: Option<Res<P2PSettings>>,

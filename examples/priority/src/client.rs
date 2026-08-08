@@ -31,7 +31,7 @@ fn configure_input_delay(mut commands: Commands) {
 /// Applies local movement only to predicted entities owned by this client.
 fn player_movement(
     trigger: On<Fire<Movement>>,
-    _input_timeline: SyncedInputTimeline,
+    _input_timeline: SyncedLocalTimeline,
     _host_server: Query<(), With<HostServer>>,
     #[cfg(feature = "server")] server_actions: Query<
         (),

@@ -6,8 +6,8 @@ use lightyear_core::tick::Tick;
 use lightyear_core::time::TickInstant;
 use lightyear_core::timeline::NetworkTimeline;
 use lightyear_sync::prelude::client::{InputDelayConfig, RemoteTimeline};
-use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig, PingManager, SyncConfig};
-use lightyear_sync::timeline::sync::{SyncTargetTimeline, SyncedTimeline};
+use lightyear_sync::prelude::{InputTimelineConfig, LocalTimelineSync, PingManager, SyncConfig};
+use lightyear_sync::timeline::sync::{SyncTargetTimeline, TimelineSync};
 
 const TICK_DURATION: Duration = Duration::from_millis(10);
 
@@ -46,7 +46,7 @@ fn input_timeline_objective_tracks_remote_latency_margin() {
     });
 
     let objective =
-        InputTimeline::default().sync_objective(&remote, &config, &ping_manager, TICK_DURATION);
+        LocalTimelineSync::default().sync_objective(&remote, &config, &ping_manager, TICK_DURATION);
 
     // remote 100 + RTT/2 2 ticks + jitter margin 2 ticks
     // + server input pipeline 1 tick + controller deadband 0.75 ticks.
@@ -62,14 +62,19 @@ fn input_timeline_initial_sync_resyncs_to_objective() {
         handshake_pings: 0,
         ..Default::default()
     });
-    let mut timeline = InputTimeline::default();
+    let mut sync = LocalTimelineSync::default();
 
-    let tick_delta = timeline.sync(&remote, &config, &ping_manager, TICK_DURATION);
+    let tick_delta = sync.sync(
+        TickInstant::zero(),
+        &remote,
+        &config,
+        &ping_manager,
+        TICK_DURATION,
+    );
 
     assert_eq!(tick_delta, Some(103));
-    assert!(timeline.is_synced());
-    assert_tick_instant_close(timeline.now(), TickInstant::from(Tick(103)));
-    assert_eq!(timeline.relative_speed(), 1.0);
+    assert!(sync.is_synced());
+    assert_eq!(sync.relative_speed(), 1.0);
 }
 
 #[test_log::test]
@@ -80,14 +85,20 @@ fn input_timeline_sync_waits_for_ping_latency_samples() {
         handshake_pings: 1,
         ..Default::default()
     });
-    let mut timeline = InputTimeline::default();
+    let mut sync = LocalTimelineSync::default();
 
-    let tick_delta = timeline.sync(&remote, &config, &ping_manager, TICK_DURATION);
+    let tick_delta = sync.sync(
+        TickInstant::zero(),
+        &remote,
+        &config,
+        &ping_manager,
+        TICK_DURATION,
+    );
 
     assert_eq!(ping_manager.pongs_recv, 0);
     assert_eq!(ping_manager.latency_samples_recv(), 0);
     assert_eq!(tick_delta, None);
-    assert!(!timeline.is_synced());
+    assert!(!sync.is_synced());
 }
 
 #[test_log::test]
@@ -102,24 +113,30 @@ fn input_timeline_adjusts_speed_after_repeated_error() {
         speedup_factor: 1.1,
         ..Default::default()
     });
-    let mut timeline = InputTimeline::default();
+    let mut sync = LocalTimelineSync::default();
 
-    timeline.sync(&remote, &config, &ping_manager, TICK_DURATION);
-    timeline.set_now(TickInstant::from(Tick(104)));
+    sync.sync(
+        TickInstant::zero(),
+        &remote,
+        &config,
+        &ping_manager,
+        TICK_DURATION,
+    );
+    let local_now = TickInstant::from(Tick(104));
 
     assert_eq!(
-        timeline.sync(&remote, &config, &ping_manager, TICK_DURATION),
+        sync.sync(local_now, &remote, &config, &ping_manager, TICK_DURATION),
         None
     );
     assert_eq!(
-        timeline.sync(&remote, &config, &ping_manager, TICK_DURATION),
+        sync.sync(local_now, &remote, &config, &ping_manager, TICK_DURATION),
         None
     );
 
     assert!(
-        timeline.relative_speed() < 1.0,
+        sync.relative_speed() < 1.0,
         "timeline should slow down when it is ahead of the objective; speed={}",
-        timeline.relative_speed()
+        sync.relative_speed()
     );
 }
 
@@ -132,8 +149,8 @@ fn input_delay_config_update_recomputes_public_delay() {
 
     stepper.frame_step(1);
 
-    let input_timeline = stepper.client_app().world().resource::<InputTimeline>();
-    assert_eq!(input_timeline.context.input_delay(), 3);
+    let local_sync = stepper.client_app().world().resource::<LocalTimelineSync>();
+    assert_eq!(local_sync.input_delay(), 3);
 }
 
 #[test_log::test]

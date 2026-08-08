@@ -2,13 +2,13 @@
 */
 use crate::plugin::TimelineSyncPlugin;
 use crate::prelude::client::RemoteTimeline;
-use crate::timeline::input::{InputTimeline, InputTimelineConfig};
+use crate::timeline::input::InputTimelineConfig;
 use crate::timeline::remote;
-use crate::timeline::sync::SyncedTimelinePlugin;
+use crate::timeline::sync::LocalTimelineSyncPlugin;
 use bevy_app::prelude::*;
 use bevy_ecs::prelude::IntoScheduleConfigs;
 use lightyear_connection::client::Client;
-use lightyear_core::prelude::{NetworkTimelinePlugin, TimelineSystems};
+use lightyear_core::prelude::TimelineSystems;
 
 // When a Client is created; we want to add a PredictedTimeline? InterpolatedTimeline?
 //  or should we let the user do it?
@@ -49,22 +49,17 @@ impl Plugin for ClientPlugin {
 
         app.register_required_components::<Client, RemoteTimeline>();
 
-        // The application has one driving input clock even when it has several network links.
-        app.add_plugins(SyncedTimelinePlugin::<
-            InputTimeline,
-            RemoteTimeline,
-            true,
-            true,
-        >::default());
+        // Network synchronization disciplines the application's single LocalTimeline even when
+        // it has several network links.
+        app.add_plugins(LocalTimelineSyncPlugin::<RemoteTimeline>::default());
 
-        // Register these after the resource-backed timeline plugin initializes its default
+        // Register these after the local-sync plugin initializes its default
         // configuration. `ClientPlugin` can be built before `CorePlugins` installs TickDuration,
         // while every runtime configuration update, connection, and sync event happens after it.
-        app.add_observer(InputTimelineConfig::recompute_input_delay_on_sync);
+        app.add_observer(InputTimelineConfig::recompute_input_delay_on_local_timeline_shift);
         app.add_observer(InputTimelineConfig::recompute_input_delay_on_config_update);
 
         // remote timeline
-        app.add_plugins(NetworkTimelinePlugin::<RemoteTimeline>::default());
         app.add_observer(RemoteTimeline::handle_connect);
         app.add_observer(remote::update_remote_timeline);
         app.add_systems(

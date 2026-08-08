@@ -42,7 +42,7 @@ fn configure_input_delay(mut commands: Commands) {
 /// observer is disabled.
 fn player_movement(
     trigger: On<Fire<Movement>>,
-    _input_timeline: SyncedInputTimeline,
+    _input_timeline: SyncedLocalTimeline,
     #[cfg(feature = "server")] host_server: Query<(), With<HostServer>>,
     mut position_query: Query<
         &mut PlayerPosition,

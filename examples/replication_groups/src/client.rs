@@ -187,7 +187,7 @@ fn confirmed_interpolation_window<C>(
 }
 
 pub(crate) fn interpolate(
-    timeline: Single<&InterpolationTimeline, With<IsSynced<InterpolationTimeline>>>,
+    timeline: Res<InterpolationTimeline>,
     mut parent_query: Query<
         (&mut PlayerPosition, &ConfirmedHistory<PlayerPosition>),
         With<Interpolated>,
@@ -203,6 +203,9 @@ pub(crate) fn interpolate(
         With<Interpolated>,
     >,
 ) {
+    if !timeline.is_synced() {
+        return;
+    }
     let interpolation_tick = timeline.tick();
     let interpolation_overstep = timeline.overstep().to_f32();
     'outer: for (tail_entity, parent, tail_length, mut tail, tail_history) in tail_query.iter_mut()

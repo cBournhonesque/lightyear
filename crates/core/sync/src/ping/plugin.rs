@@ -175,7 +175,7 @@ impl Plugin for PingPlugin {
         // nothing to send on the frame it receives a packet, the ACK is delayed and the measured
         // RTT includes that wait. Keep ACK timing as transport telemetry, not canonical RTT.
 
-        // We used to have Client -> InputTimeline -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
+        // We used to have Client -> LocalTimelineSync -> PingManager -> MessageSender<Ping> -> MessageManager -> Transport -> [Link, LocalTimeline]
         // but it is not possible anymore since we also have a Transport -> PingManager dependency and cyclic dependencies are not allowed anymore.
         //
         // So we removed Transport -> PingManager dependency and hope that PingManager will always be added to entities that have a Transport...

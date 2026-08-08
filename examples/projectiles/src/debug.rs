@@ -33,7 +33,7 @@ fn emit_fixed_last_players(
 
 fn emit_last_entities(
     timeline: Res<LocalTimeline>,
-    interpolation_timeline: Query<&InterpolationTimeline>,
+    interpolation_timeline: Option<Res<InterpolationTimeline>>,
     player: Query<
         (
             Entity,
@@ -54,7 +54,9 @@ fn emit_last_entities(
     >,
 ) {
     let tick = timeline.tick();
-    let interpolate_tick = interpolation_timeline.iter().next().map(|t| t.tick());
+    let interpolate_tick = interpolation_timeline
+        .filter(|timeline| timeline.is_synced())
+        .map(|timeline| timeline.tick());
     for (entity, pos, rotation, transform) in player.iter() {
         lightyear_debug_event!(
             DebugCategory::Component,
