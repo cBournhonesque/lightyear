@@ -17,7 +17,7 @@ use lightyear_core::ecs_utils::{
     table_component_slice, table_for_archetype, write_component_with_change_detection,
 };
 use lightyear_core::history_buffer::HistoryState;
-use lightyear_core::prelude::{ConfirmedHistory, Interpolated, NetworkTimeline};
+use lightyear_core::prelude::{ConfirmedHistory, NetworkTimeline};
 use lightyear_core::tick::Tick;
 use lightyear_core::tick::TickDuration;
 use lightyear_replication::checkpoint::ReplicationCheckpointMap;
@@ -43,18 +43,14 @@ pub fn interpolation_fraction(start: Tick, end: Tick, current: Tick, overstep: f
 /// component set matching the interpolation timeline.
 pub(crate) fn update_interpolation_history(
     mut interpolation_world: InterpolationWorld,
-    clients: Query<&InterpolationTimeline, Without<Interpolated>>,
+    timeline: Res<InterpolationTimeline>,
     interpolation_registry: Res<InterpolationRegistry>,
     checkpoints: Res<ReplicationCheckpointMap>,
     tick_duration: Option<Res<TickDuration>>,
     mut replication_storage: Option<ResMut<ReplicationStorage>>,
     mut commands: Commands,
 ) {
-    // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
-    let Ok(timeline) = clients.single() else {
-        return;
-    };
     let current_interpolate_tick = timeline.now().tick();
     let interpolation_overstep = timeline.overstep().to_f32();
     let server_complete_tick = checkpoints.last_confirmed_tick();
@@ -94,15 +90,11 @@ pub(crate) fn update_interpolation_history(
 /// component insertions/removals have been flushed.
 pub(crate) fn apply_interpolation(
     mut interpolation_world: InterpolationWorld,
-    clients: Query<&InterpolationTimeline, Without<Interpolated>>,
+    timeline: Res<InterpolationTimeline>,
     interpolation_registry: Res<InterpolationRegistry>,
     tick_duration: Option<Res<TickDuration>>,
 ) {
-    // TODO: handle multiple interpolation timelines
     // TODO: exclude host-server
-    let Ok(timeline) = clients.single() else {
-        return;
-    };
     let current_interpolate_tick = timeline.now().tick();
     let interpolation_overstep = timeline.overstep().to_f32();
     let ctx = ApplyInterpolationContext {
@@ -434,7 +426,6 @@ mod tests {
     use lightyear_replication::checkpoint::ReplicationCheckpointMap;
     use lightyear_replication::diff_history::HistoryDiffReceiver;
     use lightyear_replication::registry::replication::AppComponentExt;
-    use lightyear_sync::prelude::client::IsSynced;
     use serde::{Deserialize, Serialize};
 
     #[derive(Component, Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -603,8 +594,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(current_tick));
         timeline.remote_send_interval = core::time::Duration::from_millis(send_interval_ms);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
         app
     }
 
@@ -616,9 +606,9 @@ mod tests {
     }
 
     fn set_interpolation_tick(app: &mut App, tick: Tick) {
-        let mut timelines = app.world_mut().query::<&mut InterpolationTimeline>();
-        let mut timeline = timelines.single_mut(app.world_mut()).unwrap();
-        timeline.set_now(TickInstant::from(tick));
+        app.world_mut()
+            .resource_mut::<InterpolationTimeline>()
+            .set_now(TickInstant::from(tick));
     }
 
     fn insert_confirmed_history(
@@ -784,8 +774,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app.world_mut().spawn(TestComp(0.0)).id();
         insert_confirmed_history(&mut app, entity, two_point_history());
@@ -880,8 +869,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app
             .world_mut()
@@ -956,8 +944,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app
             .world_mut()
@@ -999,8 +986,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app
             .world_mut()
@@ -1046,8 +1032,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app
             .world_mut()
@@ -1101,8 +1086,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app
             .world_mut()
@@ -1159,8 +1143,7 @@ mod tests {
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(Tick(15)));
         timeline.remote_send_interval = core::time::Duration::from_millis(40);
-        app.world_mut()
-            .spawn((timeline, IsSynced::<InterpolationTimeline>::default()));
+        app.insert_resource(timeline);
 
         let entity = app
             .world_mut()

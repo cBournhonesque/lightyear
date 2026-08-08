@@ -13,7 +13,7 @@ use lightyear_examples_common::shared::FIXED_TIMESTEP_HZ;
 
 /// Default number of ticks to delay local input by.
 pub const DEFAULT_INPUT_DELAY_TICKS: u16 = 0;
-/// Default fixed input timeline safety margin, in ticks.
+/// Default fixed input-scheduling safety margin, in ticks.
 ///
 /// Deterministic replication requires the server to receive a client's input
 /// for tick `T` before the server simulates `T`. This margin covers normal
@@ -100,7 +100,7 @@ fn add_input_delay(app: &mut App) {
     use lightyear::prelude::client::{InputDelayConfig, InputTimelineConfig};
 
     // Set some input delay since a remote client predicts all deterministic entities. The
-    // host-client uses the same delayed input timeline but does not enable rollback for its
+    // host-client uses the same delayed input scheduling but does not enable rollback for its
     // authoritative in-process simulation.
     app.insert_resource(
         InputTimelineConfig::default()

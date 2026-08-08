@@ -65,7 +65,7 @@ fn log_p2p_positions(
     timeline: Res<LocalTimeline>,
     settings: Res<P2PSettings>,
     links: Query<(&RemoteId, Has<Connected>, &PingManager), With<P2P>>,
-    synced_input_timeline: Query<(), (With<InputTimeline>, With<IsSynced<InputTimeline>>)>,
+    local_sync: Res<LocalTimelineSync>,
     players: Query<(&PlayerId, &PlayerPosition)>,
     mut timer: Local<Option<Timer>>,
 ) {
@@ -80,7 +80,7 @@ fn log_p2p_positions(
             ?remote,
             connected,
             latency_samples = ping.latency_samples_recv(),
-            input_timeline_synced = !synced_input_timeline.is_empty(),
+            input_timeline_synced = local_sync.is_synced(),
             "P2P Link status"
         );
     }

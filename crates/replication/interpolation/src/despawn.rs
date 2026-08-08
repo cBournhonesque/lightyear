@@ -81,7 +81,7 @@ fn resolve_despawn_tick(world: &World, message_tick: RepliconTick) -> Option<Tic
 }
 
 pub(crate) fn despawn_interpolated_entities(
-    interpolation: Single<&InterpolationTimeline>,
+    interpolation: Res<InterpolationTimeline>,
     query: Query<(Entity, &DelayedInterpolatedDespawn)>,
     mut commands: Commands,
 ) {
@@ -106,15 +106,15 @@ mod tests {
             .insert_resource(ReplicationCheckpointMap::default());
         let mut timeline = InterpolationTimeline::default();
         timeline.set_now(TickInstant::from(interpolation_tick));
-        app.world_mut().spawn(timeline);
+        app.insert_resource(timeline);
         app.add_systems(Update, despawn_interpolated_entities);
         app
     }
 
     fn set_interpolation_tick(app: &mut App, tick: Tick) {
-        let mut timelines = app.world_mut().query::<&mut InterpolationTimeline>();
-        let mut timeline = timelines.single_mut(app.world_mut()).unwrap();
-        timeline.set_now(TickInstant::from(tick));
+        app.world_mut()
+            .resource_mut::<InterpolationTimeline>()
+            .set_now(TickInstant::from(tick));
     }
 
     #[test]

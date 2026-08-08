@@ -554,9 +554,8 @@ fn test_future_confirmed_insert_is_not_checked_by_unchanged_completed_tick() {
 }
 
 #[test]
-fn test_input_timeline_sync_does_not_shift_confirmed_history() {
-    use lightyear_core::timeline::SyncEvent;
-    use lightyear_sync::prelude::{InputTimeline, InputTimelineConfig};
+fn test_local_timeline_shift_does_not_shift_confirmed_history() {
+    use lightyear_core::timeline::LocalTimelineShift;
 
     let (mut stepper, predicted) = setup();
 
@@ -577,21 +576,10 @@ fn test_input_timeline_sync_does_not_shift_confirmed_history() {
         .entity_mut(predicted)
         .insert(prediction_history);
 
-    let timeline_component = stepper
-        .client_app()
-        .world()
-        .component_id::<InputTimeline>()
-        .unwrap();
-    let timeline_entity = stepper
-        .client_app()
-        .world()
-        .resource_entities()
-        .get(timeline_component)
-        .unwrap();
     stepper
         .client_app()
         .world_mut()
-        .trigger(SyncEvent::<InputTimelineConfig>::new(timeline_entity, 100));
+        .trigger(LocalTimelineShift { delta: 100 });
 
     let world = stepper.client_app().world();
     let confirmed_history = world
@@ -617,7 +605,7 @@ fn test_input_timeline_sync_does_not_shift_confirmed_history() {
     );
     assert!(
         prediction_history.get_state(predicted_tick + 100).is_some(),
-        "prediction history should follow the input timeline sync"
+        "prediction history should follow the local timeline sync"
     );
 }
 

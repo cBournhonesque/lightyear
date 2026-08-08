@@ -7,7 +7,7 @@ pub type SyncSet = SyncSystems;
 
 #[derive(SystemSet, Debug, Hash, PartialEq, Eq, Clone, Copy)]
 pub enum SyncSystems {
-    /// Sync SyncedTimelines to the Remote timelines using networking information (RTT/jitter) from the PingManager
+    /// Synchronize local clocks and cursors to remote timelines using RTT and jitter information.
     Sync,
 }
 

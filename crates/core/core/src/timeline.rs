@@ -4,8 +4,7 @@ use crate::time::{Overstep, TickDelta, TickInstant};
 use bevy_app::{App, FixedFirst, Plugin};
 use bevy_derive::{Deref, DerefMut};
 use bevy_ecs::component::{Component, ComponentId, Mutable};
-use bevy_ecs::entity::Entity;
-use bevy_ecs::event::{EntityEvent, Event};
+use bevy_ecs::event::Event;
 use bevy_ecs::prelude::{On, Resource};
 use bevy_ecs::ptr::Ptr;
 use bevy_ecs::schedule::SystemSet;
@@ -221,6 +220,18 @@ impl LocalTimeline {
         self.tick
     }
 
+    /// Return the current fractional simulation instant.
+    ///
+    /// [`LocalTimeline`] owns the whole simulation tick while Bevy's [`Time<Fixed>`]
+    /// owns the fractional progress towards the next fixed update. Constructing the
+    /// instant on demand avoids maintaining a second, potentially stale clock.
+    pub fn instant(&self, fixed_time: &Time<Fixed>) -> TickInstant {
+        TickInstant::from_tick_and_overstep(
+            self.tick,
+            Overstep::from_f32(fixed_time.overstep_fraction()),
+        )
+    }
+
     /// Increment the LocalTimeline by `delta`
     pub fn apply_delta(&mut self, delta: i32) {
         self.tick = self.tick + delta;
@@ -264,22 +275,6 @@ pub(crate) fn increment_local_tick(mut timeline: ResMut<LocalTimeline>) {
     );
 }
 
-pub struct NetworkTimelinePlugin<T> {
-    pub(crate) _marker: core::marker::PhantomData<T>,
-}
-
-impl<T> Default for NetworkTimelinePlugin<T> {
-    fn default() -> Self {
-        Self {
-            _marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<T: NetworkTimeline> Plugin for NetworkTimelinePlugin<T> {
-    fn build(&self, _: &mut App) {}
-}
-
 /// Event that can be triggered to update the tick duration.
 ///
 /// If the trigger is global, it will update:
@@ -318,35 +313,16 @@ impl Plugin for TimelinePlugin {
     }
 }
 
-#[derive(EntityEvent, Debug)]
-pub struct SyncEvent<T: TimelineConfig> {
-    /// Entity holding a [`Timeline`]
-    pub entity: Entity,
-    // NOTE: it's inconvenient to re-sync the Timeline from a TickInstant to another TickInstant,
-    //  so instead we will apply a delta number of ticks with no overstep (so that it's easy
-    //  to update the LocalTimeline
-    /// Delta in number of ticks to apply to the timeline
-    pub tick_delta: i32,
-    marker: core::marker::PhantomData<T>,
+/// Announces a whole-tick discontinuity in the application-global [`LocalTimeline`].
+///
+/// Input buffers, prediction histories, and other data indexed by local simulation ticks must
+/// shift by the same delta. Remote and interpolation histories already use their own time domains
+/// and must not observe this event.
+#[derive(Event, Debug, Clone, Copy)]
+pub struct LocalTimelineShift {
+    /// Whole ticks added to the local simulation clock.
+    pub delta: i32,
 }
-
-impl<T: TimelineConfig> SyncEvent<T> {
-    pub fn new(entity: Entity, tick_delta: i32) -> Self {
-        SyncEvent {
-            entity,
-            tick_delta,
-            marker: core::marker::PhantomData,
-        }
-    }
-}
-
-impl<T: TimelineConfig> Clone for SyncEvent<T> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<T: TimelineConfig> Copy for SyncEvent<T> {}
 
 /// Application-global marker resource inserted while the simulation is being rolled back.
 ///

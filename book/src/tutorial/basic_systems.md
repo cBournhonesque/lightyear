@@ -66,13 +66,10 @@ There are tons of extra components you can added when replicating an entity to c
 ## Timelines
 
 Ticks are the fundamental unit of time in lightyear, and are used to synchronize the client and server. Ticks are incremented by 1 every time the `FixedMain` schedule runs.
-The `LocalTimeline` component on your `Link` entities can be used to retrieve the current tick for that link. You will notice that the server only has the `LocalTimeline` component,
-while the client has multiple timelines:
-- the `LocalTimeline` component, which is incremented by the `FixedMain` schedule
-- the `RemoteTimeline` component, which is the client's view of the server's timeline. This is updated every time the client receives a packet from the server.
-- the `InputTimeline` component, which is the timeline where the client buffers inputs. In most cases, this will be identical to the `LocalTimeline`.
+`LocalTimeline` is the application-global resource that contains the current simulation tick. Each client session has a `RemoteTimeline` component containing its estimate of the remote peer's timeline.
 
-lightyear will make sure that your `InputTimeline` and `RemoteTimeline` are always in sync with the server's `LocalTimeline`.
+On a client, the `LocalTimelineSync` resource compares the local simulation instant with the selected `RemoteTimeline`. It can shift the local tick or adjust the simulation speed, and it also stores the input delay used to assign ticks to buffered inputs. Input delay affects the synchronization target, but there is no separate input clock.
+Systems can use `SyncedLocalTimeline` when they should not run before synchronization is ready. It dereferences to `LocalTimeline` and also exposes the current input delay, so the synchronization controller does not need to be fetched separately. Systems that require the presentation cursor only after it is ready can use `SyncedInterpolationTimeline`. A whole-tick correction emits `LocalTimelineShift`, which updates local input, prediction, and prespawn histories together.
 
 
 ## Handle client inputs

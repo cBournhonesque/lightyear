@@ -64,7 +64,7 @@ use lightyear_replication::prelude::ConfirmHistory;
 use lightyear_replication::prespawn::PreSpawnedReceiver;
 use lightyear_replication::registry::ComponentRegistry;
 use lightyear_replication::{ReplicationSystems, checkpoint::ReplicationCheckpointMap};
-use lightyear_sync::prelude::{InputTimelineConfig, SyncedInputTimeline};
+use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
 use lightyear_utils::adaptive_for_each_mut;
 #[cfg(feature = "metrics")]
 use lightyear_utils::timer_gauge;
@@ -354,8 +354,7 @@ fn check_rollback(
     // we want Query<(&mut PredictionHistory<C>, &Confirmed<C>), With<Predicted>>
     // make sure to include disabled entities
     mut predicted_entities: Query<(&ConfirmHistory, FilteredEntityMut)>,
-    timeline: Res<LocalTimeline>,
-    _input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     input_config: Res<InputTimelineConfig>,
     last_confirmed_input: Res<LastConfirmedInput>,
     mut prediction_manager: ResMut<PredictionManager>,
@@ -813,7 +812,7 @@ fn check_rollback(
 ///
 /// This must run after the rollback check.
 pub fn reset_input_rollback_tracker(
-    _input_timeline: SyncedInputTimeline,
+    _input_timeline: SyncedLocalTimeline,
     mut last_confirmed_input: ResMut<LastConfirmedInput>,
     prediction_manager: Option<Res<PredictionManager>>,
 ) {

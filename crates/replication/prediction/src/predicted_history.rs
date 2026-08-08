@@ -18,7 +18,7 @@ use core::ops::{Deref, DerefMut};
 use lightyear_core::history_buffer::{HistoryBuffer, HistoryState};
 use lightyear_core::prelude::{ConfirmedHistory, LocalTimeline};
 use lightyear_core::tick::Tick;
-use lightyear_core::timeline::SyncEvent;
+use lightyear_core::timeline::LocalTimelineShift;
 use lightyear_replication::diff_history::HistoryDiffReceiver;
 use lightyear_replication::prelude::PreSpawned;
 use lightyear_sync::prelude::InputTimelineConfig;
@@ -132,37 +132,35 @@ pub(crate) fn update_prediction_history<T: Component + Clone>(
     }
 }
 
-/// If there is a TickEvent and the client tick suddenly changes, we need
-/// to update the ticks in the history buffer.
-pub(crate) fn handle_tick_event_prediction_history<C: Component>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+/// Shift locally indexed prediction history when the local simulation clock jumps.
+pub(crate) fn handle_local_timeline_shift_prediction_history<C: Component>(
+    trigger: On<LocalTimelineShift>,
     mut query: Query<&mut PredictionHistory<C>>,
 ) {
     for mut history in query.iter_mut() {
-        history.update_ticks(trigger.tick_delta);
+        history.update_ticks(trigger.delta);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "prediction_history_tick_delta",
             schedule = "PostUpdate",
             sample_point = "PostUpdate",
-            entity = ?trigger.entity,
             component = ?DebugName::type_name::<C>(),
-            tick_delta = trigger.tick_delta,
+            tick_delta = trigger.delta,
             history_len = history.len(),
             "shifted prediction history ticks"
         );
     }
 }
 
-pub(crate) fn handle_tick_event_history_diff_receiver<C: RepliconDiffable>(
-    trigger: On<SyncEvent<InputTimelineConfig>>,
+pub(crate) fn handle_local_timeline_shift_history_diff_receiver<C: RepliconDiffable>(
+    trigger: On<LocalTimelineShift>,
     mut storage: ResMut<ReplicationStorage>,
 ) {
     for (entity, entity_storage) in storage.entities.iter_mut() {
         let Some(receiver) = entity_storage.get_mut::<HistoryDiffReceiver<C>>() else {
             continue;
         };
-        receiver.update_ticks(trigger.tick_delta);
+        receiver.update_ticks(trigger.delta);
         trace!(
             target: "lightyear_debug::prediction",
             kind = "confirmed_history_diff_receiver_tick_delta",
@@ -170,7 +168,7 @@ pub(crate) fn handle_tick_event_history_diff_receiver<C: RepliconDiffable>(
             sample_point = "PostUpdate",
             entity = ?entity,
             component = ?DebugName::type_name::<C>(),
-            tick_delta = trigger.tick_delta,
+            tick_delta = trigger.delta,
             "shifted confirmed history diff receiver ticks"
         );
     }

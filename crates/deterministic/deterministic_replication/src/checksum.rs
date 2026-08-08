@@ -45,7 +45,7 @@ use lightyear_messages::receive::MessageReceiver;
 #[cfg(feature = "client")]
 use lightyear_prediction::manager::{LastConfirmedInput, StateRollbackMetadata};
 #[cfg(feature = "client")]
-use lightyear_sync::prelude::SyncedInputTimeline;
+use lightyear_sync::prelude::SyncedLocalTimeline;
 use serde::{Deserialize, Serialize};
 #[cfg(any(feature = "p2p", feature = "server"))]
 use tracing::error;
@@ -197,8 +197,7 @@ impl ChecksumSendPlugin {
     /// tick that can arrive later.
     fn compute_and_send_checksum(
         mut world: ChecksumWorld<'_, '_, true>,
-        local_timeline: Res<LocalTimeline>,
-        _input_timeline: SyncedInputTimeline,
+        local_timeline: SyncedLocalTimeline,
         metadata: Res<NetworkingMetadata>,
         mut senders: Query<&mut MessageSender<ChecksumMessage>>,
         last_confirmed_input: Res<LastConfirmedInput>,

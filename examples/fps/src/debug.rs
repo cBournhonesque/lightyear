@@ -119,7 +119,7 @@ fn emit_fixed_last_entities(
 
 fn emit_bullet_post_update_state(
     timeline: Res<LocalTimeline>,
-    interpolation_timeline: Query<&InterpolationTimeline>,
+    interpolation_timeline: Option<Res<InterpolationTimeline>>,
     bullets: Query<
         (
             Entity,
@@ -140,8 +140,7 @@ fn emit_bullet_post_update_state(
 ) {
     let tick = timeline.tick();
     let interpolation_tick = interpolation_timeline
-        .iter()
-        .next()
+        .filter(|timeline| timeline.is_synced())
         .map(|timeline| timeline.tick().0 as i64);
     for (
         entity,

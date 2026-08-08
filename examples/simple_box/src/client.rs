@@ -96,7 +96,7 @@ fn buffer_input(
 /// input, while remote players repeat their latest known input and trigger rollback when corrected
 /// input arrives.
 fn player_movement(
-    _input_timeline: SyncedInputTimeline,
+    _input_timeline: SyncedLocalTimeline,
     mut position_query: Query<
         (&mut PlayerPosition, &ActionState<Inputs>),
         Or<(With<Predicted>, With<DeterministicPredicted>)>,

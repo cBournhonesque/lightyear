@@ -283,7 +283,9 @@ pub mod prelude {
         ContextInterpolationFn, InterpolationBundle, InterpolationFn, InterpolationFns,
         InterpolationFnsExt, InterpolationRuleConfig, InterpolationSampleContext,
     };
-    pub use crate::timeline::InterpolationTimeline;
+    pub use crate::timeline::{
+        InterpolationConfig, InterpolationTimeline, SyncedInterpolationTimeline,
+    };
 }
 
 pub use lightyear_core::interpolation::Interpolated;

@@ -25,9 +25,7 @@ use lightyear_connection::host::HostClient;
 use lightyear_connection::p2p::P2P;
 use lightyear_core::prelude::{LocalTimeline, Tick};
 #[cfg(feature = "client")]
-use lightyear_core::timeline::SyncEvent;
-#[cfg(feature = "client")]
-use lightyear_sync::prelude::InputTimelineConfig;
+use lightyear_core::timeline::LocalTimelineShift;
 use tracing::debug;
 
 /// PreSpawning allows you to replicate an entity to the remote, but instead of creating a new
@@ -57,7 +55,7 @@ impl Plugin for PreSpawnedPlugin {
         app.add_observer(PreSpawnedReceiver::cleanup_removed_prespawn);
         app.add_observer(PreSpawnedReceiver::cleanup_despawned_prespawn);
         #[cfg(feature = "client")]
-        app.add_observer(PreSpawnedReceiver::handle_tick_sync);
+        app.add_observer(PreSpawnedReceiver::handle_local_timeline_shift);
         app.add_systems(
             PostUpdate,
             Self::pre_spawned_player_object_cleanup.in_set(PreSpawnedSystems::CleanUp),
@@ -344,18 +342,18 @@ impl PreSpawnedReceiver {
     }
 
     #[cfg(feature = "client")]
-    pub(crate) fn handle_tick_sync(
-        trigger: On<SyncEvent<InputTimelineConfig>>,
+    pub(crate) fn handle_local_timeline_shift(
+        trigger: On<LocalTimelineShift>,
         mut receiver: ResMut<Self>,
     ) {
         receiver
             .unmatched_prespawn_spawn_tick_to_entities
             .iter_mut()
-            .for_each(|(tick, _)| *tick = *tick + trigger.tick_delta);
+            .for_each(|(tick, _)| *tick = *tick + trigger.delta);
         receiver
             .matched_prespawn_spawn_tick_to_entities
             .iter_mut()
-            .for_each(|(tick, _)| *tick = *tick + trigger.tick_delta);
+            .for_each(|(tick, _)| *tick = *tick + trigger.delta);
     }
 
     fn cleanup_removed_prespawn(

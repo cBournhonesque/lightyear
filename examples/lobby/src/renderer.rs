@@ -7,7 +7,7 @@ use lightyear::interpolation::Interpolated;
 use lightyear::prediction::Predicted;
 use lightyear::prelude::{
     lightyear_debug_event, Client, DebugCategory, DebugSamplePoint, InterpolationTimeline,
-    IsSynced, SyncedInputTimeline,
+    SyncedLocalTimeline,
 };
 
 #[derive(Clone)]
@@ -38,11 +38,11 @@ fn client_visuals_ready(
     client: &Query<(), With<Client>>,
     host_server: &Query<(), With<HostServer>>,
     input_timeline_is_synced: bool,
-    interpolation_synced: &Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
+    interpolation_is_synced: bool,
 ) -> bool {
     client.is_empty()
         || !host_server.is_empty()
-        || (input_timeline_is_synced && !interpolation_synced.is_empty())
+        || (input_timeline_is_synced && interpolation_is_synced)
 }
 
 fn ensure_player_visual_positions(
@@ -57,14 +57,14 @@ fn ensure_player_visual_positions(
     >,
     client: Query<(), With<Client>>,
     host_server: Query<(), With<HostServer>>,
-    input_timeline: Option<SyncedInputTimeline>,
-    interpolation_synced: Query<(), (With<Client>, With<IsSynced<InterpolationTimeline>>)>,
+    input_timeline: Option<SyncedLocalTimeline>,
+    interpolation_timeline: Option<Res<InterpolationTimeline>>,
 ) {
     if !client_visuals_ready(
         &client,
         &host_server,
         input_timeline.is_some(),
-        &interpolation_synced,
+        interpolation_timeline.is_some_and(|timeline| timeline.is_synced()),
     ) {
         return;
     }

@@ -9,8 +9,8 @@ use lightyear_link::Linked;
 use lightyear_messages::MessageManager;
 use lightyear_messages::prelude::{EventSender, MessageReceiver, MessageSender};
 use lightyear_replication::prelude::{ReplicationReceiver, ReplicationSender, SenderMetadata};
+use lightyear_sync::prelude::LocalTimelineSync;
 use lightyear_sync::prelude::client::RemoteTimeline;
-use lightyear_sync::prelude::{InputTimeline, IsSynced};
 use lightyear_transport::prelude::Transport;
 use test_log::test;
 
@@ -23,17 +23,19 @@ fn test_setup_host_server() {
 
     // Check that the various components we expect are present
     assert!(stepper.host_client().contains::<HostClient>());
-    // The global input timeline follows LocalTimeline directly for a host client.
+    // The global synchronization state follows LocalTimeline directly for a host client.
     assert!(input_timeline_is_synced(stepper.server_app.world()));
-    assert!(!stepper.host_client().contains::<InputTimeline>());
+    assert!(!stepper.host_client().contains::<LocalTimelineSync>());
     assert!(stepper.host_client().contains::<RemoteTimeline>());
     // TODO: update Interpolation to be disabled for host-clients!
-    assert!(stepper.host_client().contains::<InterpolationTimeline>());
     assert!(
         stepper
-            .host_client()
-            .contains::<IsSynced<InterpolationTimeline>>()
+            .server_app
+            .world()
+            .contains_resource::<InterpolationTimeline>()
     );
+    assert!(!stepper.host_client().contains::<InterpolationTimeline>());
+    assert!(interpolation_timeline_is_synced(stepper.server_app.world()));
     assert!(stepper.host_client().contains::<Transport>());
     assert!(stepper.host_client().contains::<MessageManager>());
     assert!(

@@ -8,7 +8,7 @@ use lightyear_core::prelude::{LocalTimeline, Tick};
 use lightyear_link::prelude::{Unlink, UnlinkReason};
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
-use lightyear_sync::prelude::SyncedInputTimeline;
+use lightyear_sync::prelude::SyncedLocalTimeline;
 use lightyear_transport::prelude::{AppChannelExt, ChannelMode, ChannelSettings, ReliableSettings};
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -528,7 +528,7 @@ fn drive_session(
     mut commands: Commands,
     mut session: Option<ResMut<P2PSession>>,
     timeline: Res<LocalTimeline>,
-    synced_timeline: Option<SyncedInputTimeline>,
+    synced_timeline: Option<SyncedLocalTimeline>,
     mut links: P2PLinkQuery,
 ) {
     let Some(session) = session.as_deref_mut() else {

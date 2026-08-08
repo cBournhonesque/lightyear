@@ -5,7 +5,7 @@ use lightyear_core::timeline::LocalTimeline;
 use lightyear_inputs::client::InputSystems;
 use lightyear_prediction::prelude::{LastConfirmedInput, PredictionManager};
 use lightyear_sync::plugin::SyncSystems;
-use lightyear_sync::prelude::{InputTimelineConfig, PredictionWindowWait, SyncedInputTimeline};
+use lightyear_sync::prelude::{InputTimelineConfig, PredictionWindowWait, SyncedLocalTimeline};
 use tracing::{info, trace};
 
 /// Installs the application-global deterministic prediction-window controller.
@@ -31,8 +31,7 @@ impl Plugin for PredictionWindowWaitPlugin {
 /// input type. A missing stream anchors the controller to the session's first observed tick until
 /// input arrives. An application with no remote input streams does not wait.
 fn update_prediction_window_wait(
-    timeline: Res<LocalTimeline>,
-    _input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     metadata: Res<NetworkingMetadata>,
     input_config: Res<InputTimelineConfig>,
     prediction_manager: Option<Res<PredictionManager>>,
@@ -108,12 +107,12 @@ fn update_prediction_window_wait(
 mod tests {
     use super::*;
     use lightyear_core::prelude::Tick;
-    use lightyear_sync::prelude::{InputTimeline, IsSynced};
+    use lightyear_sync::prelude::LocalTimelineSync;
 
     fn wait_app(topology: NetworkTopology) -> App {
         let mut app = App::new();
         app.init_resource::<LocalTimeline>();
-        app.init_resource::<InputTimeline>();
+        app.init_resource::<LocalTimelineSync>();
         app.init_resource::<InputTimelineConfig>();
         app.init_resource::<NetworkingMetadata>();
         app.init_resource::<LastConfirmedInput>();
@@ -127,11 +126,9 @@ mod tests {
         });
         app.add_systems(PostUpdate, update_prediction_window_wait);
 
-        let timeline_id = app.world().component_id::<InputTimeline>().unwrap();
-        let timeline_entity = app.world().resource_entities().get(timeline_id).unwrap();
         app.world_mut()
-            .entity_mut(timeline_entity)
-            .insert(IsSynced::<InputTimeline>::default());
+            .resource_mut::<LocalTimelineSync>()
+            .set_synced(true);
         app.world_mut().resource_mut::<NetworkingMetadata>().mode = topology;
         app
     }

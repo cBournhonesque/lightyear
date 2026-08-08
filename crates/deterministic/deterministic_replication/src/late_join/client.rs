@@ -18,7 +18,7 @@ use lightyear_prediction::prelude::{
 use lightyear_prediction::rollback::{CatchUpGated, DisableRollback};
 use lightyear_replication::metadata::MetadataChannel;
 use lightyear_replication::prelude::ReplicationSystems;
-use lightyear_sync::prelude::{InputTimelineConfig, SyncedInputTimeline};
+use lightyear_sync::prelude::{InputTimelineConfig, SyncedLocalTimeline};
 use tracing::{debug, info, warn};
 
 use super::{CatchUpRequest, CatchUpSnapshotReady, CatchUpSystems};
@@ -141,8 +141,7 @@ fn catchup_snapshot_is_activating(manager: Option<Single<&CatchUpManager, With<C
 /// remote input buffers. We use the previous frame's value here; being one
 /// frame conservative is preferable to duplicating that input coverage logic.
 pub(crate) fn send_catchup_request(
-    timeline: Res<LocalTimeline>,
-    _input_timeline: SyncedInputTimeline,
+    timeline: SyncedLocalTimeline,
     last_confirmed_input: Res<LastConfirmedInput>,
     client: Single<
         (
