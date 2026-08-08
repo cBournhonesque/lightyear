@@ -64,7 +64,10 @@ impl DetStepper {
         let server_entity = server_app
             .world_mut()
             .spawn(NetcodeServer::new(
-                lightyear_netcode::server_plugin::NetcodeConfig::default(),
+                lightyear_netcode::server_plugin::NetcodeConfig {
+                    server_addr_check: false,
+                    ..Default::default()
+                },
             ))
             .id();
 

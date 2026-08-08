@@ -1,13 +1,12 @@
 use crate::{ClientId, Key, PRIVATE_KEY_BYTES, ServerConfig, USER_DATA_BYTES};
 use aeronet_io::connection::LocalAddr;
-use alloc::{string::String, sync::Arc, vec, vec::Vec};
+use alloc::{sync::Arc, vec::Vec};
 use bevy_app::{App, Plugin, PostUpdate, PreUpdate};
 use bevy_ecs::prelude::*;
 use bevy_ecs::{
     entity::UniqueEntitySlice, relationship::RelationshipTarget, system::ParallelCommands,
 };
 use bevy_time::{Real, Time};
-use core::net::SocketAddr;
 use lightyear_connection::client::{Connected, Disconnected, DisconnectedReason, Disconnecting};
 use lightyear_connection::client_of::SkipNetcode;
 use lightyear_connection::host::HostClient;
@@ -38,29 +37,7 @@ pub(crate) struct NetcodeServerContext {
 #[require(Server)]
 pub struct NetcodeServer {
     pub(crate) inner: crate::server::Server<NetcodeServerContext>,
-    use_local_addr: bool,
-}
-
-/// Source of the server identities used to validate private connect tokens.
-#[derive(Debug, Clone, Default)]
-pub enum ServerAddressSource {
-    /// Follow the server entity's [`LocalAddr`].
-    ///
-    /// This is the default. It automatically picks up an OS-assigned port after the transport
-    /// binds. A wildcard bind address such as `0.0.0.0` is not a public identity, so servers behind
-    /// NAT or binding to an unspecified IP should use [`ServerAddressSource::Explicit`] instead.
-    /// If the entity has no [`LocalAddr`], validation remains disabled for addressless transports.
-    #[default]
-    LocalAddr,
-    /// Use these explicit server identities instead of the transport's [`LocalAddr`].
-    ///
-    /// A request is accepted when its private token contains at least one address in this list.
-    /// The addresses may be public addresses or private identities supplied through
-    /// [`ConnectTokenBuilder::internal_addresses`](crate::ConnectTokenBuilder::internal_addresses).
-    /// They should be stable and unique among servers that share a protocol ID and private key.
-    Explicit(Vec<SocketAddr>),
-    /// Disable server-address validation for an addressless transport.
-    Disabled,
+    server_addr_check: bool,
 }
 
 // TODO: should be part of the NetcodeServer component
@@ -74,12 +51,11 @@ pub struct NetcodeConfig {
     pub client_timeout_secs: i32,
     pub protocol_id: u64,
     pub private_key: Key,
-    /// Source of the identities checked against a private connect token's server-address list.
+    /// Whether to validate private connect tokens against the server entity's [`LocalAddr`].
     ///
-    /// By default the server follows the actual [`LocalAddr`] on its entity, including an
-    /// OS-assigned port. Use an explicit address when the bind address differs from the identity in
-    /// private connect tokens, such as behind NAT or when binding to an unspecified IP.
-    pub expected_server_addresses: ServerAddressSource,
+    /// The default is `true`. Set this to `false` for addressless transports. When enabled, a
+    /// [`LocalAddr`] must be present on the server entity.
+    pub server_addr_check: bool,
     pub connection_request_handler: Option<Arc<dyn ConnectionRequestHandler>>,
 }
 
@@ -91,7 +67,7 @@ impl Default for NetcodeConfig {
             client_timeout_secs: 3,
             protocol_id: 0,
             private_key: [0; PRIVATE_KEY_BYTES],
-            expected_server_addresses: ServerAddressSource::default(),
+            server_addr_check: true,
             connection_request_handler: None,
         }
     }
@@ -104,28 +80,6 @@ impl NetcodeConfig {
     }
     pub fn with_key(mut self, key: Key) -> Self {
         self.private_key = key;
-        self
-    }
-
-    /// Validate incoming connection tokens against one explicit server identity.
-    pub fn with_expected_server_addr(mut self, server_addr: SocketAddr) -> Self {
-        self.expected_server_addresses = ServerAddressSource::Explicit(vec![server_addr]);
-        self
-    }
-
-    /// Validate incoming connection tokens against any of the explicit server identities.
-    pub fn with_expected_server_addresses(
-        mut self,
-        server_addresses: impl IntoIterator<Item = SocketAddr>,
-    ) -> Self {
-        self.expected_server_addresses =
-            ServerAddressSource::Explicit(server_addresses.into_iter().collect());
-        self
-    }
-
-    /// Disable server-address validation for an addressless transport.
-    pub fn without_server_address_validation(mut self) -> Self {
-        self.expected_server_addresses = ServerAddressSource::Disabled;
         self
     }
 
@@ -156,13 +110,7 @@ impl NetcodeServer {
         cfg = cfg.keep_alive_send_rate(config.keep_alive_send_rate);
         cfg = cfg.num_disconnect_packets(config.num_disconnect_packets);
         cfg = cfg.client_timeout_secs(config.client_timeout_secs);
-        let use_local_addr = matches!(
-            &config.expected_server_addresses,
-            ServerAddressSource::LocalAddr
-        );
-        if let ServerAddressSource::Explicit(server_addresses) = config.expected_server_addresses {
-            cfg = cfg.expected_server_addresses(server_addresses);
-        }
+        let server_addr_check = config.server_addr_check;
         if let Some(handler) = config.connection_request_handler {
             cfg = cfg.connection_request_handler(handler);
         }
@@ -171,7 +119,7 @@ impl NetcodeServer {
                 .expect("Could not create server netcode");
         Self {
             inner: server,
-            use_local_addr,
+            server_addr_check,
         }
     }
 
@@ -186,61 +134,6 @@ impl NetcodeServer {
         self.inner.reset();
         self.inner.cfg.context.connections.clear();
         self.inner.cfg.context.disconnections.clear();
-    }
-
-    /// Use one explicit server identity for private-token validation.
-    ///
-    /// Calling this stops automatic synchronization from the entity's [`LocalAddr`].
-    pub fn set_expected_server_addr(&mut self, server_addr: SocketAddr) {
-        self.use_local_addr = false;
-        self.inner.set_expected_server_addr(server_addr);
-    }
-
-    /// Use explicit server identities for private-token validation.
-    ///
-    /// Calling this stops automatic synchronization from the entity's [`LocalAddr`]. Passing an
-    /// empty iterator disables validation.
-    pub fn set_expected_server_addresses(
-        &mut self,
-        server_addresses: impl IntoIterator<Item = SocketAddr>,
-    ) {
-        self.use_local_addr = false;
-        self.inner.set_expected_server_addresses(server_addresses);
-    }
-
-    /// Resume automatic synchronization from the server entity's [`LocalAddr`].
-    ///
-    /// The address is synchronized before the next receive pass.
-    pub fn use_local_addr(&mut self) {
-        self.use_local_addr = true;
-    }
-
-    /// Disable server-address validation.
-    ///
-    /// This should be reserved for addressless transports.
-    pub fn disable_server_address_validation(&mut self) {
-        self.use_local_addr = false;
-        self.inner.clear_expected_server_addresses();
-    }
-
-    /// Return the server identities currently used for private-token validation.
-    pub fn expected_server_addresses(&self) -> &[SocketAddr] {
-        self.inner.expected_server_addresses()
-    }
-
-    fn sync_local_addr(&mut self, local_addr: Option<SocketAddr>) {
-        if !self.use_local_addr {
-            return;
-        }
-        match local_addr {
-            Some(local_addr) if self.expected_server_addresses() != [local_addr] => {
-                self.inner.set_expected_server_addr(local_addr);
-            }
-            None if !self.expected_server_addresses().is_empty() => {
-                self.inner.clear_expected_server_addresses();
-            }
-            _ => {}
-        }
     }
 }
 
@@ -370,7 +263,18 @@ impl NetcodeServerPlugin {
                     //  violate aliasing rules
                     let mut link_query = unsafe { link_query.reborrow_unsafe() };
 
-                    netcode_server.sync_local_addr(local_addr.map(|addr| addr.0));
+                    let server_addr = if netcode_server.server_addr_check {
+                        local_addr.map(|addr| addr.0)
+                    } else {
+                        None
+                    };
+                    let can_receive = !netcode_server.server_addr_check || server_addr.is_some();
+                    if !can_receive {
+                        error!(
+                            ?server_entity,
+                            "server address checking is enabled but the server has no LocalAddr"
+                        );
+                    }
                     netcode_server.inner.update_state(delta.as_secs_f64());
 
                     // TODO: try to make this parallel!
@@ -388,14 +292,20 @@ impl NetcodeServerPlugin {
                             // trace!("SERVER: length of each packet in receive: {:?}", link.recv.iter().map(|p| p.len()).collect::<Vec<_>>());
 
                             // TODO: insert Connecting if we receive a ConnectionRequest packet
-                            match netcode_server.inner.receive(link.as_mut(), &mut entity_mut) {
-                                Ok(errors) => {
-                                    for error in errors {
-                                        error.log();
+                            if can_receive {
+                                match netcode_server.inner.receive(
+                                    link.as_mut(),
+                                    &mut entity_mut,
+                                    server_addr,
+                                ) {
+                                    Ok(errors) => {
+                                        for error in errors {
+                                            error.log();
+                                        }
                                     }
-                                }
-                                Err(e) => {
-                                    error!("Error receiving packet: {:?}", e);
+                                    Err(e) => {
+                                        error!("Error receiving packet: {:?}", e);
+                                    }
                                 }
                             }
                         });
@@ -536,85 +446,5 @@ impl Plugin for NetcodeServerPlugin {
         app.add_observer(Self::start);
         app.add_observer(Self::stop);
         app.add_observer(Self::reset_on_stopped);
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use bevy_time::TimePlugin;
-
-    #[test]
-    fn netcode_config_forwards_explicit_server_addresses() {
-        let first_server_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let second_server_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
-        let server = NetcodeServer::new(
-            NetcodeConfig::default()
-                .with_expected_server_addresses([first_server_addr, second_server_addr]),
-        );
-
-        assert_eq!(
-            server.expected_server_addresses(),
-            [first_server_addr, second_server_addr]
-        );
-    }
-
-    #[test]
-    fn default_config_follows_local_addr_and_assigned_port() {
-        let requested_addr = SocketAddr::from(([127, 0, 0, 1], 0));
-        let bound_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let mut app = App::new();
-        app.add_plugins((TimePlugin, NetcodeServerPlugin));
-        let entity = app
-            .world_mut()
-            .spawn((
-                NetcodeServer::new(NetcodeConfig::default()),
-                LocalAddr(requested_addr),
-            ))
-            .id();
-
-        app.update();
-        assert_eq!(
-            app.world()
-                .get::<NetcodeServer>(entity)
-                .unwrap()
-                .expected_server_addresses(),
-            [requested_addr]
-        );
-
-        app.world_mut().get_mut::<LocalAddr>(entity).unwrap().0 = bound_addr;
-        app.update();
-        assert_eq!(
-            app.world()
-                .get::<NetcodeServer>(entity)
-                .unwrap()
-                .expected_server_addresses(),
-            [bound_addr]
-        );
-    }
-
-    #[test]
-    fn explicit_server_addr_is_not_replaced_by_local_addr() {
-        let public_addr = SocketAddr::from(([203, 0, 113, 10], 5000));
-        let bind_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
-        let mut server =
-            NetcodeServer::new(NetcodeConfig::default().with_expected_server_addr(public_addr));
-
-        server.sync_local_addr(Some(bind_addr));
-
-        assert_eq!(server.expected_server_addresses(), [public_addr]);
-    }
-
-    #[test]
-    fn runtime_server_addr_setter_stops_local_addr_updates() {
-        let bound_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let public_addr = SocketAddr::from(([203, 0, 113, 10], 5000));
-        let mut server = NetcodeServer::new(NetcodeConfig::default());
-
-        server.sync_local_addr(Some(bound_addr));
-        server.set_expected_server_addr(public_addr);
-        server.sync_local_addr(Some(SocketAddr::from(([127, 0, 0, 1], 5001))));
-
-        assert_eq!(server.expected_server_addresses(), [public_addr]);
     }
 }
