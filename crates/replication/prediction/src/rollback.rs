@@ -237,7 +237,6 @@ impl Plugin for RollbackPlugin {
             ParamBuilder,
             ParamBuilder,
             ParamBuilder,
-            ParamBuilder,
         )
             .build_state(app.world_mut())
             .build_system(check_rollback)

@@ -230,7 +230,7 @@ impl Default for InputTimelineConfig {
     }
 }
 
-/// Runtime state for synchronizing the application-global [`LocalTimeline`](lightyear_core::timeline::LocalTimeline).
+/// Runtime state for synchronizing the application-global [`LocalTimeline`].
 ///
 /// This resource is not a clock. The authoritative fractional simulation instant is constructed
 /// from `LocalTimeline` and `Time<Fixed>` when synchronization runs.
