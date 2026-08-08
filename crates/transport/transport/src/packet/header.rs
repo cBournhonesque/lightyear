@@ -136,6 +136,11 @@ pub struct PacketHeaderManager {
     /// acknowledge them incidentally, but no response is guaranteed; tracking them would therefore
     /// misclassify an idle peer's ACK-only packets as lost.
     sent_packets_not_acked: IndexMap<PacketId, Duration, FixedHasher>,
+    /// Start of the current interval without acknowledgement progress.
+    ///
+    /// Unlike `sent_packets_not_acked`, this survives packet-level NACK classification so a
+    /// reliable retry under a new packet id cannot keep the connection alive forever.
+    ack_stall_started_at: Option<Duration>,
     stats_manager: PacketStatsManager,
     pub(crate) lost_packets: Vec<PacketId>,
     pub(crate) newly_acked_packets: IndexMap<PacketId, Duration, FixedHasher>,
@@ -171,6 +176,7 @@ impl PacketHeaderManager {
             next_packet_id: PacketId(0),
             stats_manager: PacketStatsManager::default(),
             sent_packets_not_acked: IndexMap::default(),
+            ack_stall_started_at: None,
             lost_packets: vec![],
             newly_acked_packets: IndexMap::default(),
             newly_acked_packet_scratch: vec![],
@@ -235,6 +241,9 @@ impl PacketHeaderManager {
                 self.record_newly_acked_packet(packet, real, time_sent);
             }
         }
+        if !self.newly_acked_packet_scratch.is_empty() {
+            self.ack_stall_started_at = (!self.sent_packets_not_acked.is_empty()).then_some(real);
+        }
         &self.newly_acked_packet_scratch
     }
 
@@ -289,6 +298,7 @@ impl PacketHeaderManager {
         );
         self.stats_manager.sent_ack_eliciting_packet();
         trace!(?self.next_packet_id, "Sent packet");
+        self.ack_stall_started_at.get_or_insert(real);
         self.sent_packets_not_acked.insert(packet_id, real);
         self.next_packet_id += 1;
         self.ack_pending = false;
@@ -313,6 +323,14 @@ impl PacketHeaderManager {
 
     pub(crate) fn has_pending_ack(&self) -> bool {
         self.ack_pending
+    }
+
+    /// Returns whether sent data has made no acknowledgement progress for `timeout`.
+    pub(crate) fn ack_timed_out(&self, real: Duration, timeout: Duration) -> bool {
+        timeout != Duration::MAX
+            && self
+                .ack_stall_started_at
+                .is_some_and(|started_at| real.saturating_sub(started_at) >= timeout)
     }
 }
 
@@ -528,6 +546,64 @@ mod tests {
     }
 
     #[test]
+    fn ack_watchdog_arms_only_for_ack_eliciting_packets() {
+        let timeout = Duration::from_secs(10);
+        let mut manager = PacketHeaderManager::new(1.5);
+
+        assert!(!manager.ack_timed_out(Duration::from_secs(100), timeout));
+
+        let ack_only = manager.preview_send_packet_header(PacketType::AckOnly, Tick(1));
+        manager.commit_send_ack_only(ack_only.packet_id);
+        assert!(!manager.ack_timed_out(Duration::from_secs(100), timeout));
+
+        let data = manager.preview_send_packet_header(PacketType::Data, Tick(2));
+        manager.commit_send_packet(data.packet_id, Duration::from_secs(100));
+        assert!(!manager.ack_timed_out(Duration::from_secs(109), timeout));
+        assert!(manager.ack_timed_out(Duration::from_secs(110), timeout));
+        assert!(!manager.ack_timed_out(Duration::MAX, Duration::MAX));
+    }
+
+    #[test]
+    fn acknowledgement_progress_restarts_watchdog() {
+        let timeout = Duration::from_secs(10);
+        let mut sender = PacketHeaderManager::new(1.5);
+        let mut receiver = PacketHeaderManager::new(1.5);
+
+        let first =
+            prepare_send_packet_header(&mut sender, PacketType::Data, Duration::ZERO, Tick(1));
+        prepare_send_packet_header(
+            &mut sender,
+            PacketType::Data,
+            Duration::from_secs(1),
+            Tick(2),
+        );
+        receiver.process_recv_packet_header(&first, Duration::from_secs(2));
+
+        let ack = receiver.preview_send_packet_header(PacketType::AckOnly, Tick(3));
+        receiver.commit_send_ack_only(ack.packet_id);
+        assert_eq!(
+            sender.process_recv_packet_header(&ack, Duration::from_secs(9)),
+            vec![(PacketId(0), Duration::from_secs(9))]
+        );
+
+        assert!(!sender.ack_timed_out(Duration::from_secs(18), timeout));
+        assert!(sender.ack_timed_out(Duration::from_secs(19), timeout));
+    }
+
+    #[test]
+    fn packet_loss_classification_does_not_disarm_ack_watchdog() {
+        let mut manager = PacketHeaderManager::new(1.5);
+        let data = manager.preview_send_packet_header(PacketType::Data, Tick(1));
+        manager.commit_send_packet(data.packet_id, Duration::ZERO);
+
+        manager.update(Duration::from_secs(4), &LinkStats::default());
+
+        assert!(manager.sent_packets_not_acked.is_empty());
+        assert_eq!(manager.lost_packets, vec![PacketId(0)]);
+        assert!(manager.ack_timed_out(Duration::from_secs(10), Duration::from_secs(10)));
+    }
+
+    #[test]
     fn packet_ack_produces_rtt_sample_from_latest_ack() {
         let mut sender = PacketHeaderManager::new(1.5);
         let mut receiver = PacketHeaderManager::new(1.5);
@@ -561,6 +637,7 @@ mod tests {
             sender.newly_acked_packets.get(&PacketId(0)),
             Some(&Duration::from_millis(50))
         );
+        assert!(!sender.ack_timed_out(Duration::from_secs(100), Duration::from_secs(10)));
     }
 
     #[test]
