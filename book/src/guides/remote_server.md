@@ -33,7 +33,7 @@ On the server:
     only has 1 network card, or if you don't care which of the local ip addresses the socket binds to
   - Keep track of the port used for the server: S-P
 - You will need to keep track of the public ip address of your server: S-IP
-- Start the lightyear process on the server, for example with `cargo run --example interest_management -- server --headless`
+- Start the lightyear process on the server, for example with `cargo run --example interest_management -- server`
 
 On the client:
 - connect to the server by specifying the server public ip address and the server port:

@@ -6,7 +6,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a1
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -21,8 +21,8 @@ For example you can run the server in headless mode (without gui) by running `ca
 The same movement example can run without a server. Every peer creates the fixed player roster and
 BEI action entities locally, then sends its action inputs directly to every other peer.
 
-- Peer 0: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
-- Peer 1: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 1 --player-count 2`
+- Peer 0: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
+- Peer 1: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 1 --player-count 2`
 
 ### Testing in wasm with webtransport
 

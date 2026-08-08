@@ -49,19 +49,20 @@ fn parse_bool_arg(value: &str) -> Result<bool, String> {
 #[derive(Parser, Debug)]
 #[command(version, about)]
 pub struct Cli {
-    /// Run without windowing/rendering plugins even when the example was built
-    /// with a GUI feature.
+    /// Override whether to run without windowing/rendering plugins.
+    ///
+    /// Dedicated servers are headless by default. Other modes use the GUI when
+    /// one was compiled. Pass `--headless=false` to show a dedicated server GUI.
     #[arg(
         long,
         global = true,
         action = ArgAction::Set,
-        default_value_t = false,
         default_missing_value = "true",
         num_args = 0..=1,
         require_equals = true,
         value_parser = parse_bool_arg
     )]
-    pub headless: bool,
+    pub headless: Option<bool>,
     #[command(subcommand)]
     pub mode: Option<Mode>,
 }
@@ -96,7 +97,13 @@ impl Cli {
     }
 
     pub fn headless(&self) -> bool {
-        self.headless || !cfg!(any(feature = "gui2d", feature = "gui3d"))
+        #[cfg(feature = "server")]
+        let dedicated_server = matches!(self.mode.as_ref(), Some(Mode::Server));
+        #[cfg(not(feature = "server"))]
+        let dedicated_server = false;
+
+        !cfg!(any(feature = "gui2d", feature = "gui3d"))
+            || self.headless.unwrap_or(dedicated_server)
     }
 
     pub fn create_app(add_inspector: bool, mode: Option<&Mode>, headless: bool) -> App {
@@ -390,7 +397,7 @@ pub fn cli() -> Cli {
         if #[cfg(target_family = "wasm")] {
             let client_id = rand::random::<u64>();
             Cli {
-                headless: false,
+                headless: None,
                 mode: Some(Mode::Client {
                     client_id: Some(client_id),
                 })

@@ -112,7 +112,7 @@ The example uses lightyear's room system to implement different replication stra
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -121,7 +121,6 @@ The example uses lightyear's room system to implement different replication stra
 
 You can control the behaviour of the example by changing the list of features. By default, all features are enabled (client, server, gui).
 For example you can run the server in headless mode without the fake bot by running `cargo run --no-default-features --features=server,webtransport,netcode`.
-When building all examples through `just`, `just build_examples features=server` builds the projectiles server with the extra `client` feature so the built-in fake bot is available.
 
 ### Testing in wasm with webtransport
 
