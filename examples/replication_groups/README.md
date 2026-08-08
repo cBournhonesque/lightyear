@@ -18,7 +18,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/e7625286-a167-4f50-aa
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -28,7 +28,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/e7625286-a167-4f50-aa
 ### P2P mode
 
 The snake simulation can also run as a deterministic input-only game with no server. Start peer 0
-with `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+with `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
 and peer 1 with the same command using `--peer-id 1`. Every peer creates the same heads and tails
 locally. Replication groups themselves remain a feature of the conventional client/server mode;
 the P2P mode performs no entity replication.

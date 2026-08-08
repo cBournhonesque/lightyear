@@ -17,7 +17,7 @@ https://github.com/cBournhonesque/lightyear/assets/8112632/0efcd974-b181-4910-93
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)

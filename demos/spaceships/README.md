@@ -35,7 +35,7 @@ your client will rollback to position the bullet correctly.
 
 ## Running the example
 
-- Run the server with a gui: `cargo run server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run client -c 1`
 - Run client with id 2: `cargo run client -c 2`
 - Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`
@@ -45,7 +45,7 @@ your client will rollback to position the bullet correctly.
 ### P2P mode
 
 The demo can also run as a deterministic input-only game with no server. Start peer 0 with
-`cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+`cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
 and peer 1 with the same command using `--peer-id 1`. Every peer predicts the complete physics
 world, spawns the same bullets from the shared input stream, and applies collision and score
 changes deterministically.

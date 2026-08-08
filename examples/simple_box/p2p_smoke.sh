@@ -37,7 +37,7 @@ LIGHTYEAR_SIMPLE_BOX_AUTOMOVE=right \
 LIGHTYEAR_SIMPLE_BOX_EXIT_AFTER_TICK="$exit_tick" \
 LIGHTYEAR_DEBUG_FILE="$peer_0_debug" \
 RUST_LOG=info,lightyear_debug=trace \
-"$binary" --headless p2p --peer-id 0 --player-count 2 --base-port "$base_port" \
+"$binary" --headless=true p2p --peer-id 0 --player-count 2 --base-port "$base_port" \
     >"$peer_0_log" 2>&1 &
 pids+=("$!")
 
@@ -45,7 +45,7 @@ LIGHTYEAR_SIMPLE_BOX_AUTOMOVE=none \
 LIGHTYEAR_SIMPLE_BOX_EXIT_AFTER_TICK="$exit_tick" \
 LIGHTYEAR_DEBUG_FILE="$peer_1_debug" \
 RUST_LOG=info,lightyear_debug=trace \
-"$binary" --headless p2p --peer-id 1 --player-count 2 --base-port "$base_port" \
+"$binary" --headless=true p2p --peer-id 1 --player-count 2 --base-port "$base_port" \
     >"$peer_1_log" 2>&1 &
 pids+=("$!")
 

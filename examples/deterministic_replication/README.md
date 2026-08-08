@@ -10,7 +10,7 @@
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -25,8 +25,8 @@ For example you can run the server in headless mode (without gui) by running `ca
 The example can also run as a fixed deterministic P2P mesh. Every peer creates the same Avian
 world locally and exchanges only player inputs; there is no server or authoritative simulation.
 
-- Peer 0: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
-- Peer 1: `cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 1 --player-count 2`
+- Peer 0: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
+- Peer 1: `cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 1 --player-count 2`
 
 P2P mode uses input-only catch-up because there is no authoritative state source.
 

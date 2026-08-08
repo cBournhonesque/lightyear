@@ -20,7 +20,7 @@ https://github.com/user-attachments/assets/4e0eb373-2f46-4c48-8157-46e1e5085097
 
 ## Running an example
 
-- Run the server with a gui: `cargo run -- server`
+- Run the server with a GUI: `cargo run -- --headless=false server`
 - Run client with id 1: `cargo run -- client -c 1`
 
 [//]: # (- Run the client and server in two separate bevy Apps: `cargo run` or `cargo run separate`)
@@ -30,7 +30,7 @@ https://github.com/user-attachments/assets/4e0eb373-2f46-4c48-8157-46e1e5085097
 ### P2P mode
 
 The example can also run as a deterministic input-only game with no server. Start peer 0 with
-`cargo run --no-default-features --features=p2p -- --headless p2p --peer-id 0 --player-count 2`
+`cargo run --no-default-features --features=p2p -- --headless=true p2p --peer-id 0 --player-count 2`
 and peer 1 with the same command using `--peer-id 1`. Characters, the dynamic block, and
 projectiles are created and simulated by every peer, with Avian simulation state included in
 rollback.

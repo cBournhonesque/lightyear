@@ -1,5 +1,5 @@
 //! The client plugin.
-use crate::automation::{headless_enabled, ClientStartupConfig};
+use crate::automation::{ClientStartupConfig, Headless};
 use crate::shared::*;
 use bevy::prelude::*;
 use core::net::Ipv4Addr;
@@ -20,8 +20,12 @@ impl Plugin for ExampleClientPlugin {
 }
 
 /// Spawn a client that connects to the server
-fn startup(mut commands: Commands, config: Res<ClientStartupConfig>) -> Result {
-    if !headless_enabled() {
+fn startup(
+    mut commands: Commands,
+    config: Res<ClientStartupConfig>,
+    headless: Res<Headless>,
+) -> Result {
+    if !headless.0 {
         commands.spawn(Camera2d);
     }
     let client = if let Some(server) = config.host_server {
