@@ -5,6 +5,7 @@ use lightyear_connection::direction::NetworkDirection;
 use lightyear_connection::network_topology::NetworkTopologySystems;
 use lightyear_connection::p2p::P2P;
 use lightyear_core::prelude::{LocalTimeline, Tick};
+use lightyear_link::prelude::Unlink;
 use lightyear_messages::plugin::MessageSystems;
 use lightyear_messages::prelude::{AppMessageExt, MessageReceiver, MessageSender};
 use lightyear_sync::prelude::SyncedInputTimeline;
@@ -339,12 +340,16 @@ impl P2PSession {
 #[derive(Event, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct P2PStart;
 
-/// Trigger this locally to leave the deterministic session without disconnecting its P2P Links.
+/// Trigger this locally to leave the deterministic session.
 ///
 /// This does not send a stop request over the network. Deterministic games can schedule it at the
-/// same tick on every peer; lobby-driven applications can coordinate it separately.
+/// same tick on every peer; lobby-driven applications can coordinate it separately. Set
+/// [`unlink`](Self::unlink) to also terminate every currently declared [`P2P`] Link.
 #[derive(Event, Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct P2PStop;
+pub struct P2PStop {
+    /// Whether to unlink every currently declared P2P Link after stopping the session.
+    pub unlink: bool,
+}
 
 /// Triggered at the agreed tick, immediately before the fixed simulation schedule.
 ///
@@ -358,7 +363,7 @@ pub struct P2PStarted {
 
 /// Triggered after [`P2PStop`] returns the deterministic session to its stopped state.
 ///
-/// Network topology and Link connection state are unaffected.
+/// Link connection state is affected only when [`P2PStop::unlink`] is `true`.
 #[derive(Event, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct P2PStopped;
 
@@ -467,25 +472,40 @@ fn start_session(
     session.begin(links);
 }
 
-/// Stop the local deterministic session and emit [`P2PStopped`].
+/// Stop the local deterministic session, optionally unlink every P2P Link, and emit
+/// [`P2PStopped`].
 ///
-/// This deliberately neither sends a stop message nor disconnects/unlinks the cohort. Link
-/// lifetime and any distributed game-over agreement remain application concerns.
+/// This does not send a session-stop message to remote peers. An unlink request reaches the
+/// concrete transport, which closes that Link and normally becomes visible to its remote endpoint
+/// as a transport disconnection.
 fn stop_session(
-    _trigger: On<P2PStop>,
+    trigger: On<P2PStop>,
     mut commands: Commands,
     mut session: Option<ResMut<P2PSession>>,
+    links: Query<Entity, With<P2P>>,
 ) {
     let Some(session) = session.as_deref_mut() else {
         tracing::warn!("P2PStop requires a P2PSession resource");
         return;
     };
-    if matches!(session.state, P2PSessionState::Stopped) {
-        return;
+    let was_running = !matches!(session.state, P2PSessionState::Stopped);
+    if was_running {
+        session.stop();
     }
-    session.stop();
-    tracing::info!("P2P session stopped; Links remain connected");
-    commands.trigger(P2PStopped);
+
+    if trigger.unlink {
+        for entity in &links {
+            commands.trigger(Unlink {
+                entity,
+                reason: "P2P session stopped".into(),
+            });
+        }
+    }
+
+    if was_running {
+        tracing::info!(unlink = trigger.unlink, "P2P session stopped");
+        commands.trigger(P2PStopped);
+    }
 }
 
 type P2PLinkQuery<'w, 's> = Query<
@@ -666,6 +686,7 @@ mod tests {
     #[test]
     fn stop_keeps_links_and_emits_stopped() {
         let mut app = App::new();
+        app.add_plugins(lightyear_link::LinkPlugin);
         let link = app.world_mut().spawn(P2P).id();
         let mut session = P2PSession::new(2);
         session.begin(SmallVec::from_slice(&[link]));
@@ -674,7 +695,7 @@ mod tests {
         app.add_observer(stop_session);
         app.add_observer(record_stopped);
 
-        app.world_mut().trigger(P2PStop);
+        app.world_mut().trigger(P2PStop { unlink: false });
         app.world_mut().flush();
 
         assert_eq!(
@@ -682,6 +703,37 @@ mod tests {
             P2PSessionState::Stopped
         );
         assert!(app.world().entity(link).contains::<P2P>());
+        assert!(
+            !app.world()
+                .entity(link)
+                .contains::<lightyear_link::prelude::Unlinked>()
+        );
         assert!(app.world().resource::<WasStopped>().0);
+    }
+
+    #[test]
+    fn stop_can_unlink_every_declared_p2p_link() {
+        let mut app = App::new();
+        app.add_plugins(lightyear_link::LinkPlugin);
+        let cohort_link = app.world_mut().spawn(P2P).id();
+        let late_link = app.world_mut().spawn(P2P).id();
+        let mut session = P2PSession::new(2);
+        session.begin(SmallVec::from_slice(&[cohort_link]));
+        app.insert_resource(session);
+        app.add_observer(stop_session);
+
+        app.world_mut().trigger(P2PStop { unlink: true });
+        app.world_mut().flush();
+
+        assert!(
+            app.world()
+                .entity(cohort_link)
+                .contains::<lightyear_link::prelude::Unlinked>()
+        );
+        assert!(
+            app.world()
+                .entity(late_link)
+                .contains::<lightyear_link::prelude::Unlinked>()
+        );
     }
 }
