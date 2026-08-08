@@ -4,8 +4,8 @@
 //! [`P2PStart`] when the desired cohort is present. The session waits for those Links and the
 //! synchronized input timeline, then chooses one shared future start tick.
 //!
-//! The session does not own peer discovery, Link connection, or network topology. Stopping it also
-//! leaves every Link connected, which allows applications to return to a lobby or prepare a rematch.
+//! The session does not own peer discovery, Link connection, or network topology. Stopping it can
+//! either preserve every Link for a lobby/rematch or unlink every currently declared P2P Link.
 
 #![no_std]
 
