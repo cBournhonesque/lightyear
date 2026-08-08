@@ -1,7 +1,6 @@
 use bevy_app::{App, Plugin, PostUpdate};
 use bevy_ecs::prelude::*;
 use lightyear_connection::network_topology::{NetworkTopology, NetworkingMetadata};
-use lightyear_core::timeline::LocalTimeline;
 use lightyear_inputs::client::InputSystems;
 use lightyear_prediction::prelude::{LastConfirmedInput, PredictionManager};
 use lightyear_sync::plugin::SyncSystems;
@@ -106,7 +105,7 @@ fn update_prediction_window_wait(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lightyear_core::prelude::Tick;
+    use lightyear_core::{prelude::Tick, timeline::LocalTimeline};
     use lightyear_sync::prelude::LocalTimelineSync;
 
     fn wait_app(topology: NetworkTopology) -> App {
