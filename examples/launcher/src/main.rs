@@ -414,9 +414,6 @@ fn build_server_app(config: LauncherConfig, _asset_path: String) -> App {
     let mut app = new_launcher_headless_app();
 
     // Extract required fields from config
-    let server_addr = config
-        .server_addr
-        .expect("Server address must be set for server mode");
     let server_transport = config
         .server_transport
         .expect("Server transport must be set for server mode");
@@ -432,7 +429,6 @@ fn build_server_app(config: LauncherConfig, _asset_path: String) -> App {
         .world_mut()
         .spawn(ExampleServer {
             conditioner: None,
-            server_addr,
             transport: server_transport,
             shared: simple_box::shared::SHARED_SETTINGS,
         })

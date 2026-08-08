@@ -243,30 +243,36 @@ pub type Callback<Ctx> = Box<dyn FnMut(ClientId, Entity, &mut Ctx) + Send + Sync
 pub type ConnectCallback<Ctx> =
     Box<dyn FnMut(ClientId, Entity, [u8; USER_DATA_BYTES], &mut Ctx) + Send + Sync + 'static>;
 
+fn server_addr_matches(local_addr: SocketAddr, token_addr: SocketAddr) -> bool {
+    if local_addr.port() != token_addr.port() || local_addr.is_ipv4() != token_addr.is_ipv4() {
+        return false;
+    }
+
+    local_addr.ip() == token_addr.ip()
+        || (local_addr.ip().is_unspecified() && token_addr.ip().is_loopback())
+        || (local_addr.ip().is_loopback() && token_addr.ip().is_unspecified())
+}
+
 /// Configuration for a server.
 ///
 /// * `num_disconnect_packets` - The number of redundant disconnect packets that will be sent to a client when the server is disconnecting it.
 /// * `keep_alive_send_rate` - The rate at which keep-alive packets will be sent to clients.
-/// * `expected_server_addresses` - The server identities that may be present in incoming connection tokens.
 /// * `on_connect` - A callback that will be called when a client is connected to the server.
 /// * `on_disconnect` - A callback that will be called when a client is disconnected from the server.
 ///
 /// # Example
 /// ```
-/// # let addr = std::net::SocketAddr::from(([127, 0, 0, 1], 40005));
 /// # let protocol_id = 0x123456789ABCDEF0;
 /// # let private_key = [42u8; 32];
 /// use std::sync::{Arc, Mutex};
 /// use lightyear_netcode::{Server, ServerConfig};
 ///
 /// let thread_safe_counter = Arc::new(Mutex::new(0));
-/// let cfg = ServerConfig::with_context(thread_safe_counter)
-///     .expected_server_addr(addr)
-///     .on_connect(|idx, _, _, ctx| {
-///         let mut counter = ctx.lock().unwrap();
-///         *counter += 1;
-///         println!("client {} connected, counter: {idx}", counter);
-///     });
+/// let cfg = ServerConfig::with_context(thread_safe_counter).on_connect(|idx, _, _, ctx| {
+///     let mut counter = ctx.lock().unwrap();
+///     *counter += 1;
+///     println!("client {} connected, counter: {idx}", counter);
+/// });
 /// let server = Server::with_config(protocol_id, private_key, cfg).unwrap();
 /// ```
 pub struct ServerConfig<Ctx> {
@@ -275,7 +281,6 @@ pub struct ServerConfig<Ctx> {
     token_expire_secs: i32,
     client_timeout_secs: i32,
     connection_request_handler: Arc<dyn ConnectionRequestHandler>,
-    expected_server_addresses: Vec<SocketAddr>,
     pub(crate) context: Ctx,
     on_connect: Option<ConnectCallback<Ctx>>,
     on_disconnect: Option<Callback<Ctx>>,
@@ -289,7 +294,6 @@ impl Default for ServerConfig<()> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            expected_server_addresses: Vec::new(),
             context: (),
             on_connect: None,
             on_disconnect: None,
@@ -310,7 +314,6 @@ impl<Ctx> ServerConfig<Ctx> {
             token_expire_secs: TOKEN_EXPIRE_SEC,
             client_timeout_secs: CLIENT_TIMEOUT_SECS,
             connection_request_handler: Arc::new(DefaultConnectionRequestHandler),
-            expected_server_addresses: Vec::new(),
             context: ctx,
             on_connect: None,
             on_disconnect: None,
@@ -340,29 +343,6 @@ impl<Ctx> ServerConfig<Ctx> {
         self.token_expire_secs = expire_secs;
         self
     }
-    /// Set the single address that identifies this server in private connect tokens.
-    ///
-    /// This replaces any previously configured addresses. The address may differ from the
-    /// transport's bind address, such as when the server is behind NAT or binds to an unspecified
-    /// IP.
-    pub fn expected_server_addr(self, server_addr: SocketAddr) -> Self {
-        self.expected_server_addresses([server_addr])
-    }
-
-    /// Set the addresses that identify this server in private connect tokens.
-    ///
-    /// A connection request is accepted when its private token contains at least one configured
-    /// address. The identities should be stable and unique among servers that share a protocol ID
-    /// and private key. Passing an empty iterator disables server-address validation and should be
-    /// reserved for addressless transports.
-    pub fn expected_server_addresses(
-        mut self,
-        server_addresses: impl IntoIterator<Item = SocketAddr>,
-    ) -> Self {
-        self.expected_server_addresses = server_addresses.into_iter().collect();
-        self
-    }
-
     /// Set the handler used to accept or deny incoming connection requests.
     pub fn connection_request_handler(
         mut self,
@@ -427,10 +407,8 @@ pub struct Server<Ctx = ()> {
 impl Server {
     /// Create a new server with a default configuration.
     ///
-    /// The default configuration does not contain a server identity, so it cannot validate the
-    /// private server-address list in incoming connect tokens. For socket-based transports, use
-    /// [`Server::with_config`] with [`ServerConfig::expected_server_addr`] or
-    /// [`ServerConfig::expected_server_addresses`].
+    /// The caller provides the server address used for connect-token validation to
+    /// [`Server::receive`].
     pub fn new(protocol_id: u64, private_key: Key) -> Result<Self> {
         let server: Server<()> = Server {
             time: 0.0,
@@ -447,7 +425,6 @@ impl Server {
             writer: Writer::with_capacity(MAX_PKT_BUF_SIZE),
             client_errors: vec![],
         };
-        // info!("server started on {}", server.io.local_addr());
         Ok(server)
     }
 }
@@ -547,11 +524,12 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         packet: Packet,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<Option<RecvPayload>> {
         let entity = entity_mut.id();
         match packet {
             Packet::Request(packet) => {
-                self.process_connection_request(packet, entity_mut)?;
+                self.process_connection_request(packet, entity_mut, server_addr)?;
                 Ok(None)
             }
             Packet::Response(packet) => {
@@ -688,21 +666,22 @@ impl<Ctx> Server<Ctx> {
         &mut self,
         mut packet: RequestPacket,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<()> {
         trace!("Server received connection request packet");
         let mut reader = io::Cursor::new(&mut packet.token_data[..]);
         let token = ConnectTokenPrivate::read_from(&mut reader)?;
         let entity = entity_mut.id();
 
-        if !self.cfg.expected_server_addresses.is_empty()
+        if let Some(server_addr) = server_addr
             && !token
                 .server_addresses
                 .iter()
-                .any(|(_, token_addr)| self.cfg.expected_server_addresses.contains(&token_addr))
+                .any(|(_, token_addr)| server_addr_matches(server_addr, token_addr))
         {
             info!(
                 token_addresses = ?token.server_addresses,
-                expected_server_addresses = ?self.cfg.expected_server_addresses,
+                ?server_addr,
                 "server ignored connection request. server address not in connect token whitelist"
             );
             return Ok(());
@@ -902,6 +881,7 @@ impl<Ctx> Server<Ctx> {
         buf: RecvPayload,
         now: u64,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<Option<RecvPayload>> {
         if buf.len() <= 1 {
             // Too small to be a packet
@@ -942,13 +922,14 @@ impl<Ctx> Server<Ctx> {
             Self::ALLOWED_PACKETS,
         )?;
 
-        self.process_packet(packet, entity_mut)
+        self.process_packet(packet, entity_mut, server_addr)
     }
 
     fn recv_packets(
         &mut self,
         receiver: &mut LinkReceiver,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<()> {
         let now = super::utils::now()?;
 
@@ -957,7 +938,7 @@ impl<Ctx> Server<Ctx> {
         // the Transport can read them later
         for _ in 0..receiver.len() {
             if let Some(recv_packet) = receiver.pop() {
-                match self.recv_packet(recv_packet, now, entity_mut) {
+                match self.recv_packet(recv_packet, now, entity_mut, server_addr) {
                     Ok(Some(payload)) => receiver.push_raw(payload),
                     Err(e) => self.handle_client_error(e),
                     _ => {}
@@ -974,14 +955,18 @@ impl<Ctx> Server<Ctx> {
         self.check_for_timeouts();
     }
 
-    /// Receive packets from the links, process them.
-    /// We might buffer some packets to the link as well (for Timeouts or ConnectionRequests, etc.)
+    /// Receive and process packets from a link.
+    ///
+    /// When `server_addr` is `Some`, connection requests are accepted only when their private
+    /// connect token contains a matching address. Passing `None` disables server-address checking.
+    /// Wildcard and loopback addresses of the same address family and port match each other.
     pub fn receive(
         &mut self,
         link: &mut Link,
         entity_mut: &mut EntityCommands,
+        server_addr: Option<SocketAddr>,
     ) -> Result<Vec<Error>> {
-        self.recv_packets(&mut link.recv, entity_mut)?;
+        self.recv_packets(&mut link.recv, entity_mut, server_addr)?;
         Ok(self.client_errors.drain(..).collect())
     }
 
@@ -1044,13 +1029,12 @@ impl<Ctx> Server<Ctx> {
     /// ```rust
     /// # use std::net::{SocketAddr, Ipv4Addr};
     /// # use std::str::FromStr;
-    /// # use lightyear_netcode::{generate_key, Server, ServerConfig};
+    /// # use lightyear_netcode::{generate_key, Server};
     ///
     /// let private_key = generate_key();
     /// let protocol_id = 0x123456789ABCDEF0;
     /// let server_addr = SocketAddr::from_str("127.0.0.1:40005").unwrap();
-    /// let config = ServerConfig::default().expected_server_addr(server_addr);
-    /// let mut server = Server::with_config(protocol_id, private_key, config).unwrap();
+    /// let mut server = Server::new(protocol_id, private_key).unwrap();
     ///
     /// let client_id = 123u64;
     /// let token = server.token(client_id, server_addr)
@@ -1157,54 +1141,6 @@ impl<Ctx> Server<Ctx> {
     /// Gets the entity of a client.
     pub fn client_entity(&self, client_id: ClientId) -> Option<Entity> {
         self.conn_cache.clients.get(&client_id).map(|c| c.entity)
-    }
-
-    /// Gets the addresses used to validate incoming connection tokens.
-    ///
-    /// An empty slice means server-address validation is disabled.
-    pub fn expected_server_addresses(&self) -> &[SocketAddr] {
-        &self.cfg.expected_server_addresses
-    }
-
-    /// Replace the addresses used to validate incoming connection tokens.
-    ///
-    /// A request is accepted when its private token contains at least one configured address.
-    /// Passing an empty iterator disables validation.
-    pub fn set_expected_server_addresses(
-        &mut self,
-        server_addresses: impl IntoIterator<Item = SocketAddr>,
-    ) {
-        let server_addresses = server_addresses.into_iter();
-        self.cfg.expected_server_addresses.clear();
-        self.cfg.expected_server_addresses.extend(server_addresses);
-    }
-
-    /// Replace the addresses used to validate incoming connection tokens with one address.
-    pub fn set_expected_server_addr(&mut self, server_addr: SocketAddr) {
-        self.set_expected_server_addresses([server_addr]);
-    }
-
-    /// Disable server-address validation.
-    ///
-    /// This should be reserved for addressless transports.
-    pub fn clear_expected_server_addresses(&mut self) {
-        self.cfg.expected_server_addresses.clear();
-    }
-
-    /// Gets the first configured server identity, or `0.0.0.0:0` when none is configured.
-    ///
-    /// This does not report the address of the underlying transport. Prefer
-    /// [`Server::expected_server_addresses`] for token-validation configuration and the transport's
-    /// `LocalAddr` component for its bound socket address.
-    #[deprecated(
-        since = "0.28.0",
-        note = "use Server::expected_server_addresses or the transport's LocalAddr component"
-    )]
-    pub fn local_addr(&self) -> SocketAddr {
-        self.expected_server_addresses()
-            .first()
-            .copied()
-            .unwrap_or(SocketAddr::from(([0, 0, 0, 0], 0)))
     }
 }
 
@@ -1318,13 +1254,11 @@ mod tests {
     }
 
     fn process_request(
-        configured_server_addresses: &[SocketAddr],
+        server_addr: Option<SocketAddr>,
         public_server_addresses: &[SocketAddr],
         internal_server_addresses: Option<&[SocketAddr]>,
     ) -> (Server, World, Entity) {
-        let config = ServerConfig::default()
-            .expected_server_addresses(configured_server_addresses.iter().copied());
-        let mut server = Server::with_config(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY, config).unwrap();
+        let mut server = Server::new(TEST_PROTOCOL_ID, TEST_PRIVATE_KEY).unwrap();
         let mut world = World::new();
         let client = world.spawn_empty().id();
         let mut command_queue = CommandQueue::default();
@@ -1335,6 +1269,7 @@ mod tests {
                 .process_connection_request(
                     connection_request(public_server_addresses, internal_server_addresses),
                     &mut client_commands,
+                    server_addr,
                 )
                 .unwrap();
         }
@@ -1343,11 +1278,11 @@ mod tests {
     }
 
     #[test]
-    fn connection_request_requires_configured_server_addr_in_token() {
-        let configured_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let token_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+    fn connection_request_requires_server_addr_in_token() {
+        let server_addr = SocketAddr::from(([192, 0, 2, 1], 5000));
+        let token_addr = SocketAddr::from(([192, 0, 2, 2], 5000));
 
-        let (server, world, client) = process_request(&[configured_addr], &[token_addr], None);
+        let (server, world, client) = process_request(Some(server_addr), &[token_addr], None);
 
         assert!(world.get::<Connecting>(client).is_none());
         assert!(server.conn_cache.find_by_entity(&client).is_none());
@@ -1356,10 +1291,10 @@ mod tests {
     }
 
     #[test]
-    fn connection_request_accepts_token_for_configured_server_addr() {
+    fn connection_request_accepts_token_for_server_addr() {
         let server_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
 
-        let (server, world, client) = process_request(&[server_addr], &[server_addr], None);
+        let (server, world, client) = process_request(Some(server_addr), &[server_addr], None);
 
         assert!(world.get::<Connecting>(client).is_some());
         assert!(server.conn_cache.find_by_entity(&client).is_some());
@@ -1367,30 +1302,12 @@ mod tests {
     }
 
     #[test]
-    fn connection_request_accepts_any_configured_server_addr() {
-        let first_server_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let second_server_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
-
-        let (server, world, client) = process_request(
-            &[first_server_addr, second_server_addr],
-            &[second_server_addr],
-            None,
-        );
-
-        assert!(world.get::<Connecting>(client).is_some());
-        assert!(server.conn_cache.find_by_entity(&client).is_some());
-    }
-
-    #[test]
     fn connection_request_accepts_match_later_in_token_address_list() {
         let first_token_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
-        let configured_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+        let server_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
 
-        let (server, world, client) = process_request(
-            &[configured_addr],
-            &[first_token_addr, configured_addr],
-            None,
-        );
+        let (server, world, client) =
+            process_request(Some(server_addr), &[first_token_addr, server_addr], None);
 
         assert!(world.get::<Connecting>(client).is_some());
         assert!(server.conn_cache.find_by_entity(&client).is_some());
@@ -1402,17 +1319,67 @@ mod tests {
         let internal_addr = SocketAddr::from(([10, 0, 0, 10], 5000));
 
         let (server, world, client) =
-            process_request(&[internal_addr], &[public_addr], Some(&[internal_addr]));
+            process_request(Some(internal_addr), &[public_addr], Some(&[internal_addr]));
 
         assert!(world.get::<Connecting>(client).is_some());
         assert!(server.conn_cache.find_by_entity(&client).is_some());
     }
 
     #[test]
-    fn connection_request_skips_address_check_when_unconfigured() {
+    fn connection_request_accepts_ipv4_wildcard_and_loopback_for_each_other() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let loopback_addr = SocketAddr::from(([127, 0, 0, 1], 5000));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[loopback_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+
+        let (server, world, client) = process_request(Some(loopback_addr), &[wildcard_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
+
+    #[test]
+    fn connection_request_accepts_ipv6_wildcard_and_loopback_for_each_other() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 5000));
+        let loopback_addr = SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 1], 5000));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[loopback_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+
+        let (server, world, client) = process_request(Some(loopback_addr), &[wildcard_addr], None);
+        assert!(world.get::<Connecting>(client).is_some());
+        assert!(server.conn_cache.find_by_entity(&client).is_some());
+    }
+
+    #[test]
+    fn connection_request_rejects_wildcard_and_loopback_with_different_ports() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let loopback_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[loopback_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.conn_cache.find_by_entity(&client).is_none());
+    }
+
+    #[test]
+    fn connection_request_rejects_wildcard_and_non_loopback() {
+        let wildcard_addr = SocketAddr::from(([0, 0, 0, 0], 5000));
+        let public_addr = SocketAddr::from(([192, 0, 2, 1], 5000));
+
+        let (server, world, client) = process_request(Some(wildcard_addr), &[public_addr], None);
+
+        assert!(world.get::<Connecting>(client).is_none());
+        assert!(server.conn_cache.find_by_entity(&client).is_none());
+    }
+
+    #[test]
+    fn connection_request_skips_address_check_without_server_addr() {
         let token_addr = SocketAddr::from(([127, 0, 0, 1], 5001));
 
-        let (server, world, client) = process_request(&[], &[token_addr], None);
+        let (server, world, client) = process_request(None, &[token_addr], None);
 
         assert!(world.get::<Connecting>(client).is_some());
         assert!(server.conn_cache.find_by_entity(&client).is_some());

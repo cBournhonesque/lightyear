@@ -83,7 +83,6 @@ fn main() {
                 .world_mut()
                 .spawn(ExampleServer {
                     conditioner: None,
-                    server_addr: SERVER_ADDR,
                     transport: ServerTransports::WebTransport {
                         local_port: SERVER_PORT,
                         certificate: WebTransportCertificateSettings::default(),
@@ -106,7 +105,6 @@ fn main() {
                 .world_mut()
                 .spawn(ExampleServer {
                     conditioner: None,
-                    server_addr: SERVER_ADDR,
                     transport: ServerTransports::WebTransport {
                         local_port: SERVER_PORT,
                         certificate: WebTransportCertificateSettings::default(),

@@ -13,7 +13,6 @@
 #![allow(dead_code)]
 
 use bevy::prelude::*;
-use core::net::{Ipv4Addr, SocketAddr};
 use core::time::Duration;
 use lightyear::prelude::{LinkConditionerConfig, PeerId, RecvLinkConditioner};
 use lightyear_examples_common::cli::{Cli, Mode};
@@ -119,7 +118,6 @@ fn main() {
                 conditioner: Some(RecvLinkConditioner::new(
                     LinkConditionerConfig::average_condition().half(),
                 )),
-                server_addr: SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port),
                 // transport: ServerTransports::Udp { local_port: port },
                 transport: ServerTransports::WebTransport {
                     local_port: port,

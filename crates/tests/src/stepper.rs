@@ -332,7 +332,10 @@ impl ClientServerStepper {
             }
             ServerType::Netcode => {
                 server.insert(NetcodeServer::new(
-                    lightyear_netcode::server_plugin::NetcodeConfig::default(),
+                    lightyear_netcode::server_plugin::NetcodeConfig {
+                        server_addr_check: io != IoType::Crossbeam,
+                        ..Default::default()
+                    },
                 ));
             }
             #[cfg(feature = "steam")]

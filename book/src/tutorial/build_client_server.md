@@ -109,12 +109,9 @@ up an OS-assigned port when binding to port `0`.
 We also need to specify the [`LocalAddr`] component to define the local address of the server.
 The IO layer we choose is UDP, so we add the [`ServerUdpIo`] component to the entity.
 
-When the address in a token differs from the bind address—for example, when binding to `0.0.0.0`
-or running behind NAT—configure the token identity explicitly with
-`NetcodeConfig::default().with_expected_server_addr(public_addr)`. Use an address from
-[`ConnectTokenBuilder::internal_addresses`](https://docs.rs/lightyear/latest/lightyear/netcode/struct.ConnectTokenBuilder.html#method.internal_addresses) instead when the backend puts separate internal
-identities in the private token. Multiple identities can be configured with
-`with_expected_server_addresses`.
+For local development, wildcard and loopback addresses of the same family and port are considered
+equivalent, such as `0.0.0.0:5000` and `127.0.0.1:5000`. Address checking can be disabled for an
+addressless transport by setting `NetcodeConfig::server_addr_check` to `false`.
 
 Finally we trigger the [`Start`] trigger so that the server can start listening for incoming connections.
 

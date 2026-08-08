@@ -44,11 +44,6 @@ pub enum ServerTransports {
 pub struct ExampleServer {
     /// Possibly add a conditioner to simulate network conditions
     pub conditioner: Option<RecvLinkConditioner>,
-    /// Address encoded in private connect tokens to identify this server.
-    ///
-    /// This may differ from the local bind address when binding to an unspecified IP or running
-    /// behind NAT.
-    pub server_addr: SocketAddr,
     /// Which transport to use
     pub transport: ServerTransports,
     pub shared: SharedSettings,
@@ -73,14 +68,11 @@ impl ExampleServer {
                 } else {
                     settings.shared.private_key
                 };
-                entity_mut.insert(NetcodeServer::new(
-                    NetcodeConfig {
-                        protocol_id: settings.shared.protocol_id,
-                        private_key,
-                        ..Default::default()
-                    }
-                    .with_expected_server_addr(settings.server_addr),
-                ));
+                entity_mut.insert(NetcodeServer::new(NetcodeConfig {
+                    protocol_id: settings.shared.protocol_id,
+                    private_key,
+                    ..Default::default()
+                }));
             };
             match settings.transport {
                 #[cfg(feature = "udp")]
