@@ -32,23 +32,23 @@ pub enum P2PSessionState {
     },
 }
 
+/// Start-negotiation progress for one remote peer in the frozen cohort.
 #[derive(Debug, Clone, Copy)]
-struct PeerStart {
+struct RemotePeerStart {
+    /// Local entity of the direct Link to this remote peer.
     link: Entity,
+    /// Earliest start tick advertised by this remote peer.
     ready_tick: Option<Tick>,
+    /// Start tick this remote peer acknowledged after seeing every Ready message.
     acknowledged_tick: Option<Tick>,
-    ready_sent: bool,
-    acknowledgement_sent: bool,
 }
 
-impl PeerStart {
+impl RemotePeerStart {
     fn new(link: Entity) -> Self {
         Self {
             link,
             ready_tick: None,
             acknowledged_tick: None,
-            ready_sent: false,
-            acknowledgement_sent: false,
         }
     }
 }
@@ -57,17 +57,32 @@ impl PeerStart {
 ///
 /// Lightyear does not discover or connect peers through this resource. Applications declare
 /// [`P2P`] Links normally, then trigger [`P2PStart`] when the desired initial cohort has been
-/// declared. Those Links need not be connected yet.
+/// declared. The Links don't have to be connected yet when [`P2PStart`] is called.
 #[derive(Resource, Debug)]
 pub struct P2PSession {
+    /// Maximum cohort size, including the local peer.
     max_peers: u8,
+    /// Application-facing policy indicating whether new Links may be established after start.
     allow_late_join: bool,
+    /// Lead added to the local tick when this peer becomes ready.
     start_delay_ticks: u16,
+    /// Current deterministic-session lifecycle.
     state: P2PSessionState,
+    /// Local start-attempt number carried by messages to reject packets from older attempts.
+    ///
+    /// Peers must begin start attempts in the same sequence for their generations to match.
+    /// Wrapping is harmless unless delayed messages survive `u32::MAX` complete attempts.
     generation: u32,
+    /// Earliest start tick advertised by this app after its Links and input timeline are ready.
     local_ready_tick: Option<Tick>,
-    local_acknowledged_tick: Option<Tick>,
-    peers: SmallVec<[PeerStart; 4]>,
+    /// Whether this app has queued its Ready message on every frozen remote Link.
+    local_ready_sent: bool,
+    /// Whether this app has queued its StartAcknowledgement on every frozen remote Link.
+    local_acknowledgement_sent: bool,
+    /// Remote peers frozen by [`P2PStart`], one per direct P2P Link.
+    ///
+    /// The local peer is not included; its progress is stored in the `local_*` fields above.
+    remote_peers: SmallVec<[RemotePeerStart; 4]>,
 }
 
 impl P2PSession {
@@ -84,8 +99,9 @@ impl P2PSession {
             state: P2PSessionState::Stopped,
             generation: 0,
             local_ready_tick: None,
-            local_acknowledged_tick: None,
-            peers: SmallVec::new(),
+            local_ready_sent: false,
+            local_acknowledgement_sent: false,
+            remote_peers: SmallVec::new(),
         }
     }
 
@@ -136,26 +152,36 @@ impl P2PSession {
 
     /// Links frozen into the current starting or started cohort.
     pub fn links(&self) -> impl Iterator<Item = Entity> + '_ {
-        self.peers.iter().map(|peer| peer.link)
+        self.remote_peers.iter().map(|peer| peer.link)
     }
 
+    /// Reset negotiation state and freeze the supplied remote Links into a new start attempt.
     fn begin(&mut self, mut links: SmallVec<[Entity; 4]>) {
         links.sort_unstable();
         self.generation = self.generation.wrapping_add(1);
         self.local_ready_tick = None;
-        self.local_acknowledged_tick = None;
-        self.peers = links.into_iter().map(PeerStart::new).collect();
+        self.local_ready_sent = false;
+        self.local_acknowledgement_sent = false;
+        self.remote_peers = links.into_iter().map(RemotePeerStart::new).collect();
         self.state = P2PSessionState::Starting { start_tick: None };
     }
 
+    /// Clear the active cohort and return to the lobby/stopped state.
     fn stop(&mut self) {
         self.state = P2PSessionState::Stopped;
         self.local_ready_tick = None;
-        self.local_acknowledged_tick = None;
-        self.peers.clear();
+        self.local_ready_sent = false;
+        self.local_acknowledgement_sent = false;
+        self.remote_peers.clear();
     }
 
+    /// Record one message received from a remote Link in the current start attempt.
+    ///
+    /// Delayed messages from older generations and messages from Links outside the frozen cohort
+    /// are ignored. Repeated identical messages are harmless; conflicting repeats are logged and
+    /// the first value remains authoritative.
     fn receive(&mut self, link: Entity, message: P2PSessionMessage) {
+        // Reliable packets from a previous start can arrive after a stop/restart cycle.
         let generation = match message {
             P2PSessionMessage::Ready { generation, .. }
             | P2PSessionMessage::StartAcknowledgement { generation, .. } => generation,
@@ -163,7 +189,7 @@ impl P2PSession {
         if generation != self.generation {
             return;
         }
-        let Some(peer) = self.peers.iter_mut().find(|peer| peer.link == link) else {
+        let Some(peer) = self.remote_peers.iter_mut().find(|peer| peer.link == link) else {
             return;
         };
         match message {
@@ -195,11 +221,18 @@ impl P2PSession {
         }
     }
 
+    /// Advance the local start negotiation from readiness through the agreed start tick.
+    ///
+    /// Each peer proposes `current tick + start delay`. Once all proposals exist, their maximum
+    /// is the common start tick. Every peer must then acknowledge that same value. The transition
+    /// to Started happens one tick early in `PreUpdate`, so [`P2PStarted`] observers can create the
+    /// deterministic world before `FixedFirst` advances to the agreed tick.
     fn advance(&mut self, tick: Tick, timeline_synced: bool) -> AdvanceResult {
         if !matches!(self.state, P2PSessionState::Starting { .. }) {
             return AdvanceResult::Waiting;
         }
 
+        // Do not advertise readiness until the shared input timeline is usable.
         if timeline_synced && self.local_ready_tick.is_none() {
             self.local_ready_tick = Some(tick + i32::from(self.start_delay_ticks));
         }
@@ -207,7 +240,7 @@ impl P2PSession {
             return AdvanceResult::Waiting;
         };
         let Some(start_tick) = self
-            .peers
+            .remote_peers
             .iter()
             .try_fold(local_ready_tick, |latest, peer| {
                 peer.ready_tick.map(|ready| latest.max(ready))
@@ -216,19 +249,19 @@ impl P2PSession {
             return AdvanceResult::Waiting;
         };
 
-        self.local_acknowledged_tick = Some(start_tick);
+        // The maximum proposal is deterministic on every peer, regardless of arrival order.
         self.state = P2PSessionState::Starting {
             start_tick: Some(start_tick),
         };
 
         if self
-            .peers
+            .remote_peers
             .iter()
             .any(|peer| peer.acknowledged_tick.is_none())
         {
             return AdvanceResult::Waiting;
         }
-        if let Some((link, acknowledged)) = self.peers.iter().find_map(|peer| {
+        if let Some((link, acknowledged)) = self.remote_peers.iter().find_map(|peer| {
             peer.acknowledged_tick
                 .filter(|acknowledged| *acknowledged != start_tick)
                 .map(|acknowledged| (peer.link, acknowledged))
@@ -243,6 +276,8 @@ impl P2PSession {
             return AdvanceResult::Failed;
         }
 
+        // Receiving the final acknowledgement after the target tick is too late to create the
+        // shared world deterministically before that tick.
         if tick >= start_tick {
             tracing::warn!(
                 ?tick,
@@ -259,12 +294,16 @@ impl P2PSession {
         AdvanceResult::Started(start_tick)
     }
 
+    /// Queue each locally available Ready or acknowledgement once for every remote Link.
+    ///
+    /// The transport channel provides retransmission; these flags only prevent this system from
+    /// enqueuing an identical message every frame.
     fn collect_outbound(&mut self, outbound: &mut SmallVec<[(Entity, P2PSessionMessage); 8]>) {
-        for peer in &mut self.peers {
-            if let Some(earliest_start_tick) = self.local_ready_tick
-                && !peer.ready_sent
-            {
-                peer.ready_sent = true;
+        if let Some(earliest_start_tick) = self.local_ready_tick
+            && !self.local_ready_sent
+        {
+            self.local_ready_sent = true;
+            for peer in &self.remote_peers {
                 outbound.push((
                     peer.link,
                     P2PSessionMessage::Ready {
@@ -273,10 +312,12 @@ impl P2PSession {
                     },
                 ));
             }
-            if let Some(start_tick) = self.local_acknowledged_tick
-                && !peer.acknowledgement_sent
-            {
-                peer.acknowledgement_sent = true;
+        }
+        if let Some(start_tick) = self.start_tick()
+            && !self.local_acknowledgement_sent
+        {
+            self.local_acknowledgement_sent = true;
+            for peer in &self.remote_peers {
                 outbound.push((
                     peer.link,
                     P2PSessionMessage::StartAcknowledgement {
@@ -292,8 +333,9 @@ impl P2PSession {
 /// Trigger this locally on every peer after declaring the P2P Links that should form the initial
 /// session cohort.
 ///
-/// Links may still be connecting. Lightyear waits for every captured Link and the synchronized
-/// input timeline, negotiates a common future tick, then triggers [`P2PStarted`].
+/// The Links don't have to be connected yet when `P2PStart` is called. Lightyear waits for every
+/// captured Link and the synchronized input timeline, negotiates a common future tick, then
+/// triggers [`P2PStarted`].
 #[derive(Event, Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct P2PStart;
 
@@ -322,16 +364,23 @@ pub struct P2PStopped;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 enum P2PSessionMessage {
+    /// Advertise that one peer is locally ready and its earliest safe start tick.
     Ready {
+        /// Start-attempt number used to discard delayed messages from earlier attempts.
         generation: u32,
+        /// Sender's current tick plus its configured start delay.
         earliest_start_tick: Tick,
     },
+    /// Confirm the maximum Ready tick selected as the common start tick.
     StartAcknowledgement {
+        /// Start-attempt number used to discard delayed messages from earlier attempts.
         generation: u32,
+        /// Common start tick calculated by the sender.
         start_tick: Tick,
     },
 }
 
+/// Private reliable delivery queue for P2P lifecycle control messages.
 struct P2PSessionChannel;
 
 /// Installs the P2P session lifecycle and start-tick negotiation.
@@ -339,8 +388,12 @@ pub struct P2PSessionPlugin;
 
 impl Plugin for P2PSessionPlugin {
     fn build(&self, app: &mut App) {
+        // No generic reliable control channel exists at this layer. Replication's reliable
+        // channels are optional and must not become a dependency of the P2P session. The two
+        // handshake messages tolerate reordering, so a private unordered-reliable channel is
+        // sufficient and avoids coupling their delivery queue to gameplay traffic.
         app.add_channel::<P2PSessionChannel>(ChannelSettings {
-            mode: ChannelMode::OrderedReliable(ReliableSettings::default()),
+            mode: ChannelMode::UnorderedReliable(ReliableSettings::default()),
             ..Default::default()
         })
         .add_direction(NetworkDirection::Bidirectional);
@@ -365,6 +418,10 @@ enum AdvanceResult {
     Failed,
 }
 
+/// Freeze every currently declared P2P Link as the remote cohort for a new start attempt.
+///
+/// This validates the configured capacity and installs the private typed receiver, but does not
+/// connect the Links. [`drive_session`] waits for connection and timeline readiness.
 fn start_session(
     _trigger: On<P2PStart>,
     mut commands: Commands,
@@ -410,6 +467,10 @@ fn start_session(
     session.begin(links);
 }
 
+/// Stop the local deterministic session and emit [`P2PStopped`].
+///
+/// This deliberately neither sends a stop message nor disconnects/unlinks the cohort. Link
+/// lifetime and any distributed game-over agreement remain application concerns.
 fn stop_session(
     _trigger: On<P2PStop>,
     mut commands: Commands,
@@ -438,6 +499,11 @@ type P2PLinkQuery<'w, 's> = Query<
     With<P2P>,
 >;
 
+/// Drive the current start attempt once per frame before fixed simulation.
+///
+/// Incoming messages update per-remote-peer progress. Once every frozen Link is connected and the
+/// input timeline is synchronized, [`P2PSession::advance`] chooses and acknowledges the start
+/// tick. Newly available local messages are then queued once on every remote Link.
 fn drive_session(
     mut commands: Commands,
     mut session: Option<ResMut<P2PSession>>,
@@ -453,8 +519,8 @@ fn drive_session(
     }
 
     let mut all_connected = true;
-    for index in 0..session.peers.len() {
-        let entity = session.peers[index].link;
+    for index in 0..session.remote_peers.len() {
+        let entity = session.remote_peers[index].link;
         let Ok((connected, sender, receiver)) = links.get_mut(entity) else {
             all_connected = false;
             continue;
