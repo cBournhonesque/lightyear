@@ -7,12 +7,6 @@
 A library for writing server-authoritative multiplayer games with [Bevy](https://bevyengine.org/). Compatible with wasm
 via WebTransport.
 
-https://github.com/cBournhonesque/lightyear/assets/8112632/7b57d48a-d8b0-4cdd-a16f-f991a394c852
-
-*Demo using one server with 2 clients. The entity is predicted (slightly ahead of server) on the controlling client and
-interpolated (slightly behind server) on the other client.
-The server only sends updates to clients 10 times per second but the clients still see smooth updates.*
-
 ## Getting started 
 
 You can first check out the [examples](https://github.com/cBournhonesque/lightyear/tree/main/examples).
@@ -51,9 +45,7 @@ Workspace crate sources live under `crates/`, grouped by role. Directory names d
 
 - Transport-agnostic: *Lightyear* is compatible with a number of IO backends, including:
     - UDP sockets
-    - WebTransport (using QUIC): available on both native and wasm!
-    - WebSocket: available on both native and wasm!
-    - Steam: use the SteamWorks SDK to send messages over the Steam network
+    - Uses [`aeronet`](https://github.com/aecsocket/aeronet) for WebSocket, Steam and WebTransport support
 - Serialization
     - *Lightyear* uses `postcard` as a default serializer, but you can provide your own serialization function
 - Message passing
@@ -73,34 +65,23 @@ Workspace crate sources live under `crates/`, grouped by role. Directory names d
     - *Lightyear* supports deterministic replication when only inputs are replicated. The simulation needs to be deterministic.
       The deterministic replication is compatible with both lockstep and prediction/rollback.
 - World Replication
-    - Entities that have the `Replicate` bundle will be automatically replicated to clients.
+    - `lightyear` uses [`bevy_replicon`](https://github.com/simgine/bevy_replicon) to enable world replication features
+      (replication, interest management, pre-spawning, etc.)
 - Advanced replication
     - **Client-side prediction**: with just a one-line change, you can enable client-prediction with rollback on the
       client, so that your inputs can feel responsive
     - **Snapshot interpolation**: with just a one-line change, you can enable Snapshot interpolation so that entities
       are smoothly interpolated even if replicated infrequently.
-    - **Client-authoritative replication**: you can also replicate entities from the client to the server. The authority over the entity is transferable between the client and the server.
-    - **Pre-spawning predicted entities**: you can spawn Predicted entities on the client first, and then transfer the
-      authority to the server. This ensures that the entity is spawned immediately, but will still be controlled by the server.
-    - **Entity mapping**: *lightyear* also supports replicating components/messages that contain references to other
-      entities. The entities will be mapped from the local World to the remote World.
-    - **Interest management**: *lightyear* supports replicating only a subset of the World to clients. Interest
-      management is made flexible by the use of `Rooms`
     - **Input Delay**: you can add a custom amount of input-delay as a trade-off between having a more responsive game
       or more miss-predictions
     - **Bandwidth Management**: you can set a cap to the bandwidth for the connection. Then messages will be sent in
       decreasing order of priority (that you can set yourself), with a priority-accumulation scheme
     - **Lag Compensation** is available so that predicted entities can interact with interpolated entities (used most often for fps games)
-- Configurable
-    - *Lightyear* is highly configurable: you can configure the size of the input buffer, the amount of
-      interpolation-delay, the packet send rate, etc.
-- Observability
-    - *Lightyear* uses the `tracing` and `metrics` libraries to emit spans and logs around most events (
-      sending/receiving messages, etc.).
+- Various topologies supported
+    - You can run your app in client-server mode or in P2P mode. You can also have a client act as the server (host-client mode).
 - Examples
     - *Lightyear* has plenty of examples demonstrating all these features, as well as the integration with other bevy
       crates such as `avian`
-
 
 
 ## Supported bevy version
