@@ -41,7 +41,7 @@ use tracing::{error, trace, warn};
 use crate::ReplicationSystems;
 use crate::metadata::ReplicationMetadata;
 use crate::registry::ComponentRegistry;
-use crate::visibility::immediate::VisibilityBit;
+use crate::visibility::immediate::VisibilityBits;
 #[cfg(feature = "interpolation")]
 pub use interpolation::*;
 use lightyear_core::prelude::LocalTimeline;
@@ -1109,7 +1109,7 @@ impl Plugin for SendPlugin {
 
         app.register_required_components::<Replicate, Replicated>();
         app.init_resource::<ReplicateBit>();
-        app.init_resource::<VisibilityBit>();
+        app.init_resource::<VisibilityBits>();
         #[cfg(feature = "prediction")]
         {
             app.register_required_components::<PredictionTarget, Predicted>();

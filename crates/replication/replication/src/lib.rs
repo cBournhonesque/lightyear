@@ -47,7 +47,11 @@
 //! ## Visibility
 //!
 //! [`VisibilityExt::gain_visibility`] and [`VisibilityExt::lose_visibility`]
-//! let you dynamically show or hide an entity for a specific client.
+//! let you dynamically show or hide an entity for a specific client. The default
+//! [`VisibilityExt::lose_visibility`] behavior despawns the remote entity. Use
+//! [`VisibilityExt::lose_visibility_retained`] to retain an entity the client has already seen, or
+//! [`VisibilityExt::lose_visibility_always_present`] to guarantee an initial remote entity even
+//! when it starts hidden. Both retaining policies pause updates while hidden.
 //! Visibility changes propagate through [`ReplicateLikeChildren`] so that
 //! hiding a parent also hides its replicated descendants.
 //!
@@ -85,6 +89,8 @@
 //! [`ReplicateLikeChildren`]: crate::hierarchy::ReplicateLikeChildren
 //! [`VisibilityExt::gain_visibility`]: crate::visibility::immediate::VisibilityExt::gain_visibility
 //! [`VisibilityExt::lose_visibility`]: crate::visibility::immediate::VisibilityExt::lose_visibility
+//! [`VisibilityExt::lose_visibility_retained`]: crate::visibility::immediate::VisibilityExt::lose_visibility_retained
+//! [`VisibilityExt::lose_visibility_always_present`]: crate::visibility::immediate::VisibilityExt::lose_visibility_always_present
 //! [`RoomPlugin`]: crate::visibility::room::RoomPlugin
 //! [`ControlledBy`]: crate::control::ControlledBy
 //! [`HasAuthority`]: crate::authority::HasAuthority

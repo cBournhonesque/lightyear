@@ -7,6 +7,33 @@ we want to send only the data that is relevant to each client.
 
 In this example, we are going to replicate entities that are within a certain distance of the client.
 
+## Visibility lifetimes
+
+The client renders three kinds of circles so the lifetime policies can be compared directly:
+
+| Circle | Server policy | What the client observes |
+| --- | --- | --- |
+| Small green | `lose_visibility` / `WhileVisible` | Despawns outside the interest radius and respawns when it returns. |
+| Medium red | `lose_visibility_retained` / `AfterFirstVisibility` | Starts inside the interest radius. After you move away, it remains at its last received state while network updates are paused. |
+| Large blue | `lose_visibility_always_present` / `AlwaysPresent` | The server marks it hidden before its first replication, but the client still receives its initial state. Later updates remain paused while it is hidden. |
+
+The player starts at the origin. Move with WASD or the arrow keys; moving more than the interest
+radius away from the red circle demonstrates that it remains on the client while ordinary green
+circles disappear. The blue circle appears immediately even though the server never gains
+visibility for it.
+
+Retaining an entity is useful when destroying and rebuilding its client-side state would be costly,
+when other client entities need a stable reference to it, or when the UI should preserve a last
+known state after an entity leaves interest. `AlwaysPresent` is useful for identities, hierarchy
+roots, roster entries, objectives, or placeholders that must exist on every client even before
+their live state becomes relevant. Because `AlwaysPresent` reveals the entity's existence and
+initial state, it is not appropriate for information that must remain secret while hidden.
+
+Retained entities do not receive mutations while hidden, and the client is not automatically told
+that they became hidden. Games that need a stale/dormant indicator or need to suspend prediction
+should communicate that separately. A real server despawn still despawns retained client entities;
+remove `Replicate` before despawning when the client copy should intentionally survive.
+
 https://github.com/cBournhonesque/lightyear/assets/8112632/41a6d102-77a1-4a44-8974-1d208b4ef798
 
 ## Running an example
