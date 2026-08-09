@@ -140,8 +140,8 @@ type CheckRollbackFn = unsafe fn(
 /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] component at a tick.
 /// The function fn should be of type fn(&C, &mut seahash::SeaHasher) and will be called with the
 /// value returned by the history buffer lookup.
-/// Returns `true` if an entry was found at that tick and hashed, `false` if the history
-/// had no entry at that tick (in which case nothing was hashed).
+/// Returns `true` if the history resolves to a component value at that tick and hashes it.
+/// Returns `false` if no component value exists at that tick, in which case nothing is hashed.
 pub type PopUntilTickAndHashFn = fn(PtrMut, Tick, &mut seahash::SeaHasher, fn()) -> bool;
 
 impl PredictionMetadata {
@@ -553,8 +553,8 @@ impl PredictionRegistry {
 
     /// Type-erased function for hashing the value in a [`PredictionHistory<C>`] at `tick`.
     ///
-    /// Returns `true` if an entry was found at `tick` and hashed, `false` if the history
-    /// had no entry at that tick (in which case nothing was hashed).
+    /// Returns `true` if the history resolves to a component value at `tick` and hashes it.
+    /// Returns `false` if no component value exists at `tick`, in which case nothing is hashed.
     ///
     /// Safety
     ///
@@ -1853,18 +1853,41 @@ mod tests {
                 hash_test_component,
             )
         };
-        PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
+        let hashed = PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
             PtrMut::from(&mut history),
             Tick(11),
             &mut hasher,
             hash_fn,
         );
 
+        assert!(hashed);
         assert_ne!(hasher.finish(), 0);
         assert_eq!(history.len(), before_len);
         assert_eq!(history.get(Tick(10)).unwrap().0, 10);
         assert_eq!(history.get(Tick(11)).unwrap().0, 11);
         assert_eq!(history.get(Tick(12)).unwrap().0, 12);
+    }
+
+    #[test]
+    fn deterministic_hash_reports_missing_prediction_history_value() {
+        let mut history = PredictionHistory::<TestComponent>::default();
+        let mut hasher = seahash::SeaHasher::default();
+        let initial_hash = hasher.finish();
+        let hash_fn = unsafe {
+            core::mem::transmute::<fn(&TestComponent, &mut seahash::SeaHasher), fn()>(
+                hash_test_component,
+            )
+        };
+
+        let hashed = PredictionRegistry::pop_until_tick_and_hash::<TestComponent>(
+            PtrMut::from(&mut history),
+            Tick(11),
+            &mut hasher,
+            hash_fn,
+        );
+
+        assert!(!hashed);
+        assert_eq!(hasher.finish(), initial_hash);
     }
 
     #[test]
